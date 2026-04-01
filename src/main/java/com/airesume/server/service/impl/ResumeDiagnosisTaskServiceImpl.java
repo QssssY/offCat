@@ -1,0 +1,188 @@
+package com.airesume.server.service.impl;
+
+import com.airesume.server.common.constants.ResumeDiagnosisConstants;
+import com.airesume.server.common.exception.BusinessException;
+import com.airesume.server.dto.resume.ResumeDiagnosisHistoryResponse;
+import com.airesume.server.dto.resume.ResumeDiagnosisTaskResponse;
+import com.airesume.server.entity.ResumeDiagnosisTask;
+import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
+import com.airesume.server.mq.ResumeDiagnosisProducer;
+import com.airesume.server.service.ResumeDiagnosisTaskService;
+import com.airesume.server.service.UserQuotaService;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.stream.Collectors;
+
+/**
+ * 简历诊断任务服务实现类
+ * 实现简历诊断任务的创建、查询、状态更新等业务逻辑
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisTaskMapper, ResumeDiagnosisTask> implements ResumeDiagnosisTaskService {
+
+    private final UserQuotaService userQuotaService;
+    private final ResumeDiagnosisProducer resumeDiagnosisProducer;
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Long createTask(Long userId, String fileUrl) {
+        log.info("Creating resume diagnosis task, userId: {}, fileUrl: {}", userId, fileUrl);
+
+        // 1. 校验用户额度
+        boolean hasQuota = userQuotaService.checkResumeQuota(userId);
+        if (!hasQuota) {
+            throw new BusinessException("简历诊断次数已用完");
+        }
+
+        // 2. 创建任务记录
+        ResumeDiagnosisTask task = new ResumeDiagnosisTask();
+        task.setUserId(userId);
+        task.setFileUrl(fileUrl);
+        task.setStatus(ResumeDiagnosisConstants.STATUS_PENDING);
+        task.setDiagnosisResult(null);
+        task.setErrorMsg(null);
+        save(task);
+
+        log.info("Resume diagnosis task created, taskId: {}", task.getId());
+
+        // 3. 扣减用户额度
+        userQuotaService.deductResumeQuota(userId);
+
+        // 4. 发送消息到RabbitMQ
+        resumeDiagnosisProducer.sendResumeDiagnosisTask(task.getId(), userId, fileUrl);
+
+        log.info("Resume diagnosis task submitted to queue, taskId: {}", task.getId());
+
+        return task.getId();
+    }
+
+    @Override
+    public ResumeDiagnosisTaskResponse getTaskById(Long taskId, Long userId) {
+        ResumeDiagnosisTask task = getById(taskId);
+        if (task == null) {
+            throw new BusinessException("任务不存在");
+        }
+
+        // 校验任务归属
+        if (!task.getUserId().equals(userId)) {
+            throw new BusinessException("无权访问该任务");
+        }
+
+        return buildTaskResponse(task);
+    }
+
+    @Override
+    public List<ResumeDiagnosisHistoryResponse> getHistoryByUserId(Long userId) {
+        LambdaQueryWrapper<ResumeDiagnosisTask> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(ResumeDiagnosisTask::getUserId, userId);
+        wrapper.orderByDesc(ResumeDiagnosisTask::getCreateTime);
+
+        List<ResumeDiagnosisTask> tasks = list(wrapper);
+
+        return tasks.stream()
+                .map(this::buildHistoryResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void updateStatusToProcessing(Long taskId) {
+        ResumeDiagnosisTask task = getById(taskId);
+        if (task == null) {
+            log.warn("Task not found when updating to processing, taskId: {}", taskId);
+            return;
+        }
+
+        task.setStatus(ResumeDiagnosisConstants.STATUS_PROCESSING);
+        updateById(task);
+        log.info("Task status updated to processing, taskId: {}", taskId);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void updateStatusToCompleted(Long taskId, String diagnosisResult) {
+        ResumeDiagnosisTask task = getById(taskId);
+        if (task == null) {
+            log.warn("Task not found when updating to completed, taskId: {}", taskId);
+            return;
+        }
+
+        task.setStatus(ResumeDiagnosisConstants.STATUS_COMPLETED);
+        task.setDiagnosisResult(diagnosisResult);
+        task.setErrorMsg(null);
+        updateById(task);
+        log.info("Task status updated to completed, taskId: {}", taskId);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void updateStatusToFailed(Long taskId, String errorMsg) {
+        ResumeDiagnosisTask task = getById(taskId);
+        if (task == null) {
+            log.warn("Task not found when updating to failed, taskId: {}", taskId);
+            return;
+        }
+
+        task.setStatus(ResumeDiagnosisConstants.STATUS_FAILED);
+        task.setDiagnosisResult(null);
+        task.setErrorMsg(errorMsg);
+        updateById(task);
+        log.error("Task status updated to failed, taskId: {}, errorMsg: {}", taskId, errorMsg);
+    }
+
+    @Override
+    public String getStatusDescription(Integer status) {
+        return switch (status) {
+            case ResumeDiagnosisConstants.STATUS_PENDING -> "排队中";
+            case ResumeDiagnosisConstants.STATUS_PROCESSING -> "解析分析中";
+            case ResumeDiagnosisConstants.STATUS_COMPLETED -> "已完成";
+            case ResumeDiagnosisConstants.STATUS_FAILED -> "失败";
+            default -> "未知状态";
+        };
+    }
+
+    /**
+     * 构建任务详情响应对象
+     *
+     * @param task 任务实体
+     * @return 任务详情响应
+     */
+    private ResumeDiagnosisTaskResponse buildTaskResponse(ResumeDiagnosisTask task) {
+        return ResumeDiagnosisTaskResponse.builder()
+                .taskId(task.getId())
+                .userId(task.getUserId())
+                .fileUrl(task.getFileUrl())
+                .status(task.getStatus())
+                .statusDesc(getStatusDescription(task.getStatus()))
+                .diagnosisResult(task.getDiagnosisResult())
+                .errorMsg(task.getErrorMsg())
+                .createTime(task.getCreateTime())
+                .updateTime(task.getUpdateTime())
+                .build();
+    }
+
+    /**
+     * 构建历史记录响应对象
+     *
+     * @param task 任务实体
+     * @return 历史记录响应
+     */
+    private ResumeDiagnosisHistoryResponse buildHistoryResponse(ResumeDiagnosisTask task) {
+        return ResumeDiagnosisHistoryResponse.builder()
+                .taskId(task.getId())
+                .fileUrl(task.getFileUrl())
+                .status(task.getStatus())
+                .statusDesc(getStatusDescription(task.getStatus()))
+                .createTime(task.getCreateTime())
+                .updateTime(task.getUpdateTime())
+                .build();
+    }
+}

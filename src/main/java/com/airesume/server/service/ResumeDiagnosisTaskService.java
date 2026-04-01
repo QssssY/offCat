@@ -1,0 +1,72 @@
+package com.airesume.server.service;
+
+import com.airesume.server.dto.resume.ResumeDiagnosisHistoryResponse;
+import com.airesume.server.dto.resume.ResumeDiagnosisTaskResponse;
+import com.airesume.server.entity.ResumeDiagnosisTask;
+import com.baomidou.mybatisplus.extension.service.IService;
+
+import java.util.List;
+
+/**
+ * 简历诊断任务服务接口
+ * 定义简历诊断相关的业务操作
+ */
+public interface ResumeDiagnosisTaskService extends IService<ResumeDiagnosisTask> {
+
+    /**
+     * 创建简历诊断任务
+     *
+     * @param userId  用户ID
+     * @param fileUrl 简历文件地址
+     * @return 任务ID
+     */
+    Long createTask(Long userId, String fileUrl);
+
+    /**
+     * 根据任务ID查询任务详情
+     *
+     * @param taskId 任务ID
+     * @param userId 用户ID（用于校验权限）
+     * @return 任务详情响应
+     */
+    ResumeDiagnosisTaskResponse getTaskById(Long taskId, Long userId);
+
+    /**
+     * 查询用户的简历诊断历史记录
+     *
+     * @param userId 用户ID
+     * @return 历史记录列表
+     */
+    List<ResumeDiagnosisHistoryResponse> getHistoryByUserId(Long userId);
+
+    /**
+     * 更新任务状态为处理中
+     *
+     * @param taskId 任务ID
+     */
+    void updateStatusToProcessing(Long taskId);
+
+    /**
+     * 更新任务状态为完成
+     *
+     * @param taskId          任务ID
+     * @param diagnosisResult 诊断结果JSON
+     */
+    void updateStatusToCompleted(Long taskId, String diagnosisResult);
+
+    /**
+     * 更新任务状态为失败
+     *
+     * @param taskId   任务ID
+     * @param errorMsg 错误信息
+     */
+    void updateStatusToFailed(Long taskId, String errorMsg);
+
+    /**
+     * 获取状态描述
+     *
+     * @param status 状态码
+     * @return 状态描述
+     */
+    String getStatusDescription(Integer status);
+}
