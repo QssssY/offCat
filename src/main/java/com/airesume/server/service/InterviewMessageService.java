@@ -4,6 +4,7 @@ import com.airesume.server.dto.interview.SendMessageResponse;
 import com.airesume.server.entity.InterviewChatLog;
 import com.airesume.server.entity.InterviewSession;
 import com.airesume.server.repository.InterviewMessageRepository;
+import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -29,10 +30,13 @@ public class InterviewMessageService {
     public String processMessageAndGetReply(InterviewSession session, String userContent) {
         // 保存用户消息
         InterviewChatLog userMessage = new InterviewChatLog();
+        userMessage.setId(IdWorker.getId());
         userMessage.setSessionId(session.getSessionId());
         userMessage.setMessageRole("user");
         userMessage.setContent(userContent);
         userMessage.setCreateTime(LocalDateTime.now());
+        userMessage.setUpdateTime(LocalDateTime.now());
+        userMessage.setIsDeleted(0);
         interviewMessageRepository.save(userMessage);
 
         // TODO: 调用AI服务生成回复
@@ -41,10 +45,13 @@ public class InterviewMessageService {
 
         // 保存AI消息
         InterviewChatLog aiMessage = new InterviewChatLog();
+        aiMessage.setId(IdWorker.getId());
         aiMessage.setSessionId(session.getSessionId());
         aiMessage.setMessageRole("assistant");
         aiMessage.setContent(aiReply);
         aiMessage.setCreateTime(LocalDateTime.now());
+        aiMessage.setUpdateTime(LocalDateTime.now());
+        aiMessage.setIsDeleted(0);
         interviewMessageRepository.save(aiMessage);
 
         log.info("面试消息处理完成, sessionId: {}, userMessageId: {}, aiMessageId: {}",

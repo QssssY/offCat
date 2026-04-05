@@ -29,6 +29,6 @@ public class BaseEntity implements Serializable {
     private LocalDateTime updateTime;
 
     @TableLogic
-    private Integer isDeleted;
+    private Integer isDeleted = 0;
 
 }

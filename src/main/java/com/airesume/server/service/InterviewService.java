@@ -2,7 +2,10 @@ package com.airesume.server.service;
 
 import com.airesume.server.common.result.PageResult;
 import com.airesume.server.dto.interview.*;
+import com.airesume.server.entity.InterviewChatLog;
 import com.airesume.server.entity.InterviewSession;
+import com.airesume.server.mock.MockInterviewService;
+import com.airesume.server.repository.InterviewMessageRepository;
 import com.airesume.server.repository.InterviewSessionRepository;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +32,8 @@ public class InterviewService {
 
     private final InterviewSessionRepository interviewSessionRepository;
     private final InterviewMessageService interviewMessageService;
+    private final MockInterviewService mockInterviewService;
+    private final InterviewMessageRepository interviewMessageRepository;
 
     /**
      * 创建面试会话
@@ -56,6 +61,20 @@ public class InterviewService {
         interviewSessionRepository.save(session);
 
         log.info("面试会话创建成功, id: {}, sessionId: {}, userId: {}", session.getId(), session.getSessionId(), userId);
+
+        // 保存初始欢迎语
+        String openingMessage = mockInterviewService.generateMockOpening(request.getJobRole(), request.getDifficulty());
+        InterviewChatLog welcomeMessage = new InterviewChatLog();
+        welcomeMessage.setId(IdWorker.getId());
+        welcomeMessage.setSessionId(session.getSessionId());
+        welcomeMessage.setMessageRole("assistant");
+        welcomeMessage.setContent(openingMessage);
+        welcomeMessage.setCreateTime(LocalDateTime.now());
+        welcomeMessage.setUpdateTime(LocalDateTime.now());
+        welcomeMessage.setIsDeleted(0);
+        interviewMessageRepository.save(welcomeMessage);
+
+        log.info("初始欢迎语保存成功, sessionId: {}, messageId: {}", session.getSessionId(), welcomeMessage.getId());
 
         return convertToSessionResponse(session);
     }
@@ -115,9 +134,15 @@ public class InterviewService {
         session.setStatus(1);
         session.setUpdateTime(LocalDateTime.now());
 
+        // 生成综合评分和评价报告
+        int score = mockInterviewService.generateMockScore(sessionId);
+        String evaluationReport = mockInterviewService.generateMockEvaluationReport(sessionId, score);
+        session.setComprehensiveScore(score);
+        session.setEvaluationReport(evaluationReport);
+
         interviewSessionRepository.save(session);
 
-        log.info("面试会话结束, sessionId: {}, userId: {}", sessionId, userId);
+        log.info("面试会话结束, sessionId: {}, userId: {}, score: {}", sessionId, userId, score);
     }
 
     /**
