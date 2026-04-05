@@ -19,8 +19,9 @@ public class ResumeDiagnosisTaskResponse {
 
     /**
      * 任务ID
+     * 使用String类型避免JavaScript精度丢失问题
      */
-    private Long taskId;
+    private String taskId;
 
     /**
      * 用户ID

@@ -2,11 +2,11 @@ package com.airesume.server.controller;
 
 import com.airesume.server.common.result.Result;
 import com.airesume.server.dto.interview.*;
-import com.airesume.server.infrastructure.security.JwtUtil;
 import com.airesume.server.service.InterviewSessionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -22,19 +22,18 @@ import java.util.List;
 public class InterviewController {
 
     private final InterviewSessionService interviewSessionService;
-    private final JwtUtil jwtUtil;
 
     /**
      * 创建面试会话
      *
      * @param request 创建会话请求，包含岗位和难度
-     * @param token   JWT Token
+     * @param authentication Spring Security 认证对象
      * @return 会话ID
      */
     @PostMapping("/session")
     public Result<String> createSession(@Valid @RequestBody CreateSessionRequest request,
-                                         @RequestHeader("Authorization") String token) {
-        Long userId = jwtUtil.getUserIdFromToken(token);
+                                         Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
         log.info("Create interview session request, userId: {}, jobRole: {}, difficulty: {}",
                 userId, request.getJobRole(), request.getDifficulty());
 
@@ -46,13 +45,13 @@ public class InterviewController {
      * 发送面试消息
      *
      * @param request 发送消息请求，包含会话ID和消息内容
-     * @param token   JWT Token
+     * @param authentication Spring Security 认证对象
      * @return 面试官回复
      */
     @PostMapping("/message")
     public Result<SendMessageResponse> sendMessage(@Valid @RequestBody SendMessageRequest request,
-                                                    @RequestHeader("Authorization") String token) {
-        Long userId = jwtUtil.getUserIdFromToken(token);
+                                                    Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
         log.info("Send message request, sessionId: {}, userId: {}", request.getSessionId(), userId);
 
         SendMessageResponse response = interviewSessionService.sendMessage(request.getSessionId(), userId, request.getContent());
@@ -63,13 +62,13 @@ public class InterviewController {
      * 结束面试
      *
      * @param sessionId 会话ID
-     * @param token     JWT Token
+     * @param authentication Spring Security 认证对象
      * @return 空结果
      */
     @PostMapping("/session/{sessionId}/end")
     public Result<Void> endInterview(@PathVariable String sessionId,
-                                     @RequestHeader("Authorization") String token) {
-        Long userId = jwtUtil.getUserIdFromToken(token);
+                                     Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
         log.info("End interview request, sessionId: {}, userId: {}", sessionId, userId);
 
         interviewSessionService.endInterview(sessionId, userId);
@@ -80,13 +79,13 @@ public class InterviewController {
      * 查询会话详情
      *
      * @param sessionId 会话ID
-     * @param token     JWT Token
+     * @param authentication Spring Security 认证对象
      * @return 会话详情，包含聊天记录
      */
     @GetMapping("/session/{sessionId}")
     public Result<InterviewSessionResponse> getSessionDetail(@PathVariable String sessionId,
-                                                               @RequestHeader("Authorization") String token) {
-        Long userId = jwtUtil.getUserIdFromToken(token);
+                                                               Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
         log.info("Get session detail request, sessionId: {}, userId: {}", sessionId, userId);
 
         InterviewSessionResponse session = interviewSessionService.getSessionById(sessionId, userId);
@@ -96,12 +95,12 @@ public class InterviewController {
     /**
      * 查询当前用户的面试历史记录
      *
-     * @param token JWT Token
+     * @param authentication Spring Security 认证对象
      * @return 历史记录列表
      */
     @GetMapping("/history")
-    public Result<List<InterviewHistoryResponse>> getHistory(@RequestHeader("Authorization") String token) {
-        Long userId = jwtUtil.getUserIdFromToken(token);
+    public Result<List<InterviewHistoryResponse>> getHistory(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
         log.info("Get interview history request, userId: {}", userId);
 
         List<InterviewHistoryResponse> history = interviewSessionService.getHistoryByUserId(userId);

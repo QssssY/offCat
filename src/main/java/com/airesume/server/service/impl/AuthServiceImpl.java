@@ -125,14 +125,21 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException(ResultCode.NOT_FOUND);
         }
 
-        log.debug("User info fetched successfully, userId: {}, username: {}", userId, user.getUsername());
-        return new UserInfoResponse(
-                user.getId(),
-                user.getUsername(),
-                user.getRole(),
-                user.getStatus(),
-                user.getVipExpireTime()
-        );
+        // 获取用户剩余额度
+        int resumeQuota = userQuotaService.getRemainingResumeQuota(userId);
+        int interviewQuota = userQuotaService.getRemainingInterviewQuota(userId);
+
+        log.debug("User info fetched successfully, userId: {}, username: {}, resumeQuota: {}, interviewQuota: {}",
+                userId, user.getUsername(), resumeQuota, interviewQuota);
+        return UserInfoResponse.builder()
+                .id(user.getId())
+                .username(user.getUsername())
+                .role(user.getRole())
+                .status(user.getStatus())
+                .vipExpireTime(user.getVipExpireTime())
+                .resumeQuota(resumeQuota)
+                .interviewQuota(interviewQuota)
+                .build();
     }
 
 }

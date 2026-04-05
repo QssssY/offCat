@@ -19,8 +19,9 @@ public class ResumeDiagnosisHistoryResponse {
 
     /**
      * 任务ID
+     * 使用String类型避免JavaScript精度丢失问题
      */
-    private Long taskId;
+    private String taskId;
 
     /**
      * PDF简历存储地址

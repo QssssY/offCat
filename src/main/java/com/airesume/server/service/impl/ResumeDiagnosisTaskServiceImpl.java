@@ -15,6 +15,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -62,6 +63,51 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
         log.info("Resume diagnosis task submitted to queue, taskId: {}", task.getId());
 
         return task.getId();
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public String createTask(Long userId, MultipartFile file) {
+        // 1. 校验文件
+        if (file.isEmpty()) {
+            throw new BusinessException("上传文件不能为空");
+        }
+
+        String originalFilename = file.getOriginalFilename();
+        if (originalFilename == null || !originalFilename.toLowerCase().endsWith(".pdf")) {
+            throw new BusinessException("仅支持 PDF 格式文件");
+        }
+
+        // 2. 保存文件到存储（这里使用本地存储，生产环境建议改为OSS）
+        String fileName = System.currentTimeMillis() + "_" + originalFilename;
+        String fileUrl;
+
+        try {
+            // 获取项目根目录下的 uploads 目录
+            String uploadDir = System.getProperty("user.dir") + "/uploads/resumes/";
+            java.io.File dir = new java.io.File(uploadDir);
+            if (!dir.exists()) {
+                dir.mkdirs();
+            }
+
+            // 保存文件
+            java.io.File destFile = new java.io.File(dir, fileName);
+            file.transferTo(destFile);
+
+            // 生成文件访问URL（这里使用相对路径，实际部署需要配置域名）
+            fileUrl = "/uploads/resumes/" + fileName;
+
+            log.info("Resume file saved, userId: {}, fileName: {}, fileUrl: {}",
+                    userId, fileName, fileUrl);
+
+        } catch (Exception e) {
+            log.error("Failed to save resume file, userId: {}, fileName: {}", userId, fileName, e);
+            throw new BusinessException("文件保存失败，请稍后重试");
+        }
+
+        // 3. 调用原有方法创建任务并转换为字符串返回
+        Long taskId = createTask(userId, fileUrl);
+        return String.valueOf(taskId);
     }
 
     @Override
@@ -157,7 +203,7 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
      */
     private ResumeDiagnosisTaskResponse buildTaskResponse(ResumeDiagnosisTask task) {
         return ResumeDiagnosisTaskResponse.builder()
-                .taskId(task.getId())
+                .taskId(String.valueOf(task.getId()))
                 .userId(task.getUserId())
                 .fileUrl(task.getFileUrl())
                 .status(task.getStatus())
@@ -177,7 +223,7 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
      */
     private ResumeDiagnosisHistoryResponse buildHistoryResponse(ResumeDiagnosisTask task) {
         return ResumeDiagnosisHistoryResponse.builder()
-                .taskId(task.getId())
+                .taskId(String.valueOf(task.getId()))
                 .fileUrl(task.getFileUrl())
                 .status(task.getStatus())
                 .statusDesc(getStatusDescription(task.getStatus()))

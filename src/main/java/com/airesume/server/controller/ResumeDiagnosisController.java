@@ -3,13 +3,13 @@ package com.airesume.server.controller;
 import com.airesume.server.common.result.Result;
 import com.airesume.server.dto.resume.ResumeDiagnosisHistoryResponse;
 import com.airesume.server.dto.resume.ResumeDiagnosisTaskResponse;
-import com.airesume.server.dto.resume.ResumeUploadRequest;
-import com.airesume.server.infrastructure.security.JwtUtil;
 import com.airesume.server.service.ResumeDiagnosisTaskService;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.MediaType;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -24,22 +24,22 @@ import java.util.List;
 public class ResumeDiagnosisController {
 
     private final ResumeDiagnosisTaskService resumeDiagnosisTaskService;
-    private final JwtUtil jwtUtil;
 
     /**
-     * 上传简历并创建诊断任务
+     * 上传简历文件并创建诊断任务
      *
-     * @param request 上传请求，包含简历文件地址
-     * @param token   JWT Token
+     * @param file 简历PDF文件
+     * @param authentication Spring Security 认证对象
      * @return 任务ID
      */
-    @PostMapping("/upload")
-    public Result<Long> uploadResume(@Valid @RequestBody ResumeUploadRequest request,
-                                      @RequestHeader("Authorization") String token) {
-        Long userId = jwtUtil.getUserIdFromToken(token);
-        log.info("Upload resume request, userId: {}, fileUrl: {}", userId, request.getFileUrl());
+    @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Result<String> uploadResume(@RequestParam("file") MultipartFile file,
+                                      Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("Upload resume request, userId: {}, fileName: {}, fileSize: {}",
+                userId, file.getOriginalFilename(), file.getSize());
 
-        Long taskId = resumeDiagnosisTaskService.createTask(userId, request.getFileUrl());
+        String taskId = resumeDiagnosisTaskService.createTask(userId, file);
         return Result.success("简历诊断任务已提交", taskId);
     }
 
@@ -47,13 +47,13 @@ public class ResumeDiagnosisController {
      * 查询任务详情
      *
      * @param taskId 任务ID
-     * @param token  JWT Token
+     * @param authentication Spring Security 认证对象
      * @return 任务详情
      */
     @GetMapping("/task/{taskId}")
     public Result<ResumeDiagnosisTaskResponse> getTaskDetail(@PathVariable Long taskId,
-                                                                @RequestHeader("Authorization") String token) {
-        Long userId = jwtUtil.getUserIdFromToken(token);
+                                                                Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
         log.info("Get task detail request, taskId: {}, userId: {}", taskId, userId);
 
         ResumeDiagnosisTaskResponse task = resumeDiagnosisTaskService.getTaskById(taskId, userId);
@@ -63,12 +63,12 @@ public class ResumeDiagnosisController {
     /**
      * 查询当前用户的简历诊断历史记录
      *
-     * @param token JWT Token
+     * @param authentication Spring Security 认证对象
      * @return 历史记录列表
      */
     @GetMapping("/history")
-    public Result<List<ResumeDiagnosisHistoryResponse>> getHistory(@RequestHeader("Authorization") String token) {
-        Long userId = jwtUtil.getUserIdFromToken(token);
+    public Result<List<ResumeDiagnosisHistoryResponse>> getHistory(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
         log.info("Get history request, userId: {}", userId);
 
         List<ResumeDiagnosisHistoryResponse> history = resumeDiagnosisTaskService.getHistoryByUserId(userId);

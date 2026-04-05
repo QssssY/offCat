@@ -3,12 +3,14 @@ package com.airesume.server.dto.auth;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import lombok.experimental.SuperBuilder;
 
 import java.time.LocalDateTime;
 
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
+@SuperBuilder
 public class UserInfoResponse {
 
     private Long id;
@@ -16,5 +18,7 @@ public class UserInfoResponse {
     private Integer role;
     private Integer status;
     private LocalDateTime vipExpireTime;
+    private Integer resumeQuota;
+    private Integer interviewQuota;
 
 }

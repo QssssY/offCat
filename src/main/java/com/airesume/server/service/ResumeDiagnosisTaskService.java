@@ -4,6 +4,7 @@ import com.airesume.server.dto.resume.ResumeDiagnosisHistoryResponse;
 import com.airesume.server.dto.resume.ResumeDiagnosisTaskResponse;
 import com.airesume.server.entity.ResumeDiagnosisTask;
 import com.baomidou.mybatisplus.extension.service.IService;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -21,6 +22,15 @@ public interface ResumeDiagnosisTaskService extends IService<ResumeDiagnosisTask
      * @return 任务ID
      */
     Long createTask(Long userId, String fileUrl);
+
+    /**
+     * 创建简历诊断任务（支持文件上传）
+     *
+     * @param userId 用户ID
+     * @param file   PDF简历文件
+     * @return 任务ID（字符串形式，避免前端精度丢失）
+     */
+    String createTask(Long userId, MultipartFile file);
 
     /**
      * 根据任务ID查询任务详情

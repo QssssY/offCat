@@ -62,4 +62,20 @@ public interface UserQuotaService extends IService<UserQuota> {
      */
     void refreshDailyQuotaIfNeeded(Long userId, UserQuota userQuota);
 
+    /**
+     * 获取用户剩余简历诊断次数
+     *
+     * @param userId 用户ID
+     * @return 剩余次数
+     */
+    int getRemainingResumeQuota(Long userId);
+
+    /**
+     * 获取用户剩余模拟面试次数
+     *
+     * @param userId 用户ID
+     * @return 剩余次数
+     */
+    int getRemainingInterviewQuota(Long userId);
+
 }

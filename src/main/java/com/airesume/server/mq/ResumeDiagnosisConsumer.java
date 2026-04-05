@@ -3,12 +3,9 @@ package com.airesume.server.mq;
 import com.airesume.server.common.constants.ResumeDiagnosisConstants;
 import com.airesume.server.mock.MockDiagnosisResultGenerator;
 import com.airesume.server.service.ResumeDiagnosisTaskService;
-import com.rabbitmq.client.Channel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
-import org.springframework.amqp.support.AmqpHeaders;
-import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
 /**
@@ -25,15 +22,14 @@ public class ResumeDiagnosisConsumer {
 
     /**
      * 监听简历诊断任务队列并处理消息
+     * 使用 Spring 默认的 AUTO 确认模式：
+     * - 方法正常返回时自动 ack
+     * - 方法抛出异常时自动 nack（根据配置决定是否重新入队）
      *
      * @param message 任务消息
-     * @param channel RabbitMQ Channel
-     * @param deliveryTag 消息投递标签
      */
     @RabbitListener(queues = ResumeDiagnosisConstants.QUEUE_RESUME_DIAGNOSIS)
-    public void handleResumeDiagnosisTask(ResumeDiagnosisMessage message,
-                                            Channel channel,
-                                            @Header(AmqpHeaders.DELIVERY_TAG) long deliveryTag) {
+    public void handleResumeDiagnosisTask(ResumeDiagnosisMessage message) {
         Long taskId = message.getTaskId();
         log.info("Received resume diagnosis task, taskId: {}, userId: {}", taskId, message.getUserId());
 
@@ -50,8 +46,6 @@ public class ResumeDiagnosisConsumer {
             // 4. 更新任务状态为完成并保存结果
             resumeDiagnosisTaskService.updateStatusToCompleted(taskId, mockResult);
 
-            // 5. 手动确认消息
-            channel.basicAck(deliveryTag, false);
             log.info("Resume diagnosis task processed successfully, taskId: {}", taskId);
 
         } catch (Exception e) {
@@ -59,18 +53,12 @@ public class ResumeDiagnosisConsumer {
             try {
                 // 更新任务状态为失败
                 resumeDiagnosisTaskService.updateStatusToFailed(taskId, e.getMessage());
-
-                // 确认消息（不重新入队，避免无限重试）
-                channel.basicAck(deliveryTag, false);
+                log.info("Task status updated to failed, taskId: {}", taskId);
             } catch (Exception ex) {
-                log.error("Failed to update task status or acknowledge message, taskId: {}", taskId, ex);
-                try {
-                    // 消息重新入队
-                    channel.basicNack(deliveryTag, false, true);
-                } catch (Exception nackEx) {
-                    log.error("Failed to nack message, taskId: {}", taskId, nackEx);
-                }
+                log.error("Failed to update task status to failed, taskId: {}", taskId, ex);
             }
+            // 不重新抛出异常，避免消息无限重试
+            // 任务状态已更新为失败，消息确认由容器自动处理（ack）
         }
     }
 

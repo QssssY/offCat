@@ -17,10 +17,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 
-/**
- * 用户额度服务实现类
- * 实现用户额度查询、校验和扣减功能
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -30,6 +26,10 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
 
     @Override
     public UserQuota getByUserId(Long userId) {
+        if (userId == null) {
+            log.warn("getByUserId called with null userId");
+            return null;
+        }
         LambdaQueryWrapper<UserQuota> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(UserQuota::getUserId, userId);
         return getOne(wrapper);
@@ -38,6 +38,10 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void initUserQuota(Long userId) {
+        if (userId == null) {
+            log.error("initUserQuota called with null userId");
+            throw new BusinessException("用户ID不能为空");
+        }
         UserQuota quota = new UserQuota();
         quota.setUserId(userId);
         quota.setTotalInterviewUsed(0);
@@ -51,13 +55,22 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
 
     @Override
     public boolean checkInterviewQuota(Long userId) {
-        UserQuota userQuota = getByUserId(userId);
-        if (userQuota == null) {
-            log.warn("User quota not found for userId: {}", userId);
+        if (userId == null) {
+            log.warn("checkInterviewQuota called with null userId");
             return false;
         }
 
-        // 先刷新每日额度（如果需要）
+        UserQuota userQuota = getByUserId(userId);
+        if (userQuota == null) {
+            log.warn("User quota not found for userId: {}, initializing now", userId);
+            initUserQuota(userId);
+            userQuota = getByUserId(userId);
+            if (userQuota == null) {
+                log.error("Failed to initialize user quota for userId: {}", userId);
+                return false;
+            }
+        }
+
         refreshDailyQuotaIfNeeded(userId, userQuota);
 
         SysUser user = sysUserService.getById(userId);
@@ -69,23 +82,30 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
         boolean isVip = sysUserService.isVipUser(userId);
 
         if (isVip) {
-            // 会员用户：检查每日次数
             return userQuota.getDailyInterviewUsed() < QuotaConstants.VIP_USER_DAILY_INTERVIEW_LIMIT;
         } else {
-            // 普通用户：检查累计免费次数
             return userQuota.getTotalInterviewUsed() < QuotaConstants.NORMAL_USER_FREE_INTERVIEW_LIMIT;
         }
     }
 
     @Override
     public boolean checkResumeQuota(Long userId) {
-        UserQuota userQuota = getByUserId(userId);
-        if (userQuota == null) {
-            log.warn("User quota not found for userId: {}", userId);
+        if (userId == null) {
+            log.warn("checkResumeQuota called with null userId");
             return false;
         }
 
-        // 先刷新每日额度（如果需要）
+        UserQuota userQuota = getByUserId(userId);
+        if (userQuota == null) {
+            log.warn("User quota not found for userId: {}, initializing now", userId);
+            initUserQuota(userId);
+            userQuota = getByUserId(userId);
+            if (userQuota == null) {
+                log.error("Failed to initialize user quota for userId: {}", userId);
+                return false;
+            }
+        }
+
         refreshDailyQuotaIfNeeded(userId, userQuota);
 
         SysUser user = sysUserService.getById(userId);
@@ -97,10 +117,8 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
         boolean isVip = sysUserService.isVipUser(userId);
 
         if (isVip) {
-            // 会员用户：检查每日次数
             return userQuota.getDailyResumeUsed() < QuotaConstants.VIP_USER_DAILY_RESUME_LIMIT;
         } else {
-            // 普通用户：检查累计免费次数
             return userQuota.getTotalResumeUsed() < QuotaConstants.NORMAL_USER_FREE_RESUME_LIMIT;
         }
     }
@@ -108,15 +126,23 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deductInterviewQuota(Long userId) {
-        UserQuota userQuota = getByUserId(userId);
-        if (userQuota == null) {
-            throw new BusinessException("用户额度记录不存在");
+        if (userId == null) {
+            log.error("deductInterviewQuota called with null userId");
+            throw new BusinessException("用户ID不能为空");
         }
 
-        // 先刷新每日额度（如果需要）
+        UserQuota userQuota = getByUserId(userId);
+        if (userQuota == null) {
+            log.warn("User quota not found for userId: {}, initializing now", userId);
+            initUserQuota(userId);
+            userQuota = getByUserId(userId);
+            if (userQuota == null) {
+                throw new BusinessException("用户额度记录不存在");
+            }
+        }
+
         refreshDailyQuotaIfNeeded(userId, userQuota);
 
-        // 再次校验额度是否足够
         if (!checkInterviewQuota(userId)) {
             throw new BusinessException("面试次数已用完");
         }
@@ -125,10 +151,8 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
         boolean isVip = user != null && sysUserService.isVipUser(userId);
 
         if (isVip) {
-            // 会员用户：扣减每日次数
             userQuota.setDailyInterviewUsed(userQuota.getDailyInterviewUsed() + 1);
         } else {
-            // 普通用户：扣减累计次数
             userQuota.setTotalInterviewUsed(userQuota.getTotalInterviewUsed() + 1);
         }
 
@@ -139,15 +163,23 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deductResumeQuota(Long userId) {
-        UserQuota userQuota = getByUserId(userId);
-        if (userQuota == null) {
-            throw new BusinessException("用户额度记录不存在");
+        if (userId == null) {
+            log.error("deductResumeQuota called with null userId");
+            throw new BusinessException("用户ID不能为空");
         }
 
-        // 先刷新每日额度（如果需要）
+        UserQuota userQuota = getByUserId(userId);
+        if (userQuota == null) {
+            log.warn("User quota not found for userId: {}, initializing now", userId);
+            initUserQuota(userId);
+            userQuota = getByUserId(userId);
+            if (userQuota == null) {
+                throw new BusinessException("用户额度记录不存在");
+            }
+        }
+
         refreshDailyQuotaIfNeeded(userId, userQuota);
 
-        // 再次校验额度是否足够
         if (!checkResumeQuota(userId)) {
             throw new BusinessException("简历诊断次数已用完");
         }
@@ -156,10 +188,8 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
         boolean isVip = user != null && sysUserService.isVipUser(userId);
 
         if (isVip) {
-            // 会员用户：扣减每日次数
             userQuota.setDailyResumeUsed(userQuota.getDailyResumeUsed() + 1);
         } else {
-            // 普通用户：扣减累计次数
             userQuota.setTotalResumeUsed(userQuota.getTotalResumeUsed() + 1);
         }
 
@@ -170,16 +200,90 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void refreshDailyQuotaIfNeeded(Long userId, UserQuota userQuota) {
+        if (userId == null || userQuota == null) {
+            log.warn("refreshDailyQuotaIfNeeded called with null userId or userQuota");
+            return;
+        }
+
         LocalDate today = LocalDate.now();
         LocalDate lastRefresh = userQuota.getLastRefreshDate();
 
         if (!today.equals(lastRefresh)) {
-            // 跨天了，刷新每日计数
             userQuota.setDailyInterviewUsed(0);
             userQuota.setDailyResumeUsed(0);
             userQuota.setLastRefreshDate(today);
             updateById(userQuota);
             log.info("Refreshed daily quota for userId: {}, from: {} to: {}", userId, lastRefresh, today);
+        }
+    }
+
+    @Override
+    public int getRemainingResumeQuota(Long userId) {
+        if (userId == null) {
+            log.warn("getRemainingResumeQuota called with null userId");
+            return 0;
+        }
+
+        UserQuota userQuota = getByUserId(userId);
+        if (userQuota == null) {
+            log.warn("User quota not found for userId: {}, initializing now", userId);
+            initUserQuota(userId);
+            userQuota = getByUserId(userId);
+            if (userQuota == null) {
+                log.error("Failed to initialize user quota for userId: {}", userId);
+                return 0;
+            }
+        }
+
+        refreshDailyQuotaIfNeeded(userId, userQuota);
+
+        SysUser user = sysUserService.getById(userId);
+        if (user == null) {
+            log.warn("User not found for userId: {}", userId);
+            return 0;
+        }
+
+        boolean isVip = sysUserService.isVipUser(userId);
+
+        if (isVip) {
+            return Math.max(0, QuotaConstants.VIP_USER_DAILY_RESUME_LIMIT - userQuota.getDailyResumeUsed());
+        } else {
+            return Math.max(0, QuotaConstants.NORMAL_USER_FREE_RESUME_LIMIT - userQuota.getTotalResumeUsed());
+        }
+    }
+
+    @Override
+    public int getRemainingInterviewQuota(Long userId) {
+        if (userId == null) {
+            log.warn("getRemainingInterviewQuota called with null userId");
+            return 0;
+        }
+
+        UserQuota userQuota = getByUserId(userId);
+        if (userQuota == null) {
+            log.warn("User quota not found for userId: {}, initializing now", userId);
+            initUserQuota(userId);
+            userQuota = getByUserId(userId);
+            if (userQuota == null) {
+                log.error("Failed to initialize user quota for userId: {}", userId);
+                return 0;
+            }
+        }
+
+        refreshDailyQuotaIfNeeded(userId, userQuota);
+
+        SysUser user = sysUserService.getById(userId);
+        if (user == null) {
+            log.warn("User not found for userId: {}", userId);
+            return 0;
+        }
+
+        boolean isVip = sysUserService.isVipUser(userId);
+
+        if (isVip) {
+            return Math.max(0, QuotaConstants.VIP_USER_DAILY_INTERVIEW_LIMIT - userQuota.getDailyInterviewUsed());
+        } else {
+            return Math.max(0, QuotaConstants.NORMAL_USER_FREE_INTERVIEW_LIMIT - userQuota.getTotalInterviewUsed());
         }
     }
 

@@ -8,7 +8,6 @@ import com.airesume.server.dto.admin.*;
 import com.airesume.server.entity.SysPrompt;
 import com.airesume.server.entity.SysUser;
 import com.airesume.server.entity.UserQuota;
-import com.airesume.server.infrastructure.security.JwtUtil;
 import com.airesume.server.service.SysPromptService;
 import com.airesume.server.service.SysUserService;
 import com.airesume.server.service.UserQuotaService;
@@ -16,6 +15,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -34,19 +34,19 @@ public class AdminController {
     private final SysPromptService sysPromptService;
     private final SysUserService sysUserService;
     private final UserQuotaService userQuotaService;
-    private final JwtUtil jwtUtil;
 
     // ==================== Prompt管理接口 ====================
 
     /**
      * 查询Prompt模板列表
      *
-     * @param token JWT Token
+     * @param authentication Spring Security 认证对象
      * @return Prompt列表
      */
     @GetMapping("/prompts")
-    public Result<List<PromptResponse>> getPromptList(@RequestHeader("Authorization") String token) {
-        checkAdminPermission(token);
+    public Result<List<PromptResponse>> getPromptList(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
         log.info("Admin get prompt list");
 
         List<SysPrompt> prompts = sysPromptService.list();
@@ -62,13 +62,14 @@ public class AdminController {
      * 新增Prompt模板
      *
      * @param request 创建请求
-     * @param token   JWT Token
+     * @param authentication Spring Security 认证对象
      * @return 新增的Prompt ID
      */
     @PostMapping("/prompts")
     public Result<Long> createPrompt(@Valid @RequestBody PromptCreateRequest request,
-                                       @RequestHeader("Authorization") String token) {
-        checkAdminPermission(token);
+                                       Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
         log.info("Admin create prompt, scenarioType: {}, jobRole: {}, difficulty: {}",
                 request.getScenarioType(), request.getJobRole(), request.getDifficulty());
 
@@ -88,13 +89,14 @@ public class AdminController {
      * 修改Prompt模板
      *
      * @param request 更新请求
-     * @param token   JWT Token
+     * @param authentication Spring Security 认证对象
      * @return 空结果
      */
     @PutMapping("/prompts")
     public Result<Void> updatePrompt(@Valid @RequestBody PromptUpdateRequest request,
-                                      @RequestHeader("Authorization") String token) {
-        checkAdminPermission(token);
+                                      Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
         log.info("Admin update prompt, id: {}", request.getId());
 
         SysPrompt prompt = sysPromptService.getById(request.getId());
@@ -128,14 +130,15 @@ public class AdminController {
      *
      * @param id       Prompt ID
      * @param isActive 是否启用
-     * @param token    JWT Token
+     * @param authentication Spring Security 认证对象
      * @return 空结果
      */
     @PutMapping("/prompts/{id}/active")
     public Result<Void> togglePromptActive(@PathVariable Long id,
                                              @RequestParam Integer isActive,
-                                             @RequestHeader("Authorization") String token) {
-        checkAdminPermission(token);
+                                             Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
         log.info("Admin toggle prompt active, id: {}, isActive: {}", id, isActive);
 
         SysPrompt prompt = sysPromptService.getById(id);
@@ -155,12 +158,13 @@ public class AdminController {
     /**
      * 查询用户列表
      *
-     * @param token JWT Token
+     * @param authentication Spring Security 认证对象
      * @return 用户列表
      */
     @GetMapping("/users")
-    public Result<List<UserListResponse>> getUserList(@RequestHeader("Authorization") String token) {
-        checkAdminPermission(token);
+    public Result<List<UserListResponse>> getUserList(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
         log.info("Admin get user list");
 
         List<SysUser> users = sysUserService.list();
@@ -177,14 +181,15 @@ public class AdminController {
      *
      * @param userId 用户ID
      * @param status 状态：1-正常，0-封禁
-     * @param token  JWT Token
+     * @param authentication Spring Security 认证对象
      * @return 空结果
      */
     @PutMapping("/users/{userId}/status")
     public Result<Void> updateUserStatus(@PathVariable Long userId,
                                           @RequestParam Integer status,
-                                          @RequestHeader("Authorization") String token) {
-        checkAdminPermission(token);
+                                          Authentication authentication) {
+        Long adminUserId = (Long) authentication.getPrincipal();
+        checkAdminPermission(adminUserId);
         log.info("Admin update user status, userId: {}, status: {}", userId, status);
 
         SysUser user = sysUserService.getById(userId);
@@ -205,13 +210,14 @@ public class AdminController {
      * 查询用户额度
      *
      * @param userId 用户ID
-     * @param token  JWT Token
+     * @param authentication Spring Security 认证对象
      * @return 用户额度信息
      */
     @GetMapping("/users/{userId}/quota")
     public Result<UserQuotaResponse> getUserQuota(@PathVariable Long userId,
-                                                    @RequestHeader("Authorization") String token) {
-        checkAdminPermission(token);
+                                                    Authentication authentication) {
+        Long adminUserId = (Long) authentication.getPrincipal();
+        checkAdminPermission(adminUserId);
         log.info("Admin get user quota, userId: {}", userId);
 
         UserQuota quota = userQuotaService.getByUserId(userId);
@@ -243,13 +249,14 @@ public class AdminController {
      * 调整用户额度
      *
      * @param request 调整请求
-     * @param token   JWT Token
+     * @param authentication Spring Security 认证对象
      * @return 空结果
      */
     @PutMapping("/users/quota")
     public Result<Void> updateUserQuota(@Valid @RequestBody UserQuotaUpdateRequest request,
-                                         @RequestHeader("Authorization") String token) {
-        checkAdminPermission(token);
+                                         Authentication authentication) {
+        Long adminUserId = (Long) authentication.getPrincipal();
+        checkAdminPermission(adminUserId);
         log.info("Admin update user quota, userId: {}", request.getUserId());
 
         UserQuota quota = userQuotaService.getByUserId(request.getUserId());
@@ -280,11 +287,11 @@ public class AdminController {
     /**
      * 校验管理员权限
      *
-     * @param token JWT Token
+     * @param userId 用户ID
      */
-    private void checkAdminPermission(String token) {
-        Long userId = jwtUtil.getUserIdFromToken(token);
-        Integer role = jwtUtil.getRoleFromToken(token);
+    private void checkAdminPermission(Long userId) {
+        SysUser user = sysUserService.getById(userId);
+        Integer role = user != null ? user.getRole() : null;
         if (role == null || role != UserRoleConstants.ROLE_ADMIN) {
             log.warn("Non-admin user access denied, userId: {}, role: {}", userId, role);
             throw new BusinessException("无权限访问");
