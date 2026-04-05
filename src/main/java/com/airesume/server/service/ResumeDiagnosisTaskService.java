@@ -1,5 +1,6 @@
 package com.airesume.server.service;
 
+import com.airesume.server.common.result.PageResult;
 import com.airesume.server.dto.resume.ResumeDiagnosisHistoryResponse;
 import com.airesume.server.dto.resume.ResumeDiagnosisTaskResponse;
 import com.airesume.server.entity.ResumeDiagnosisTask;
@@ -42,11 +43,23 @@ public interface ResumeDiagnosisTaskService extends IService<ResumeDiagnosisTask
     ResumeDiagnosisTaskResponse getTaskById(Long taskId, Long userId);
 
     /**
-     * 查询用户的简历诊断历史记录
+     * 查询用户的简历诊断历史记录（分页）
+     *
+     * @param userId 用户ID
+     * @param pageNum 页码
+     * @param pageSize 每页大小
+     * @return 分页历史记录
+     */
+    PageResult<ResumeDiagnosisHistoryResponse> getHistoryByUserId(Long userId, Integer pageNum, Integer pageSize);
+
+    /**
+     * 查询用户的简历诊断历史记录（不分页，兼容旧版）
      *
      * @param userId 用户ID
      * @return 历史记录列表
+     * @deprecated 请使用分页方法
      */
+    @Deprecated
     List<ResumeDiagnosisHistoryResponse> getHistoryByUserId(Long userId);
 
     /**

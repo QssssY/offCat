@@ -8,8 +8,7 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 /**
- * 面试历史记录响应DTO
- * 用于返回用户的面试历史列表
+ * 面试历史响应
  */
 @Data
 @Builder
@@ -18,12 +17,12 @@ import java.time.LocalDateTime;
 public class InterviewHistoryResponse {
 
     /**
-     * 主键ID
+     * 记录ID
      */
     private Long id;
 
     /**
-     * 会话ID
+     * 会话ID（内部使用，不展示给用户）
      */
     private String sessionId;
 
@@ -33,7 +32,7 @@ public class InterviewHistoryResponse {
     private String jobRole;
 
     /**
-     * 难度级别
+     * 难度等级（1=初级，2=中级，3=高级）
      */
     private Integer difficulty;
 
@@ -43,7 +42,17 @@ public class InterviewHistoryResponse {
     private String difficultyDesc;
 
     /**
-     * 会话状态：0-进行中，1-已结束
+     * 面试模式（normal=普通面试，pressure=压力面试）
+     */
+    private String interviewMode;
+
+    /**
+     * 面试模式描述
+     */
+    private String interviewModeDesc;
+
+    /**
+     * 状态（0=进行中，1=已结束）
      */
     private Integer status;
 
@@ -53,9 +62,14 @@ public class InterviewHistoryResponse {
     private String statusDesc;
 
     /**
-     * AI综合打分（已结束时才有）
+     * 综合评分
      */
     private Integer comprehensiveScore;
+
+    /**
+     * 消息数量
+     */
+    private Integer messageCount;
 
     /**
      * 创建时间

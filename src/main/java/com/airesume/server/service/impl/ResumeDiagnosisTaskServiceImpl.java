@@ -2,6 +2,7 @@ package com.airesume.server.service.impl;
 
 import com.airesume.server.common.constants.ResumeDiagnosisConstants;
 import com.airesume.server.common.exception.BusinessException;
+import com.airesume.server.common.result.PageResult;
 import com.airesume.server.dto.resume.ResumeDiagnosisHistoryResponse;
 import com.airesume.server.dto.resume.ResumeDiagnosisTaskResponse;
 import com.airesume.server.entity.ResumeDiagnosisTask;
@@ -10,6 +11,7 @@ import com.airesume.server.mq.ResumeDiagnosisProducer;
 import com.airesume.server.service.ResumeDiagnosisTaskService;
 import com.airesume.server.service.UserQuotaService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -123,6 +125,22 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
         }
 
         return buildTaskResponse(task);
+    }
+
+    @Override
+    public PageResult<ResumeDiagnosisHistoryResponse> getHistoryByUserId(Long userId, Integer pageNum, Integer pageSize) {
+        LambdaQueryWrapper<ResumeDiagnosisTask> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(ResumeDiagnosisTask::getUserId, userId);
+        wrapper.orderByDesc(ResumeDiagnosisTask::getCreateTime);
+
+        Page<ResumeDiagnosisTask> page = new Page<>(pageNum, pageSize);
+        Page<ResumeDiagnosisTask> resultPage = page(page, wrapper);
+
+        List<ResumeDiagnosisHistoryResponse> list = resultPage.getRecords().stream()
+                .map(this::buildHistoryResponse)
+                .collect(Collectors.toList());
+
+        return PageResult.of(list, resultPage.getTotal(), pageNum, pageSize);
     }
 
     @Override

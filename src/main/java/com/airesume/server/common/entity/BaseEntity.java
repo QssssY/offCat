@@ -5,16 +5,20 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
+import jakarta.persistence.Id;
+import jakarta.persistence.MappedSuperclass;
 import lombok.Data;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
 
 @Data
+@MappedSuperclass
 public class BaseEntity implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
+    @Id
     @TableId(type = IdType.ASSIGN_ID)
     private Long id;
 

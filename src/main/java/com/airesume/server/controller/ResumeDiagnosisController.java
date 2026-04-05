@@ -1,5 +1,6 @@
 package com.airesume.server.controller;
 
+import com.airesume.server.common.result.PageResult;
 import com.airesume.server.common.result.Result;
 import com.airesume.server.dto.resume.ResumeDiagnosisHistoryResponse;
 import com.airesume.server.dto.resume.ResumeDiagnosisTaskResponse;
@@ -61,17 +62,22 @@ public class ResumeDiagnosisController {
     }
 
     /**
-     * 查询当前用户的简历诊断历史记录
+     * 查询当前用户的简历诊断历史记录（分页）
      *
+     * @param pageNum 页码，默认1
+     * @param pageSize 每页大小，默认10
      * @param authentication Spring Security 认证对象
-     * @return 历史记录列表
+     * @return 分页历史记录
      */
     @GetMapping("/history")
-    public Result<List<ResumeDiagnosisHistoryResponse>> getHistory(Authentication authentication) {
+    public Result<PageResult<ResumeDiagnosisHistoryResponse>> getHistory(
+            @RequestParam(defaultValue = "1") Integer pageNum,
+            @RequestParam(defaultValue = "10") Integer pageSize,
+            Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
-        log.info("Get history request, userId: {}", userId);
+        log.info("Get history request, userId: {}, pageNum: {}, pageSize: {}", userId, pageNum, pageSize);
 
-        List<ResumeDiagnosisHistoryResponse> history = resumeDiagnosisTaskService.getHistoryByUserId(userId);
+        PageResult<ResumeDiagnosisHistoryResponse> history = resumeDiagnosisTaskService.getHistoryByUserId(userId, pageNum, pageSize);
         return Result.success(history);
     }
 }
