@@ -3,6 +3,7 @@ com\airesume\server\controller\AdminController.class
 com\airesume\server\entity\UserQuota.class
 com\airesume\server\infrastructure\security\JwtUtil.class
 com\airesume\server\service\InterviewService.class
+com\airesume\server\service\impl\DoubaoInterviewAiServiceImpl$ResponseBody$Choice.class
 com\airesume\server\common\exception\BusinessException.class
 com\airesume\server\dto\resume\ResumeHistoryResponse$ResumeHistoryResponseBuilder.class
 com\airesume\server\controller\AuthController.class
@@ -14,11 +15,14 @@ com\airesume\server\entity\SysUser.class
 com\airesume\server\infrastructure\security\JwtAuthenticationFilter.class
 com\airesume\server\service\ResumeAiService.class
 com\airesume\server\service\impl\DoubaoResumeAiServiceImpl.class
+com\airesume\server\common\util\NetworkDiagnosticUtil.class
+com\airesume\server\service\impl\DoubaoInterviewAiServiceImpl$RequestBody.class
 com\airesume\server\mapper\SysPromptMapper.class
 com\airesume\server\mq\ResumeDiagnosisMessage.class
 com\airesume\server\mq\ResumeDiagnosisMessage$ResumeDiagnosisMessageBuilder.class
 com\airesume\server\infrastructure\security\JwtProperties.class
 com\airesume\server\mq\ResumeDiagnosisConsumer.class
+com\airesume\server\service\impl\DoubaoInterviewAiServiceImpl$ResponseBody$Choice$MessageContent.class
 com\airesume\server\service\SysPromptService.class
 com\airesume\server\service\impl\DoubaoResumeAiServiceImpl$ResponseBody$Choice$MessageContent.class
 com\airesume\server\dto\interview\InterviewHistoryResponse$InterviewHistoryResponseBuilder.class
@@ -26,12 +30,15 @@ com\airesume\server\service\AuthService.class
 com\airesume\server\service\impl\MockInterviewAiServiceImpl.class
 com\airesume\server\entity\SysPrompt.class
 com\airesume\server\dto\resume\ResumeHistoryResponse.class
+com\airesume\server\controller\AiConfigDebugController.class
 com\airesume\server\common\result\ResultCode.class
 com\airesume\server\service\impl\SysUserServiceImpl.class
 com\airesume\server\config\RabbitMQConfig.class
+com\airesume\server\service\impl\DoubaoInterviewAiServiceImpl$1.class
 com\airesume\server\service\impl\InterviewSessionServiceImpl.class
 com\airesume\server\mapper\InterviewChatLogMapper.class
 com\airesume\server\service\InterviewAiService$ChatMessageItem.class
+com\airesume\server\config\RestClientConfig.class
 com\airesume\server\common\result\PageResult.class
 com\airesume\server\service\impl\MockResumeAiServiceImpl.class
 com\airesume\server\entity\InterviewChatLog.class
@@ -45,7 +52,9 @@ com\airesume\server\dto\auth\UserInfoResponse$UserInfoResponseBuilder.class
 com\airesume\server\dto\admin\PromptResponse$PromptResponseBuilder.class
 com\airesume\server\service\impl\AuthServiceImpl.class
 com\airesume\server\common\constants\UserRoleConstants.class
+com\airesume\server\service\impl\DoubaoInterviewAiServiceImpl$StreamRequestBody.class
 com\airesume\server\service\InterviewMessageService.class
+com\airesume\server\service\impl\DoubaoInterviewAiServiceImpl$2.class
 com\airesume\server\service\impl\DoubaoResumeAiServiceImpl$ResponseBody$Choice.class
 com\airesume\server\common\constants\QuotaConstants.class
 com\airesume\server\dto\interview\InterviewHistoryResponse.class
@@ -53,6 +62,7 @@ com\airesume\server\dto\auth\LoginResponse.class
 com\airesume\server\repository\InterviewSessionRepository.class
 com\airesume\server\dto\auth\RegisterRequest.class
 com\airesume\server\mapper\UserQuotaMapper.class
+com\airesume\server\service\impl\DoubaoInterviewAiServiceImpl.class
 com\airesume\server\service\impl\SysPromptServiceImpl.class
 com\airesume\server\mapper\ResumeDiagnosisTaskMapper.class
 com\airesume\server\dto\admin\UserQuotaUpdateRequest.class
@@ -71,6 +81,7 @@ com\airesume\server\dto\admin\UserQuotaResponse.class
 com\airesume\server\common\result\Result.class
 com\airesume\server\common\entity\BaseEntity.class
 com\airesume\server\mq\ResumeDiagnosisProducer.class
+com\airesume\server\service\impl\DoubaoInterviewAiServiceImpl$ResponseBody.class
 com\airesume\server\service\impl\UserQuotaServiceImpl.class
 com\airesume\server\dto\resume\ResumeDiagnosisHistoryResponse.class
 com\airesume\server\config\SecurityConfig.class
@@ -96,6 +107,7 @@ com\airesume\server\mock\MockDiagnosisResultGenerator.class
 com\airesume\server\config\MybatisPlusConfig.class
 com\airesume\server\dto\admin\UserListResponse.class
 com\airesume\server\mapper\SysUserMapper.class
+com\airesume\server\controller\NetworkDiagnosticController.class
 com\airesume\server\dto\auth\UserInfoResponse.class
 com\airesume\server\dto\admin\UserListResponse$UserListResponseBuilder.class
 com\airesume\server\service\impl\DoubaoResumeAiServiceImpl$ResponseBody.class
@@ -104,4 +116,5 @@ com\airesume\server\service\ResumeDiagnosisTaskService.class
 com\airesume\server\service\impl\ResumeDiagnosisTaskServiceImpl.class
 com\airesume\server\common\constants\ResumeDiagnosisConstants.class
 com\airesume\server\dto\resume\ResumeUploadRequest.class
+com\airesume\server\service\impl\DoubaoInterviewAiServiceImpl$Message.class
 com\airesume\server\service\InterviewService$1.class

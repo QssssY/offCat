@@ -6,6 +6,7 @@ F:\Code\ai-resume\server\src\main\java\com\airesume\server\infrastructure\securi
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\common\constants\UserRoleConstants.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\dto\interview\CreateSessionRequest.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\dto\interview\InterviewHistoryResponse.java
+F:\Code\ai-resume\server\src\main\java\com\airesume\server\common\util\NetworkDiagnosticUtil.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\dto\interview\InterviewSessionResponse.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\mapper\InterviewChatLogMapper.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\mock\MockInterviewService.java
@@ -52,6 +53,7 @@ F:\Code\ai-resume\server\src\main\java\com\airesume\server\service\PdfTextExtrac
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\common\result\Result.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\infrastructure\security\JwtUtil.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\service\impl\SysUserServiceImpl.java
+F:\Code\ai-resume\server\src\main\java\com\airesume\server\controller\NetworkDiagnosticController.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\service\impl\MockResumeAiServiceImpl.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\common\constants\PromptConstants.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\service\ResumeAiService.java
@@ -79,6 +81,7 @@ F:\Code\ai-resume\server\src\main\java\com\airesume\server\dto\auth\RegisterRequ
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\dto\admin\UserQuotaUpdateRequest.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\service\InterviewService.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\service\InterviewAiService.java
+F:\Code\ai-resume\server\src\main\java\com\airesume\server\service\impl\DoubaoInterviewAiServiceImpl.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\dto\auth\LoginResponse.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\dto\interview\SendMessageResponse.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\dto\resume\ResumeDiagnosisTaskResponse.java

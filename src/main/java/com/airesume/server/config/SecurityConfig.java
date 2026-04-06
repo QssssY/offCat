@@ -44,6 +44,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/actuator/**").permitAll()
+                        // 网络诊断接口放行 - 用于排查 DNS、代理、端口等网络问题，无需登录
+                        .requestMatchers("/api/diagnostic/**").permitAll()
                         .requestMatchers("/api/resume/**").authenticated()
                         .requestMatchers("/api/interview/**").authenticated()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")

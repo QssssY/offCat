@@ -1,10 +1,26 @@
+# ==========================================
+# AI Resume 项目开发环境配置文件
+# ==========================================
+# 本配置文件仅用于开发环境
+# 会覆盖 application.yml 中的同名配置
+# 生产环境请使用独立的 application-prod.yml
+# ==========================================
+
 spring:
+  # ------------------------------------------
+  # 数据源配置 - MySQL（开发环境）
+  # 【注意】生产环境请修改为生产数据库地址
+  # ------------------------------------------
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/ai_resume?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
     password: 123456
 
+  # ------------------------------------------
+  # Redis 配置（开发环境）
+  # 【注意】生产环境请修改为生产 Redis 地址
+  # ------------------------------------------
   data:
     redis:
       host: localhost
@@ -19,6 +35,10 @@ spring:
           max-idle: 8
           min-idle: 0
 
+  # ------------------------------------------
+  # RabbitMQ 配置（开发环境）
+  # 【注意】生产环境请修改为生产 MQ 地址
+  # ------------------------------------------
   rabbitmq:
     host: localhost
     port: 5672
@@ -26,6 +46,10 @@ spring:
     password: guest
     virtual-host: /
 
+# ------------------------------------------
+# MyBatis-Plus 配置（开发环境）
+# 启用 SQL 日志输出，方便调试
+# ------------------------------------------
 mybatis-plus:
   mapper-locations: classpath*:/mapper/**/*.xml
   type-aliases-package: com.airesume.server.**.entity
@@ -40,19 +64,87 @@ mybatis-plus:
       logic-delete-value: 1
       logic-not-delete-value: 0
 
+# ------------------------------------------
+# 日志配置（开发环境）
+# 开启 debug 级别日志，方便排查问题
+# ------------------------------------------
 logging:
   level:
     com.airesume.server: debug
 
+# ------------------------------------------
+# JWT 配置（开发环境）
+# 【注意】生产环境请更换为强密码
+# ------------------------------------------
 jwt:
   secret: ai-resume-secret-key-2024-jwt-token-secret-for-authentication-production-use
   expiration: 86400000
   header: Authorization
   prefix: "Bearer "
 
+# ------------------------------------------
+# AI 配置（开发环境）
+# ==========================================
+# 【重要】如何切换 Mock / Real 模式？
+# ==========================================
+# 1. 切换到 Mock 模式（不消耗 API 额度，仅用于调试）：
+#    app.ai.mode: mock
+#    app.interview.mode: mock
+#
+# 2. 切换到 Real 模式（调用真实大模型 API）：
+#    app.ai.mode: real
+#    app.interview.mode: real
+#
+# ==========================================
+# 【重要】如何配置 API Key？
+# ==========================================
+# 请设置以下环境变量之一（按优先级）：
+# 1. DOUBAO_API_KEY（豆包专用）
+# 2. API_KEY（通用）
+# 3. AI_API_KEY（通用备选）
+#
+# 示例（Windows）：
+#   set API_KEY=your-volcengine-api-key-here
+#
+# 示例（IDEA 启动配置）：
+#   在 Environment variables 中添加：API_KEY=your-key
+# ==========================================
 app:
   ai:
+    # AI 模式：mock / real
+    # mock: 使用 MockDiagnosisResultGenerator 生成模拟数据
+    # real: 调用 DoubaoResumeAiServiceImpl 真实 API
     mode: real
+
+    # AI 提供商：doubao / qwen / ernie / deepseek / minimax
     provider: doubao
+
+    # API 基础地址
+    # 豆包（火山引擎）：https://ark.cn-beijing.volces.com/api/v3
+    # 留空时会根据 provider 自动选择默认地址
     base-url: https://ark.cn-beijing.volces.com/api/coding/v3
+
+    # 模型名称
+    # 豆包可选模型：
+    #   - doubao-pro-32k（推荐，32K 上下文）
+    #   - Doubao-Seed-2.0-pro（新版模型）
+    #   - doubao-lite-32k（轻量版）
     model: Doubao-Seed-2.0-pro
+
+  # ------------------------------------------
+  # 面试 AI 配置（开发环境）
+  # ------------------------------------------
+  interview:
+    # 面试 AI 模式：mock / real
+    # mock: 使用 MockInterviewService 生成模拟数据
+    # real: 调用 DoubaoInterviewAiServiceImpl 真实 API
+    mode: real
+
+    # 面试 AI 提供商
+    provider: doubao
+
+    # 面试 API 基础地址
+    base-url: https://ark.cn-beijing.volces.com/api/coding/v3
+
+    # 面试模型名称
+    model: Doubao-Seed-2.0-lite

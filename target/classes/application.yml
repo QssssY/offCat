@@ -1,10 +1,23 @@
+# ==========================================
+# AI Resume 项目主配置文件
+# ==========================================
+# 本配置文件为默认配置，适用于所有环境
+# 开发环境特定配置请参考 application-dev.yml
+# ==========================================
+
 spring:
+  # ------------------------------------------
+  # 数据源配置 - MySQL
+  # ------------------------------------------
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/ai_resume?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
     password: 123456
 
+  # ------------------------------------------
+  # Redis 配置 - 缓存和会话管理
+  # ------------------------------------------
   data:
     redis:
       host: localhost
@@ -19,6 +32,10 @@ spring:
           max-idle: 8
           min-idle: 0
 
+  # ------------------------------------------
+  # RabbitMQ 配置 - 异步任务消息队列
+  # 用途：简历诊断任务异步处理
+  # ------------------------------------------
   rabbitmq:
     host: localhost
     port: 5672
@@ -26,6 +43,9 @@ spring:
     password: guest
     virtual-host: /
 
+# ------------------------------------------
+# MyBatis-Plus 配置 - ORM 框架
+# ------------------------------------------
 mybatis-plus:
   mapper-locations: classpath*:/mapper/**/*.xml
   type-aliases-package: com.airesume.server.**.entity
@@ -40,19 +60,81 @@ mybatis-plus:
       logic-delete-value: 1
       logic-not-delete-value: 0
 
+# ------------------------------------------
+# 日志配置
+# ------------------------------------------
 logging:
   level:
     com.airesume.server: debug
 
+# ------------------------------------------
+# JWT 配置 - 身份认证
+# ------------------------------------------
 jwt:
   secret: ai-resume-secret-key-2024-jwt-token-secret-for-authentication-production-use
   expiration: 86400000
   header: Authorization
   prefix: "Bearer "
 
+# ------------------------------------------
+# AI 配置 - 简历诊断模块
+# 用途：控制简历诊断使用 Mock 还是真实 AI
+# ------------------------------------------
 app:
   ai:
+    # AI 模式切换：
+    # - mock: 使用模拟数据（开发调试用，不消耗 API 额度）
+    # - real: 使用真实大模型 API
     mode: real
+
+    # AI 提供商：
+    # - doubao: 豆包（火山引擎）
+    # - qwen: 通义千问
+    # - ernie: 文心一言
+    # - deepseek: DeepSeek
+    # - minimax: MiniMax
     provider: doubao
+
+    # API 基础地址
+    # 豆包（火山引擎）：https://ark.cn-beijing.volces.com/api/v3
+    # 留空时会根据 provider 自动选择默认地址
     base-url: https://ark.cn-beijing.volces.com/api/coding/v3
+
+    # 模型名称
+    # 豆包推荐模型：doubao-pro-32k, Doubao-Seed-2.0-pro
     model: Doubao-Seed-2.0-pro
+
+  # ------------------------------------------
+  # 面试 AI 配置 - 模拟面试模块
+  # 用途：控制模拟面试使用 Mock 还是真实 AI
+  # ------------------------------------------
+  interview:
+    # 面试 AI 模式切换：
+    # - mock: 使用模拟数据（开发调试用）
+    # - real: 使用真实大模型 API
+    mode: real
+
+    # 面试 AI 提供商
+    provider: doubao
+
+    # 面试 API 基础地址
+    base-url: https://ark.cn-beijing.volces.com/api/coding/v3
+
+    # 面试模型名称
+    # 【重要说明：Doubao-Seed-2.0-pro 是 Reasoning 模型】
+    # 该模型的流式输出中，实际文本在 delta.reasoning_content 字段，而非 delta.content 字段
+    # 因此此模型不适合直接用于流式对话场景（reasoning_content 是思维链，不是最终回答）
+    #
+    # 【推荐模型配置】
+    # 方案 A（豆包，推荐）：model: Doubao-pro-4k  /  base-url: https://ark.cn-beijing.volces.com/api/v3
+    # 方案 B（DeepSeek）：  model: deepseek-chat  /  base-url: https://api.deepseek.com
+    # 方案 C（Qwen）：     model: qwen-plus      /  base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    # 方案 D（Ernie）：    model: ernie-4.0-8k   /  base-url: https://qianfan.baidubce.com/v2
+    #
+    # 【Reasoning 模型不适用原因】
+    # - Doubao-Seed-2.0-pro / DeepSeek-R1 等 Reasoning 模型：
+    #   delta.content = ""（始终为空）
+    #   delta.reasoning_content = "用户 / 现在 / 说 / ..."（推理过程，不是最终回答）
+    # - 如果使用 Reasoning 模型，流式输出会全部为空
+    # - 应选择 standard/instruct 类模型（非 Reasoning）
+    model: Doubao-Seed-2.0-lite

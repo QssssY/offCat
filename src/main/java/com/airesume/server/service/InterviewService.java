@@ -228,17 +228,30 @@ public class InterviewService {
         publisher.subscribe(new Subscriber<String>() {
             @Override
             public void onSubscribe(Subscription s) {
+                log.info("[SSE-落库] 【订阅成功】onSubscribe 被调用, subscription={}", s.getClass().getSimpleName());
                 subscriptionRef[0] = s;
                 s.request(Long.MAX_VALUE);
+                log.info("[SSE-落库] 【订阅成功】已发送 request(Long.MAX_VALUE)");
             }
 
             @Override
             public void onNext(String item) {
+                // 【第六层日志】InterviewService 收到上游发射的数据
+                log.info("[SSE-落库] 【第六层-onNext收到】item={}, length={}, currentAccumulatedLength={}",
+                        item == null ? "null" : ("\"" + item + "\""),
+                        item == null ? 0 : item.length(),
+                        fullReply.length());
+                if (item == null || item.isBlank()) {
+                    log.debug("[SSE-落库] onNext 收到空内容，跳过累积");
+                    return;
+                }
                 fullReply.append(item);
+                log.info("[SSE-落库] 【追加后】累积长度 now={}", fullReply.length());
                 try {
                     emitter.send("event: content\ndata: " + item + "\n\n");
+                    log.debug("[SSE-落库] SSE发送成功: {}", item);
                 } catch (IOException e) {
-                    log.warn("SSE发送失败，可能已被客户端断开, error: {}", e.getMessage());
+                    log.warn("[SSE-落库] SSE发送失败，可能已被客户端断开: {}", e.getMessage());
                     if (subscriptionRef[0] != null) {
                         subscriptionRef[0].cancel();
                     }
@@ -248,12 +261,12 @@ public class InterviewService {
             @Override
             public void onError(Throwable t) {
                 if (done.compareAndSet(false, true)) {
-                    log.error("流处理异常", t);
+                    log.error("[SSE-落库] 【第七层-onError】收到错误: {}", t.getMessage(), t);
                     try {
                         emitter.send("event: error\ndata: 流处理异常: " + t.getMessage() + "\n\n");
                         emitter.completeWithError(t);
                     } catch (Exception e) {
-                        log.warn("发送错误事件失败", e);
+                        log.warn("[SSE-落库] 发送错误事件失败", e);
                     }
                 }
             }
@@ -261,21 +274,42 @@ public class InterviewService {
             @Override
             public void onComplete() {
                 if (done.compareAndSet(false, true)) {
+                    String finalContent = fullReply.toString();
+                    log.info("[SSE-落库] 【第八层-onComplete】流结束, 当前累积内容长度: {}, contentPreview: {}",
+                            finalContent.length(),
+                            finalContent.length() > 100 ? finalContent.substring(0, 100) : finalContent);
+
+                    // 【关键修复】空内容不落库，记录明确错误日志
+                    if (finalContent.isBlank()) {
+                        log.error("【严重】AI 流式回复内容为空, sessionId: {}, 不落库", sessionId);
+                        try {
+                            emitter.send("event: error\ndata: AI 回复内容为空，请稍后重试\n\n");
+                            emitter.complete();
+                        } catch (Exception e) {
+                            log.warn("发送空内容错误事件失败", e);
+                        }
+                        return;
+                    }
+
                     try {
                         emitter.send("event: done\ndata: \n\n");
                         emitter.complete();
 
-                        InterviewChatLog assistantMessage = new InterviewChatLog();
-                        assistantMessage.setId(IdWorker.getId());
-                        assistantMessage.setSessionId(sessionId);
-                        assistantMessage.setMessageRole("assistant");
-                        assistantMessage.setContent(fullReply.toString());
-                        assistantMessage.setCreateTime(LocalDateTime.now());
-                        assistantMessage.setUpdateTime(LocalDateTime.now());
-                        assistantMessage.setIsDeleted(0);
-                        interviewMessageRepository.save(assistantMessage);
-                        log.info("assistant回复已落库, sessionId: {}, contentLength: {}", sessionId, fullReply.length());
-
+                        // 落库前再次校验
+                        if (fullReply.length() > 0) {
+                            InterviewChatLog assistantMessage = new InterviewChatLog();
+                            assistantMessage.setId(IdWorker.getId());
+                            assistantMessage.setSessionId(sessionId);
+                            assistantMessage.setMessageRole("assistant");
+                            assistantMessage.setContent(fullReply.toString());
+                            assistantMessage.setCreateTime(LocalDateTime.now());
+                            assistantMessage.setUpdateTime(LocalDateTime.now());
+                            assistantMessage.setIsDeleted(0);
+                            interviewMessageRepository.save(assistantMessage);
+                            log.info("assistant回复已落库, sessionId: {}, contentLength: {}", sessionId, fullReply.length());
+                        } else {
+                            log.error("【严重】落库前发现内容为空, sessionId: {}, 拒绝落库", sessionId);
+                        }
                     } catch (Exception e) {
                         log.error("流结束时保存assistant消息失败", e);
                     }
