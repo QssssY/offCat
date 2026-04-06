@@ -43,3 +43,16 @@ mybatis-plus:
 logging:
   level:
     com.airesume.server: debug
+
+jwt:
+  secret: ai-resume-secret-key-2024-jwt-token-secret-for-authentication-production-use
+  expiration: 86400000
+  header: Authorization
+  prefix: "Bearer "
+
+app:
+  ai:
+    mode: real
+    provider: doubao
+    base-url: https://ark.cn-beijing.volces.com/api/coding/v3
+    model: Doubao-Seed-2.0-pro

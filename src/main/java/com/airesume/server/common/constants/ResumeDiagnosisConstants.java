@@ -41,6 +41,11 @@ public class ResumeDiagnosisConstants {
      */
     public static final String ROUTING_KEY_RESUME_DIAGNOSIS = "routing.key.resume.diagnosis";
 
+    /**
+     * Prompt 场景类型：简历诊断
+     */
+    public static final int SCENARIO_TYPE_RESUME = 2;
+
     private ResumeDiagnosisConstants() {
     }
 }
