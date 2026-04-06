@@ -16,10 +16,18 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.reactivestreams.Publisher;
+import org.reactivestreams.Subscriber;
+import org.reactivestreams.Subscription;
 import java.util.stream.Collectors;
 
 /**
@@ -175,6 +183,105 @@ public class InterviewService {
         return sessions.stream()
                 .map(this::convertToHistoryResponse)
                 .collect(Collectors.toList());
+    }
+
+    public List<InterviewChatLog> getChatLogsForStream(String sessionId, Long userId) {
+        InterviewSession session = interviewSessionRepository.findBySessionIdAndUserId(sessionId, userId)
+                .orElseThrow(() -> new RuntimeException("会话不存在或无权访问"));
+        if (session.getStatus() != 0) {
+            throw new RuntimeException("会话已结束，无法发送消息");
+        }
+        return interviewMessageService.getMessageList(sessionId);
+    }
+
+    public void validateSessionForStream(String sessionId, Long userId) {
+        InterviewSession session = interviewSessionRepository.findBySessionIdAndUserId(sessionId, userId)
+                .orElseThrow(() -> new RuntimeException("会话不存在或无权访问"));
+        if (session.getStatus() != 0) {
+            throw new RuntimeException("会话已结束，无法发送消息");
+        }
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void saveUserMessage(String sessionId, String content) {
+        InterviewChatLog userMessage = new InterviewChatLog();
+        userMessage.setId(IdWorker.getId());
+        userMessage.setSessionId(sessionId);
+        userMessage.setMessageRole("user");
+        userMessage.setContent(content);
+        userMessage.setCreateTime(LocalDateTime.now());
+        userMessage.setUpdateTime(LocalDateTime.now());
+        userMessage.setIsDeleted(0);
+        interviewMessageRepository.save(userMessage);
+        log.debug("用户消息已保存, sessionId: {}", sessionId);
+    }
+
+    public void subscribeAndWriteStream(
+            String sessionId,
+            ResponseBodyEmitter emitter,
+            Publisher<String> publisher,
+            StringBuilder fullReply) throws IOException {
+
+        Subscription[] subscriptionRef = new Subscription[1];
+        AtomicBoolean done = new AtomicBoolean(false);
+
+        publisher.subscribe(new Subscriber<String>() {
+            @Override
+            public void onSubscribe(Subscription s) {
+                subscriptionRef[0] = s;
+                s.request(Long.MAX_VALUE);
+            }
+
+            @Override
+            public void onNext(String item) {
+                fullReply.append(item);
+                try {
+                    emitter.send("event: content\ndata: " + item + "\n\n");
+                } catch (IOException e) {
+                    log.warn("SSE发送失败，可能已被客户端断开, error: {}", e.getMessage());
+                    if (subscriptionRef[0] != null) {
+                        subscriptionRef[0].cancel();
+                    }
+                }
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                if (done.compareAndSet(false, true)) {
+                    log.error("流处理异常", t);
+                    try {
+                        emitter.send("event: error\ndata: 流处理异常: " + t.getMessage() + "\n\n");
+                        emitter.completeWithError(t);
+                    } catch (Exception e) {
+                        log.warn("发送错误事件失败", e);
+                    }
+                }
+            }
+
+            @Override
+            public void onComplete() {
+                if (done.compareAndSet(false, true)) {
+                    try {
+                        emitter.send("event: done\ndata: \n\n");
+                        emitter.complete();
+
+                        InterviewChatLog assistantMessage = new InterviewChatLog();
+                        assistantMessage.setId(IdWorker.getId());
+                        assistantMessage.setSessionId(sessionId);
+                        assistantMessage.setMessageRole("assistant");
+                        assistantMessage.setContent(fullReply.toString());
+                        assistantMessage.setCreateTime(LocalDateTime.now());
+                        assistantMessage.setUpdateTime(LocalDateTime.now());
+                        assistantMessage.setIsDeleted(0);
+                        interviewMessageRepository.save(assistantMessage);
+                        log.info("assistant回复已落库, sessionId: {}, contentLength: {}", sessionId, fullReply.length());
+
+                    } catch (Exception e) {
+                        log.error("流结束时保存assistant消息失败", e);
+                    }
+                }
+            }
+        });
     }
 
     /**

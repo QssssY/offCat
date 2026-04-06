@@ -1,16 +1,26 @@
 package com.airesume.server.controller;
 
+import com.airesume.server.common.constants.InterviewConstants;
+import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.PageResult;
 import com.airesume.server.common.result.Result;
 import com.airesume.server.dto.interview.*;
+import com.airesume.server.entity.InterviewChatLog;
+import com.airesume.server.mapper.InterviewChatLogMapper;
+import com.airesume.server.service.InterviewAiService;
 import com.airesume.server.service.InterviewService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
 
+import java.security.Principal;
 import java.util.List;
+import org.reactivestreams.Publisher;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 /**
  * 模拟面试控制器
@@ -22,6 +32,8 @@ import java.util.List;
 public class InterviewController {
 
     private final InterviewService interviewService;
+    private final InterviewAiService interviewAiService;
+    private final InterviewChatLogMapper interviewChatLogMapper;
 
     /**
      * 创建面试会话
@@ -35,6 +47,72 @@ public class InterviewController {
                 userId, request.getJobRole(), request.getDifficulty());
         InterviewSessionResponse response = interviewService.createSession(userId, request);
         return Result.success(response);
+    }
+
+    /**
+     * 发送消息（流式回复）
+     * 使用SSE实现流式输出
+     */
+    @PostMapping("/session/{sessionId}/message/stream")
+    public ResponseBodyEmitter streamMessage(
+            @PathVariable String sessionId,
+            @RequestBody @Validated SendMessageRequest request,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("收到流式消息请求, userId: {}, sessionId: {}", userId, sessionId);
+
+        ResponseBodyEmitter emitter = new ResponseBodyEmitter(120_000L);
+
+        Authentication authenticationForThread = authentication;
+
+        new Thread(() -> {
+            if (authenticationForThread != null) {
+                SecurityContextHolder.getContext().setAuthentication(authenticationForThread);
+            }
+            StringBuilder fullReply = new StringBuilder();
+            try {
+                List<InterviewChatLog> chatLogs = interviewService.getChatLogsForStream(sessionId, userId);
+                List<InterviewAiService.ChatMessageItem> history = chatLogs.stream()
+                        .map(log -> new InterviewAiService.ChatMessageItem(log.getMessageRole(), log.getContent()))
+                        .toList();
+
+                interviewService.validateSessionForStream(sessionId, userId);
+
+                interviewService.saveUserMessage(sessionId, request.getContent());
+
+                String userMessage = request.getContent();
+
+                Publisher<String> publisher = interviewAiService.generateReplyStream(sessionId, history, userMessage);
+
+                interviewService.subscribeAndWriteStream(sessionId, emitter, publisher, fullReply);
+
+            } catch (BusinessException e) {
+                try {
+                    emitter.send("event: error\ndata: " + e.getMessage() + "\n\n");
+                } catch (Exception ex) {
+                    log.error("发送错误事件失败", ex);
+                }
+                try {
+                    emitter.completeWithError(e);
+                } catch (Exception ex) {
+                    log.error("完成emitter失败", ex);
+                }
+            } catch (Exception e) {
+                log.error("流式处理异常, sessionId: {}", sessionId, e);
+                try {
+                    emitter.send("event: error\ndata: 系统异常: " + e.getMessage() + "\n\n");
+                } catch (Exception ex) {
+                    log.error("发送异常事件失败", ex);
+                }
+                try {
+                    emitter.completeWithError(e);
+                } catch (Exception ex) {
+                    log.error("完成emitter失败", ex);
+                }
+            }
+        }, "sse-interview-" + sessionId).start();
+
+        return emitter;
     }
 
     /**

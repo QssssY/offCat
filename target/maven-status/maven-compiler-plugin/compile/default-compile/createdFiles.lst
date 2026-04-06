@@ -104,3 +104,4 @@ com\airesume\server\service\ResumeDiagnosisTaskService.class
 com\airesume\server\service\impl\ResumeDiagnosisTaskServiceImpl.class
 com\airesume\server\common\constants\ResumeDiagnosisConstants.class
 com\airesume\server\dto\resume\ResumeUploadRequest.class
+com\airesume\server\service\InterviewService$1.class

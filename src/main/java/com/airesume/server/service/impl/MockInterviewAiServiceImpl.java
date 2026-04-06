@@ -6,9 +6,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
+import reactor.core.scheduler.Schedulers;
 
 import java.util.List;
-import java.util.stream.Collectors;
+import org.reactivestreams.Publisher;
 
 @Service("interviewAiService")
 @Slf4j
@@ -32,6 +34,33 @@ public class MockInterviewAiServiceImpl implements InterviewAiService {
 
         int messageCount = history == null ? 0 : history.size();
         return mockInterviewService.generateMockReply(sessionId, userMessage, messageCount);
+    }
+
+    @Override
+    public Publisher<String> generateReplyStream(String sessionId, List<ChatMessageItem> history, String userMessage) {
+        log.info("[MOCK] 流式生成面试官回复, sessionId: {}, historySize: {}",
+                sessionId, history == null ? 0 : history.size());
+
+        int messageCount = history == null ? 0 : history.size();
+        String fullReply = mockInterviewService.generateMockReply(sessionId, userMessage, messageCount);
+
+        return Flux.<String>create(sink -> {
+            for (int i = 0; i < fullReply.length(); i++) {
+                sink.next(fullReply.substring(i, i + 1));
+                if (Thread.currentThread().isInterrupted()) {
+                    sink.error(new RuntimeException("流式输出被中断"));
+                    return;
+                }
+                try {
+                    Thread.sleep(20);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    sink.error(new RuntimeException("流式输出被中断"));
+                    return;
+                }
+            }
+            sink.complete();
+        }).subscribeOn(Schedulers.boundedElastic());
     }
 
     @Override
