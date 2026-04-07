@@ -121,20 +121,13 @@ app:
     base-url: https://ark.cn-beijing.volces.com/api/coding/v3
 
     # 面试模型名称
-    # 【重要说明：Doubao-Seed-2.0-pro 是 Reasoning 模型】
-    # 该模型的流式输出中，实际文本在 delta.reasoning_content 字段，而非 delta.content 字段
-    # 因此此模型不适合直接用于流式对话场景（reasoning_content 是思维链，不是最终回答）
-    #
-    # 【推荐模型配置】
-    # 方案 A（豆包，推荐）：model: Doubao-pro-4k  /  base-url: https://ark.cn-beijing.volces.com/api/v3
-    # 方案 B（DeepSeek）：  model: deepseek-chat  /  base-url: https://api.deepseek.com
-    # 方案 C（Qwen）：     model: qwen-plus      /  base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
-    # 方案 D（Ernie）：    model: ernie-4.0-8k   /  base-url: https://qianfan.baidubce.com/v2
-    #
-    # 【Reasoning 模型不适用原因】
-    # - Doubao-Seed-2.0-pro / DeepSeek-R1 等 Reasoning 模型：
-    #   delta.content = ""（始终为空）
-    #   delta.reasoning_content = "用户 / 现在 / 说 / ..."（推理过程，不是最终回答）
-    # - 如果使用 Reasoning 模型，流式输出会全部为空
-    # - 应选择 standard/instruct 类模型（非 Reasoning）
+    # 【推荐模型】
+    # - Doubao-pro-4k（非Reasoning）：base-url: https://ark.cn-beijing.volces.com/api/v3, model: Doubao-pro-4k
+    # - Doubao-Seed-2.0-lite：base-url: https://ark.cn-beijing.volces.com/api/v3, model: Doubao-Seed-2.0-lite
+    # - DeepSeek-chat：base-url: https://api.deepseek.com, model: deepseek-chat
     model: Doubao-Seed-2.0-lite
+
+    # 是否开启流式详细调试日志
+    # - false（默认）：只打印关键日志（版本指纹、首个content到达、最终统计报告、异常）
+    # - true：打印逐行追踪日志（reasoning_content、◆发射、行汇总等），用于排查问题时开启
+    stream-debug-log: false

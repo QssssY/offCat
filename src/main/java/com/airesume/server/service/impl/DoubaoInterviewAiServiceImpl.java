@@ -264,6 +264,15 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
      * @param userMessage 当前用户消息
      * @return Publisher<String> 逐条输出的文本片段流
      */
+    /**
+     * 是否开启流式调试日志（详细逐行日志）
+     * - true：输出逐行追踪日志（reasoning_content、◆发射、行汇总等）
+     * - false（默认）：只输出关键生命周期日志和异常日志
+     * 通过 application.yml 中 app.interview.stream-debug-log 配置
+     */
+    @Value("${app.interview.stream-debug-log:false}")
+    private boolean streamDebugLog;
+
     @Override
     public Publisher<String> generateReplyStream(String sessionId, List<ChatMessageItem> history, String userMessage) {
         // 【版本指纹】全项目唯一字符串，用于确认运行时代码是否为最新版本
@@ -285,6 +294,16 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
 
         StreamRequestBody reqBody = new StreamRequestBody(model, messages, true);
 
+        // 【关键日志】证明 thinking 参数已显式设置关闭思考模式
+        log.info("[INTERVIEW-REAL] ═══════════════════════════════════════════════");
+        log.info("[INTERVIEW-REAL] ║  流式请求参数验证  ║");
+        log.info("[INTERVIEW-REAL] ═══════════════════════════════════════════════");
+        log.info("[INTERVIEW-REAL] 请求地址: {}{}", resolvedBaseUrl, endpoint);
+        log.info("[INTERVIEW-REAL] model: {}", model);
+        log.info("[INTERVIEW-REAL] stream: {}", reqBody.stream);
+        log.info("[INTERVIEW-REAL] thinking.type: {} (disabled=已关闭思考模式)", reqBody.thinking.type);
+        log.info("[INTERVIEW-REAL] ═══════════════════════════════════════════════");
+
         // 【第一层】WebClient 发起请求，返回原始 SSE 行流（按 '\n' 分割）
         Flux<String> rawLineFlux = webClient.post()
                 .uri(endpoint)
@@ -295,13 +314,15 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
                 .publishOn(Schedulers.boundedElastic());
 
         // 【统计计数器】
-        AtomicInteger totalLines = new AtomicInteger(0);       // 总行数
-        AtomicInteger parsedJsonLines = new AtomicInteger(0);// 成功解析为 JSON 的行数
-        AtomicInteger contentChunkCount = new AtomicInteger(0);// delta.content 非空 chunk 数
-        AtomicInteger reasoningChunkCount = new AtomicInteger(0); // delta.reasoning_content 非空 chunk 数
-        AtomicInteger emittedCount = new AtomicInteger(0);     // 实际 sink.next() 发射次数
-        AtomicInteger parseErrorCount = new AtomicInteger(0); // JSON 解析失败次数
-        AtomicInteger skippedCount = new AtomicInteger(0);    // 跳过的行数
+        AtomicInteger totalLines = new AtomicInteger(0);
+        AtomicInteger parsedJsonLines = new AtomicInteger(0);
+        AtomicInteger contentChunkCount = new AtomicInteger(0);
+        AtomicInteger reasoningChunkCount = new AtomicInteger(0);
+        AtomicInteger emittedCount = new AtomicInteger(0);
+        AtomicInteger parseErrorCount = new AtomicInteger(0);
+        AtomicInteger skippedCount = new AtomicInteger(0);
+        // 记录首个 content chunk 到达时间（用于判断流是否正常开始）
+        AtomicBoolean firstContentArrived = new AtomicBoolean(false);
 
         // 【第三层】Flux.create() + 匿名 Subscriber 逐行处理
         return Flux.create(sink -> {
@@ -319,9 +340,6 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
                     try {
                         int lineNo = totalLines.incrementAndGet();
 
-                        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                        // 【规范化步骤】将原始行转为可解析的 JSON 字符串
-                        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                         String normalizedJson = null;
                         boolean isComment = false;
                         boolean isDone = false;
@@ -330,7 +348,7 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
 
                         // 步骤1：null / blank → 跳过
                         if (rawLine == null || rawLine.isBlank()) {
-                            log.debug("[INTERVIEW-REAL] 【跳过-空白行】lineNo={}", lineNo);
+                            if (streamDebugLog) log.debug("[INTERVIEW-REAL] 【跳过-空白行】lineNo={}", lineNo);
                             skippedCount.incrementAndGet();
                             upstream.request(1);
                             return;
@@ -339,7 +357,7 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
                         // 步骤2：以 ":" 开头 → SSE 注释行（如 ": ping"）
                         if (rawLine.startsWith(":")) {
                             isComment = true;
-                            log.debug("[INTERVIEW-REAL] 【跳过-注释行】lineNo={}, content={}", lineNo, rawLine);
+                            if (streamDebugLog) log.debug("[INTERVIEW-REAL] 【跳过-注释行】lineNo={}", lineNo);
                             skippedCount.incrementAndGet();
                             upstream.request(1);
                             return;
@@ -348,7 +366,7 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
                         // 步骤3：等于 "[DONE]" → SSE 结束标记
                         if ("[DONE]".equals(rawLine.trim())) {
                             isDone = true;
-                            log.info("[INTERVIEW-REAL] 【收到DONE】lineNo={}", lineNo);
+                            if (streamDebugLog) log.debug("[INTERVIEW-REAL] 【收到DONE】lineNo={}", lineNo);
                             upstream.request(1);
                             return;
                         }
@@ -359,41 +377,35 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
                             String json = rawLine.substring("data:".length()).trim();
                             if ("[DONE]".equals(json)) {
                                 isDone = true;
-                                log.info("[INTERVIEW-REAL] 【收到DONE（data:前缀）】lineNo={}", lineNo);
+                                if (streamDebugLog) log.debug("[INTERVIEW-REAL] 【收到DONE（data:前缀）】lineNo={}", lineNo);
                                 upstream.request(1);
                                 return;
                             }
                             normalizedJson = json;
                         }
                         // 步骤5：不以 "data:" 开头，但以 "{" 开头 → 纯 JSON 格式
-                        // 这是当前豆包接口实际返回的格式
                         else if (rawLine.trim().startsWith("{")) {
                             isPureJson = true;
                             normalizedJson = rawLine.trim();
                         }
                         // 步骤6：其余情况 → 未知格式，跳过
                         else {
-                            log.debug("[INTERVIEW-REAL] 【跳过-未知格式】lineNo={}, preview={}", lineNo,
+                            if (streamDebugLog) log.debug("[INTERVIEW-REAL] 【跳过-未知格式】lineNo={}, preview={}", lineNo,
                                     rawLine.length() > 80 ? rawLine.substring(0, 80) : rawLine);
                             skippedCount.incrementAndGet();
                             upstream.request(1);
                             return;
                         }
 
-                        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                        // 【JSON 解析步骤】从 normalizedJson 提取 delta.content / delta.reasoning_content
-                        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                        // 【JSON 解析步骤】
                         JsonNode root;
                         try {
                             root = objectMapper.readTree(normalizedJson);
                             parsedJsonLines.incrementAndGet();
                         } catch (Exception e) {
                             int errCount = parseErrorCount.incrementAndGet();
-                            log.warn("[INTERVIEW-REAL] 【JSON解析失败】lineNo={}, preview={}, error={}, 累计错误={}",
-                                    lineNo,
-                                    normalizedJson.length() > 80 ? normalizedJson.substring(0, 80) : normalizedJson,
-                                    e.getMessage(),
-                                    errCount);
+                            log.warn("[INTERVIEW-REAL] 【JSON解析失败】lineNo={}, error={}, 累计错误={}",
+                                    lineNo, e.getMessage(), errCount);
                             upstream.request(1);
                             return;
                         }
@@ -401,7 +413,7 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
                         // 提取 delta
                         JsonNode choices = root.path("choices");
                         if (choices.isMissingNode() || !choices.isArray() || choices.isEmpty()) {
-                            log.debug("[INTERVIEW-REAL] 【跳过-无choices】lineNo={}", lineNo);
+                            if (streamDebugLog) log.debug("[INTERVIEW-REAL] 【跳过-无choices】lineNo={}", lineNo);
                             skippedCount.incrementAndGet();
                             upstream.request(1);
                             return;
@@ -409,7 +421,7 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
 
                         JsonNode delta = choices.get(0).path("delta");
                         if (delta.isMissingNode()) {
-                            log.debug("[INTERVIEW-REAL] 【跳过-无delta】lineNo={}", lineNo);
+                            if (streamDebugLog) log.debug("[INTERVIEW-REAL] 【跳过-无delta】lineNo={}", lineNo);
                             skippedCount.incrementAndGet();
                             upstream.request(1);
                             return;
@@ -425,13 +437,8 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
                         if (hasContent) contentChunkCount.incrementAndGet();
                         if (hasReasoning) reasoningChunkCount.incrementAndGet();
 
-                        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                        // 【决策步骤】reasoning_content 只写日志，content 才发给下游
-                        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                        boolean emitted = false;
-
-                        if (hasReasoning) {
-                            // reasoning_content 是思维链，仅记录，禁止发给前端
+                        // 【决策步骤】reasoning_content 只写调试日志（if streamDebugLog），content 才发给下游
+                        if (hasReasoning && streamDebugLog) {
                             String reasoningText = reasoningNode.asText();
                             log.info("[INTERVIEW-REAL] 【reasoning_content】lineNo={}, format={}, length={}, preview={}, 【不发给前端】",
                                     lineNo,
@@ -441,27 +448,30 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
                         }
 
                         if (hasContent) {
-                            // 只有 delta.content 才发给前端和落库
                             String contentText = contentNode.asText();
-                            log.info("[INTERVIEW-REAL] 【◆发射】lineNo={}, format={}, content={}, length={}",
-                                    lineNo,
-                                    isDataPrefix ? "SSE" : (isPureJson ? "纯JSON" : "其他"),
-                                    contentText,
-                                    contentText.length());
+                            // 【关键日志】首个 content 到达时才打印 INFO（表示流正常开始）
+                            if (firstContentArrived.compareAndSet(false, true)) {
+                                log.info("[INTERVIEW-REAL] 【首个content到达】lineNo={}, preview={}", lineNo, contentText);
+                            }
+                            // 详细逐行发射日志（仅在开启调试时打印）
+                            if (streamDebugLog) {
+                                log.info("[INTERVIEW-REAL] 【◆发射】lineNo={}, format={}, content={}, length={}",
+                                        lineNo,
+                                        isDataPrefix ? "SSE" : (isPureJson ? "纯JSON" : "其他"),
+                                        contentText,
+                                        contentText.length());
+                            }
                             sink.next(contentText);
                             emittedCount.incrementAndGet();
-                            emitted = true;
                         }
 
-                        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                        // 【每行汇总日志】完整的逐行追踪
-                        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                        log.info("[INTERVIEW-REAL] 【行汇总】lineNo={}, format={}, hasContent={}, hasReasoning={}, emitted={}, preview={}",
-                                lineNo,
-                                isDataPrefix ? "SSE" : (isPureJson ? "纯JSON" : "其他"),
-                                hasContent, hasReasoning, emitted,
-                                (normalizedJson != null && normalizedJson.length() > 60)
-                                        ? normalizedJson.substring(0, 60) : (normalizedJson != null ? normalizedJson : ""));
+                        // 【每行汇总日志】仅在开启调试时打印
+                        if (streamDebugLog) {
+                            log.info("[INTERVIEW-REAL] 【行汇总】lineNo={}, format={}, hasContent={}, hasReasoning={}, emitted={}",
+                                    lineNo,
+                                    isDataPrefix ? "SSE" : (isPureJson ? "纯JSON" : "其他"),
+                                    hasContent, hasReasoning, hasContent);
+                        }
 
                         upstream.request(1);
 
@@ -473,16 +483,13 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
 
                 @Override
                 public void onError(Throwable t) {
-                    log.error("[INTERVIEW-REAL] 【第七层-WebClient错误】type={}, message={}",
+                    log.error("[INTERVIEW-REAL] 【WebClient错误】type={}, message={}",
                             t.getClass().getSimpleName(), t.getMessage());
                     sink.error(t);
                 }
 
                 @Override
                 public void onComplete() {
-                    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                    // 【第八层-最终统计报告】
-                    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                     int total = totalLines.get();
                     int parsed = parsedJsonLines.get();
                     int cCount = contentChunkCount.get();
@@ -498,16 +505,13 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
                     log.info("║          【流式处理完成-最终统计报告 V3】                   ║");
                     log.info("╠══════════════════════════════════════════════════════════════╣");
                     log.info("║  模型: {}", model);
-                    log.info("║  ────────────────────────────────────────────");
                     log.info("║  总接收行数:              {}", total);
                     log.info("║  成功解析JSON的行数:     {}", parsed);
                     log.info("║  跳过的行数:             {}", skipped);
                     log.info("║  JSON解析失败次数:       {}", errors);
-                    log.info("║  ────────────────────────────────────────────");
                     log.info("║  delta.content 非空chunk: {}", cCount);
                     log.info("║  reasoning_content 非空:  {}", rCount);
                     log.info("║  实际发给下游次数:       {}", emitted);
-                    log.info("║  ────────────────────────────────────────────");
                     log.info("║  结论: {}", conclusion);
                     log.info("╚══════════════════════════════════════════════════════════════╝");
                     log.info("");
@@ -772,7 +776,14 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
         );
 
         try {
-            log.debug("[INTERVIEW-REAL] 请求地址: {}{}", resolvedBaseUrl, endpoint);
+            // 【关键日志】打印完整请求参数，证明 thinking 参数已随请求发送
+            log.info("[INTERVIEW-REAL] ═══════════════════════════════════════════════");
+            log.info("[INTERVIEW-REAL] ║  非流式请求参数验证  ║");
+            log.info("[INTERVIEW-REAL] ═══════════════════════════════════════════════");
+            log.info("[INTERVIEW-REAL] 请求地址: {}{}", resolvedBaseUrl, endpoint);
+            log.info("[INTERVIEW-REAL] model: {}", model);
+            log.info("[INTERVIEW-REAL] thinking.type: {} (disabled=已关闭思考模式)", request.thinking.type);
+            log.info("[INTERVIEW-REAL] ═══════════════════════════════════════════════");
             ResponseBody response = restClient.post()
                     .uri(endpoint)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
@@ -813,7 +824,14 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
         request.messages = messages;
 
         try {
-            log.debug("[INTERVIEW-REAL] 请求地址: {}{}", resolvedBaseUrl, endpoint);
+            // 【关键日志】打印完整请求参数，证明 thinking 参数已随请求发送
+            log.info("[INTERVIEW-REAL] ═══════════════════════════════════════════════");
+            log.info("[INTERVIEW-REAL] ║  多轮对话请求参数验证  ║");
+            log.info("[INTERVIEW-REAL] ═══════════════════════════════════════════════");
+            log.info("[INTERVIEW-REAL] 请求地址: {}{}", resolvedBaseUrl, endpoint);
+            log.info("[INTERVIEW-REAL] model: {}", model);
+            log.info("[INTERVIEW-REAL] thinking.type: {} (disabled=已关闭思考模式)", request.thinking.type);
+            log.info("[INTERVIEW-REAL] ═══════════════════════════════════════════════");
             ResponseBody response = restClient.post()
                     .uri(endpoint)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
@@ -1026,24 +1044,57 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
 
     /**
      * 非流式请求体
+     *
+     * 【thinking 参数说明】
+     * - 豆包 API 支持通过 thinking.type 控制模型是否开启深度思考模式
+     * - type = "enabled": 开启深度思考（默认）
+     * - type = "disabled": 关闭深度思考
+     * - 官方文档：https://www.volcengine.com/docs/82379/1285207
      */
     private static class RequestBody {
         public String model;
         public List<Message> messages;
+        public Thinking thinking;
+
+        public RequestBody() {
+            // 【关键修复】显式关闭思考模式，不依赖模型选择
+            this.thinking = new Thinking("disabled");
+        }
     }
 
     /**
-     * 流式请求体（包含 stream 标志）
+     * 流式请求体（包含 stream 标志和 thinking 控制）
+     *
+     * 【thinking 参数说明】
+     * - 豆包 API 支持通过 thinking.type 控制模型是否开启深度思考模式
+     * - type = "enabled": 开启深度思考（默认）
+     * - type = "disabled": 关闭深度思考
+     * - 官方文档：https://www.volcengine.com/docs/82379/1285207
      */
     private static class StreamRequestBody {
         public String model;
         public List<Message> messages;
         public boolean stream = true;
+        public Thinking thinking;
 
         public StreamRequestBody(String model, List<Message> messages, boolean stream) {
             this.model = model;
             this.messages = messages;
             this.stream = stream;
+            // 【关键修复】显式关闭思考模式，不依赖模型选择
+            this.thinking = new Thinking("disabled");
+        }
+    }
+
+    /**
+     * thinking 配置对象
+     * 用于控制模型是否开启深度思考模式
+     */
+    private static class Thinking {
+        public String type;
+
+        public Thinking(String type) {
+            this.type = type;
         }
     }
 

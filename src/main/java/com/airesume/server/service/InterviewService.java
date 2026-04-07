@@ -228,30 +228,29 @@ public class InterviewService {
         publisher.subscribe(new Subscriber<String>() {
             @Override
             public void onSubscribe(Subscription s) {
-                log.info("[SSE-落库] 【订阅成功】onSubscribe 被调用, subscription={}", s.getClass().getSimpleName());
+                // 【订阅成功】仅打印一次，表示下游已就绪
+                log.info("[SSE-落库] 订阅成功，开始接收流数据");
                 subscriptionRef[0] = s;
                 s.request(Long.MAX_VALUE);
-                log.info("[SSE-落库] 【订阅成功】已发送 request(Long.MAX_VALUE)");
             }
 
             @Override
             public void onNext(String item) {
-                // 【第六层日志】InterviewService 收到上游发射的数据
-                log.info("[SSE-落库] 【第六层-onNext收到】item={}, length={}, currentAccumulatedLength={}",
-                        item == null ? "null" : ("\"" + item + "\""),
-                        item == null ? 0 : item.length(),
-                        fullReply.length());
+                // 【收到 chunk】跳过空内容，避免无效累积
                 if (item == null || item.isBlank()) {
-                    log.debug("[SSE-落库] onNext 收到空内容，跳过累积");
                     return;
                 }
                 fullReply.append(item);
-                log.info("[SSE-落库] 【追加后】累积长度 now={}", fullReply.length());
                 try {
-                    emitter.send("event: content\ndata: " + item + "\n\n");
-                    log.debug("[SSE-落库] SSE发送成功: {}", item);
+                    // 【修改】统一结构化 JSON 格式，不再发送裸文本
+                    // 格式：event: message\ndata: {"type":"content","content":"文本内容"}\n\n
+                    // content 中可能包含特殊字符，需要 JSON 转义
+                    String escapedContent = escapeJsonForSse(item);
+                    String jsonData = "{\"type\":\"content\",\"content\":\"" + escapedContent + "\"}";
+                    emitter.send("event: message\ndata: " + jsonData + "\n\n");
                 } catch (IOException e) {
-                    log.warn("[SSE-落库] SSE发送失败，可能已被客户端断开: {}", e.getMessage());
+                    // 客户端可能已断开（如页面切换），取消订阅
+                    log.warn("[SSE-落库] SSE发送失败，客户端可能已断开: {}", e.getMessage());
                     if (subscriptionRef[0] != null) {
                         subscriptionRef[0].cancel();
                     }
@@ -263,7 +262,9 @@ public class InterviewService {
                 if (done.compareAndSet(false, true)) {
                     log.error("[SSE-落库] 【第七层-onError】收到错误: {}", t.getMessage(), t);
                     try {
-                        emitter.send("event: error\ndata: 流处理异常: " + t.getMessage() + "\n\n");
+                        // 【修改】统一结构化 JSON 格式
+                        String jsonData = "{\"type\":\"error\",\"message\":\"" + escapeJsonForSse(t.getMessage()) + "\"}";
+                        emitter.send("event: message\ndata: " + jsonData + "\n\n");
                         emitter.completeWithError(t);
                     } catch (Exception e) {
                         log.warn("[SSE-落库] 发送错误事件失败", e);
@@ -283,7 +284,9 @@ public class InterviewService {
                     if (finalContent.isBlank()) {
                         log.error("【严重】AI 流式回复内容为空, sessionId: {}, 不落库", sessionId);
                         try {
-                            emitter.send("event: error\ndata: AI 回复内容为空，请稍后重试\n\n");
+                            // 【修改】统一结构化 JSON 格式
+                            String jsonData = "{\"type\":\"error\",\"message\":\"AI 回复内容为空，请稍后重试\"}";
+                            emitter.send("event: message\ndata: " + jsonData + "\n\n");
                             emitter.complete();
                         } catch (Exception e) {
                             log.warn("发送空内容错误事件失败", e);
@@ -292,7 +295,9 @@ public class InterviewService {
                     }
 
                     try {
-                        emitter.send("event: done\ndata: \n\n");
+                        // 【修改】统一结构化 JSON 格式
+                        String jsonData = "{\"type\":\"done\"}";
+                        emitter.send("event: message\ndata: " + jsonData + "\n\n");
                         emitter.complete();
 
                         // 落库前再次校验
@@ -421,5 +426,35 @@ public class InterviewService {
             default:
                 return "未知";
         }
+    }
+
+    /**
+     * SSE JSON 内容转义
+     *
+     * 【背景】
+     * SSE 的 data 字段传输 JSON 字符串时，字符串内容必须经过转义
+     * 否则特殊字符（如换行、引号、反斜杠）会导致 JSON 解析失败
+     *
+     * 【转义规则】
+     * - \ → \\ (反斜杠)
+     * - " → \" (双引号)
+     * - \n → \\n (换行)
+     * - \r → \\r (回车)
+     * - \t → \\t (制表符)
+     *
+     * @param raw 原始文本
+     * @return 转义后的文本，可安全嵌入 JSON 字符串
+     */
+    private String escapeJsonForSse(String raw) {
+        if (raw == null || raw.isEmpty()) {
+            return raw;
+        }
+        // 按顺序转义：先转义反斜杠（避免把后续转义的字符又转义）
+        return raw
+                .replace("\\", "\\\\")   // 反斜杠
+                .replace("\"", "\\\"")   // 双引号
+                .replace("\n", "\\n")    // 换行
+                .replace("\r", "\\r")    // 回车
+                .replace("\t", "\\t");   // 制表符
     }
 }

@@ -174,7 +174,14 @@ public class DoubaoResumeAiServiceImpl implements ResumeAiService {
         );
 
         try {
-            log.debug("[{}] 请求地址: {}{}", tag, resolvedBaseUrl, endpoint);
+            // 【关键日志】打印完整请求参数，证明 thinking 参数已随请求发送
+            log.info("[{}] ═══════════════════════════════════════════════", tag);
+            log.info("[{}] ║  简历诊断请求参数验证  ║", tag);
+            log.info("[{}] ═══════════════════════════════════════════════", tag);
+            log.info("[{}] 请求地址: {}{}", tag, resolvedBaseUrl, endpoint);
+            log.info("[{}] model: {}", tag, model);
+            log.info("[{}] thinking.type: {} (disabled=已关闭思考模式)", tag, request.thinking.type);
+            log.info("[{}] ═══════════════════════════════════════════════", tag);
             ResponseBody response = restClient.post()
                     .uri(endpoint)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
@@ -386,10 +393,34 @@ public class DoubaoResumeAiServiceImpl implements ResumeAiService {
 
     /**
      * API 请求体
+     *
+     * 【thinking 参数说明】
+     * - 豆包 API 支持通过 thinking.type 控制模型是否开启深度思考模式
+     * - type = "enabled": 开启深度思考（默认）
+     * - type = "disabled": 关闭深度思考
+     * - 官方文档：https://www.volcengine.com/docs/82379/1285207
      */
     private static class RequestBody {
         public String model;
         public List<Message> messages;
+        public Thinking thinking;
+
+        public RequestBody() {
+            // 【关键修复】显式关闭思考模式，不依赖模型选择
+            this.thinking = new Thinking("disabled");
+        }
+    }
+
+    /**
+     * thinking 配置对象
+     * 用于控制模型是否开启深度思考模式
+     */
+    private static class Thinking {
+        public String type;
+
+        public Thinking(String type) {
+            this.type = type;
+        }
     }
 
     /**
