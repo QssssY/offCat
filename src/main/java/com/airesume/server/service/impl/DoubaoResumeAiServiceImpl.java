@@ -292,6 +292,7 @@ public class DoubaoResumeAiServiceImpl implements ResumeAiService {
                 - 不要在JSON外添加任何markdown代码块标记（如 ``` json）
                 - JSON字段必须完整，所有数组和对象都要正确闭合
                 - 如果简历中缺少某项信息，对应字段返回null或空数组，不要编造内容
+                - basicInfoDetails 字段必须从简历原文中提取真实值，提取不到返回空字符串
                 """;
     }
 
@@ -325,6 +326,15 @@ public class DoubaoResumeAiServiceImpl implements ResumeAiService {
                     "hasGithub": 是否有GitHub链接(true或false),
                     "hasBlog": 是否有博客链接(true或false),
                     "suggestions": ["针对基本信息格式的建议1", "建议2"]
+                  },
+                  "basicInfoDetails": {
+                    "name": "姓名（从简历原文中提取，提取不到返回空字符串）",
+                    "email": "邮箱（从简历原文中提取，提取不到返回空字符串）",
+                    "phone": "电话（从简历原文中提取，提取不到返回空字符串）",
+                    "location": "所在地（从简历原文中提取，提取不到返回空字符串）",
+                    "currentCompany": "当前公司（从简历原文中提取，提取不到返回空字符串）",
+                    "github": "GitHub链接（从简历原文中提取，提取不到返回空字符串）",
+                    "blog": "博客/网站链接（从简历原文中提取，提取不到返回空字符串）"
                   },
                   "skillEvaluation": {
                     "score": 分数(0-100整数),
@@ -365,6 +375,11 @@ public class DoubaoResumeAiServiceImpl implements ResumeAiService {
                   },
                   "optimizationSuggestions": ["综合优化建议1", "优化建议2", "优化建议3"]
                 }
+
+                【重要提示】basicInfoDetails 字段必须严格从简历原文中提取：
+                - 能提取到真实值则返回真实内容
+                - 提取不到则返回空字符串 ""
+                - 绝对不要编造或猜测任何内容
                 """;
     }
 
