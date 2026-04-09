@@ -8,6 +8,7 @@ import com.airesume.server.mock.MockInterviewService;
 import com.airesume.server.repository.InterviewMessageRepository;
 import com.airesume.server.repository.InterviewSessionRepository;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -42,6 +43,8 @@ public class InterviewService {
     private final InterviewMessageService interviewMessageService;
     private final MockInterviewService mockInterviewService;
     private final InterviewMessageRepository interviewMessageRepository;
+    private final InterviewAiService interviewAiService;
+    private final ObjectMapper objectMapper;
 
     /**
      * 创建面试会话
@@ -130,6 +133,9 @@ public class InterviewService {
 
     /**
      * 结束面试
+     *
+     * 【修复说明】
+     * 优先使用真实 AI 生成评价报告，失败时降级为 Mock 数据
      */
     @Transactional(rollbackFor = Exception.class)
     public void endSession(Long userId, String sessionId) {
@@ -146,11 +152,48 @@ public class InterviewService {
         session.setStatus(1);
         session.setUpdateTime(LocalDateTime.now());
 
-        // 生成综合评分和评价报告
-        int score = mockInterviewService.generateMockScore(sessionId);
-        String evaluationReport = mockInterviewService.generateMockEvaluationReport(sessionId, score);
+        // 获取历史对话记录（用于 AI 评价）
+        List<InterviewChatLog> chatLogs = interviewMessageService.getMessageList(sessionId);
+        List<InterviewAiService.ChatMessageItem> history = chatLogs.stream()
+                .map(log -> new InterviewAiService.ChatMessageItem(log.getMessageRole(), log.getContent()))
+                .toList();
+
+        log.info("开始生成面试评价, sessionId: {}, 历史消息数: {}", sessionId, history.size());
+
+        // 【核心逻辑】优先调用真实 AI 生成评价，失败时降级为 Mock
+        Integer score = null;
+        String evaluationReportJson = null;
+
+        try {
+            // 调用真实 AI 生成结构化评价报告
+            com.airesume.server.dto.interview.InterviewEvaluationReport report =
+                    interviewAiService.generateEvaluationReport(
+                            sessionId,
+                            history,
+                            session.getJobRole(),
+                            session.getDifficulty(),
+                            session.getInterviewMode()
+                    );
+
+            score = report.getOverallScore();
+            evaluationReportJson = objectMapper.writeValueAsString(report);
+
+            log.info("AI 评价报告生成成功, sessionId: {}, score: {}", sessionId, score);
+
+        } catch (Exception e) {
+            log.warn("AI 评价生成失败，降级使用 Mock 数据, sessionId: {}, error: {}",
+                    sessionId, e.getMessage());
+
+            // 降级为 Mock 数据
+            score = mockInterviewService.generateMockScore(sessionId);
+            evaluationReportJson = mockInterviewService.generateMockEvaluationReport(sessionId, score);
+
+            log.info("Mock 评价报告生成成功, sessionId: {}, score: {}", sessionId, score);
+        }
+
+        // 设置评分和报告
         session.setComprehensiveScore(score);
-        session.setEvaluationReport(evaluationReport);
+        session.setEvaluationReport(evaluationReportJson);
 
         interviewSessionRepository.save(session);
 

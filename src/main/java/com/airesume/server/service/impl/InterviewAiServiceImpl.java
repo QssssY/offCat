@@ -1,5 +1,6 @@
 package com.airesume.server.service.impl;
 
+import com.airesume.server.dto.interview.InterviewEvaluationReport;
 import com.airesume.server.service.InterviewAiService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -14,6 +15,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Schedulers;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -618,20 +620,341 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     }
 
     /**
-     * 生成面试评价报告
-     * 【注意】当前尚未实现，调用会抛出 UnsupportedOperationException
+     * 生成面试评价报告（旧版兼容，返回字符串JSON）
+     * 【注意】已废弃，请使用 generateEvaluationReport 方法
      *
      * @param sessionId 会话 ID
      * @param history   历史消息列表
      * @return 评价结果（包含分数和报告）
-     * @throws UnsupportedOperationException 当前未实现时抛出
+     * @deprecated 请使用 generateEvaluationReport 方法
      */
     @Override
+    @Deprecated
     public EvaluationResult generateEvaluation(String sessionId, List<ChatMessageItem> history) {
         String tag = provider.toUpperCase();
-        log.info("[{}] 生成面试评价, sessionId: {}, historySize: {}",
+        log.info("[{}] 调用旧版评价接口, sessionId: {}, historySize: {}",
                 tag, sessionId, history == null ? 0 : history.size());
-        throw new UnsupportedOperationException("真实 AI 评价功能尚未实现");
+        // 调用新版方法并转换为旧版格式
+        InterviewEvaluationReport report = generateEvaluationReport(sessionId, history, "软件工程师", 2, "normal");
+        try {
+            String jsonReport = objectMapper.writeValueAsString(report);
+            return new EvaluationResult(report.getOverallScore(), jsonReport);
+        } catch (Exception e) {
+            log.error("[{}] 序列化评价报告失败", tag, e);
+            throw new RuntimeException("评价报告序列化失败", e);
+        }
+    }
+
+    /**
+     * 生成面试评价报告（新版，返回结构化对象）
+     *
+     * 【核心实现】
+     * 1. 构建严格的大厂标准评价提示词
+     * 2. 传入完整面试对话历史
+     * 3. 要求 AI 按指定 JSON 格式返回
+     * 4. 解析 AI 返回并构建结构化对象
+     *
+     * @param sessionId     会话 ID
+     * @param history       历史消息列表
+     * @param jobRole       面试岗位
+     * @param difficulty    难度级别
+     * @param interviewMode 面试模式
+     * @return 结构化评价报告
+     */
+    @Override
+    public InterviewEvaluationReport generateEvaluationReport(
+            String sessionId,
+            List<ChatMessageItem> history,
+            String jobRole,
+            Integer difficulty,
+            String interviewMode
+    ) {
+        String tag = provider.toUpperCase();
+        log.info("[{}] ═══════════════════════════════════════════════", tag);
+        log.info("[{}] ║  开始生成 AI 面试评价报告  ║", tag);
+        log.info("[{}] ═══════════════════════════════════════════════", tag);
+        log.info("[{}] sessionId: {}, jobRole: {}, difficulty: {}, mode: {}, historySize: {}",
+                tag, sessionId, jobRole, difficulty, interviewMode,
+                history == null ? 0 : history.size());
+
+        // 1. 构建评价提示词和对话上下文
+        String systemPrompt = buildEvaluationSystemPrompt(jobRole, difficulty, interviewMode);
+        String userPrompt = buildEvaluationUserPrompt(history);
+
+        // 2. 调用 AI 生成评价
+        String aiResponse = chat(systemPrompt, userPrompt);
+        log.info("[{}] AI 评价原始响应长度: {}", tag, aiResponse == null ? 0 : aiResponse.length());
+
+        // 3. 解析 AI 返回的 JSON
+        InterviewEvaluationReport report = parseEvaluationResponse(aiResponse);
+
+        // 4. 计算综合分数（从各维度平均得出）
+        calculateOverallScore(report);
+
+        // 5. 兼容旧版字段映射
+        mapLegacyFields(report);
+
+        log.info("[{}] 评价报告生成完成, overallScore: {}, hireRecommendation: {}",
+                tag, report.getOverallScore(), report.getHireRecommendation());
+
+        return report;
+    }
+
+    /**
+     * 构建评价系统提示词
+     *
+     * 【评价标准】
+     * - 严格按照大厂（字节/阿里/腾讯/美团）招聘标准
+     * - 不做鼓励式表扬，实事求是
+     * - 直接指出基础不扎实、答非所问、项目不清等问题
+     * - 评分宁可保守，不要虚高
+     */
+    private String buildEvaluationSystemPrompt(String jobRole, Integer difficulty, String interviewMode) {
+        String difficultyDesc = switch (difficulty == null ? 2 : difficulty) {
+            case 1 -> "初级（1-3年经验）";
+            case 3 -> "高级（5年以上经验）";
+            default -> "中级（3-5年经验）";
+        };
+        String modeDesc = "stress".equalsIgnoreCase(interviewMode) ? "压力面试" : "普通面试";
+
+        return """
+                你是一位经验丰富的大厂技术面试官，擅长严格评估候选人的真实水平。
+
+                【评估背景】
+                - 面试岗位：%s
+                - 难度级别：%s
+                - 面试模式：%s
+
+                【评价原则（必须严格遵守）】
+                1. 严格标准：按照字节/阿里/腾讯/美团等一线大厂的真实招聘标准评估
+                2. 实事求是：不做鼓励式表扬，不因为回答篇幅长而加分
+                3. 直接尖锐：若发现基础不扎实、答非所问、项目描述不清、逻辑混乱、缺乏深度，必须直接指出，不要含糊其辞
+                4. 保守评分：评分宁可偏低，不要虚高。60分以下表示未达到录用门槛
+                5. 录用决策：以真实招聘视角判断是否建议进入下一轮，不要放水
+
+                【评分标准（0-100分）】
+                - 90-100：S级，远超预期，可直接录用
+                - 80-89：A级，表现优秀，强烈推荐进入下一轮
+                - 70-79：B级，基本达标，可考虑进入下一轮
+                - 60-69：C级，勉强及格，需要综合考量
+                - 0-59：D级，未达到录用标准，建议淘汰
+
+                【输出要求】
+                请严格按照以下 JSON 格式输出，不要包含任何其他文本说明：
+                {
+                  "overallScore": 综合评分0-100,
+                  "level": "S/A/B/C/D",
+                  "finalVerdict": "最终结论一句话",
+                  "summary": "总体评价200字以内",
+                  "strengths": ["优势1", "优势2"],
+                  "weaknesses": ["短板1", "短板2"],
+                  "criticalIssues": ["严重问题1", "严重问题2"],
+                  "questionPerformance": [
+                    {
+                      "question": "面试官问题",
+                      "answer": "候选人回答",
+                      "score": 0-100,
+                      "comment": "评价",
+                      "knowledgeTags": ["知识点1", "知识点2"]
+                    }
+                  ],
+                  "technicalDepth": {"score": 0-100, "comment": "评价"},
+                  "communication": {"score": 0-100, "comment": "评价"},
+                  "problemSolving": {"score": 0-100, "comment": "评价"},
+                  "pressureResistance": {"score": 0-100, "comment": "评价"},
+                  "jobMatch": {"score": 0-100, "comment": "评价"},
+                  "hireRecommendation": "强烈推荐/推荐/待定/不推荐",
+                  "improvementSuggestions": ["建议1", "建议2"],
+                  "redFlags": ["红旗警示1", "红旗警示2"],
+                  "missingCompetencies": ["缺失能力1", "缺失能力2"],
+                  "inflationRisk": "低/中/高 - 说明",
+                  "answerAuthenticity": "可信/存疑/不可信 - 说明",
+                  "interviewPerformanceTags": ["标签1", "标签2"],
+                  "passProbability": 0-100,
+                  "rejectionReasons": ["拒录理由1", "拒录理由2"]
+                }
+
+                注意：
+                - 所有字段必须返回，无内容时返回空数组或空字符串
+                - level 根据 overallScore 自动判定：>=90为S，>=80为A，>=70为B，>=60为C，<60为D
+                - hireRecommendation：>=80强烈推荐，>=70推荐，>=60待定，<60不推荐
+                - passProbability：与overallScore保持一致
+                - questionPerformance 至少记录前3轮对话的表现
+                """.formatted(jobRole, difficultyDesc, modeDesc);
+    }
+
+    /**
+     * 构建评价用户提示词（包含完整对话历史）
+     */
+    private String buildEvaluationUserPrompt(List<ChatMessageItem> history) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("以下是完整的面试对话记录，请根据上述标准进行严格评估：\n\n");
+
+        if (history != null && !history.isEmpty()) {
+            int round = 1;
+            for (ChatMessageItem item : history) {
+                String role = "user".equalsIgnoreCase(item.role()) ? "候选人" : "面试官";
+                sb.append("【").append(role).append("】\n");
+                sb.append(item.content()).append("\n\n");
+                if ("面试官".equals(role)) {
+                    round++;
+                }
+            }
+        } else {
+            sb.append("（暂无对话记录）\n");
+        }
+
+        sb.append("请输出 JSON 格式的评价报告。");
+        return sb.toString();
+    }
+
+    /**
+     * 解析 AI 返回的评价报告 JSON
+     *
+     * 【容错处理】
+     * - AI 可能在 JSON 前后添加额外文本
+     * - 尝试提取第一个 { 到最后一个 } 之间的内容
+     * - 解析失败时返回默认报告
+     */
+    private InterviewEvaluationReport parseEvaluationResponse(String aiResponse) {
+        String tag = provider.toUpperCase();
+        if (aiResponse == null || aiResponse.isBlank()) {
+            log.warn("[{}] AI 返回空响应，使用默认评价报告", tag);
+            return buildDefaultEvaluationReport();
+        }
+
+        // 尝试提取 JSON 部分（去除 AI 可能添加的额外文本）
+        String jsonContent = extractJsonFromResponse(aiResponse);
+        log.debug("[{}] 提取的 JSON 内容长度: {}", tag, jsonContent.length());
+
+        try {
+            InterviewEvaluationReport report = objectMapper.readValue(jsonContent, InterviewEvaluationReport.class);
+            log.info("[{}] 评价报告 JSON 解析成功", tag);
+            return report;
+        } catch (Exception e) {
+            log.error("[{}] 评价报告 JSON 解析失败，使用默认报告: {}", tag, e.getMessage());
+            log.debug("[{}] 解析失败的 JSON 内容: {}", tag, jsonContent);
+            return buildDefaultEvaluationReport();
+        }
+    }
+
+    /**
+     * 从 AI 响应中提取 JSON 内容
+     */
+    private String extractJsonFromResponse(String response) {
+        // 找到第一个 { 和最后一个 }
+        int firstBrace = response.indexOf('{');
+        int lastBrace = response.lastIndexOf('}');
+        if (firstBrace >= 0 && lastBrace > firstBrace) {
+            return response.substring(firstBrace, lastBrace + 1);
+        }
+        return response;
+    }
+
+    /**
+     * 构建默认评价报告（当 AI 调用失败时使用）
+     */
+    private InterviewEvaluationReport buildDefaultEvaluationReport() {
+        return InterviewEvaluationReport.builder()
+                .overallScore(60)
+                .level("C")
+                .finalVerdict("评价生成失败，暂无结论")
+                .summary("系统未能生成评价报告，请稍后重试或查看原始对话记录。")
+                .strengths(new ArrayList<>())
+                .weaknesses(new ArrayList<>())
+                .criticalIssues(new ArrayList<>())
+                .questionPerformance(new ArrayList<>())
+                .technicalDepth(InterviewEvaluationReport.DimensionScore.builder().score(60).comment("暂无").build())
+                .communication(InterviewEvaluationReport.DimensionScore.builder().score(60).comment("暂无").build())
+                .problemSolving(InterviewEvaluationReport.DimensionScore.builder().score(60).comment("暂无").build())
+                .pressureResistance(InterviewEvaluationReport.DimensionScore.builder().score(60).comment("暂无").build())
+                .jobMatch(InterviewEvaluationReport.DimensionScore.builder().score(60).comment("暂无").build())
+                .hireRecommendation("待定")
+                .improvementSuggestions(new ArrayList<>())
+                .redFlags(new ArrayList<>())
+                .missingCompetencies(new ArrayList<>())
+                .inflationRisk("暂无")
+                .answerAuthenticity("暂无")
+                .interviewPerformanceTags(new ArrayList<>())
+                .passProbability(60)
+                .rejectionReasons(new ArrayList<>())
+                .build();
+    }
+
+    /**
+     * 计算综合分数（从各维度平均得出）
+     */
+    private void calculateOverallScore(InterviewEvaluationReport report) {
+        if (report.getOverallScore() != null && report.getOverallScore() > 0) {
+            // AI 已返回总分，直接使用
+            return;
+        }
+
+        // 从各维度计算平均分
+        int total = 0;
+        int count = 0;
+
+        if (report.getTechnicalDepth() != null && report.getTechnicalDepth().getScore() != null) {
+            total += report.getTechnicalDepth().getScore();
+            count++;
+        }
+        if (report.getCommunication() != null && report.getCommunication().getScore() != null) {
+            total += report.getCommunication().getScore();
+            count++;
+        }
+        if (report.getProblemSolving() != null && report.getProblemSolving().getScore() != null) {
+            total += report.getProblemSolving().getScore();
+            count++;
+        }
+        if (report.getPressureResistance() != null && report.getPressureResistance().getScore() != null) {
+            total += report.getPressureResistance().getScore();
+            count++;
+        }
+        if (report.getJobMatch() != null && report.getJobMatch().getScore() != null) {
+            total += report.getJobMatch().getScore();
+            count++;
+        }
+
+        if (count > 0) {
+            int avgScore = total / count;
+            report.setOverallScore(avgScore);
+            report.setPassProbability(avgScore);
+        }
+
+        // 确保 level 字段正确
+        if (report.getLevel() == null || report.getLevel().isBlank()) {
+            int score = report.getOverallScore() != null ? report.getOverallScore() : 60;
+            if (score >= 90) report.setLevel("S");
+            else if (score >= 80) report.setLevel("A");
+            else if (score >= 70) report.setLevel("B");
+            else if (score >= 60) report.setLevel("C");
+            else report.setLevel("D");
+        }
+    }
+
+    /**
+     * 映射旧版前端字段（兼容处理）
+     */
+    private void mapLegacyFields(InterviewEvaluationReport report) {
+        // 旧版 dimensions 字段
+        com.fasterxml.jackson.databind.node.ObjectNode dimensions = objectMapper.createObjectNode();
+        if (report.getTechnicalDepth() != null) {
+            dimensions.put("technicalDepth", report.getTechnicalDepth().getScore());
+        }
+        if (report.getCommunication() != null) {
+            dimensions.put("communication", report.getCommunication().getScore());
+        }
+        if (report.getProblemSolving() != null) {
+            dimensions.put("problemSolving", report.getProblemSolving().getScore());
+        }
+        dimensions.put("systemDesign", report.getTechnicalDepth() != null ? report.getTechnicalDepth().getScore() : 60);
+        report.setDimensions(dimensions);
+
+        // 旧版 suggestions 字段 = improvementSuggestions
+        report.setSuggestions(new ArrayList<>(report.getImprovementSuggestions()));
+
+        // 旧版 improvements 字段 = weaknesses
+        report.setImprovements(new ArrayList<>(report.getWeaknesses()));
     }
 
     /**

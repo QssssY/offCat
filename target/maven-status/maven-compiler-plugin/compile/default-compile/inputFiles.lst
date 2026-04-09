@@ -15,6 +15,7 @@ F:\Code\ai-resume\server\src\main\java\com\airesume\server\service\UserQuotaServ
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\dto\admin\UserQuotaResponse.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\common\result\PageResult.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\entity\SysPrompt.java
+F:\Code\ai-resume\server\src\main\java\com\airesume\server\dto\resume\ResumeDiagnosisResult.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\common\exception\BusinessException.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\entity\SysUser.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\service\InterviewSessionService.java
@@ -25,6 +26,7 @@ F:\Code\ai-resume\server\src\main\java\com\airesume\server\controller\AdminContr
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\common\result\ResultCode.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\entity\InterviewSession.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\service\ResumeDiagnosisTaskService.java
+F:\Code\ai-resume\server\src\main\java\com\airesume\server\dto\interview\InterviewEvaluationReport.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\service\InterviewMessageService.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\config\MybatisPlusConfig.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\dto\admin\PromptResponse.java
@@ -38,7 +40,6 @@ F:\Code\ai-resume\server\src\main\java\com\airesume\server\service\impl\UserQuot
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\config\RabbitMQConfig.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\repository\InterviewMessageRepository.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\repository\ResumeTaskRepository.java
-F:\Code\ai-resume\server\src\main\java\com\airesume\server\service\impl\DoubaoResumeAiServiceImpl.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\controller\AiConfigDebugController.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\mapper\InterviewSessionMapper.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\service\impl\MockInterviewAiServiceImpl.java
@@ -66,11 +67,13 @@ F:\Code\ai-resume\server\src\main\java\com\airesume\server\mq\ResumeDiagnosisPro
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\config\RestClientConfig.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\common\entity\BaseEntity.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\dto\interview\SendMessageRequest.java
+F:\Code\ai-resume\server\src\main\java\com\airesume\server\service\ResumeInfoExtractor.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\mapper\UserQuotaMapper.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\common\constants\ResumeDiagnosisConstants.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\dto\resume\ResumeUploadRequest.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\ServerApplication.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\common\exception\GlobalExceptionHandler.java
+F:\Code\ai-resume\server\src\main\java\com\airesume\server\service\impl\InterviewAiServiceImpl.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\dto\interview\ChatMessageResponse.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\dto\resume\ResumeDiagnosisHistoryResponse.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\config\MyMetaObjectHandler.java
@@ -81,7 +84,7 @@ F:\Code\ai-resume\server\src\main\java\com\airesume\server\dto\auth\RegisterRequ
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\dto\admin\UserQuotaUpdateRequest.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\service\InterviewService.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\service\InterviewAiService.java
-F:\Code\ai-resume\server\src\main\java\com\airesume\server\service\impl\DoubaoInterviewAiServiceImpl.java
+F:\Code\ai-resume\server\src\main\java\com\airesume\server\service\impl\ResumeAiServiceImpl.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\dto\auth\LoginResponse.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\dto\interview\SendMessageResponse.java
 F:\Code\ai-resume\server\src\main\java\com\airesume\server\dto\resume\ResumeDiagnosisTaskResponse.java
