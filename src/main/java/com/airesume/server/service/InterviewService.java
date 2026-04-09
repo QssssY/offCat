@@ -51,6 +51,9 @@ public class InterviewService {
         // 参数校验
         validateCreateRequest(request);
 
+        // 处理面试模式，默认 normal
+        String interviewMode = resolveInterviewMode(request.getInterviewMode());
+
         // 创建会话
         InterviewSession session = new InterviewSession();
         // 手动分配雪花算法 ID（JPA 不会自动处理 MyBatis-Plus 的 ASSIGN_ID）
@@ -59,6 +62,7 @@ public class InterviewService {
         session.setSessionId(UUID.randomUUID().toString().replace("-", ""));
         session.setJobRole(request.getJobRole());
         session.setDifficulty(request.getDifficulty());
+        session.setInterviewMode(interviewMode);
 
         // 设置状态为进行中
         session.setStatus(0);
@@ -336,6 +340,37 @@ public class InterviewService {
     }
 
     /**
+     * 解析并校验面试模式
+     *
+     * @param interviewMode 前端传入的面试模式
+     * @return 标准化后的面试模式，默认返回 normal
+     */
+    private String resolveInterviewMode(String interviewMode) {
+        if (interviewMode == null || interviewMode.isBlank()) {
+            return "normal";
+        }
+        String lowerMode = interviewMode.toLowerCase().trim();
+        // 只允许 normal 或 stress，其他值兜底为 normal
+        if ("stress".equals(lowerMode)) {
+            return "stress";
+        }
+        return "normal";
+    }
+
+    /**
+     * 获取面试模式描述
+     *
+     * @param interviewMode 面试模式
+     * @return 面试模式描述
+     */
+    private String getInterviewModeDescription(String interviewMode) {
+        if ("stress".equals(interviewMode)) {
+            return "压力面试";
+        }
+        return "普通面试";
+    }
+
+    /**
      * 转换为会话响应
      */
     private InterviewSessionResponse convertToSessionResponse(InterviewSession session) {
@@ -346,6 +381,8 @@ public class InterviewService {
                 .jobRole(session.getJobRole())
                 .difficulty(session.getDifficulty())
                 .difficultyDesc(convertDifficultyToDesc(session.getDifficulty()))
+                .interviewMode(session.getInterviewMode())
+                .interviewModeDesc(getInterviewModeDescription(session.getInterviewMode()))
                 .status(session.getStatus())
                 .statusDesc(session.getStatus() != null && session.getStatus() == 0 ? "进行中" : "已结束")
                 .comprehensiveScore(session.getComprehensiveScore())
@@ -376,6 +413,8 @@ public class InterviewService {
                 .jobRole(session.getJobRole())
                 .difficulty(session.getDifficulty())
                 .difficultyDesc(convertDifficultyToDesc(session.getDifficulty()))
+                .interviewMode(session.getInterviewMode())
+                .interviewModeDesc(getInterviewModeDescription(session.getInterviewMode()))
                 .status(session.getStatus())
                 .statusDesc(session.getStatus() != null && session.getStatus() == 0 ? "进行中" : "已结束")
                 .comprehensiveScore(session.getComprehensiveScore())
@@ -392,14 +431,20 @@ public class InterviewService {
         // 获取消息数量
         Integer messageCount = interviewMessageService.getMessageCount(session.getSessionId());
 
+        // 获取面试模式，兼容旧数据（null 时返回 normal）
+        String interviewMode = session.getInterviewMode();
+        if (interviewMode == null || interviewMode.isBlank()) {
+            interviewMode = "normal";
+        }
+
         return InterviewHistoryResponse.builder()
                 .id(session.getId())
                 .sessionId(session.getSessionId())
                 .jobRole(session.getJobRole())
                 .difficulty(session.getDifficulty())
                 .difficultyDesc(convertDifficultyToDesc(session.getDifficulty()))
-                .interviewMode("normal")
-                .interviewModeDesc("普通面试")
+                .interviewMode(interviewMode)
+                .interviewModeDesc(getInterviewModeDescription(interviewMode))
                 .status(session.getStatus())
                 .statusDesc(session.getStatus() != null && session.getStatus() == 0 ? "进行中" : "已结束")
                 .comprehensiveScore(session.getComprehensiveScore())

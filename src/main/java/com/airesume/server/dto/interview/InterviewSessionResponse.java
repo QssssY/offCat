@@ -49,6 +49,16 @@ public class InterviewSessionResponse {
     private String difficultyDesc;
 
     /**
+     * 面试模式：normal-普通面试，stress-压力面试
+     */
+    private String interviewMode;
+
+    /**
+     * 面试模式描述
+     */
+    private String interviewModeDesc;
+
+    /**
      * 会话状态：0-进行中，1-已结束
      */
     private Integer status;

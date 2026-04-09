@@ -22,4 +22,9 @@ public class CreateSessionRequest {
      */
     @NotNull(message = "难度级别不能为空")
     private Integer difficulty;
+
+    /**
+     * 面试模式：normal-普通面试，stress-压力面试
+     */
+    private String interviewMode;
 }

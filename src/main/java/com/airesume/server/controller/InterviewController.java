@@ -43,8 +43,8 @@ public class InterviewController {
             @RequestBody @Validated CreateSessionRequest request,
             Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
-        log.info("创建面试会话, userId: {}, 岗位: {}, 难度: {}",
-                userId, request.getJobRole(), request.getDifficulty());
+        log.info("创建面试会话, userId: {}, 岗位: {}, 难度: {}, 模式: {}",
+                userId, request.getJobRole(), request.getDifficulty(), request.getInterviewMode());
         InterviewSessionResponse response = interviewService.createSession(userId, request);
         return Result.success(response);
     }
