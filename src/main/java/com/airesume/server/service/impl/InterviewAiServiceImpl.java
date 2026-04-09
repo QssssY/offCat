@@ -11,16 +11,9 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.reactive.function.client.WebClientRequestException;
-import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Schedulers;
 
-import java.net.BindException;
-import java.net.ConnectException;
-import java.net.NoRouteToHostException;
-import java.net.SocketTimeoutException;
-import java.net.UnknownHostException;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -30,16 +23,15 @@ import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 
 /**
- * 豆包模拟面试 AI 服务实现类（真实 AI 模式）
+ * 模拟面试 AI 服务实现类（真实 AI 模式）
  *
  * 所属模块：模拟面试模块 - AI 接入层
- * 职责：调用豆包大模型 API 生成面试官回复、开场白、评价报告
+ * 职责：调用大模型 API 生成面试官回复、开场白、评价报告
  * 激活条件：当 app.interview.mode=real 时激活
  *
  * 【重要】baseUrl 配置说明：
  * - 优先使用配置文件中的 app.interview.base-url
  * - 仅当配置为空时才使用代码默认值
- * - 当前用户配置的 baseUrl：https://ark.cn-beijing.volces.com/api/coding/v3
  * - 本类不会擅自修改用户配置的 baseUrl
  *
  * 【URL 拼接说明】
@@ -52,7 +44,7 @@ import org.reactivestreams.Subscription;
 @Service("interviewAiService")
 @Slf4j
 @ConditionalOnProperty(name = "app.interview.mode", havingValue = "real")
-public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
+public class InterviewAiServiceImpl implements InterviewAiService {
 
     private final RestClient restClient;
     private final WebClient webClient;
@@ -62,6 +54,16 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
     private final String resolvedBaseUrl;
     private final String endpoint;
     private final ObjectMapper objectMapper;
+    private final String thinkingMode;
+
+    /**
+     * 是否开启流式调试日志（详细逐行日志）
+     * - true：输出逐行追踪日志（reasoning_content、◆发射、行汇总等）
+     * - false（默认）：只输出关键生命周期日志和异常日志
+     * 通过 application.yml 中 app.interview.stream-debug-log 配置
+     */
+    @Value("${app.interview.stream-debug-log:false}")
+    private boolean streamDebugLog;
 
     /**
      * 构造函数，初始化模拟面试 AI 服务
@@ -78,22 +80,26 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
      * - endpoint
      * - 完整请求地址（baseUrl + endpoint）
      * - model
+     * - thinking-mode
      *
      * @param provider           AI 提供商（从配置 app.interview.provider 读取，默认 doubao）
      * @param configuredBaseUrl  API 基础地址（从配置 app.interview.base-url 读取，用户原始配置）
      * @param model             模型名称（从配置 app.interview.model 读取）
+     * @param thinkingMode      思考模式（从配置 app.interview.thinking-mode 读取，默认 none）
      * @param restClientBuilder RestClient 构造器
      * @param objectMapper      JSON 解析工具
      */
-    public DoubaoInterviewAiServiceImpl(
+    public InterviewAiServiceImpl(
             @Value("${app.interview.provider:doubao}") String provider,
             @Value("${app.interview.base-url:}") String configuredBaseUrl,
             @Value("${app.interview.model:}") String model,
+            @Value("${app.interview.thinking-mode:none}") String thinkingMode,
             RestClient.Builder restClientBuilder,
             ObjectMapper objectMapper) {
         this.provider = provider == null ? "doubao" : provider.toLowerCase();
         this.model = model;
         this.configuredBaseUrl = configuredBaseUrl;
+        this.thinkingMode = thinkingMode;
         this.objectMapper = objectMapper;
 
         // 【重要】优先使用用户配置的 baseUrl，仅当配置为空时才使用默认值
@@ -124,7 +130,64 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
         log.info("[{}] endpoint: {}", tag, this.endpoint);
         log.info("[{}] 完整请求地址: {}{}", tag, this.resolvedBaseUrl, this.endpoint);
         log.info("[{}] model: {}", tag, this.model);
+        log.info("[{}] thinking-mode: {}", tag, this.thinkingMode);
         log.info("============================================================");
+    }
+
+    /**
+     * 判断当前模型是否支持 thinking 参数
+     *
+     * 【支持的模型列表】
+     * - 豆包 Doubao-Seed-2.0 系列模型
+     *
+     * @param modelName 模型名称
+     * @return true 表示支持，false 表示不支持
+     */
+    private boolean supportsThinking(String modelName) {
+        if (modelName == null) return false;
+        String lowerModel = modelName.toLowerCase();
+        // 豆包 Doubao-Seed-2.0 系列模型支持 thinking 参数
+        return lowerModel.contains("doubao-seed-2.0");
+    }
+
+    /**
+     * 根据配置和模型支持情况构建 thinking 配置
+     *
+     * 【配置含义】
+     * - enabled：显式开启思考模式；仅模型支持时传 thinking.type=enabled
+     * - disabled：显式关闭思考模式；仅模型支持时传 thinking.type=disabled
+     * - none：不传 thinking 参数
+     *
+     * @param modelName 模型名称
+     * @param thinkingModeConfig 配置的 thinking-mode
+     * @return Thinking 对象，或 null（表示不传该字段）
+     */
+    private Thinking buildThinkingConfig(String modelName, String thinkingModeConfig) {
+        boolean modelSupportsThinking = supportsThinking(modelName);
+
+        // 配置为 none，直接返回 null
+        if ("none".equalsIgnoreCase(thinkingModeConfig)) {
+            return null;
+        }
+
+        // 模型不支持 thinking，但配置了 enabled 或 disabled
+        if (!modelSupportsThinking) {
+            log.warn("[{}] 当前模型 {} 不支持 thinking 参数，已忽略配置: {}",
+                    provider.toUpperCase(), modelName, thinkingModeConfig);
+            return null;
+        }
+
+        // 模型支持，根据配置返回对应的 thinking 对象
+        if ("enabled".equalsIgnoreCase(thinkingModeConfig)) {
+            return new Thinking("enabled");
+        } else if ("disabled".equalsIgnoreCase(thinkingModeConfig)) {
+            return new Thinking("disabled");
+        }
+
+        // 未知配置值，返回 null
+        log.warn("[{}] 未知的 thinking-mode 配置: {}, 使用 none",
+                provider.toUpperCase(), thinkingModeConfig);
+        return null;
     }
 
     /**
@@ -200,7 +263,8 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
      */
     @Override
     public String generateOpening(String jobRole, Integer difficulty) {
-        log.info("[INTERVIEW-REAL] 生成面试开场白, jobRole: {}, difficulty: {}", jobRole, difficulty);
+        String tag = provider.toUpperCase();
+        log.info("[{}] 生成面试开场白, jobRole: {}, difficulty: {}", tag, jobRole, difficulty);
         String systemPrompt = buildSystemPrompt(jobRole, difficulty);
         String userPrompt = buildOpeningUserPrompt(jobRole, difficulty);
         return chat(systemPrompt, userPrompt);
@@ -218,8 +282,9 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
      */
     @Override
     public String generateReply(String sessionId, List<ChatMessageItem> history, String userMessage) {
-        log.info("[INTERVIEW-REAL] 生成面试官回复, sessionId: {}, historySize: {}, userMessageLength: {}",
-                sessionId, history == null ? 0 : history.size(),
+        String tag = provider.toUpperCase();
+        log.info("[{}] 生成面试官回复, sessionId: {}, historySize: {}, userMessageLength: {}",
+                tag, sessionId, history == null ? 0 : history.size(),
                 userMessage == null ? 0 : userMessage.length());
 
         List<Message> messages = buildConversationMessages(history, userMessage, null);
@@ -227,7 +292,7 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
         try {
             return chatWithMessages(messages);
         } catch (Exception e) {
-            log.error("[INTERVIEW-REAL] 生成回复失败, sessionId: {}", sessionId, e);
+            log.error("[{}] 生成回复失败, sessionId: {}", tag, sessionId, e);
             throw new RuntimeException("AI 面试回复生成失败: " + e.getMessage(), e);
         }
     }
@@ -264,24 +329,16 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
      * @param userMessage 当前用户消息
      * @return Publisher<String> 逐条输出的文本片段流
      */
-    /**
-     * 是否开启流式调试日志（详细逐行日志）
-     * - true：输出逐行追踪日志（reasoning_content、◆发射、行汇总等）
-     * - false（默认）：只输出关键生命周期日志和异常日志
-     * 通过 application.yml 中 app.interview.stream-debug-log 配置
-     */
-    @Value("${app.interview.stream-debug-log:false}")
-    private boolean streamDebugLog;
-
     @Override
     public Publisher<String> generateReplyStream(String sessionId, List<ChatMessageItem> history, String userMessage) {
+        String tag = provider.toUpperCase();
         // 【版本指纹】全项目唯一字符串，用于确认运行时代码是否为最新版本
-        log.info("[INTERVIEW-REAL] ═══════════════════════════════════════════════");
-        log.info("[INTERVIEW-REAL] ║  新版逐条JSON解析V3已生效  ║");
-        log.info("[INTERVIEW-REAL] ║  兼容: data:{...} 和純JSON  ║");
-        log.info("[INTERVIEW-REAL] ═══════════════════════════════════════════════");
-        log.info("[INTERVIEW-REAL] 流式生成面试官回复, sessionId: {}, historySize: {}",
-                sessionId, history == null ? 0 : history.size());
+        log.info("[{}] ═══════════════════════════════════════════════", tag);
+        log.info("[{}] ║  新版逐条JSON解析V3已生效  ║", tag);
+        log.info("[{}] ║  兼容: data:{...} 和純JSON  ║", tag);
+        log.info("[{}] ═══════════════════════════════════════════════", tag);
+        log.info("[{}] 流式生成面试官回复, sessionId: {}, historySize: {}",
+                tag, sessionId, history == null ? 0 : history.size());
 
         List<Message> messages = buildConversationMessages(history, userMessage, null);
 
@@ -290,19 +347,25 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
             throw new IllegalStateException("请设置环境变量 DOUBAO_API_KEY 或 API_KEY");
         }
 
-        log.info("[INTERVIEW-REAL] 流式请求地址: {}{}, model: {}", resolvedBaseUrl, endpoint, model);
+        log.info("[{}] 流式请求地址: {}{}, model: {}", tag, resolvedBaseUrl, endpoint, model);
 
         StreamRequestBody reqBody = new StreamRequestBody(model, messages, true);
+        // 根据配置和模型支持情况设置 thinking 参数
+        reqBody.thinking = buildThinkingConfig(model, thinkingMode);
 
-        // 【关键日志】证明 thinking 参数已显式设置关闭思考模式
-        log.info("[INTERVIEW-REAL] ═══════════════════════════════════════════════");
-        log.info("[INTERVIEW-REAL] ║  流式请求参数验证  ║");
-        log.info("[INTERVIEW-REAL] ═══════════════════════════════════════════════");
-        log.info("[INTERVIEW-REAL] 请求地址: {}{}", resolvedBaseUrl, endpoint);
-        log.info("[INTERVIEW-REAL] model: {}", model);
-        log.info("[INTERVIEW-REAL] stream: {}", reqBody.stream);
-        log.info("[INTERVIEW-REAL] thinking.type: {} (disabled=已关闭思考模式)", reqBody.thinking.type);
-        log.info("[INTERVIEW-REAL] ═══════════════════════════════════════════════");
+        // 【关键日志】打印请求参数
+        log.info("[{}] ═══════════════════════════════════════════════", tag);
+        log.info("[{}] ║  流式请求参数验证  ║", tag);
+        log.info("[{}] ═══════════════════════════════════════════════", tag);
+        log.info("[{}] 请求地址: {}{}", tag, resolvedBaseUrl, endpoint);
+        log.info("[{}] model: {}", tag, model);
+        log.info("[{}] stream: {}", tag, reqBody.stream);
+        if (reqBody.thinking != null) {
+            log.info("[{}] thinking.type: {}", tag, reqBody.thinking.type);
+        } else {
+            log.info("[{}] thinking: 未设置", tag);
+        }
+        log.info("[{}] ═══════════════════════════════════════════════", tag);
 
         // 【第一层】WebClient 发起请求，返回原始 SSE 行流（按 '\n' 分割）
         Flux<String> rawLineFlux = webClient.post()
@@ -325,6 +388,7 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
         AtomicBoolean firstContentArrived = new AtomicBoolean(false);
 
         // 【第三层】Flux.create() + 匿名 Subscriber 逐行处理
+        final String logTag = tag;
         return Flux.create(sink -> {
             rawLineFlux.subscribe(new Subscriber<String>() {
                 private Subscription upstream;
@@ -348,7 +412,7 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
 
                         // 步骤1：null / blank → 跳过
                         if (rawLine == null || rawLine.isBlank()) {
-                            if (streamDebugLog) log.debug("[INTERVIEW-REAL] 【跳过-空白行】lineNo={}", lineNo);
+                            if (streamDebugLog) log.debug("[{}] 【跳过-空白行】lineNo={}", logTag, lineNo);
                             skippedCount.incrementAndGet();
                             upstream.request(1);
                             return;
@@ -357,7 +421,7 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
                         // 步骤2：以 ":" 开头 → SSE 注释行（如 ": ping"）
                         if (rawLine.startsWith(":")) {
                             isComment = true;
-                            if (streamDebugLog) log.debug("[INTERVIEW-REAL] 【跳过-注释行】lineNo={}", lineNo);
+                            if (streamDebugLog) log.debug("[{}] 【跳过-注释行】lineNo={}", logTag, lineNo);
                             skippedCount.incrementAndGet();
                             upstream.request(1);
                             return;
@@ -366,7 +430,7 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
                         // 步骤3：等于 "[DONE]" → SSE 结束标记
                         if ("[DONE]".equals(rawLine.trim())) {
                             isDone = true;
-                            if (streamDebugLog) log.debug("[INTERVIEW-REAL] 【收到DONE】lineNo={}", lineNo);
+                            if (streamDebugLog) log.debug("[{}] 【收到DONE】lineNo={}", logTag, lineNo);
                             upstream.request(1);
                             return;
                         }
@@ -377,7 +441,7 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
                             String json = rawLine.substring("data:".length()).trim();
                             if ("[DONE]".equals(json)) {
                                 isDone = true;
-                                if (streamDebugLog) log.debug("[INTERVIEW-REAL] 【收到DONE（data:前缀）】lineNo={}", lineNo);
+                                if (streamDebugLog) log.debug("[{}] 【收到DONE（data:前缀）】lineNo={}", logTag, lineNo);
                                 upstream.request(1);
                                 return;
                             }
@@ -390,8 +454,8 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
                         }
                         // 步骤6：其余情况 → 未知格式，跳过
                         else {
-                            if (streamDebugLog) log.debug("[INTERVIEW-REAL] 【跳过-未知格式】lineNo={}, preview={}", lineNo,
-                                    rawLine.length() > 80 ? rawLine.substring(0, 80) : rawLine);
+                            if (streamDebugLog) log.debug("[{}] 【跳过-未知格式】lineNo={}, preview={}", logTag, lineNo,
+                                        rawLine.length() > 80 ? rawLine.substring(0, 80) : rawLine);
                             skippedCount.incrementAndGet();
                             upstream.request(1);
                             return;
@@ -404,8 +468,8 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
                             parsedJsonLines.incrementAndGet();
                         } catch (Exception e) {
                             int errCount = parseErrorCount.incrementAndGet();
-                            log.warn("[INTERVIEW-REAL] 【JSON解析失败】lineNo={}, error={}, 累计错误={}",
-                                    lineNo, e.getMessage(), errCount);
+                            log.warn("[{}] 【JSON解析失败】lineNo={}, error={}, 累计错误={}",
+                                    logTag, lineNo, e.getMessage(), errCount);
                             upstream.request(1);
                             return;
                         }
@@ -413,7 +477,7 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
                         // 提取 delta
                         JsonNode choices = root.path("choices");
                         if (choices.isMissingNode() || !choices.isArray() || choices.isEmpty()) {
-                            if (streamDebugLog) log.debug("[INTERVIEW-REAL] 【跳过-无choices】lineNo={}", lineNo);
+                            if (streamDebugLog) log.debug("[{}] 【跳过-无choices】lineNo={}", logTag, lineNo);
                             skippedCount.incrementAndGet();
                             upstream.request(1);
                             return;
@@ -421,7 +485,7 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
 
                         JsonNode delta = choices.get(0).path("delta");
                         if (delta.isMissingNode()) {
-                            if (streamDebugLog) log.debug("[INTERVIEW-REAL] 【跳过-无delta】lineNo={}", lineNo);
+                            if (streamDebugLog) log.debug("[{}] 【跳过-无delta】lineNo={}", logTag, lineNo);
                             skippedCount.incrementAndGet();
                             upstream.request(1);
                             return;
@@ -440,7 +504,8 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
                         // 【决策步骤】reasoning_content 只写调试日志（if streamDebugLog），content 才发给下游
                         if (hasReasoning && streamDebugLog) {
                             String reasoningText = reasoningNode.asText();
-                            log.info("[INTERVIEW-REAL] 【reasoning_content】lineNo={}, format={}, length={}, preview={}, 【不发给前端】",
+                            log.info("[{}] 【reasoning_content】lineNo={}, format={}, length={}, preview={}, 【不发给前端】",
+                                    logTag,
                                     lineNo,
                                     isDataPrefix ? "SSE" : (isPureJson ? "纯JSON" : "其他"),
                                     reasoningText.length(),
@@ -451,11 +516,12 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
                             String contentText = contentNode.asText();
                             // 【关键日志】首个 content 到达时才打印 INFO（表示流正常开始）
                             if (firstContentArrived.compareAndSet(false, true)) {
-                                log.info("[INTERVIEW-REAL] 【首个content到达】lineNo={}, preview={}", lineNo, contentText);
+                                log.info("[{}] 【首个content到达】lineNo={}, preview={}", logTag, lineNo, contentText);
                             }
                             // 详细逐行发射日志（仅在开启调试时打印）
                             if (streamDebugLog) {
-                                log.info("[INTERVIEW-REAL] 【◆发射】lineNo={}, format={}, content={}, length={}",
+                                log.info("[{}] 【◆发射】lineNo={}, format={}, content={}, length={}",
+                                        logTag,
                                         lineNo,
                                         isDataPrefix ? "SSE" : (isPureJson ? "纯JSON" : "其他"),
                                         contentText,
@@ -467,7 +533,8 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
 
                         // 【每行汇总日志】仅在开启调试时打印
                         if (streamDebugLog) {
-                            log.info("[INTERVIEW-REAL] 【行汇总】lineNo={}, format={}, hasContent={}, hasReasoning={}, emitted={}",
+                            log.info("[{}] 【行汇总】lineNo={}, format={}, hasContent={}, hasReasoning={}, emitted={}",
+                                    logTag,
                                     lineNo,
                                     isDataPrefix ? "SSE" : (isPureJson ? "纯JSON" : "其他"),
                                     hasContent, hasReasoning, hasContent);
@@ -476,15 +543,15 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
                         upstream.request(1);
 
                     } catch (Exception e) {
-                        log.error("[INTERVIEW-REAL] 【处理异常】error={}, message={}", e.getClass().getSimpleName(), e.getMessage());
+                        log.error("[{}] 【处理异常】error={}, message={}", logTag, e.getClass().getSimpleName(), e.getMessage());
                         sink.error(e);
                     }
                 }
 
                 @Override
                 public void onError(Throwable t) {
-                    log.error("[INTERVIEW-REAL] 【WebClient错误】type={}, message={}",
-                            t.getClass().getSimpleName(), t.getMessage());
+                    log.error("[{}] 【WebClient错误】type={}, message={}",
+                            logTag, t.getClass().getSimpleName(), t.getMessage());
                     sink.error(t);
                 }
 
@@ -544,197 +611,10 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
         }
         if (rNonEmpty > 0 && cNonEmpty == 0) {
             return "WARNING - 所有有效 chunk 只有 reasoning_content，无 delta.content。" +
-                   "当前模型可能为 Reasoning 模型（如 Doubao-Seed-2.0-pro），不适合直接输出给用户。" +
-                   "建议换用 standard/instruct 模型（如 Doubao-pro-4k）";
+                   "当前模型可能为 Reasoning 模型，不适合直接输出给用户。" +
+                   "建议换用 standard/instruct 模型";
         }
         return "UNKNOWN - 请检查日志";
-    }
-
-    /**
-     * 查找异常链的根本原因
-     *
-     * 【用途】
-     * Reactor/Netty 的异常通常包装多层，需要找到最底层的真实异常
-     *
-     * @param throwable 顶层异常
-     * @return 根本原因异常
-     */
-    private Throwable findRootCause(Throwable throwable) {
-        Throwable root = throwable;
-        int maxDepth = 20;
-        int depth = 0;
-        while (root.getCause() != null && depth < maxDepth) {
-            root = root.getCause();
-            depth++;
-        }
-        return root;
-    }
-
-    /**
-     * 将按行分割的 chunk 流累积为完整的 SSE 事件块，再提取 content
-     *
-     * 【问题背景】
-     * WebClient.bodyToFlux(String.class) 按 '\n' 分割返回 Flux<String>
-     * 但 SSE 事件块的边界是 '\n\n'，单个 chunk 可能包含：
-     *   - 半条事件行（event: content\ndata: x）
-     *   - 完整事件块（event: content\ndata: hello\n\n）
-     *   - 多个事件块（event: content\ndata: a\n\ndata: b\n\n）
-     *
-     * 【累积逻辑】
-     * - 遇到空行 '' 时：将累积的事件块作为完整事件处理，提取 content
-     * - 正常行：追加到当前事件块缓冲区
-     * - 跳过 ':' 开头的 ping/comment 行
-     *
-     * @param flux 原始行流
-     * @return 提取出的 content 片段流
-     */
-    private Flux<String> accumulateSSEEvent(Flux<String> flux) {
-        return Flux.create(sink -> {
-            StringBuilder eventBuffer = new StringBuilder();
-
-            // 【统计计数器】用于分析流式返回结构
-            AtomicReference<Integer> totalChunks = new AtomicReference<>(0);         // 总 chunk 数
-            AtomicReference<Integer> contentNonEmptyChunks = new AtomicReference<>(0); // content 非空 chunk 数
-            AtomicReference<Integer> reasoningNonEmptyChunks = new AtomicReference<>(0); // reasoning_content 非空 chunk 数
-
-            flux.subscribe(new Subscriber<String>() {
-                private Subscription subscription;
-
-                @Override
-                public void onSubscribe(Subscription s) {
-                    this.subscription = s;
-                    s.request(1);
-                }
-
-                @Override
-                public void onNext(String line) {
-                    try {
-                        // 【第三层日志】accumulateSSEEvent 内部收到原始数据
-                        log.info("[INTERVIEW-REAL] 【第三层-累积收到】type={}, value={}",
-                                line == null ? "null" : line.getClass().getSimpleName(),
-                                line == null ? "null" : (line.length() > 80 ? line.substring(0, 80) : line));
-
-                        if (line == null || line.isEmpty()) {
-                            // 【空行】事件块结束，提取 content
-                            if (eventBuffer.length() > 0) {
-                                String block = eventBuffer.toString();
-                                eventBuffer.setLength(0);
-
-                                // 统计
-                                analyzeChunkForStats(block, totalChunks, contentNonEmptyChunks, reasoningNonEmptyChunks);
-
-                                // 【第三.1层日志】完整事件块
-                                log.info("[INTERVIEW-REAL] 【第三.1层-完整事件块】blockLength={}, blockPreview={}",
-                                        block.length(), block.length() > 100 ? block.substring(0, 100) : block);
-
-                                // 提取 content
-                                String content = extractContentFromSSEData(block);
-
-                                // 【第三.2层日志】extractContentFromSSEData 返回值
-                                log.info("[INTERVIEW-REAL] 【第三.2层-提取结果】extractContentFromSSEData 返回: {}",
-                                        content == null ? "null" : ("\"" + content + "\" (length=" + content.length() + ")"));
-
-                                if (content != null && !content.isBlank()) {
-                                    // 【第三.3层日志】准备调用 sink.next
-                                    log.info("[INTERVIEW-REAL] 【第三.3层-准备sink.next】extracted={}, length={}",
-                                            content, content.length());
-                                    sink.next(content);
-                                } else {
-                                    log.debug("[INTERVIEW-REAL] 【第三.3层-sink跳过】content 为空");
-                                }
-                            }
-                        } else {
-                            eventBuffer.append(line).append("\n");
-                        }
-                        subscription.request(1);
-                    } catch (Exception e) {
-                        log.error("[INTERVIEW-REAL] 【第三层-异常】处理行时出错: line={}, error={}", line, e.getMessage(), e);
-                        sink.error(e);
-                    }
-                }
-
-                @Override
-                public void onError(Throwable t) {
-                    log.error("[INTERVIEW-REAL] SSE流错误: {}", t.getMessage(), t);
-                    sink.error(t);
-                }
-
-                @Override
-                public void onComplete() {
-                    // 处理缓冲区中剩余的最后一个事件块
-                    if (eventBuffer.length() > 0) {
-                        String block = eventBuffer.toString();
-                        analyzeChunkForStats(block, totalChunks, contentNonEmptyChunks, reasoningNonEmptyChunks);
-                        String content = extractContentFromSSEData(block);
-                        if (content != null && !content.isBlank()) {
-                            sink.next(content);
-                        }
-                    }
-
-                    // 【流结束统计日志】这是定位问题的关键日志
-                    log.info("============================================================");
-                    log.info("[INTERVIEW-REAL] 【流式统计报告】");
-                    log.info("[INTERVIEW-REAL]   模型: {}", model);
-                    log.info("[INTERVIEW-REAL]   总 chunk 数: {}", totalChunks.get());
-                    log.info("[INTERVIEW-REAL]   delta.content 非空 chunk 数: {}", contentNonEmptyChunks.get());
-                    log.info("[INTERVIEW-REAL]   delta.reasoning_content 非空 chunk 数: {}", reasoningNonEmptyChunks.get());
-                    if (contentNonEmptyChunks.get() == 0 && reasoningNonEmptyChunks.get() > 0) {
-                        log.error("[INTERVIEW-REAL] 【严重】所有 chunk 的 content 均为空！");
-                        log.error("[INTERVIEW-REAL] 【严重】当前模型（{}）可能返回的是 Reasoning 内容而非正式回答", model);
-                        log.error("[INTERVIEW-REAL] 【严重】建议：换用非 Reasoning 模型（如 Doubao-pro-4k）或改用 deepseek-r1 等");
-                    }
-                    log.info("============================================================");
-
-                    sink.complete();
-                }
-            });
-        });
-    }
-
-    /**
-     * 统计 SSE 事件块中的字段分布（不影响主流程，仅用于分析）
-     *
-     * 【用途】
-     * 在不干扰主提取流程的情况下，分析每个 chunk 的字段情况
-     * 帮助判断模型返回的是 content 还是 reasoning_content
-     *
-     * @param block                      完整事件块
-     * @param totalChunks                总 chunk 计数
-     * @param contentNonEmptyChunks      content 非空计数
-     * @param reasoningNonEmptyChunks    reasoning_content 非空计数
-     */
-    private void analyzeChunkForStats(String block,
-                                      AtomicReference<Integer> totalChunks,
-                                      AtomicReference<Integer> contentNonEmptyChunks,
-                                      AtomicReference<Integer> reasoningNonEmptyChunks) {
-        try {
-            totalChunks.updateAndGet(v -> v + 1);
-            String jsonLine = null;
-            for (String line : block.split("\n")) {
-                String trimmed = line.trim();
-                if (trimmed.startsWith("data:")) {
-                    String json = trimmed.substring("data:".length()).trim();
-                    if (!"[DONE]".equals(json)) {
-                        jsonLine = json;
-                        break;
-                    }
-                }
-            }
-            if (jsonLine == null) return;
-            JsonNode root = objectMapper.readTree(jsonLine);
-            JsonNode choices = root.path("choices");
-            if (choices.isMissingNode() || !choices.isArray() || choices.isEmpty()) return;
-            JsonNode delta = choices.get(0).path("delta");
-            if (delta.isMissingNode()) return;
-            if (delta.path("content").isTextual() && !delta.path("content").asText().isBlank()) {
-                contentNonEmptyChunks.updateAndGet(v -> v + 1);
-            }
-            if (delta.path("reasoning_content").isTextual() && !delta.path("reasoning_content").asText().isBlank()) {
-                reasoningNonEmptyChunks.updateAndGet(v -> v + 1);
-            }
-        } catch (Exception e) {
-            log.debug("[INTERVIEW-REAL] 统计 chunk 字段时异常: {}", e.getMessage());
-        }
     }
 
     /**
@@ -748,8 +628,9 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
      */
     @Override
     public EvaluationResult generateEvaluation(String sessionId, List<ChatMessageItem> history) {
-        log.info("[INTERVIEW-REAL] 生成面试评价, sessionId: {}, historySize: {}",
-                sessionId, history == null ? 0 : history.size());
+        String tag = provider.toUpperCase();
+        log.info("[{}] 生成面试评价, sessionId: {}, historySize: {}",
+                tag, sessionId, history == null ? 0 : history.size());
         throw new UnsupportedOperationException("真实 AI 评价功能尚未实现");
     }
 
@@ -763,6 +644,7 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
      * @throws RuntimeException AI 调用失败时抛出
      */
     private String chat(String systemPrompt, String userPrompt) {
+        String tag = provider.toUpperCase();
         String apiKey = getApiKey();
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException("请设置环境变量 DOUBAO_API_KEY 或 API_KEY");
@@ -774,16 +656,22 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
                 new Message("system", systemPrompt),
                 new Message("user", userPrompt)
         );
+        // 根据配置和模型支持情况设置 thinking 参数
+        request.thinking = buildThinkingConfig(model, thinkingMode);
 
         try {
-            // 【关键日志】打印完整请求参数，证明 thinking 参数已随请求发送
-            log.info("[INTERVIEW-REAL] ═══════════════════════════════════════════════");
-            log.info("[INTERVIEW-REAL] ║  非流式请求参数验证  ║");
-            log.info("[INTERVIEW-REAL] ═══════════════════════════════════════════════");
-            log.info("[INTERVIEW-REAL] 请求地址: {}{}", resolvedBaseUrl, endpoint);
-            log.info("[INTERVIEW-REAL] model: {}", model);
-            log.info("[INTERVIEW-REAL] thinking.type: {} (disabled=已关闭思考模式)", request.thinking.type);
-            log.info("[INTERVIEW-REAL] ═══════════════════════════════════════════════");
+            // 【关键日志】打印请求参数
+            log.info("[{}] ═══════════════════════════════════════════════", tag);
+            log.info("[{}] ║  非流式请求参数验证  ║", tag);
+            log.info("[{}] ═══════════════════════════════════════════════", tag);
+            log.info("[{}] 请求地址: {}{}", tag, resolvedBaseUrl, endpoint);
+            log.info("[{}] model: {}", tag, model);
+            if (request.thinking != null) {
+                log.info("[{}] thinking.type: {}", tag, request.thinking.type);
+            } else {
+                log.info("[{}] thinking: 未设置", tag);
+            }
+            log.info("[{}] ═══════════════════════════════════════════════", tag);
             ResponseBody response = restClient.post()
                     .uri(endpoint)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
@@ -796,11 +684,11 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
             }
 
             String result = response.choices.get(0).message.content;
-            log.info("[INTERVIEW-REAL] AI 调用成功, responseLength: {}", result == null ? 0 : result.length());
+            log.info("[{}] AI 调用成功, responseLength: {}", tag, result == null ? 0 : result.length());
             return result != null ? result.trim() : "";
 
         } catch (Exception e) {
-            log.error("[INTERVIEW-REAL] AI 调用失败", e);
+            log.error("[{}] AI 调用失败", tag, e);
             throw new RuntimeException("AI 面试回复生成失败: " + e.getMessage(), e);
         }
     }
@@ -814,6 +702,7 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
      * @throws RuntimeException AI 调用失败时抛出
      */
     private String chatWithMessages(List<Message> messages) {
+        String tag = provider.toUpperCase();
         String apiKey = getApiKey();
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException("请设置环境变量 DOUBAO_API_KEY 或 API_KEY");
@@ -822,16 +711,22 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
         RequestBody request = new RequestBody();
         request.model = model;
         request.messages = messages;
+        // 根据配置和模型支持情况设置 thinking 参数
+        request.thinking = buildThinkingConfig(model, thinkingMode);
 
         try {
-            // 【关键日志】打印完整请求参数，证明 thinking 参数已随请求发送
-            log.info("[INTERVIEW-REAL] ═══════════════════════════════════════════════");
-            log.info("[INTERVIEW-REAL] ║  多轮对话请求参数验证  ║");
-            log.info("[INTERVIEW-REAL] ═══════════════════════════════════════════════");
-            log.info("[INTERVIEW-REAL] 请求地址: {}{}", resolvedBaseUrl, endpoint);
-            log.info("[INTERVIEW-REAL] model: {}", model);
-            log.info("[INTERVIEW-REAL] thinking.type: {} (disabled=已关闭思考模式)", request.thinking.type);
-            log.info("[INTERVIEW-REAL] ═══════════════════════════════════════════════");
+            // 【关键日志】打印请求参数
+            log.info("[{}] ═══════════════════════════════════════════════", tag);
+            log.info("[{}] ║  多轮对话请求参数验证  ║", tag);
+            log.info("[{}] ═══════════════════════════════════════════════", tag);
+            log.info("[{}] 请求地址: {}{}", tag, resolvedBaseUrl, endpoint);
+            log.info("[{}] model: {}", tag, model);
+            if (request.thinking != null) {
+                log.info("[{}] thinking.type: {}", tag, request.thinking.type);
+            } else {
+                log.info("[{}] thinking: 未设置", tag);
+            }
+            log.info("[{}] ═══════════════════════════════════════════════", tag);
             ResponseBody response = restClient.post()
                     .uri(endpoint)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
@@ -844,11 +739,11 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
             }
 
             String result = response.choices.get(0).message.content;
-            log.info("[INTERVIEW-REAL] AI 调用成功, responseLength: {}", result == null ? 0 : result.length());
+            log.info("[{}] AI 调用成功, responseLength: {}", tag, result == null ? 0 : result.length());
             return result != null ? result.trim() : "";
 
         } catch (Exception e) {
-            log.error("[INTERVIEW-REAL] AI 调用失败", e);
+            log.error("[{}] AI 调用失败", tag, e);
             throw new RuntimeException("AI 面试回复生成失败: " + e.getMessage(), e);
         }
     }
@@ -945,111 +840,13 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
     }
 
     /**
-     * 从 SSE 完整事件块中提取最终可见文本
-     *
-     * 【问题背景：Doubao-Seed-2.0-pro 是 Reasoning 模型】
-     * 该模型流式输出时，同一个 chunk 的 delta 结构如下：
-     *   delta.content = ""            （始终为空）
-     *   delta.reasoning_content = "用户 / 现在 / 说 / 你好 / ..." （实际文本在这里）
-     *
-     * 如果只提取 content，会导致所有 chunk 被过滤 → 前端无任何显示
-     *
-     * 【提取策略】
-     * 1. 优先提取 delta.content（普通模型的输出字段）
-     * 2. 如果 content 为空/空白，则提取 delta.reasoning_content（Reasoning/R1 类模型的输出字段）
-     * 3. 最终只展示一个字段，不能两个都展示（reasoning_content 是思维链，不应直接展示给用户）
-     *
-     * 【重要结论】
-     * - reasoning_content = 模型的推理过程/思考链，是内部过程，不应直接展示
-     * - content = 模型最终输出的正式回答，应该展示给用户
-     * - 如果 content 为空但 reasoning_content 有内容，说明模型配置有问题，应该换模型
-     *
-     * 【正确做法】
-     * 只用 content 字段；reasoning_content 无论是否有值都不发送给前端
-     * 如果 content 全程为空，应该：记录日志 + 抛异常，而不是用 reasoning_content 凑数
-     *
-     * @param eventBlock 完整的 SSE 事件块字符串
-     * @return 提取的 content，无有效内容时返回 null
-     */
-    private String extractContentFromSSEData(String eventBlock) {
-        if (eventBlock == null || eventBlock.isBlank()) {
-            return null;
-        }
-        try {
-            // 从事件块中提取 data: 开头的行
-            String jsonLine = null;
-            for (String line : eventBlock.split("\n")) {
-                String trimmed = line.trim();
-                if (trimmed.startsWith("data:")) {
-                    String json = trimmed.substring("data:".length()).trim();
-                    if (!"[DONE]".equals(json)) {
-                        jsonLine = json;
-                        break;
-                    }
-                }
-            }
-            if (jsonLine == null || jsonLine.isBlank()) {
-                log.debug("[INTERVIEW-REAL] 事件块中无有效 data JSON: {}", eventBlock);
-                return null;
-            }
-
-            JsonNode root = objectMapper.readTree(jsonLine);
-            JsonNode choices = root.path("choices");
-            if (choices.isMissingNode() || !choices.isArray() || choices.isEmpty()) {
-                log.debug("[INTERVIEW-REAL] JSON 无 choices 或为空: {}", jsonLine);
-                return null;
-            }
-            JsonNode firstChoice = choices.get(0);
-            JsonNode delta = firstChoice.path("delta");
-            if (delta.isMissingNode()) {
-                log.debug("[INTERVIEW-REAL] JSON choices[0] 无 delta: {}", jsonLine);
-                return null;
-            }
-
-            // 【核心修复】同时检查 content 和 reasoning_content 两个字段
-            // Doubao-Seed-2.0-pro 属于 Reasoning 模型，输出在 reasoning_content 字段
-            JsonNode contentNode = delta.path("content");
-            JsonNode reasoningNode = delta.path("reasoning_content");
-
-            boolean hasContent = contentNode.isTextual() && !contentNode.asText().isBlank();
-            boolean hasReasoning = reasoningNode.isTextual() && !reasoningNode.asText().isBlank();
-
-            log.debug("[INTERVIEW-REAL] 【chunk 字段检查】content={} ({}), reasoning_content={} ({})",
-                    hasContent, hasContent ? contentNode.asText() : "空",
-                    hasReasoning, hasReasoning ? reasoningNode.asText() : "空");
-
-            // 【调试日志】如果 content 为空但 reasoning_content 有值，打印警告
-            if (!hasContent && hasReasoning) {
-                log.warn("[INTERVIEW-REAL] 【警告】delta.content 为空，但 delta.reasoning_content 有值！");
-                log.warn("[INTERVIEW-REAL] 【警告】这说明当前模型（{}）返回的是 Reasoning 过程文本，不是最终回答", model);
-                log.warn("[INTERVIEW-REAL] 【警告】reasoning_content 内容: {}", reasoningNode.asText());
-            }
-
-            // 【关键策略】只提取 content 字段作为最终输出
-            // 不使用 reasoning_content（那是思维链，不是最终回答）
-            if (hasContent) {
-                String text = contentNode.asText();
-                return text;
-            }
-
-            // content 为空：返回 null（不降级到 reasoning_content）
-            log.debug("[INTERVIEW-REAL] delta.content 为空，跳过此 chunk");
-            return null;
-
-        } catch (Exception e) {
-            log.warn("[INTERVIEW-REAL] 解析 SSE 事件块失败: {}, error: {}", eventBlock, e.getMessage());
-            return null;
-        }
-    }
-
-    /**
      * 非流式请求体
      *
      * 【thinking 参数说明】
-     * - 豆包 API 支持通过 thinking.type 控制模型是否开启深度思考模式
-     * - type = "enabled": 开启深度思考（默认）
+     * - 支持 thinking 参数的模型可通过 thinking.type 控制思考模式
+     * - type = "enabled": 开启深度思考
      * - type = "disabled": 关闭深度思考
-     * - 官方文档：https://www.volcengine.com/docs/82379/1285207
+     * - 该字段是否传递由配置和模型支持情况共同决定
      */
     private static class RequestBody {
         public String model;
@@ -1057,8 +854,7 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
         public Thinking thinking;
 
         public RequestBody() {
-            // 【关键修复】显式关闭思考模式，不依赖模型选择
-            this.thinking = new Thinking("disabled");
+            // thinking 字段由 buildThinkingConfig 方法动态设置，此处不初始化
         }
     }
 
@@ -1066,10 +862,10 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
      * 流式请求体（包含 stream 标志和 thinking 控制）
      *
      * 【thinking 参数说明】
-     * - 豆包 API 支持通过 thinking.type 控制模型是否开启深度思考模式
-     * - type = "enabled": 开启深度思考（默认）
+     * - 支持 thinking 参数的模型可通过 thinking.type 控制思考模式
+     * - type = "enabled": 开启深度思考
      * - type = "disabled": 关闭深度思考
-     * - 官方文档：https://www.volcengine.com/docs/82379/1285207
+     * - 该字段是否传递由配置和模型支持情况共同决定
      */
     private static class StreamRequestBody {
         public String model;
@@ -1081,8 +877,7 @@ public class DoubaoInterviewAiServiceImpl implements InterviewAiService {
             this.model = model;
             this.messages = messages;
             this.stream = stream;
-            // 【关键修复】显式关闭思考模式，不依赖模型选择
-            this.thinking = new Thinking("disabled");
+            // thinking 字段由 buildThinkingConfig 方法动态设置，此处不初始化
         }
     }
 

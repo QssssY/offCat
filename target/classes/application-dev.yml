@@ -113,7 +113,7 @@ app:
   ai:
     # AI 模式：mock / real
     # mock: 使用 MockDiagnosisResultGenerator 生成模拟数据
-    # real: 调用 DoubaoResumeAiServiceImpl 真实 API
+    # real: 调用 ResumeAiServiceImpl 真实 API
     mode: real
 
     # AI 提供商：doubao / qwen / ernie / deepseek / minimax
@@ -131,13 +131,22 @@ app:
     #   - doubao-lite-32k（轻量版）
     model: Doubao-Seed-2.0-pro
 
+    # 思考模式配置：
+    # - enabled: 显式开启思考模式；仅模型支持时传 thinking.type=enabled
+    #   适用场景：需要深度推理的复杂任务，如技术难题解答、代码分析等
+    # - disabled: 显式关闭思考模式；仅模型支持时传 thinking.type=disabled
+    #   适用场景：需要快速响应的简单任务，如日常对话、文本摘要等
+    # - none: 不传 thinking 参数，使用模型默认行为
+    #   适用场景：模型不支持 thinking 参数，或不需要显式控制思考模式
+    thinking-mode: none
+
   # ------------------------------------------
   # 面试 AI 配置（开发环境）
   # ------------------------------------------
   interview:
     # 面试 AI 模式：mock / real
     # mock: 使用 MockInterviewService 生成模拟数据
-    # real: 调用 DoubaoInterviewAiServiceImpl 真实 API
+    # real: 调用 InterviewAiServiceImpl 真实 API
     mode: real
 
     # 面试 AI 提供商
@@ -148,3 +157,12 @@ app:
 
     # 面试模型名称
     model: Doubao-Seed-2.0-lite
+
+    # 思考模式配置：
+    # - enabled: 显式开启思考模式；仅模型支持时传 thinking.type=enabled
+    #   适用场景：需要深度推理的复杂任务，如技术难题解答、代码分析等
+    # - disabled: 显式关闭思考模式；仅模型支持时传 thinking.type=disabled
+    #   适用场景：需要快速响应的简单任务，如日常对话、文本摘要等
+    # - none: 不传 thinking 参数，使用模型默认行为
+    #   适用场景：模型不支持 thinking 参数，或不需要显式控制思考模式
+    thinking-mode: disabled

@@ -14,17 +14,16 @@ import org.springframework.web.client.RestClient;
 import java.util.List;
 
 /**
- * 豆包简历诊断 AI 服务实现类（真实 AI 模式）
+ * 简历诊断 AI 服务实现类（真实 AI 模式）
  *
  * 所属模块：简历诊断模块 - AI 接入层
- * 职责：调用豆包大模型 API 生成简历诊断结果
+ * 职责：调用大模型 API 生成简历诊断结果
  * 激活条件：当 app.ai.mode=real 时激活，替代 MockResumeAiServiceImpl
  * 依赖：SysPromptService（Prompt 管理）、RestClient（HTTP 客户端）
  *
  * 【重要】baseUrl 配置说明：
  * - 优先使用配置文件中的 app.ai.base-url
  * - 仅当配置为空时才使用代码默认值
- * - 当前用户配置的 baseUrl：https://ark.cn-beijing.volces.com/api/coding/v3
  * - 本类不会擅自修改用户配置的 baseUrl
  *
  * 【URL 拼接说明】
@@ -37,7 +36,7 @@ import java.util.List;
 @Service("resumeAiService")
 @Slf4j
 @ConditionalOnProperty(name = "app.ai.mode", havingValue = "real")
-public class DoubaoResumeAiServiceImpl implements ResumeAiService {
+public class ResumeAiServiceImpl implements ResumeAiService {
 
     private final RestClient restClient;
     private final String provider;
@@ -46,6 +45,7 @@ public class DoubaoResumeAiServiceImpl implements ResumeAiService {
     private final String resolvedBaseUrl;
     private final String endpoint;
     private final SysPromptService sysPromptService;
+    private final String thinkingMode;
 
     /**
      * 构造函数，初始化简历诊断 AI 服务
@@ -62,22 +62,26 @@ public class DoubaoResumeAiServiceImpl implements ResumeAiService {
      * - endpoint
      * - 完整请求地址（baseUrl + endpoint）
      * - model
+     * - thinking-mode
      *
      * @param provider          AI 提供商（从配置 app.ai.provider 读取，默认 doubao）
      * @param configuredBaseUrl API 基础地址（从配置 app.ai.base-url 读取，用户原始配置）
      * @param model            模型名称（从配置 app.ai.model 读取）
+     * @param thinkingMode     思考模式（从配置 app.ai.thinking-mode 读取，默认 none）
      * @param sysPromptService Prompt 服务（从数据库读取 Prompt）
      * @param restClientBuilder RestClient 构造器
      */
-    public DoubaoResumeAiServiceImpl(
+    public ResumeAiServiceImpl(
             @Value("${app.ai.provider:doubao}") String provider,
             @Value("${app.ai.base-url:}") String configuredBaseUrl,
             @Value("${app.ai.model:}") String model,
+            @Value("${app.ai.thinking-mode:none}") String thinkingMode,
             @Autowired SysPromptService sysPromptService,
             RestClient.Builder restClientBuilder) {
         this.provider = provider == null ? "doubao" : provider.toLowerCase();
         this.model = model;
         this.configuredBaseUrl = configuredBaseUrl;
+        this.thinkingMode = thinkingMode;
         this.sysPromptService = sysPromptService;
 
         // 【重要】优先使用用户配置的 baseUrl，仅当配置为空时才使用默认值
@@ -92,7 +96,7 @@ public class DoubaoResumeAiServiceImpl implements ResumeAiService {
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json")
                 .build();
 
-        String tag = provider == null ? "DOUBAO" : provider.toUpperCase();
+        String tag = this.provider.toUpperCase();
 
         // 【启动日志】详细打印所有配置信息
         log.info("============================================================");
@@ -103,7 +107,64 @@ public class DoubaoResumeAiServiceImpl implements ResumeAiService {
         log.info("[{}] endpoint: {}", tag, this.endpoint);
         log.info("[{}] 完整请求地址: {}{}", tag, this.resolvedBaseUrl, this.endpoint);
         log.info("[{}] model: {}", tag, this.model);
+        log.info("[{}] thinking-mode: {}", tag, this.thinkingMode);
         log.info("============================================================");
+    }
+
+    /**
+     * 判断当前模型是否支持 thinking 参数
+     *
+     * 【支持的模型列表】
+     * - 豆包 Doubao-Seed-2.0 系列模型
+     *
+     * @param modelName 模型名称
+     * @return true 表示支持，false 表示不支持
+     */
+    private boolean supportsThinking(String modelName) {
+        if (modelName == null) return false;
+        String lowerModel = modelName.toLowerCase();
+        // 豆包 Doubao-Seed-2.0 系列模型支持 thinking 参数
+        return lowerModel.contains("doubao-seed-2.0");
+    }
+
+    /**
+     * 根据配置和模型支持情况构建 thinking 配置
+     *
+     * 【配置含义】
+     * - enabled：显式开启思考模式；仅模型支持时传 thinking.type=enabled
+     * - disabled：显式关闭思考模式；仅模型支持时传 thinking.type=disabled
+     * - none：不传 thinking 参数
+     *
+     * @param modelName 模型名称
+     * @param thinkingModeConfig 配置的 thinking-mode
+     * @return Thinking 对象，或 null（表示不传该字段）
+     */
+    private Thinking buildThinkingConfig(String modelName, String thinkingModeConfig) {
+        boolean modelSupportsThinking = supportsThinking(modelName);
+
+        // 配置为 none，直接返回 null
+        if ("none".equalsIgnoreCase(thinkingModeConfig)) {
+            return null;
+        }
+
+        // 模型不支持 thinking，但配置了 enabled 或 disabled
+        if (!modelSupportsThinking) {
+            log.warn("[{}] 当前模型 {} 不支持 thinking 参数，已忽略配置: {}",
+                    provider.toUpperCase(), modelName, thinkingModeConfig);
+            return null;
+        }
+
+        // 模型支持，根据配置返回对应的 thinking 对象
+        if ("enabled".equalsIgnoreCase(thinkingModeConfig)) {
+            return new Thinking("enabled");
+        } else if ("disabled".equalsIgnoreCase(thinkingModeConfig)) {
+            return new Thinking("disabled");
+        }
+
+        // 未知配置值，返回 null
+        log.warn("[{}] 未知的 thinking-mode 配置: {}, 使用 none",
+                provider.toUpperCase(), thinkingModeConfig);
+        return null;
     }
 
     /**
@@ -138,7 +199,7 @@ public class DoubaoResumeAiServiceImpl implements ResumeAiService {
     /**
      * 调用 AI 进行简历诊断
      *
-     * 功能：传入简历文本，调用豆包 API 生成结构化诊断结果
+     * 功能：传入简历文本，调用 AI API 生成结构化诊断结果
      *
      * @param resumeText 简历文本（从 PDF 提取）
      * @return JSON 格式的诊断结果字符串
@@ -151,7 +212,7 @@ public class DoubaoResumeAiServiceImpl implements ResumeAiService {
      */
     @Override
     public String diagnose(String resumeText) {
-        String tag = provider == null ? "DOUBAO" : provider.toUpperCase();
+        String tag = provider.toUpperCase();
         log.info("[{}] 简历诊断调用, resumeTextLength: {}",
                 tag, resumeText == null ? 0 : resumeText.length());
 
@@ -173,14 +234,21 @@ public class DoubaoResumeAiServiceImpl implements ResumeAiService {
                 new Message("user", buildUserPrompt(resumeText))
         );
 
+        // 根据配置和模型支持情况设置 thinking 参数
+        request.thinking = buildThinkingConfig(model, thinkingMode);
+
         try {
-            // 【关键日志】打印完整请求参数，证明 thinking 参数已随请求发送
+            // 【关键日志】打印完整请求参数
             log.info("[{}] ═══════════════════════════════════════════════", tag);
             log.info("[{}] ║  简历诊断请求参数验证  ║", tag);
             log.info("[{}] ═══════════════════════════════════════════════", tag);
             log.info("[{}] 请求地址: {}{}", tag, resolvedBaseUrl, endpoint);
             log.info("[{}] model: {}", tag, model);
-            log.info("[{}] thinking.type: {} (disabled=已关闭思考模式)", tag, request.thinking.type);
+            if (request.thinking != null) {
+                log.info("[{}] thinking.type: {}", tag, request.thinking.type);
+            } else {
+                log.info("[{}] thinking: 未设置", tag);
+            }
             log.info("[{}] ═══════════════════════════════════════════════", tag);
             ResponseBody response = restClient.post()
                     .uri(endpoint)
@@ -410,10 +478,10 @@ public class DoubaoResumeAiServiceImpl implements ResumeAiService {
      * API 请求体
      *
      * 【thinking 参数说明】
-     * - 豆包 API 支持通过 thinking.type 控制模型是否开启深度思考模式
-     * - type = "enabled": 开启深度思考（默认）
+     * - 支持 thinking 参数的模型可通过 thinking.type 控制思考模式
+     * - type = "enabled": 开启深度思考
      * - type = "disabled": 关闭深度思考
-     * - 官方文档：https://www.volcengine.com/docs/82379/1285207
+     * - 该字段是否传递由配置和模型支持情况共同决定
      */
     private static class RequestBody {
         public String model;
@@ -421,8 +489,7 @@ public class DoubaoResumeAiServiceImpl implements ResumeAiService {
         public Thinking thinking;
 
         public RequestBody() {
-            // 【关键修复】显式关闭思考模式，不依赖模型选择
-            this.thinking = new Thinking("disabled");
+            // thinking 字段由 buildThinkingConfig 方法动态设置，此处不初始化
         }
     }
 
