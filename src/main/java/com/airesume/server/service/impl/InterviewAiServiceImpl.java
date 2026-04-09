@@ -752,23 +752,65 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      * 构建对话消息列表
      * 将历史消息转换为 AI API 所需的格式
      *
+     * 【修复说明】
+     * 旧实现：把所有历史拼接成一个大字符串放在单条 user 消息里 → AI 无法正确理解多轮对话
+     * 新实现：按时间顺序构建完整的多轮对话历史 → AI 具备完整上下文记忆
+     *
      * @param history           历史消息列表
      * @param currentUserMessage 当前用户消息
      * @param jobRole           面试岗位（可选）
      * @return 格式化后的消息列表
      */
     private List<Message> buildConversationMessages(List<ChatMessageItem> history, String currentUserMessage, String jobRole) {
-        StringBuilder sb = new StringBuilder();
-        if (history != null) {
+        java.util.List<Message> messages = new java.util.ArrayList<>();
+
+        // 1. 添加系统提示词（从历史中推断岗位，或使用默认值）
+        String systemPrompt = buildSystemPromptFromJobRole(history);
+        messages.add(new Message("system", systemPrompt));
+
+        int historyUserCount = 0;
+        int historyAssistantCount = 0;
+
+        // 2. 添加历史对话消息（按时间顺序）
+        if (history != null && !history.isEmpty()) {
             for (ChatMessageItem item : history) {
-                sb.append(item.role()).append(": ").append(item.content()).append("\n");
+                String role = item.role();
+                String content = item.content();
+                if (content == null || content.isBlank()) {
+                    continue;
+                }
+                // 角色映射：确保符合 OpenAI 格式要求
+                String mappedRole = "user".equalsIgnoreCase(role) ? "user" : "assistant";
+                messages.add(new Message(mappedRole, content));
+                if ("user".equalsIgnoreCase(mappedRole)) {
+                    historyUserCount++;
+                } else {
+                    historyAssistantCount++;
+                }
             }
         }
-        sb.append("user: ").append(currentUserMessage);
-        return List.of(
-                new Message("system", buildSystemPromptFromJobRole(history)),
-                new Message("user", sb.toString())
-        );
+
+        // 3. 添加当前用户消息
+        if (currentUserMessage != null && !currentUserMessage.isBlank()) {
+            messages.add(new Message("user", currentUserMessage));
+        }
+
+        // 【关键调试日志】输出消息组装情况，确认上下文是否正确
+        String tag = provider.toUpperCase();
+        int totalMessages = messages.size();
+        String firstRole = totalMessages > 0 ? messages.get(0).role : "none";
+        String lastRole = totalMessages > 0 ? messages.get(totalMessages - 1).role : "none";
+        log.info("[{}] ═══════════════════════════════════════════════", tag);
+        log.info("[{}] ║  对话消息组装完成  ║", tag);
+        log.info("[{}] ═══════════════════════════════════════════════", tag);
+        log.info("[{}] 总消息数: {} (system:1, user:{}, assistant:{})",
+                tag, totalMessages, historyUserCount + 1, historyAssistantCount);
+        log.info("[{}] 首条消息角色: {}, 末条消息角色: {}", tag, firstRole, lastRole);
+        log.info("[{}] 是否包含历史: {} (历史user数:{}, 历史assistant数:{})",
+                tag, historyUserCount + historyAssistantCount > 0, historyUserCount, historyAssistantCount);
+        log.info("[{}] ═══════════════════════════════════════════════", tag);
+
+        return messages;
     }
 
     /**
