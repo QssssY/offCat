@@ -89,7 +89,7 @@ app:
     # AI 模式切换：
     # - mock: 使用模拟数据（开发调试用，不消耗 API 额度）
     # - real: 使用真实大模型 API
-    mode: real
+    mode: mock
 
     # AI 提供商：
     # - doubao: 豆包（火山引擎）
@@ -125,7 +125,7 @@ app:
     # 面试 AI 模式切换：
     # - mock: 使用模拟数据（开发调试用）
     # - real: 使用真实大模型 API
-    mode: real
+    mode: mock
 
     # 面试 AI 提供商
     provider: doubao
