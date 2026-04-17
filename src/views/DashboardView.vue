@@ -80,7 +80,7 @@
           </div>
           <div class="quota-info">
             <div class="quota-number">{{ resumeQuotaLeft }}</div>
-            <div class="quota-label">简历诊断剩余</div>
+            <div class="quota-label">{{ resumeQuotaLabel }}</div>
           </div>
         </div>
         <div class="quota-divider"></div>
@@ -101,7 +101,7 @@
           </div>
           <div class="quota-info">
             <div class="quota-number">{{ interviewQuotaLeft }}</div>
-            <div class="quota-label">模拟面试剩余</div>
+            <div class="quota-label">{{ interviewQuotaLabel }}</div>
           </div>
         </div>
       </div>
@@ -163,7 +163,7 @@
         </div>
         <div class="stat-content">
           <div class="stat-value">{{ resumeQuotaLeft }}</div>
-          <div class="stat-label">简历剩余</div>
+          <div class="stat-label">{{ resumeStatLabel }}</div>
         </div>
       </div>
       <div class="stat-card">
@@ -181,7 +181,7 @@
         </div>
         <div class="stat-content">
           <div class="stat-value">{{ interviewQuotaLeft }}</div>
-          <div class="stat-label">面试剩余</div>
+          <div class="stat-label">{{ interviewStatLabel }}</div>
         </div>
       </div>
     </div>
@@ -402,6 +402,30 @@ const isVipUser = computed(() => {
   return new Date(vipExpireTime) > new Date();
 });
 const isNormalUser = computed(() => !isAdmin.value && !isVipUser.value);
+
+/**
+ * 作用：统一首页额度卡和统计卡的标签口径。
+ * 之前这里直接写“剩余”，会继续把当前实现表达成“购买套餐后累计剩余次数”，
+ * 但当前项目后端已经改成：
+ * 1. 普通用户看总免费次数剩余；
+ * 2. VIP 用户看后端基于 daily_resume_used / daily_interview_used 计算出的今日剩余。
+ * 因此前端必须把 VIP 标成“今日剩余”，把普通用户标成“免费剩余”。
+ */
+const resumeQuotaLabel = computed(() => {
+  return isVipUser.value ? "今日剩余简历诊断" : "免费简历诊断剩余";
+});
+
+const interviewQuotaLabel = computed(() => {
+  return isVipUser.value ? "今日剩余模拟面试" : "免费模拟面试剩余";
+});
+
+const resumeStatLabel = computed(() => {
+  return isVipUser.value ? "今日简历剩余" : "免费简历剩余";
+});
+
+const interviewStatLabel = computed(() => {
+  return isVipUser.value ? "今日面试剩余" : "免费面试剩余";
+});
 
 // 角色徽章文本
 const roleBadgeText = computed(() => {

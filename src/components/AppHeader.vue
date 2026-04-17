@@ -148,6 +148,23 @@
                 个人中心
               </el-dropdown-item>
               <!-- 退出登录 -->
+              <!-- 会员中心入口：
+                   页面已经存在，这里只是在头像下拉菜单中补入口。
+                   放在“个人中心”下面、“退出登录”上面，符合账户相关操作的使用顺序。 -->
+              <el-dropdown-item command="membership">
+                <svg
+                  class="dropdown-icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <polygon
+                    points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"
+                  />
+                </svg>
+                会员中心
+              </el-dropdown-item>
               <el-dropdown-item command="logout" class="logout-item">
                 <svg
                   class="dropdown-icon"
@@ -308,7 +325,13 @@ const handleHistoryCommand = (command) => {
 const handleCommand = (command) => {
   if (command === "profile") {
     router.push("/dashboard");
+  } else if (command === "membership") {
+    // 点击“会员中心”后跳转到已经存在的 /membership 路由。
+    router.push("/membership");
   } else if (command === "logout") {
+    // 原有退出登录逻辑不能被破坏：
+    // 这里仍然保持“清 token -> 清 Pinia 用户信息 -> 返回首页”的顺序，
+    // 这样头部和页面登录态才能立即响应式更新。
     localStorage.removeItem("token");
     removeToken();
     userStore.clearUserInfo();
