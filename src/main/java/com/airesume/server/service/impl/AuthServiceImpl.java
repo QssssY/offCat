@@ -136,6 +136,7 @@ public class AuthServiceImpl implements AuthService {
                 .username(user.getUsername())
                 .role(user.getRole())
                 .status(user.getStatus())
+                .membershipPlanCode(user.getMembershipPlanCode())
                 .vipExpireTime(user.getVipExpireTime())
                 .resumeQuota(resumeQuota)
                 .interviewQuota(interviewQuota)

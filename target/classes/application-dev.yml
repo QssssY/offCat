@@ -114,7 +114,7 @@ app:
     # AI 模式：mock / real
     # mock: 使用 MockDiagnosisResultGenerator 生成模拟数据
     # real: 调用 ResumeAiServiceImpl 真实 API
-    mode: real
+    mode: mock
 
     # AI 提供商：doubao / qwen / ernie / deepseek / minimax
     provider: doubao
@@ -147,7 +147,7 @@ app:
     # 面试 AI 模式：mock / real
     # mock: 使用 MockInterviewService 生成模拟数据
     # real: 调用 InterviewAiServiceImpl 真实 API
-    mode: real
+    mode: mock
 
     # 面试 AI 提供商
     provider: doubao

@@ -20,6 +20,10 @@ public class UserQuota extends BaseEntity {
 
     private Integer totalResumeUsed;
 
+    private Integer interviewQuota;
+
+    private Integer resumeQuota;
+
     private Integer dailyInterviewUsed;
 
     private Integer dailyResumeUsed;

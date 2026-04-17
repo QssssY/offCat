@@ -17,6 +17,7 @@ public class UserInfoResponse {
     private String username;
     private Integer role;
     private Integer status;
+    private String membershipPlanCode;
     private LocalDateTime vipExpireTime;
     private Integer resumeQuota;
     private Integer interviewQuota;

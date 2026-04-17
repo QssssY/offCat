@@ -22,6 +22,8 @@ public class SysUser extends BaseEntity {
 
     private Integer status;
 
+    private String membershipPlanCode;
+
     private LocalDateTime vipExpireTime;
 
 }

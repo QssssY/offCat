@@ -1,32 +1,42 @@
 package com.airesume.server.common.constants;
 
 /**
- * 额度限制常量
- * 定义普通用户和会员用户的免费次数限制
+ * Quota constants for the current business rules.
+ *
+ * Normal user:
+ * - 1 total free resume diagnosis
+ * - 3 total free mock interviews
+ *
+ * VIP user:
+ * - valid only while vipExpireTime is active
+ * - 5 resume diagnoses per day
+ * - 10 mock interviews per day
  */
-public class QuotaConstants {
+public final class QuotaConstants {
 
     /**
-     * 普通用户免费面试次数上限
+     * Total free interview count for normal users.
      */
     public static final int NORMAL_USER_FREE_INTERVIEW_LIMIT = 3;
 
     /**
-     * 普通用户免费简历诊断次数上限
+     * Total free resume diagnosis count for normal users.
      */
-    public static final int NORMAL_USER_FREE_RESUME_LIMIT = 3;
+    public static final int NORMAL_USER_FREE_RESUME_LIMIT = 1;
 
     /**
-     * 会员用户每日面试次数上限
+     * Daily interview limit for valid VIP users.
      */
     public static final int VIP_USER_DAILY_INTERVIEW_LIMIT = 10;
 
     /**
-     * 会员用户每日简历诊断次数上限
+     * Daily resume diagnosis limit for valid VIP users.
+     * Business rule changed from 10/day to 5/day.
+     * VIP users are no longer modeled as receiving cumulative package counts,
+     * so this constant represents the fixed daily ceiling that refreshes next day.
      */
-    public static final int VIP_USER_DAILY_RESUME_LIMIT = 10;
+    public static final int VIP_USER_DAILY_RESUME_LIMIT = 5;
 
     private QuotaConstants() {
     }
-
 }
