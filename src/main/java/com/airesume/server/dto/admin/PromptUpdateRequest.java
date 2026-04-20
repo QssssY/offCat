@@ -21,7 +21,12 @@ public class PromptUpdateRequest {
     private Integer scenarioType;
 
     /**
-     * 适用岗位
+     * 岗位编码
+     */
+    private String jobRoleCode;
+
+    /**
+     * 兼容字段：岗位名称
      */
     private String jobRole;
 

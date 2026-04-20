@@ -19,4 +19,15 @@ public class MembershipPlanServiceImpl extends ServiceImpl<MembershipPlanMapper,
                 .eq(MembershipPlan::getStatus, MembershipConstants.PLAN_STATUS_ENABLED);
         return getOne(wrapper);
     }
+
+    @Override
+    public MembershipPlan getByPlanCode(String planCode) {
+        if (planCode == null || planCode.isBlank()) {
+            return null;
+        }
+        LambdaQueryWrapper<MembershipPlan> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(MembershipPlan::getPlanCode, planCode.trim())
+                .last("LIMIT 1");
+        return getOne(wrapper, false);
+    }
 }

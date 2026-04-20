@@ -1,9 +1,12 @@
 package com.airesume.server.config;
 
 import com.airesume.server.infrastructure.security.JwtAuthenticationFilter;
+import jakarta.servlet.DispatcherType;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -13,15 +16,11 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.springframework.security.web.util.matcher.DispatcherTypeRequestMatcher;
-import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.Arrays;
-import jakarta.servlet.DispatcherType;
-import jakarta.servlet.http.HttpServletRequest;
 
 @Configuration
 @EnableWebSecurity
@@ -46,6 +45,8 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/**").permitAll()
                         // 网络诊断接口放行 - 用于排查 DNS、代理、端口等网络问题，无需登录
                         .requestMatchers("/api/diagnostic/**").permitAll()
+                        // 用户端岗位选项需要由后台配置提供，前端不能再写死，所以这里开放只读岗位列表。
+                        .requestMatchers(HttpMethod.GET, "/api/interview/job-roles").permitAll()
                         .requestMatchers("/api/resume/**").authenticated()
                         .requestMatchers("/api/interview/**").authenticated()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")

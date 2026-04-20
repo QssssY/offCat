@@ -32,7 +32,17 @@ public class PromptResponse {
     private String scenarioTypeDesc;
 
     /**
-     * 适用岗位
+     * 岗位编码
+     */
+    private String jobRoleCode;
+
+    /**
+     * 岗位名称
+     */
+    private String jobRoleName;
+
+    /**
+     * 兼容字段：历史上对外暴露的岗位名
      */
     private String jobRole;
 

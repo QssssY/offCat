@@ -1,6 +1,5 @@
 package com.airesume.server.dto.admin;
 
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
@@ -17,9 +16,21 @@ public class PromptCreateRequest {
     private Integer scenarioType;
 
     /**
-     * 适用岗位
+     * 岗位编码
+     *
+     * 作用：
+     * 管理端创建 Prompt 时应优先传岗位编码，岗位选项必须来源于 sys_job_role。
+     * 这样后端可以稳定关联岗位配置，不再依赖自由输入字符串。
      */
-    @NotBlank(message = "适用岗位不能为空")
+    private String jobRoleCode;
+
+    /**
+     * 兼容字段：岗位名称
+     *
+     * 作用：
+     * 保留旧字段作为兼容升级方案，避免老请求直接失败。
+     * 但后端不会直接信任这个字符串，而是会回查 sys_job_role 做合法性校验。
+     */
     private String jobRole;
 
     /**
@@ -31,6 +42,6 @@ public class PromptCreateRequest {
     /**
      * 具体的Prompt模板内容
      */
-    @NotBlank(message = "Prompt内容不能为空")
+    @jakarta.validation.constraints.NotBlank(message = "Prompt内容不能为空")
     private String promptContent;
 }

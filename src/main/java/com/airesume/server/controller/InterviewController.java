@@ -6,21 +6,21 @@ import com.airesume.server.common.result.PageResult;
 import com.airesume.server.common.result.Result;
 import com.airesume.server.dto.interview.*;
 import com.airesume.server.entity.InterviewChatLog;
+import com.airesume.server.entity.SysJobRole;
 import com.airesume.server.mapper.InterviewChatLogMapper;
 import com.airesume.server.service.InterviewAiService;
 import com.airesume.server.service.InterviewService;
+import com.airesume.server.service.SysJobRoleService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
 
-import java.security.Principal;
 import java.util.List;
 import org.reactivestreams.Publisher;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 
 /**
  * 模拟面试控制器
@@ -34,6 +34,22 @@ public class InterviewController {
     private final InterviewService interviewService;
     private final InterviewAiService interviewAiService;
     private final InterviewChatLogMapper interviewChatLogMapper;
+    private final SysJobRoleService sysJobRoleService;
+
+    /**
+     * 查询当前启用的面试岗位选项
+     *
+     * 作用：
+     * 用户端面试岗位不能再由前端写死，必须统一读取后台配置。
+     * 这里只返回启用岗位，保证用户侧只看到管理员允许使用的选项。
+     */
+    @GetMapping("/job-roles")
+    public Result<List<InterviewJobRoleResponse>> getJobRoles() {
+        List<InterviewJobRoleResponse> responses = sysJobRoleService.listActiveOrdered().stream()
+                .map(this::buildInterviewJobRoleResponse)
+                .toList();
+        return Result.success(responses);
+    }
 
     /**
      * 创建面试会话
@@ -180,5 +196,14 @@ public class InterviewController {
         log.warn("调用已废弃接口 GET /api/interview/history/all, userId: {}", userId);
         List<InterviewHistoryResponse> list = interviewService.getAllHistory(userId);
         return Result.success(list);
+    }
+
+    private InterviewJobRoleResponse buildInterviewJobRoleResponse(SysJobRole jobRole) {
+        return InterviewJobRoleResponse.builder()
+                .roleCode(jobRole.getRoleCode())
+                .roleName(jobRole.getRoleName())
+                .interviewTag(jobRole.getInterviewTag())
+                .tagType(jobRole.getTagType())
+                .build();
     }
 }

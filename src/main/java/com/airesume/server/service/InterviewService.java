@@ -7,6 +7,7 @@ import com.airesume.server.entity.InterviewSession;
 import com.airesume.server.mock.MockInterviewService;
 import com.airesume.server.repository.InterviewMessageRepository;
 import com.airesume.server.repository.InterviewSessionRepository;
+import com.airesume.server.service.SysJobRoleService;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -45,6 +46,7 @@ public class InterviewService {
     private final InterviewMessageRepository interviewMessageRepository;
     private final InterviewAiService interviewAiService;
     private final ObjectMapper objectMapper;
+    private final SysJobRoleService sysJobRoleService;
 
     /**
      * 创建面试会话
@@ -376,6 +378,12 @@ public class InterviewService {
     private void validateCreateRequest(CreateSessionRequest request) {
         if (request.getJobRole() == null || request.getJobRole().trim().isEmpty()) {
             throw new RuntimeException("面试岗位不能为空");
+        }
+        // 作用：
+        // 即使前端已经改成读取后台岗位接口，后端仍然必须做最终校验。
+        // 否则客户端仍然可以伪造请求传入任意岗位，破坏“岗位由管理员配置”的业务约束。
+        if (!sysJobRoleService.isActiveRoleName(request.getJobRole())) {
+            throw new RuntimeException("面试岗位不存在或已禁用");
         }
         if (request.getDifficulty() == null || request.getDifficulty() < 1 || request.getDifficulty() > 3) {
             throw new RuntimeException("难度级别必须在1-3之间");
