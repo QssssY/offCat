@@ -16,6 +16,22 @@ export function createInterviewSession(data) {
 }
 
 /**
+ * 查询当前启用的面试岗位选项
+ *
+ * 作用：
+ * 面试岗位现在必须由管理员在后台配置，前端不能再写死岗位列表。
+ * 用户端页面统一通过这个接口读取最新岗位数据。
+ *
+ * @returns {Promise}
+ */
+export function getInterviewJobRoles() {
+  return request({
+    url: '/api/interview/job-roles',
+    method: 'get'
+  })
+}
+
+/**
  * 发送面试消息
  * @param {string} sessionId - 会话ID
  * @param {Object} data - 消息参数

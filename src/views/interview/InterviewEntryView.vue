@@ -122,46 +122,20 @@
 </template>
 
 <script setup>
-import { ref } from "vue";
+import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { CircleCheckFilled } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
 import { useUserStore } from "@/stores/user";
-import { createInterviewSession } from "@/api/interview";
+import { createInterviewSession, getInterviewJobRoles } from "@/api/interview";
 
 const router = useRouter();
 const userStore = useUserStore();
 
-// 岗位选项 - 带热度标签
-const jobOptions = [
-  {
-    label: "前端开发工程师",
-    value: "前端开发工程师",
-    tag: "热门",
-    tagType: "hot",
-  },
-  {
-    label: "后端开发工程师",
-    value: "后端开发工程师",
-    tag: "热门",
-    tagType: "hot",
-  },
-  {
-    label: "Java开发工程师",
-    value: "Java开发工程师",
-    tag: "热门",
-    tagType: "hot",
-  },
-  { label: "产品经理", value: "产品经理", tag: "常见", tagType: "common" },
-  {
-    label: "算法工程师",
-    value: "算法工程师",
-    tag: "高竞争",
-    tagType: "competitive",
-  },
-  { label: "运营", value: "运营", tag: "常规", tagType: "normal" },
-  { label: "市场/销售", value: "市场/销售", tag: "常规", tagType: "normal" },
-];
+// 岗位选项
+// 作用：岗位选项必须统一从后台配置读取，不能继续在前端写死。
+// 后端返回的是管理员维护的启用岗位列表，前端只负责渲染。
+const jobOptions = ref([]);
 
 // 难度级别选项 - 带辅助说明
 const difficultyOptions = [
@@ -188,6 +162,29 @@ const selectedJob = ref("");
 const selectedDifficulty = ref("primary");
 const selectedMode = ref("normal");
 const creating = ref(false);
+
+/**
+ * 获取岗位选项
+ *
+ * 作用：
+ * 让模拟面试入口页直接消费后台岗位配置，满足“岗位由管理员配置”的业务要求。
+ * 返回的 tag / tagType 也来自后端，避免前端继续维护一套平行的静态配置。
+ */
+const fetchJobOptions = async () => {
+  try {
+    const res = await getInterviewJobRoles();
+    const rawList = Array.isArray(res.data) ? res.data : [];
+    jobOptions.value = rawList.map((item) => ({
+      label: item.roleName,
+      value: item.roleName,
+      tag: item.interviewTag || "常规",
+      tagType: item.tagType || "normal",
+    }));
+  } catch (err) {
+    jobOptions.value = [];
+    ElMessage.error(err.message || "获取岗位选项失败");
+  }
+};
 
 // 开始面试 - 先创建会话，再跳转
 const handleStart = async () => {
@@ -235,6 +232,10 @@ const handleStart = async () => {
     creating.value = false;
   }
 };
+
+onMounted(() => {
+  fetchJobOptions();
+});
 </script>
 
 <style scoped>
