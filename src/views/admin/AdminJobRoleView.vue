@@ -5,7 +5,10 @@
         <h2 class="page-title">岗位配置管理</h2>
         <p class="page-subtitle">维护模拟面试岗位列表，供用户端岗位下拉与 Prompt 绑定使用</p>
       </div>
-      <el-button type="primary" @click="openCreateDialog">新增岗位</el-button>
+      <div class="header-actions">
+        <el-button :loading="tableLoading" class="refresh-btn" @click="fetchJobRoleList">刷新列表</el-button>
+        <el-button type="primary" @click="openCreateDialog">新增岗位</el-button>
+      </div>
     </div>
 
     <div class="filter-bar">
@@ -21,10 +24,15 @@
         <el-option label="仅启用" value="active" />
         <el-option label="仅禁用" value="inactive" />
       </el-select>
+      <el-button class="reset-btn" @click="resetFilters">重置筛选</el-button>
+    </div>
+
+    <div class="filter-result">
+      当前筛选结果：<span class="result-count">{{ filteredJobRoleList.length }}</span> / {{ jobRoleList.length }} 条
     </div>
 
     <el-card shadow="never" class="table-card">
-      <el-table :data="filteredJobRoleList" v-loading="tableLoading" border empty-text="暂无岗位配置数据">
+      <el-table :data="pagedJobRoleList" v-loading="tableLoading" border :empty-text="tableEmptyText">
         <el-table-column prop="id" label="ID" width="100" />
         <el-table-column prop="roleCode" label="岗位编码" min-width="140" />
         <el-table-column prop="roleName" label="岗位名称" min-width="160" />
@@ -74,6 +82,19 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <div class="pagination-wrap">
+        <el-pagination
+          background
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="filteredJobRoleList.length"
+          :current-page="pagination.page"
+          :page-size="pagination.pageSize"
+          :page-sizes="[10, 20, 50]"
+          @current-change="handlePageChange"
+          @size-change="handlePageSizeChange"
+        />
+      </div>
     </el-card>
 
     <el-dialog
@@ -195,8 +216,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Check, Search, Edit } from '@element-plus/icons-vue'
 import {
   createAdminJobRole,
@@ -204,12 +224,22 @@ import {
   toggleAdminJobRoleActive,
   updateAdminJobRole
 } from '@/api/admin/jobRoles'
+import {
+  confirmAdminRiskAction,
+  resolveAdminTableEmptyText,
+  showAdminError,
+  showAdminSuccess
+} from '@/utils/adminFeedback'
 
 // 表格主数据：岗位配置列表。
 const jobRoleList = ref([])
 const tableLoading = ref(false)
 const keyword = ref('')
 const statusFilter = ref('all')
+const pagination = reactive({
+  page: 1,
+  pageSize: 10
+})
 
 // 展示标签候选库：覆盖常见招聘场景，并支持后续继续扩充。
 const interviewTagOptions = [
@@ -373,6 +403,24 @@ const filteredJobRoleList = computed(() => {
 })
 
 /**
+ * 分页后的岗位列表。
+ * 作用：统一管理端列表浏览体验，避免岗位配置条目过多时可读性下降。
+ */
+const pagedJobRoleList = computed(() => {
+  const startIndex = (pagination.page - 1) * pagination.pageSize
+  const endIndex = startIndex + pagination.pageSize
+  return filteredJobRoleList.value.slice(startIndex, endIndex)
+})
+
+/**
+ * 表格空状态文案。
+ * 作用：统一“列表无数据”和“筛选无命中”提示文案，提升跨页一致性。
+ */
+const tableEmptyText = computed(() => {
+  return resolveAdminTableEmptyText(jobRoleList.value.length, filteredJobRoleList.value.length)
+})
+
+/**
  * 重置表单到默认状态。
  * 作用：避免上一次编辑残留数据影响下一次新增。
  */
@@ -396,10 +444,36 @@ const fetchJobRoleList = async () => {
     const res = await getAdminJobRoles()
     jobRoleList.value = Array.isArray(res?.data) ? res.data : []
   } catch (error) {
-    ElMessage.error(error?.message || '加载岗位配置失败')
+    showAdminError(error?.message || '加载岗位配置失败')
   } finally {
     tableLoading.value = false
   }
+}
+
+/**
+ * 重置筛选条件。
+ * 作用：快速回到全量列表，减少多轮筛选后的操作负担。
+ */
+const resetFilters = () => {
+  keyword.value = ''
+  statusFilter.value = 'all'
+}
+
+/**
+ * 页码变更处理。
+ * @param {number} nextPage
+ */
+const handlePageChange = (nextPage) => {
+  pagination.page = nextPage
+}
+
+/**
+ * 分页大小变更处理。
+ * @param {number} nextPageSize
+ */
+const handlePageSizeChange = (nextPageSize) => {
+  pagination.pageSize = nextPageSize
+  pagination.page = 1
 }
 
 /**
@@ -453,16 +527,16 @@ const submitForm = async () => {
         ...payload,
         isActive: formData.isActive
       })
-      ElMessage.success('岗位修改成功')
+      showAdminSuccess('岗位修改成功')
     } else {
       await createAdminJobRole(payload)
-      ElMessage.success('岗位新增成功')
+      showAdminSuccess('岗位新增成功')
     }
 
     dialogVisible.value = false
     await fetchJobRoleList()
   } catch (error) {
-    ElMessage.error(error?.message || '保存岗位失败')
+    showAdminError(error?.message || '保存岗位失败')
   } finally {
     submitLoading.value = false
   }
@@ -477,19 +551,19 @@ const handleToggleActive = async (row) => {
   const actionText = nextActive === 1 ? '启用' : '禁用'
 
   try {
-    await ElMessageBox.confirm(
-      `确认${actionText}岗位「${row.roleName}」吗？`,
-      `${actionText}确认`,
-      {
-        type: 'warning'
-      }
-    )
+    await confirmAdminRiskAction({
+      title: `${actionText}确认`,
+      actionText: `${actionText}岗位`,
+      targetName: row.roleName,
+      impactHint: '该操作会影响用户端岗位下拉与 Prompt 绑定项可见性。',
+      type: 'warning'
+    })
     await toggleAdminJobRoleActive(row.id, nextActive)
-    ElMessage.success(`岗位已${actionText}`)
+    showAdminSuccess(`岗位已${actionText}`)
     await fetchJobRoleList()
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') {
-      ElMessage.error(error?.message || `${actionText}岗位失败`)
+      showAdminError(error?.message || `${actionText}岗位失败`)
     }
   }
 }
@@ -497,6 +571,31 @@ const handleToggleActive = async (row) => {
 onMounted(() => {
   fetchJobRoleList()
 })
+
+/**
+ * 监听筛选条件变化：
+ * 条件变化后自动回到第一页，避免分页停留导致空页误判。
+ */
+watch(
+  () => [keyword.value, statusFilter.value],
+  () => {
+    pagination.page = 1
+  }
+)
+
+/**
+ * 监听筛选结果长度：
+ * 当结果减少导致页码越界时，自动回退到最后一页。
+ */
+watch(
+  () => filteredJobRoleList.value.length,
+  (total) => {
+    const totalPage = Math.max(1, Math.ceil(total / pagination.pageSize))
+    if (pagination.page > totalPage) {
+      pagination.page = totalPage
+    }
+  }
+)
 </script>
 
 <style scoped>
@@ -511,6 +610,12 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .page-title {
@@ -538,6 +643,22 @@ onMounted(() => {
 
 .filter-item.keyword {
   width: 300px;
+}
+
+.refresh-btn,
+.reset-btn {
+  border-radius: 8px;
+}
+
+.filter-result {
+  margin-top: -4px;
+  font-size: 13px;
+  color: #9b7b62;
+}
+
+.result-count {
+  color: #d35400;
+  font-weight: 600;
 }
 
 .field-tip {
@@ -694,6 +815,12 @@ onMounted(() => {
   border: 1px solid #f0e6dc;
 }
 
+.pagination-wrap {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+}
+
 :deep(.el-table) {
   --el-table-border-color: #f0e6dc;
   --el-table-header-bg-color: #fdf9f6;
@@ -813,6 +940,15 @@ onMounted(() => {
 }
 
 @media (max-width: 640px) {
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .header-actions {
+    width: 100%;
+  }
+
   .template-grid {
     grid-template-columns: 1fr;
   }
@@ -825,6 +961,10 @@ onMounted(() => {
   .filter-item,
   .filter-item.keyword {
     width: 100%;
+  }
+
+  .pagination-wrap {
+    justify-content: center;
   }
 }
 

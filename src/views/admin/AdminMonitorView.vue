@@ -1,9 +1,9 @@
 <template>
-  <div class="admin-monitor-view">
-    <section class="monitor-header">
+  <div class="admin-page">
+    <section class="page-header">
       <div>
-        <h1 class="monitor-title">业务监控</h1>
-        <p class="monitor-subtitle">
+        <h2 class="page-title">监控总览</h2>
+        <p class="page-subtitle">
           基于应用层统计展示简历任务与面试会话运行状态，便于快速定位异常趋势
         </p>
       </div>
@@ -23,6 +23,14 @@
       type="error"
       :closable="false"
       :title="errorMessage"
+    />
+
+    <el-alert
+      v-else-if="!loading && !hasMonitorData"
+      class="monitor-empty"
+      type="info"
+      :closable="false"
+      title="当前暂无监控数据，请稍后刷新或等待业务请求产生。"
     />
 
     <section class="monitor-grid">
@@ -95,7 +103,7 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import {
   Calendar,
   ChatDotRound,
@@ -121,6 +129,14 @@ const monitorOverview = reactive({
 });
 
 /**
+ * 监控数据是否为空。
+ * 作用：在“接口成功但暂无业务量”时给出明确空状态提示，避免用户误判为加载失败。
+ */
+const hasMonitorData = computed(() => {
+  return Object.values(monitorOverview).some((value) => Number(value) > 0)
+})
+
+/**
  * 加载监控总览数据。
  * 作用：统一处理加载状态、接口异常和数据回填，保证页面可观测性稳定。
  */
@@ -144,13 +160,13 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.admin-monitor-view {
+.admin-page {
   display: flex;
   flex-direction: column;
   gap: 20px;
 }
 
-.monitor-header {
+.page-header {
   background: linear-gradient(135deg, #fff5e6 0%, #fff 100%);
   border: 1px solid #f2d4be;
   border-radius: 14px;
@@ -161,14 +177,14 @@ onMounted(() => {
   box-shadow: 0 2px 8px rgba(230, 126, 34, 0.1);
 }
 
-.monitor-title {
+.page-title {
   margin: 0;
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 600;
   color: #2c3e50;
 }
 
-.monitor-subtitle {
+.page-subtitle {
   margin: 6px 0 0;
   color: #7f8c8d;
   font-size: 14px;
@@ -191,6 +207,10 @@ onMounted(() => {
 }
 
 .monitor-error {
+  margin-bottom: 2px;
+}
+
+.monitor-empty {
   margin-bottom: 2px;
 }
 
@@ -286,7 +306,7 @@ onMounted(() => {
 }
 
 @media (max-width: 720px) {
-  .monitor-header {
+  .page-header {
     align-items: flex-start;
     flex-direction: column;
     gap: 12px;

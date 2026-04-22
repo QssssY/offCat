@@ -5,25 +5,98 @@
         <h2 class="page-title">用户与权益管理</h2>
         <p class="page-subtitle">查看用户基础信息、会员权益状态，并支持管理员手工调整</p>
       </div>
-      <el-input
-        v-model.trim="keyword"
-        class="search-input"
-        placeholder="按用户名或用户ID搜索"
-        clearable
+      <div class="header-actions">
+        <el-input
+          v-model.trim="keyword"
+          class="search-input"
+          placeholder="按用户名或用户ID搜索"
+          clearable
+        >
+          <template #prefix>
+            <el-icon class="search-icon"><Search /></el-icon>
+          </template>
+        </el-input>
+        <el-button :loading="tableLoading" class="refresh-btn" @click="fetchUserList">刷新列表</el-button>
+      </div>
+    </div>
+
+    <el-card shadow="never" class="filter-card">
+      <div class="filter-row">
+        <el-select v-model="filterForm.role" class="filter-select" placeholder="角色筛选">
+          <el-option label="全部角色" value="all" />
+          <el-option label="普通用户" value="0" />
+          <el-option label="会员用户" value="1" />
+          <el-option label="管理员" value="9" />
+        </el-select>
+        <el-select v-model="filterForm.status" class="filter-select" placeholder="状态筛选">
+          <el-option label="全部状态" value="all" />
+          <el-option label="正常" value="1" />
+          <el-option label="封禁" value="0" />
+        </el-select>
+        <el-select v-model="filterForm.vipState" class="filter-select" placeholder="会员状态筛选">
+          <el-option label="全部会员状态" value="all" />
+          <el-option label="会员有效" value="active" />
+          <el-option label="会员过期" value="expired" />
+          <el-option label="非会员" value="non-vip" />
+        </el-select>
+        <el-button class="reset-btn" @click="resetFilters">重置筛选</el-button>
+        <el-button class="export-btn" @click="exportFilteredUsersCsv">导出当前筛选</el-button>
+      </div>
+      <div class="filter-result">
+        当前筛选结果：<span class="filter-count">{{ filteredUsers.length }}</span> / {{ userList.length }} 人
+      </div>
+    </el-card>
+
+    <div class="stats-grid">
+      <button
+        class="stats-card"
+        :class="{ active: matchedQuickFilterKey === 'all' }"
+        @click="applyQuickFilter('all')"
       >
-        <template #prefix>
-          <el-icon class="search-icon"><Search /></el-icon>
-        </template>
-      </el-input>
+        <span class="stats-label">全部用户</span>
+        <strong class="stats-value">{{ userStats.total }}</strong>
+      </button>
+      <button
+        class="stats-card"
+        :class="{ active: matchedQuickFilterKey === 'status-enabled' }"
+        @click="applyQuickFilter('status-enabled')"
+      >
+        <span class="stats-label">正常用户</span>
+        <strong class="stats-value">{{ userStats.enabled }}</strong>
+      </button>
+      <button
+        class="stats-card"
+        :class="{ active: matchedQuickFilterKey === 'status-disabled' }"
+        @click="applyQuickFilter('status-disabled')"
+      >
+        <span class="stats-label">封禁用户</span>
+        <strong class="stats-value">{{ userStats.disabled }}</strong>
+      </button>
+      <button
+        class="stats-card"
+        :class="{ active: matchedQuickFilterKey === 'vip-active' }"
+        @click="applyQuickFilter('vip-active')"
+      >
+        <span class="stats-label">会员有效</span>
+        <strong class="stats-value">{{ userStats.vipActive }}</strong>
+      </button>
+      <button
+        class="stats-card"
+        :class="{ active: matchedQuickFilterKey === 'vip-expired' }"
+        @click="applyQuickFilter('vip-expired')"
+      >
+        <span class="stats-label">会员过期</span>
+        <strong class="stats-value">{{ userStats.vipExpired }}</strong>
+      </button>
     </div>
 
     <el-card shadow="never" class="table-card">
       <el-table
-        :data="filteredUsers"
+        :data="pagedUsers"
         v-loading="tableLoading"
         border
         stripe
-        empty-text="暂无用户数据"
+        :empty-text="tableEmptyText"
         class="user-table"
       >
         <el-table-column prop="_userId" label="用户ID" min-width="180" align="center">
@@ -72,7 +145,7 @@
             {{ formatDateTime(row.createTime) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="320" fixed="right" align="center">
+        <el-table-column label="操作" width="410" fixed="right" align="center">
           <template #header>
             <div class="table-header">操作</div>
           </template>
@@ -83,6 +156,9 @@
               </el-button>
               <el-button size="small" @click="openEditDialog(row)" class="action-btn edit">
                 编辑权益
+              </el-button>
+              <el-button size="small" @click="openQuotaDialog(row)" class="action-btn quota">
+                调整额度
               </el-button>
               <el-button
                 size="small"
@@ -95,6 +171,19 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <div class="pagination-wrap">
+        <el-pagination
+          background
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="filteredUsers.length"
+          :current-page="pagination.page"
+          :page-size="pagination.pageSize"
+          :page-sizes="[10, 20, 50]"
+          @current-change="handlePageChange"
+          @size-change="handlePageSizeChange"
+        />
+      </div>
     </el-card>
 
     <el-drawer v-model="rightsDrawerVisible" title="用户权益详情" size="480px" class="rights-drawer">
@@ -117,6 +206,105 @@
         <el-descriptions-item label="最近刷新日期">{{ rightsData.lastRefreshDate || '-' }}</el-descriptions-item>
       </el-descriptions>
     </el-drawer>
+
+    <el-dialog
+      v-model="quotaDialogVisible"
+      title="调整用户额度"
+      width="640px"
+      destroy-on-close
+      class="quota-dialog"
+    >
+      <el-skeleton v-if="quotaLoading" :rows="6" animated />
+      <el-form
+        v-else
+        ref="quotaFormRef"
+        :model="quotaForm"
+        :rules="quotaRules"
+        label-width="140px"
+      >
+        <el-alert type="info" :closable="false" class="quota-alert">
+          <template #title>
+            当前用户：{{ quotaForm.username || '-' }}（{{ quotaForm.userId || '-' }}）
+          </template>
+        </el-alert>
+
+        <el-form-item label="累计面试已使用" prop="totalInterviewUsed">
+          <el-input-number
+            v-model="quotaForm.totalInterviewUsed"
+            :min="0"
+            :step="1"
+            step-strictly
+            :precision="0"
+            controls-position="right"
+            style="width: 100%"
+            :disabled="quotaSaving"
+          />
+        </el-form-item>
+
+        <el-form-item label="累计简历已使用" prop="totalResumeUsed">
+          <el-input-number
+            v-model="quotaForm.totalResumeUsed"
+            :min="0"
+            :step="1"
+            step-strictly
+            :precision="0"
+            controls-position="right"
+            style="width: 100%"
+            :disabled="quotaSaving"
+          />
+        </el-form-item>
+
+        <el-form-item label="今日面试已使用" prop="dailyInterviewUsed">
+          <el-input-number
+            v-model="quotaForm.dailyInterviewUsed"
+            :min="0"
+            :step="1"
+            step-strictly
+            :precision="0"
+            controls-position="right"
+            style="width: 100%"
+            :disabled="quotaSaving"
+          />
+        </el-form-item>
+
+        <el-form-item label="今日简历已使用" prop="dailyResumeUsed">
+          <el-input-number
+            v-model="quotaForm.dailyResumeUsed"
+            :min="0"
+            :step="1"
+            step-strictly
+            :precision="0"
+            controls-position="right"
+            style="width: 100%"
+            :disabled="quotaSaving"
+          />
+        </el-form-item>
+
+        <el-form-item label="最后刷新日期" prop="lastRefreshDate">
+          <el-date-picker
+            v-model="quotaForm.lastRefreshDate"
+            type="date"
+            value-format="YYYY-MM-DD"
+            placeholder="请选择最后刷新日期"
+            style="width: 100%"
+            :disabled="quotaSaving"
+          />
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="quotaDialogVisible = false" class="dialog-btn">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="quotaSaving"
+          :disabled="quotaLoading"
+          @click="submitQuotaEdit"
+          class="dialog-btn primary"
+        >
+          保存额度
+        </el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog
       v-model="editDialogVisible"
@@ -186,20 +374,37 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
 import {
   getAdminUserRights,
+  getAdminUserQuota,
   getAdminUsers,
   getMembershipPlansForAdmin,
   updateAdminUserRights,
+  updateAdminUserQuota,
   updateAdminUserStatus
 } from '@/api/admin/users'
+import {
+  confirmAdminRiskAction,
+  resolveAdminTableEmptyText,
+  showAdminError,
+  showAdminSuccess,
+  showAdminWarning
+} from '@/utils/adminFeedback'
 
 // 用户列表基础状态：承载用户管理主表格。
 const userList = ref([])
 const tableLoading = ref(false)
 const keyword = ref('')
+const filterForm = reactive({
+  role: 'all',
+  status: 'all',
+  vipState: 'all'
+})
+const pagination = reactive({
+  page: 1,
+  pageSize: 10
+})
 
 // 权益详情抽屉状态：点击“查看权益”后加载展示。
 const rightsDrawerVisible = ref(false)
@@ -235,8 +440,50 @@ const editForm = reactive({
 // 会员套餐选项：用于权益编辑时选择合法套餐编码。
 const membershipPlans = ref([])
 
+// 额度编辑状态：用于管理员修正累计与当日消耗值。
+const quotaDialogVisible = ref(false)
+const quotaLoading = ref(false)
+const quotaSaving = ref(false)
+const quotaFormRef = ref(null)
+const quotaForm = reactive({
+  userId: '',
+  username: '',
+  totalInterviewUsed: 0,
+  totalResumeUsed: 0,
+  dailyInterviewUsed: 0,
+  dailyResumeUsed: 0,
+  lastRefreshDate: ''
+})
+
+/**
+ * 校验非负整数输入。
+ * 作用：防止管理员误填负数或小数，避免提交后破坏额度统计口径。
+ * @param {any} _rule
+ * @param {number | string | null | undefined} value
+ * @param {(error?: Error) => void} callback
+ */
+const validateNonNegativeInteger = (_rule, value, callback) => {
+  const numericValue = Number(value)
+  if (!Number.isFinite(numericValue)) {
+    callback(new Error('请输入有效数字'))
+    return
+  }
+  if (numericValue < 0 || !Number.isInteger(numericValue)) {
+    callback(new Error('请输入大于等于 0 的整数'))
+    return
+  }
+  callback()
+}
+
 const editRules = {
   role: [{ required: true, message: '请选择目标角色', trigger: 'change' }]
+}
+
+const quotaRules = {
+  totalInterviewUsed: [{ validator: validateNonNegativeInteger, trigger: 'change' }],
+  totalResumeUsed: [{ validator: validateNonNegativeInteger, trigger: 'change' }],
+  dailyInterviewUsed: [{ validator: validateNonNegativeInteger, trigger: 'change' }],
+  dailyResumeUsed: [{ validator: validateNonNegativeInteger, trigger: 'change' }]
 }
 
 /**
@@ -271,14 +518,99 @@ const readUserId = (row) => {
 const isEnabledUser = (row) => Number(row?.status) === 1
 
 /**
+ * 计算用户会员状态标签。
+ * 作用：统一会员有效/过期判断口径，避免筛选与展示标准不一致。
+ * @param {Record<string, any>} row
+ * @returns {'active' | 'expired' | 'non-vip'}
+ */
+const getVipState = (row) => {
+  if (Number(row?.role) !== 1) return 'non-vip'
+  if (!row?.vipExpireTime) return 'expired'
+  const expireDate = new Date(row.vipExpireTime)
+  if (Number.isNaN(expireDate.getTime())) return 'expired'
+  return expireDate.getTime() >= Date.now() ? 'active' : 'expired'
+}
+
+/**
  * 过滤后的用户列表。
- * 作用：支持按用户名或用户ID做本地搜索，减少后端改动成本。
+ * 作用：支持关键词、角色、状态、会员状态的多维组合筛选。
  */
 const filteredUsers = computed(() => {
-  if (!keyword.value) return userList.value
   return userList.value.filter((item) => {
-    return item.username?.includes(keyword.value) || item._userId?.includes(keyword.value)
+    const matchesKeyword = !keyword.value
+      || item.username?.includes(keyword.value)
+      || item._userId?.includes(keyword.value)
+
+    const matchesRole = filterForm.role === 'all' || String(item.role) === filterForm.role
+    const matchesStatus = filterForm.status === 'all' || String(item.status) === filterForm.status
+    const matchesVipState = filterForm.vipState === 'all' || getVipState(item) === filterForm.vipState
+
+    return matchesKeyword && matchesRole && matchesStatus && matchesVipState
   })
+})
+
+/**
+ * 当前页用户列表。
+ * 作用：在前端做轻量分页，避免当前后端接口改造成本。
+ */
+const pagedUsers = computed(() => {
+  const startIndex = (pagination.page - 1) * pagination.pageSize
+  const endIndex = startIndex + pagination.pageSize
+  return filteredUsers.value.slice(startIndex, endIndex)
+})
+
+/**
+ * 表格空状态文案。
+ * 作用：统一“全量为空”和“筛选为空”展示语气，减少误判。
+ */
+const tableEmptyText = computed(() => {
+  return resolveAdminTableEmptyText(userList.value.length, filteredUsers.value.length)
+})
+
+/**
+ * 用户统计概览。
+ * 作用：给管理员提供一眼可见的用户分布，快速定位目标群体。
+ */
+const userStats = computed(() => {
+  return userList.value.reduce(
+    (summary, item) => {
+      summary.total += 1
+      if (isEnabledUser(item)) {
+        summary.enabled += 1
+      } else {
+        summary.disabled += 1
+      }
+
+      const vipState = getVipState(item)
+      if (vipState === 'active') summary.vipActive += 1
+      if (vipState === 'expired') summary.vipExpired += 1
+      return summary
+    },
+    { total: 0, enabled: 0, disabled: 0, vipActive: 0, vipExpired: 0 }
+  )
+})
+
+/**
+ * 当前筛选对应的快捷筛选标识。
+ * 作用：让统计卡片高亮状态与筛选条件保持一致。
+ */
+const matchedQuickFilterKey = computed(() => {
+  if (filterForm.role === 'all' && filterForm.status === 'all' && filterForm.vipState === 'all') {
+    return 'all'
+  }
+  if (filterForm.role === 'all' && filterForm.status === '1' && filterForm.vipState === 'all') {
+    return 'status-enabled'
+  }
+  if (filterForm.role === 'all' && filterForm.status === '0' && filterForm.vipState === 'all') {
+    return 'status-disabled'
+  }
+  if (filterForm.role === '1' && filterForm.status === 'all' && filterForm.vipState === 'active') {
+    return 'vip-active'
+  }
+  if (filterForm.role === '1' && filterForm.status === 'all' && filterForm.vipState === 'expired') {
+    return 'vip-expired'
+  }
+  return 'custom'
 })
 
 /**
@@ -291,6 +623,18 @@ const formatDateTime = (value) => {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return String(value)
   return date.toLocaleString('zh-CN', { hour12: false })
+}
+
+/**
+ * 将任意输入转换为非负整数。
+ * 作用：接口返回空值时兜底为 0，避免数字组件显示异常。
+ * @param {number | string | null | undefined} value
+ * @returns {number}
+ */
+const toSafeNonNegativeInteger = (value) => {
+  const numericValue = Number(value)
+  if (!Number.isFinite(numericValue) || numericValue < 0) return 0
+  return Math.floor(numericValue)
 }
 
 /**
@@ -307,10 +651,132 @@ const fetchUserList = async () => {
       _userId: normalizeUserId(item.id ?? item.userId)
     }))
   } catch (error) {
-    ElMessage.error(error?.message || '加载用户列表失败')
+    showAdminError(error?.message || '加载用户列表失败')
   } finally {
     tableLoading.value = false
   }
+}
+
+/**
+ * 重置筛选条件。
+ * 作用：快速回到全量视图，降低管理员多轮筛选后的恢复成本。
+ */
+const resetFilters = () => {
+  keyword.value = ''
+  filterForm.role = 'all'
+  filterForm.status = 'all'
+  filterForm.vipState = 'all'
+}
+
+/**
+ * 应用统计卡片快捷筛选。
+ * 作用：通过单击卡片快速套用高频筛选组合，减少重复操作。
+ * @param {'all' | 'status-enabled' | 'status-disabled' | 'vip-active' | 'vip-expired'} key
+ */
+const applyQuickFilter = (key) => {
+  if (key === 'all') {
+    filterForm.role = 'all'
+    filterForm.status = 'all'
+    filterForm.vipState = 'all'
+    return
+  }
+
+  if (key === 'status-enabled') {
+    filterForm.role = 'all'
+    filterForm.status = '1'
+    filterForm.vipState = 'all'
+    return
+  }
+
+  if (key === 'status-disabled') {
+    filterForm.role = 'all'
+    filterForm.status = '0'
+    filterForm.vipState = 'all'
+    return
+  }
+
+  if (key === 'vip-active') {
+    filterForm.role = '1'
+    filterForm.status = 'all'
+    filterForm.vipState = 'active'
+    return
+  }
+
+  if (key === 'vip-expired') {
+    filterForm.role = '1'
+    filterForm.status = 'all'
+    filterForm.vipState = 'expired'
+  }
+}
+
+/**
+ * 分页页码变更回调。
+ * @param {number} nextPage
+ */
+const handlePageChange = (nextPage) => {
+  pagination.page = nextPage
+}
+
+/**
+ * 分页条数变更回调。
+ * @param {number} nextPageSize
+ */
+const handlePageSizeChange = (nextPageSize) => {
+  pagination.pageSize = nextPageSize
+  pagination.page = 1
+}
+
+/**
+ * 转义 CSV 字段内容。
+ * 作用：防止逗号、换行、双引号导致导出结构错乱。
+ * @param {string | number | null | undefined} value
+ * @returns {string}
+ */
+const escapeCsvCell = (value) => {
+  const cellText = String(value ?? '')
+  return `"${cellText.replaceAll('"', '""')}"`
+}
+
+/**
+ * 导出当前筛选结果为 CSV。
+ * 作用：让运营可直接下载并离线分析筛选后的用户集。
+ */
+const exportFilteredUsersCsv = () => {
+  if (!filteredUsers.value.length) {
+    showAdminWarning('当前筛选结果为空，无法导出')
+    return
+  }
+
+  const headers = ['用户ID', '用户名', '角色', '状态', '会员到期时间', '会员状态', '创建时间']
+  const rows = filteredUsers.value.map((item) => {
+    const vipState = getVipState(item)
+    return [
+      item._userId || '',
+      item.username || '',
+      item.roleDesc || '',
+      isEnabledUser(item) ? '正常' : '封禁',
+      formatDateTime(item.vipExpireTime),
+      vipState === 'active' ? '会员有效' : (vipState === 'expired' ? '会员过期' : '非会员'),
+      formatDateTime(item.createTime)
+    ]
+  })
+
+  const csvContent = [headers, ...rows]
+    .map((row) => row.map((cell) => escapeCsvCell(cell)).join(','))
+    .join('\n')
+
+  const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' })
+  const downloadLink = document.createElement('a')
+  const now = new Date()
+  const fileName = `admin_users_export_${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}.csv`
+
+  downloadLink.href = URL.createObjectURL(blob)
+  downloadLink.download = fileName
+  document.body.appendChild(downloadLink)
+  downloadLink.click()
+  document.body.removeChild(downloadLink)
+  URL.revokeObjectURL(downloadLink.href)
+  showAdminSuccess('导出成功')
 }
 
 /**
@@ -321,7 +787,7 @@ const fetchMembershipPlans = async () => {
     const res = await getMembershipPlansForAdmin()
     membershipPlans.value = Array.isArray(res?.data) ? res.data : []
   } catch (error) {
-    ElMessage.error(error?.message || '加载会员套餐失败')
+    showAdminError(error?.message || '加载会员套餐失败')
   }
 }
 
@@ -335,7 +801,7 @@ const fetchRightsByUserId = async (userId) => {
     const res = await getAdminUserRights(userId)
     Object.assign(rightsData, res?.data || {})
   } catch (error) {
-    ElMessage.error(error?.message || '加载用户权益详情失败')
+    showAdminError(error?.message || '加载用户权益详情失败')
   } finally {
     rightsLoading.value = false
   }
@@ -344,11 +810,44 @@ const fetchRightsByUserId = async (userId) => {
 const openRightsDrawer = async (row) => {
   const userId = readUserId(row)
   if (!userId) {
-    ElMessage.error('用户ID无效，无法查询权益')
+    showAdminError('用户ID无效，无法查询权益')
     return
   }
   rightsDrawerVisible.value = true
   await fetchRightsByUserId(userId)
+}
+
+/**
+ * 打开额度编辑弹窗。
+ * 关键逻辑：每次都从后端实时拉取额度，避免编辑基于旧缓存。
+ * @param {Record<string, any>} row
+ */
+const openQuotaDialog = async (row) => {
+  const userId = readUserId(row)
+  if (!userId) {
+    showAdminError('用户ID无效，无法调整额度')
+    return
+  }
+
+  quotaDialogVisible.value = true
+  quotaLoading.value = true
+
+  try {
+    const res = await getAdminUserQuota(userId)
+    const data = res?.data || {}
+    quotaForm.userId = userId
+    quotaForm.username = data.username || row.username || ''
+    quotaForm.totalInterviewUsed = toSafeNonNegativeInteger(data.totalInterviewUsed)
+    quotaForm.totalResumeUsed = toSafeNonNegativeInteger(data.totalResumeUsed)
+    quotaForm.dailyInterviewUsed = toSafeNonNegativeInteger(data.dailyInterviewUsed)
+    quotaForm.dailyResumeUsed = toSafeNonNegativeInteger(data.dailyResumeUsed)
+    quotaForm.lastRefreshDate = data.lastRefreshDate || ''
+  } catch (error) {
+    showAdminError(error?.message || '加载用户额度失败')
+    quotaDialogVisible.value = false
+  } finally {
+    quotaLoading.value = false
+  }
 }
 
 /**
@@ -359,7 +858,7 @@ const openRightsDrawer = async (row) => {
 const openEditDialog = async (row) => {
   const userId = readUserId(row)
   if (!userId) {
-    ElMessage.error('用户ID无效，无法编辑权益')
+    showAdminError('用户ID无效，无法编辑权益')
     return
   }
 
@@ -375,7 +874,7 @@ const openEditDialog = async (row) => {
     editForm.vipExpireTime = data.vipExpireTime || ''
     editForm.remark = ''
   } catch (error) {
-    ElMessage.error(error?.message || '加载用户权益数据失败')
+    showAdminError(error?.message || '加载用户权益数据失败')
   } finally {
     editLoading.value = false
   }
@@ -402,16 +901,52 @@ const submitEdit = async () => {
     }
 
     await updateAdminUserRights(selectedUserId.value, payload)
-    ElMessage.success('用户权益更新成功')
+    showAdminSuccess('用户权益更新成功')
     editDialogVisible.value = false
     await fetchUserList()
     if (rightsDrawerVisible.value) {
       await fetchRightsByUserId(selectedUserId.value)
     }
   } catch (error) {
-    ElMessage.error(error?.message || '更新用户权益失败')
+    showAdminError(error?.message || '更新用户权益失败')
   } finally {
     editLoading.value = false
+  }
+}
+
+/**
+ * 提交额度编辑。
+ * 关键逻辑：统一提交非负整数字段，保持后端额度统计字段可预测。
+ */
+const submitQuotaEdit = async () => {
+  if (!quotaForm.userId || !quotaFormRef.value) return
+
+  const valid = await quotaFormRef.value.validate().catch(() => false)
+  if (!valid) return
+
+  quotaSaving.value = true
+  try {
+    const payload = {
+      userId: quotaForm.userId,
+      totalInterviewUsed: toSafeNonNegativeInteger(quotaForm.totalInterviewUsed),
+      totalResumeUsed: toSafeNonNegativeInteger(quotaForm.totalResumeUsed),
+      dailyInterviewUsed: toSafeNonNegativeInteger(quotaForm.dailyInterviewUsed),
+      dailyResumeUsed: toSafeNonNegativeInteger(quotaForm.dailyResumeUsed),
+      lastRefreshDate: quotaForm.lastRefreshDate || null
+    }
+
+    await updateAdminUserQuota(payload)
+    showAdminSuccess('用户额度更新成功')
+    quotaDialogVisible.value = false
+
+    // 如果当前已打开权益抽屉且目标用户一致，提交后同步刷新展示数据。
+    if (rightsDrawerVisible.value && rightsData.userId && String(rightsData.userId) === quotaForm.userId) {
+      await fetchRightsByUserId(quotaForm.userId)
+    }
+  } catch (error) {
+    showAdminError(error?.message || '更新用户额度失败')
+  } finally {
+    quotaSaving.value = false
   }
 }
 
@@ -422,24 +957,28 @@ const submitEdit = async () => {
 const handleToggleStatus = async (row) => {
   const userId = readUserId(row)
   if (!userId) {
-    ElMessage.error('用户ID无效，无法更新状态')
+    showAdminError('用户ID无效，无法更新状态')
     return
   }
 
   const nextStatus = isEnabledUser(row) ? 0 : 1
   const actionText = nextStatus === 1 ? '解封' : '封禁'
   try {
-    await ElMessageBox.confirm(
-      `确认${actionText}用户「${row.username}」吗？`,
-      `${actionText}确认`,
-      { type: 'warning' }
-    )
+    await confirmAdminRiskAction({
+      title: `${actionText}确认`,
+      actionText: `${actionText}用户`,
+      targetName: row.username,
+      impactHint: nextStatus === 0
+        ? '封禁后该用户将无法继续使用核心功能，请确认已完成风险评估。'
+        : '解封后该用户将恢复访问能力，请确认账号状态已核验。',
+      type: 'warning'
+    })
     await updateAdminUserStatus(userId, nextStatus)
-    ElMessage.success(`用户已${actionText}`)
+    showAdminSuccess(`用户已${actionText}`)
     await fetchUserList()
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') {
-      ElMessage.error(error?.message || `${actionText}用户失败`)
+      showAdminError(error?.message || `${actionText}用户失败`)
     }
   }
 }
@@ -454,6 +993,31 @@ watch(
     if (roleValue !== 1) {
       editForm.membershipPlanCode = ''
       editForm.vipExpireTime = ''
+    }
+  }
+)
+
+/**
+ * 监听筛选条件变化：
+ * 每次筛选条件变化都回到第一页，避免保留旧页码导致展示为空。
+ */
+watch(
+  () => [keyword.value, filterForm.role, filterForm.status, filterForm.vipState],
+  () => {
+    pagination.page = 1
+  }
+)
+
+/**
+ * 监听筛选后数据量：
+ * 当当前页超出最大页码时回退到最后一页，保证始终有可见数据。
+ */
+watch(
+  () => filteredUsers.value.length,
+  (total) => {
+    const totalPage = Math.max(1, Math.ceil(total / pagination.pageSize))
+    if (pagination.page > totalPage) {
+      pagination.page = totalPage
     }
   }
 )
@@ -477,6 +1041,12 @@ onMounted(async () => {
   gap: 16px;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .page-title {
   margin: 0;
   font-size: 22px;
@@ -492,6 +1062,10 @@ onMounted(async () => {
 
 .search-input {
   width: 280px;
+}
+
+.refresh-btn {
+  border-radius: 8px;
 }
 
 .search-input :deep(.el-input__wrapper) {
@@ -512,6 +1086,82 @@ onMounted(async () => {
   border-radius: 12px;
   border: none;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.filter-card {
+  border-radius: 12px;
+  border: none;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+
+.filter-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.filter-select {
+  width: 100%;
+}
+
+.reset-btn {
+  border-radius: 8px;
+}
+
+.export-btn {
+  border-radius: 8px;
+  color: #1f618d;
+  border-color: #aed6f1;
+}
+
+.filter-result {
+  margin-top: 12px;
+  font-size: 13px;
+  color: #7f8c8d;
+}
+
+.filter-count {
+  color: #d35400;
+  font-weight: 600;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.stats-card {
+  border: 1px solid #e9ecef;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.stats-card:hover {
+  border-color: #f1c40f;
+  box-shadow: 0 6px 16px rgba(241, 196, 15, 0.12);
+}
+
+.stats-card.active {
+  border-color: #e67e22;
+  background: #fff7ef;
+}
+
+.stats-label {
+  display: block;
+  font-size: 12px;
+  color: #7f8c8d;
+  margin-bottom: 6px;
+}
+
+.stats-value {
+  font-size: 22px;
+  color: #2c3e50;
+  line-height: 1;
 }
 
 .user-table :deep(.el-table__header-wrapper) {
@@ -569,9 +1219,25 @@ onMounted(async () => {
   border-radius: 6px;
 }
 
+.action-btn.quota {
+  color: #8e44ad;
+}
+
+.action-btn.quota:hover {
+  color: #7d3c98;
+  background: #f5eef8;
+  border-radius: 6px;
+}
+
 .action-btn:hover {
   background: #f8f9fa;
   border-radius: 6px;
+}
+
+.pagination-wrap {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .rights-drawer :deep(.el-drawer__header) {
@@ -594,6 +1260,15 @@ onMounted(async () => {
 .edit-dialog :deep(.el-dialog__header) {
   background: #f8f9fa;
   border-bottom: 1px solid #eee;
+}
+
+.quota-dialog :deep(.el-dialog__header) {
+  background: #f8f9fa;
+  border-bottom: 1px solid #eee;
+}
+
+.quota-alert {
+  margin-bottom: 16px;
 }
 
 .edit-dialog :deep(.el-dialog__title) {
@@ -619,5 +1294,42 @@ onMounted(async () => {
 
 .dialog-btn.primary:hover {
   background: linear-gradient(135deg, #d35400 0%, #c0392b 100%);
+}
+
+@media (max-width: 1200px) {
+  .filter-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .header-actions {
+    width: 100%;
+  }
+
+  .search-input {
+    width: 100%;
+  }
+
+  .filter-row {
+    grid-template-columns: 1fr;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pagination-wrap {
+    justify-content: center;
+  }
 }
 </style>

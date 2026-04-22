@@ -19,18 +19,25 @@
     <div class="admin-body">
       <aside class="admin-sidebar">
         <nav class="admin-nav">
-          <RouterLink
-            v-for="item in navItems"
-            :key="item.path"
-            :to="item.path"
-            class="admin-nav-item"
-            :class="{ active: isNavActive(item.path) }"
+          <section
+            v-for="group in navGroups"
+            :key="group.groupKey"
+            class="nav-group"
           >
-            <el-icon class="nav-icon">
-              <component :is="item.icon" />
-            </el-icon>
-            <span class="nav-label">{{ item.label }}</span>
-          </RouterLink>
+            <h3 class="nav-group-title">{{ group.groupLabel }}</h3>
+            <RouterLink
+              v-for="item in group.items"
+              :key="item.path"
+              :to="item.path"
+              class="admin-nav-item"
+              :class="{ active: isNavActive(item.path) }"
+            >
+              <el-icon class="nav-icon">
+                <component :is="item.icon" />
+              </el-icon>
+              <span class="nav-label">{{ item.label }}</span>
+            </RouterLink>
+          </section>
         </nav>
       </aside>
 
@@ -44,7 +51,6 @@
 <script setup>
 import { computed, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ElMessage } from "element-plus";
 import {
   ChatLineRound,
   DataAnalysis,
@@ -57,19 +63,38 @@ import {
 } from "@element-plus/icons-vue";
 import { useAdminUserStore } from "@/stores/adminUser";
 import logoUrl from "@/assets/logo.jpg";
+import { showAdminError, showAdminSuccess } from "@/utils/adminFeedback";
 
 const route = useRoute();
 const router = useRouter();
 const adminStore = useAdminUserStore();
 
-// 管理端侧边导航：先覆盖当前核心可用模块。
-const navItems = computed(() => [
-  { path: "/admin/dashboard", label: "数据看板", icon: DataAnalysis },
-  { path: "/admin/monitor", label: "监控总览", icon: Odometer },
-  { path: "/admin/job-roles", label: "岗位配置", icon: Document },
-  { path: "/admin/prompts", label: "Prompt 管理", icon: ChatLineRound },
-  { path: "/admin/ai-engines", label: "AI 引擎", icon: Setting },
-  { path: "/admin/users", label: "用户权益", icon: UserFilled },
+// 管理端分组导航：统一信息架构层次，降低模块扩展后的认知成本。
+const navGroups = computed(() => [
+  {
+    groupKey: "insight",
+    groupLabel: "看板与监控",
+    items: [
+      { path: "/admin/dashboard", label: "数据看板", icon: DataAnalysis },
+      { path: "/admin/monitor", label: "监控总览", icon: Odometer }
+    ]
+  },
+  {
+    groupKey: "operation",
+    groupLabel: "运营管理",
+    items: [
+      { path: "/admin/users", label: "用户权益", icon: UserFilled }
+    ]
+  },
+  {
+    groupKey: "config",
+    groupLabel: "配置中心",
+    items: [
+      { path: "/admin/job-roles", label: "岗位配置", icon: Document },
+      { path: "/admin/prompts", label: "Prompt 管理", icon: ChatLineRound },
+      { path: "/admin/ai-engines", label: "AI 引擎", icon: Setting }
+    ]
+  }
 ]);
 
 /**
@@ -90,7 +115,7 @@ onMounted(async () => {
     await adminStore.fetchAdminInfo();
   } catch (error) {
     adminStore.doAdminLogout();
-    ElMessage.error(error?.message || "管理员登录态已失效，请重新登录");
+    showAdminError(error?.message || "管理员登录态已失效，请重新登录");
     router.push("/admin/login");
   }
 });
@@ -101,6 +126,8 @@ onMounted(async () => {
  */
 const handleLogout = () => {
   adminStore.doAdminLogout();
+  // 统一反馈：显式告知管理员当前会话已退出，避免误判为跳转异常。
+  showAdminSuccess("已退出管理端");
   router.push("/admin/login");
 };
 </script>
@@ -187,7 +214,21 @@ const handleLogout = () => {
 .admin-nav {
   display: flex;
   flex-direction: column;
+  gap: 10px;
+}
+
+.nav-group {
+  display: flex;
+  flex-direction: column;
   gap: 4px;
+}
+
+.nav-group-title {
+  margin: 8px 10px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.55);
+  letter-spacing: 0.4px;
 }
 
 .admin-nav-item {
@@ -240,6 +281,10 @@ const handleLogout = () => {
   }
 
   .nav-label {
+    display: none;
+  }
+
+  .nav-group-title {
     display: none;
   }
 

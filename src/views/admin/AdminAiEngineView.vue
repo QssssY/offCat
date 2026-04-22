@@ -5,10 +5,56 @@
         <h2 class="page-title">AI 引擎配置</h2>
         <p class="page-subtitle">维护 interview/resume 业务模型配置，支持启用切换和密钥脱敏展示</p>
       </div>
-      <el-button type="primary" @click="openCreateDialog" class="btn-primary">
-        <el-icon><Edit /></el-icon>
-        新增引擎配置
-      </el-button>
+      <div class="header-actions">
+        <el-button :loading="tableLoading" class="refresh-btn" @click="fetchEngineList">刷新列表</el-button>
+        <el-button type="primary" @click="openCreateDialog" class="btn-primary">
+          <el-icon><Edit /></el-icon>
+          新增引擎配置
+        </el-button>
+      </div>
+    </div>
+
+    <div class="stats-grid">
+      <button
+        class="stats-card"
+        :class="{ active: matchedQuickFilterKey === 'all' }"
+        @click="applyQuickFilter('all')"
+      >
+        <span class="stats-label">全部配置</span>
+        <strong class="stats-value">{{ engineStats.total }}</strong>
+      </button>
+      <button
+        class="stats-card"
+        :class="{ active: matchedQuickFilterKey === 'active' }"
+        @click="applyQuickFilter('active')"
+      >
+        <span class="stats-label">启用配置</span>
+        <strong class="stats-value">{{ engineStats.active }}</strong>
+      </button>
+      <button
+        class="stats-card"
+        :class="{ active: matchedQuickFilterKey === 'interview-active' }"
+        @click="applyQuickFilter('interview-active')"
+      >
+        <span class="stats-label">面试生效</span>
+        <strong class="stats-value">{{ engineStats.interviewActive }}</strong>
+      </button>
+      <button
+        class="stats-card"
+        :class="{ active: matchedQuickFilterKey === 'resume-active' }"
+        @click="applyQuickFilter('resume-active')"
+      >
+        <span class="stats-label">简历生效</span>
+        <strong class="stats-value">{{ engineStats.resumeActive }}</strong>
+      </button>
+      <button
+        class="stats-card warning"
+        :class="{ active: matchedQuickFilterKey === 'multi-active-risk' }"
+        @click="applyQuickFilter('multi-active-risk')"
+      >
+        <span class="stats-label">生效冲突风险</span>
+        <strong class="stats-value">{{ engineStats.multiActiveRisk }}</strong>
+      </button>
     </div>
 
     <div class="filter-bar">
@@ -28,20 +74,46 @@
         <el-option label="模拟面试" value="interview" />
         <el-option label="简历诊断" value="resume" />
       </el-select>
+      <el-select v-model="providerFilter" class="filter-item" placeholder="按 Provider 筛选" clearable>
+        <el-option label="全部 Provider" value="all" />
+        <el-option
+          v-for="provider in providerTypeOptions"
+          :key="provider"
+          :label="provider"
+          :value="provider"
+        />
+      </el-select>
       <el-select v-model="statusFilter" class="filter-item" placeholder="按状态筛选" clearable>
         <el-option label="全部状态" value="all" />
         <el-option label="仅启用" value="active" />
         <el-option label="仅禁用" value="inactive" />
       </el-select>
+      <el-select v-model="activeScopeFilter" class="filter-item" placeholder="按生效范围筛选" clearable>
+        <el-option label="全部生效范围" value="all" />
+        <el-option label="当前业务生效中" value="current-active" />
+        <el-option label="当前业务未生效" value="not-current-active" />
+      </el-select>
+      <el-button class="reset-btn" @click="resetFilters">重置筛选</el-button>
     </div>
+
+    <div class="filter-result">
+      当前筛选结果：<span class="result-count">{{ filteredEngineList.length }}</span> / {{ engineList.length }} 条
+    </div>
+    <el-alert
+      v-if="hasMultiActiveRisk"
+      type="warning"
+      :closable="false"
+      class="risk-alert"
+      title="检测到同业务存在多条启用配置，请尽快检查并完成收敛，避免运行时路由不确定。"
+    />
 
     <el-card shadow="never" class="table-card">
       <el-table
-        :data="filteredEngineList"
+        :data="pagedEngineList"
         v-loading="tableLoading"
         border
         stripe
-        empty-text="暂无 AI 引擎配置数据"
+        :empty-text="tableEmptyText"
         class="engine-table"
       >
         <el-table-column prop="id" label="ID" width="80" align="center">
@@ -67,6 +139,19 @@
         <el-table-column prop="businessTypeDesc" label="业务类型" min-width="120" align="center">
           <template #header>
             <div class="table-header">业务类型</div>
+          </template>
+          <template #default="{ row }">
+            <div class="business-cell">
+              <span>{{ row.businessTypeDesc }}</span>
+              <el-tag
+                v-if="isCurrentActiveEngine(row)"
+                type="success"
+                effect="plain"
+                size="small"
+              >
+                当前生效
+              </el-tag>
+            </div>
           </template>
         </el-table-column>
         <el-table-column prop="modelName" label="模型名" min-width="140" align="center">
@@ -132,6 +217,7 @@
                 size="small"
                 @click="handleToggleActive(row)"
                 class="action-btn"
+                :loading="toggleLoadingId === row.id"
               >
                 {{ row.isActive === 1 ? '禁用' : '启用' }}
               </el-button>
@@ -139,6 +225,19 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <div class="pagination-wrap">
+        <el-pagination
+          background
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="filteredEngineList.length"
+          :current-page="pagination.page"
+          :page-size="pagination.pageSize"
+          :page-sizes="[10, 20, 50]"
+          @current-change="handlePageChange"
+          @size-change="handlePageSizeChange"
+        />
+      </div>
     </el-card>
 
     <el-dialog
@@ -165,7 +264,22 @@
         <el-row :gutter="12">
           <el-col :span="12">
             <el-form-item label="Provider" prop="providerType">
-              <el-input v-model.trim="formData.providerType" :disabled="submitLoading" />
+              <el-select
+                v-model="formData.providerType"
+                filterable
+                allow-create
+                default-first-option
+                style="width: 100%"
+                placeholder="请选择或输入 Provider"
+                :disabled="submitLoading"
+              >
+                <el-option
+                  v-for="provider in providerSuggestOptions"
+                  :key="provider"
+                  :label="provider"
+                  :value="provider"
+                />
+              </el-select>
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -183,7 +297,15 @@
         </el-form-item>
 
         <el-form-item label="基础地址" prop="baseUrl">
-          <el-input v-model.trim="formData.baseUrl" :disabled="submitLoading" />
+          <div class="base-url-row">
+            <el-input v-model.trim="formData.baseUrl" :disabled="submitLoading" />
+            <el-button :disabled="submitLoading" @click="fillBaseUrlByProvider">
+              按 Provider 填充
+            </el-button>
+          </div>
+          <div class="field-tip">
+            推荐地址：{{ providerBaseUrlSuggestion || '当前 Provider 暂无预设地址，请手动填写' }}
+          </div>
         </el-form-item>
 
         <el-form-item label="API Key" prop="apiKey">
@@ -220,6 +342,9 @@
             </el-form-item>
           </el-col>
         </el-row>
+        <div class="field-tip">
+          配置建议：{{ parameterSuggestionText }}
+        </div>
 
         <el-row :gutter="12">
           <el-col :span="8">
@@ -253,8 +378,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Edit, Search } from '@element-plus/icons-vue'
 import {
   createAdminAiEngine,
@@ -262,19 +386,34 @@ import {
   toggleAdminAiEngineActive,
   updateAdminAiEngine
 } from '@/api/admin/aiEngines'
+import {
+  confirmAdminRiskAction,
+  resolveAdminTableEmptyText,
+  showAdminError,
+  showAdminSuccess,
+  showAdminWarning
+} from '@/utils/adminFeedback'
 
 // 表格数据：AI 引擎配置列表。
 const engineList = ref([])
 const tableLoading = ref(false)
 const keyword = ref('')
 const businessTypeFilter = ref('all')
+const providerFilter = ref('all')
 const statusFilter = ref('all')
+const activeScopeFilter = ref('all')
+const pagination = reactive({
+  page: 1,
+  pageSize: 10
+})
 
 // 弹窗编辑状态：复用一个表单完成新增和编辑。
 const dialogVisible = ref(false)
 const isEditMode = ref(false)
 const submitLoading = ref(false)
 const formRef = ref(null)
+const toggleLoadingId = ref(null)
+const editOriginalPayload = ref(null)
 
 // 表单字段：与后端 DTO 字段保持一致。
 const formData = reactive({
@@ -294,14 +433,43 @@ const formData = reactive({
   remark: ''
 })
 
+// Provider 预设：用于提升表单填写效率，减少重复录入基础地址。
+const providerBaseUrlPresetMap = {
+  openai: 'https://api.openai.com/v1',
+  doubao: 'https://ark.cn-beijing.volces.com/api/v3',
+  kimi: 'https://api.moonshot.cn/v1',
+  deepseek: 'https://api.deepseek.com/v1',
+  qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+}
+
+/**
+ * 校验基础地址格式。
+ * 作用：保证基础地址至少是 http(s) URL，避免明显错误配置入库。
+ * @param {any} _rule
+ * @param {string} value
+ * @param {(error?: Error) => void} callback
+ */
+const validateBaseUrl = (_rule, value, callback) => {
+  const text = String(value || '').trim()
+  if (!text) {
+    callback(new Error('请输入基础地址'))
+    return
+  }
+  if (!/^https?:\/\//i.test(text)) {
+    callback(new Error('基础地址必须以 http:// 或 https:// 开头'))
+    return
+  }
+  callback()
+}
+
 // 表单校验：编辑时 API Key 可以留空，其它核心字段保持必填。
 const formRules = {
   engineCode: [{ required: true, message: '请输入引擎编码', trigger: 'blur' }],
   engineName: [{ required: true, message: '请输入引擎名称', trigger: 'blur' }],
-  providerType: [{ required: true, message: '请输入 Provider 类型', trigger: 'blur' }],
+  providerType: [{ required: true, message: '请输入 Provider 类型', trigger: 'change' }],
   businessType: [{ required: true, message: '请选择业务类型', trigger: 'change' }],
   modelName: [{ required: true, message: '请输入模型名', trigger: 'blur' }],
-  baseUrl: [{ required: true, message: '请输入基础地址', trigger: 'blur' }],
+  baseUrl: [{ validator: validateBaseUrl, trigger: 'blur' }],
   apiKey: [
     {
       validator: (_, value, callback) => {
@@ -323,6 +491,89 @@ const formRules = {
 }
 
 /**
+ * Provider 下拉选项。
+ * 作用：从真实数据生成，减少硬编码维护成本。
+ */
+const providerTypeOptions = computed(() => {
+  return Array.from(
+    new Set(
+      engineList.value
+        .map((item) => String(item.providerType || '').trim())
+        .filter(Boolean)
+    )
+  )
+})
+
+/**
+ * Provider 建议选项。
+ * 作用：合并系统预设与历史配置，兼顾规范输入与灵活扩展。
+ */
+const providerSuggestOptions = computed(() => {
+  const presetProviders = Object.keys(providerBaseUrlPresetMap)
+  return Array.from(new Set([...presetProviders, ...providerTypeOptions.value]))
+})
+
+/**
+ * 当前 Provider 对应的推荐基础地址。
+ * 作用：为管理员提供可直接复用的默认地址，减少手填错误。
+ */
+const providerBaseUrlSuggestion = computed(() => {
+  const providerKey = String(formData.providerType || '').trim().toLowerCase()
+  if (!providerKey) return ''
+  return providerBaseUrlPresetMap[providerKey] || ''
+})
+
+/**
+ * 参数建议文案。
+ * 作用：按业务场景给出温度/超时配置参考，提高配置一致性。
+ */
+const parameterSuggestionText = computed(() => {
+  if (formData.businessType === 'resume') {
+    return '简历诊断建议温度 0.2-0.6，超时建议不低于 20000ms。'
+  }
+  return '模拟面试建议温度 0.6-1.0，超时建议不低于 30000ms。'
+})
+
+/**
+ * 各业务当前生效引擎 ID 映射。
+ * 作用：用于识别“当前生效项”并在列表中高亮展示。
+ */
+const activeEngineIdByBusiness = computed(() => {
+  return engineList.value.reduce((map, item) => {
+    if (Number(item.isActive) !== 1) return map
+    const businessType = String(item.businessType || '')
+    if (!businessType) return map
+    if (!map[businessType]) {
+      map[businessType] = item.id
+    }
+    return map
+  }, {})
+})
+
+/**
+ * 判断某一行是否是当前业务生效项。
+ * @param {Record<string, any>} row
+ * @returns {boolean}
+ */
+const isCurrentActiveEngine = (row) => {
+  const businessType = String(row?.businessType || '')
+  if (!businessType) return false
+  return Number(activeEngineIdByBusiness.value[businessType]) === Number(row?.id)
+}
+
+/**
+ * 获取某业务当前生效配置。
+ * 作用：启停确认时提示“会替换谁”，让管理员明确影响范围。
+ * @param {string} businessType
+ * @returns {Record<string, any> | null}
+ */
+const getCurrentActiveEngineByBusiness = (businessType) => {
+  const activeId = activeEngineIdByBusiness.value[String(businessType || '')]
+  if (!activeId) return null
+  return engineList.value.find((item) => Number(item.id) === Number(activeId)) || null
+}
+
+/**
  * 引擎列表筛选结果。
  * 作用：前端本地筛选用于提升后台配置操作效率，不影响后端数据真实性。
  */
@@ -336,13 +587,99 @@ const filteredEngineList = computed(() => {
     const matchesBusinessType = businessTypeFilter.value === 'all'
       || item.businessType === businessTypeFilter.value
 
+    const matchesProviderType = providerFilter.value === 'all'
+      || String(item.providerType || '') === String(providerFilter.value)
+
     const matchesStatus = statusFilter.value === 'all'
       || (statusFilter.value === 'active' && item.isActive === 1)
       || (statusFilter.value === 'inactive' && item.isActive !== 1)
 
-    return matchesKeyword && matchesBusinessType && matchesStatus
+    const isCurrentActive = isCurrentActiveEngine(item)
+    const matchesActiveScope = activeScopeFilter.value === 'all'
+      || (activeScopeFilter.value === 'current-active' && isCurrentActive)
+      || (activeScopeFilter.value === 'not-current-active' && !isCurrentActive)
+
+    return matchesKeyword && matchesBusinessType && matchesProviderType && matchesStatus && matchesActiveScope
   })
 })
+
+/**
+ * 当前分页后的数据。
+ * 作用：提升大列表浏览效率，不改变后端接口契约。
+ */
+const pagedEngineList = computed(() => {
+  const startIndex = (pagination.page - 1) * pagination.pageSize
+  const endIndex = startIndex + pagination.pageSize
+  return filteredEngineList.value.slice(startIndex, endIndex)
+})
+
+/**
+ * 表格空状态文案。
+ * 作用：统一“系统无数据”和“筛选后无结果”两种空状态表达。
+ */
+const tableEmptyText = computed(() => {
+  return resolveAdminTableEmptyText(engineList.value.length, filteredEngineList.value.length)
+})
+
+/**
+ * 列表统计摘要。
+ * 作用：提供管理视角下的快速判断与筛选入口。
+ */
+const engineStats = computed(() => {
+  return engineList.value.reduce(
+    (summary, item) => {
+      summary.total += 1
+      if (Number(item.isActive) === 1) {
+        summary.active += 1
+      }
+      if (String(item.businessType) === 'interview' && isCurrentActiveEngine(item)) {
+        summary.interviewActive += 1
+      }
+      if (String(item.businessType) === 'resume' && isCurrentActiveEngine(item)) {
+        summary.resumeActive += 1
+      }
+      return summary
+    },
+    {
+      total: 0,
+      active: 0,
+      interviewActive: 0,
+      resumeActive: 0,
+      multiActiveRisk: calculateMultiActiveRisk(engineList.value)
+    }
+  )
+})
+
+/**
+ * 当前快捷筛选命中键。
+ * 作用：让统计卡片高亮状态与筛选条件一致。
+ */
+const matchedQuickFilterKey = computed(() => {
+  if (businessTypeFilter.value === 'all'
+    && statusFilter.value === 'active'
+    && activeScopeFilter.value === 'not-current-active') {
+    return 'multi-active-risk'
+  }
+  if (businessTypeFilter.value === 'all' && statusFilter.value === 'all' && activeScopeFilter.value === 'all') {
+    return 'all'
+  }
+  if (businessTypeFilter.value === 'all' && statusFilter.value === 'active' && activeScopeFilter.value === 'all') {
+    return 'active'
+  }
+  if (businessTypeFilter.value === 'interview' && statusFilter.value === 'all' && activeScopeFilter.value === 'current-active') {
+    return 'interview-active'
+  }
+  if (businessTypeFilter.value === 'resume' && statusFilter.value === 'all' && activeScopeFilter.value === 'current-active') {
+    return 'resume-active'
+  }
+  return 'custom'
+})
+
+/**
+ * 是否存在“同业务多启用”风险。
+ * 作用：即使后端做约束，也给前端显式风险观测位，便于排查历史脏数据。
+ */
+const hasMultiActiveRisk = computed(() => calculateMultiActiveRisk(engineList.value) > 0)
 
 /**
  * 重置表单为默认值。
@@ -365,6 +702,94 @@ const resetFormData = () => {
 }
 
 /**
+ * 按 Provider 填充推荐基础地址。
+ * 作用：减少重复录入并降低地址拼写错误概率。
+ */
+const fillBaseUrlByProvider = () => {
+  if (!providerBaseUrlSuggestion.value) {
+    showAdminWarning('当前 Provider 暂无预设地址，请手动填写')
+    return
+  }
+  formData.baseUrl = providerBaseUrlSuggestion.value
+}
+
+/**
+ * 检查引擎编码重复。
+ * 作用：保存前前置提醒，降低接口报错后的回填成本。
+ * @returns {Record<string, any> | null}
+ */
+const findDuplicateEngineCode = () => {
+  const currentCode = String(formData.engineCode || '').trim().toLowerCase()
+  if (!currentCode) return null
+  return engineList.value.find((item) => {
+    if (isEditMode.value && Number(item.id) === Number(formData.id)) return false
+    return String(item.engineCode || '').trim().toLowerCase() === currentCode
+  }) || null
+}
+
+/**
+ * 检查同业务同模型重复。
+ * 作用：避免同业务配置多条同模型记录，提升配置可维护性。
+ * @returns {Record<string, any> | null}
+ */
+const findDuplicateBusinessModel = () => {
+  const currentBusinessType = String(formData.businessType || '')
+  const currentModelName = String(formData.modelName || '').trim().toLowerCase()
+  if (!currentBusinessType || !currentModelName) return null
+  return engineList.value.find((item) => {
+    if (isEditMode.value && Number(item.id) === Number(formData.id)) return false
+    return String(item.businessType || '') === currentBusinessType
+      && String(item.modelName || '').trim().toLowerCase() === currentModelName
+  }) || null
+}
+
+/**
+ * 计算编辑改动字段。
+ * 作用：保存成功后输出精确反馈，方便管理员复核本次改动范围。
+ * @param {Record<string, any> | null} previousPayload
+ * @param {Record<string, any>} nextPayload
+ * @returns {string[]}
+ */
+const collectChangedFields = (previousPayload, nextPayload) => {
+  if (!previousPayload) return []
+  const changed = []
+  if (String(previousPayload.engineCode) !== String(nextPayload.engineCode)) changed.push('引擎编码')
+  if (String(previousPayload.engineName) !== String(nextPayload.engineName)) changed.push('引擎名称')
+  if (String(previousPayload.providerType) !== String(nextPayload.providerType)) changed.push('Provider')
+  if (String(previousPayload.businessType) !== String(nextPayload.businessType)) changed.push('业务类型')
+  if (String(previousPayload.modelName) !== String(nextPayload.modelName)) changed.push('模型名')
+  if (String(previousPayload.baseUrl) !== String(nextPayload.baseUrl)) changed.push('基础地址')
+  if (Number(previousPayload.temperature) !== Number(nextPayload.temperature)) changed.push('温度')
+  if (Number(previousPayload.maxTokens) !== Number(nextPayload.maxTokens)) changed.push('MaxTokens')
+  if (Number(previousPayload.timeoutMs) !== Number(nextPayload.timeoutMs)) changed.push('超时')
+  if (Number(previousPayload.isActive) !== Number(nextPayload.isActive)) changed.push('状态')
+  if (Number(previousPayload.sort) !== Number(nextPayload.sort)) changed.push('排序')
+  if (String(previousPayload.remark || '') !== String(nextPayload.remark || '')) changed.push('备注')
+  return changed
+}
+
+/**
+ * 计算同业务多启用风险数量。
+ * 作用：统计每个业务中启用配置数大于 1 的超额项数量。
+ * @param {Array<Record<string, any>>} list
+ * @returns {number}
+ */
+const calculateMultiActiveRisk = (list) => {
+  const activeCountMap = list.reduce((map, item) => {
+    if (Number(item.isActive) !== 1) return map
+    const businessType = String(item.businessType || '')
+    if (!businessType) return map
+    map[businessType] = (map[businessType] || 0) + 1
+    return map
+  }, {})
+
+  return Object.values(activeCountMap).reduce((riskCount, activeCount) => {
+    if (Number(activeCount) <= 1) return riskCount
+    return riskCount + (Number(activeCount) - 1)
+  }, 0)
+}
+
+/**
  * 加载 AI 引擎配置列表。
  */
 const fetchEngineList = async () => {
@@ -373,7 +798,7 @@ const fetchEngineList = async () => {
     const res = await getAdminAiEngines()
     engineList.value = Array.isArray(res?.data) ? res.data : []
   } catch (error) {
-    ElMessage.error(error?.message || '加载 AI 引擎配置失败')
+    showAdminError(error?.message || '加载 AI 引擎配置失败')
   } finally {
     tableLoading.value = false
   }
@@ -381,8 +806,65 @@ const fetchEngineList = async () => {
 
 const openCreateDialog = () => {
   isEditMode.value = false
+  editOriginalPayload.value = null
   resetFormData()
   dialogVisible.value = true
+}
+
+/**
+ * 重置筛选条件。
+ * 作用：快速恢复全量视图，便于跨业务排查配置。
+ */
+const resetFilters = () => {
+  keyword.value = ''
+  businessTypeFilter.value = 'all'
+  providerFilter.value = 'all'
+  statusFilter.value = 'all'
+  activeScopeFilter.value = 'all'
+}
+
+/**
+ * 统计卡片快捷筛选。
+ * 作用：减少多次点选筛选项的操作成本。
+ * @param {'all' | 'active' | 'interview-active' | 'resume-active' | 'multi-active-risk'} key
+ */
+const applyQuickFilter = (key) => {
+  resetFilters()
+  if (key === 'active') {
+    statusFilter.value = 'active'
+    return
+  }
+  if (key === 'interview-active') {
+    businessTypeFilter.value = 'interview'
+    activeScopeFilter.value = 'current-active'
+    return
+  }
+  if (key === 'resume-active') {
+    businessTypeFilter.value = 'resume'
+    activeScopeFilter.value = 'current-active'
+    return
+  }
+  if (key === 'multi-active-risk') {
+    statusFilter.value = 'active'
+    activeScopeFilter.value = 'not-current-active'
+  }
+}
+
+/**
+ * 页码变更处理。
+ * @param {number} nextPage
+ */
+const handlePageChange = (nextPage) => {
+  pagination.page = nextPage
+}
+
+/**
+ * 分页大小变更处理。
+ * @param {number} nextPageSize
+ */
+const handlePageSizeChange = (nextPageSize) => {
+  pagination.pageSize = nextPageSize
+  pagination.page = 1
 }
 
 /**
@@ -392,6 +874,20 @@ const openCreateDialog = () => {
  */
 const openEditDialog = (row) => {
   isEditMode.value = true
+  editOriginalPayload.value = {
+    engineCode: row.engineCode || '',
+    engineName: row.engineName || '',
+    providerType: row.providerType || '',
+    businessType: row.businessType || 'interview',
+    modelName: row.modelName || '',
+    baseUrl: row.baseUrl || '',
+    temperature: Number(row.temperature ?? 1.0),
+    maxTokens: Number(row.maxTokens ?? 4096),
+    timeoutMs: Number(row.timeoutMs ?? 30000),
+    isActive: Number(row.isActive ?? 0),
+    sort: Number(row.sort ?? 0),
+    remark: row.remark || ''
+  }
   formData.id = row.id
   formData.engineCode = row.engineCode || ''
   formData.engineName = row.engineName || ''
@@ -420,18 +916,40 @@ const submitForm = async () => {
   submitLoading.value = true
   try {
     const basePayload = {
-      engineCode: formData.engineCode,
-      engineName: formData.engineName,
-      providerType: formData.providerType,
-      businessType: formData.businessType,
-      modelName: formData.modelName,
-      baseUrl: formData.baseUrl,
+      engineCode: String(formData.engineCode || '').trim(),
+      engineName: String(formData.engineName || '').trim(),
+      providerType: String(formData.providerType || '').trim(),
+      businessType: String(formData.businessType || '').trim(),
+      modelName: String(formData.modelName || '').trim(),
+      baseUrl: String(formData.baseUrl || '').trim(),
       temperature: formData.temperature,
       maxTokens: formData.maxTokens,
       timeoutMs: formData.timeoutMs,
       isActive: formData.isActive,
       sort: formData.sort,
-      remark: formData.remark || null
+      remark: formData.remark ? String(formData.remark).trim() : null
+    }
+
+    const duplicateEngineCode = findDuplicateEngineCode()
+    if (duplicateEngineCode) {
+      await confirmAdminRiskAction({
+        title: '编码重复预警',
+        actionText: '继续保存重复引擎编码',
+        targetName: duplicateEngineCode.engineCode,
+        impactHint: '重复编码会增加配置路由歧义与维护成本，请确认这是有意配置。',
+        type: 'warning'
+      })
+    }
+
+    const duplicateBusinessModel = findDuplicateBusinessModel()
+    if (duplicateBusinessModel) {
+      await confirmAdminRiskAction({
+        title: '模型重复预警',
+        actionText: '继续保存重复业务模型',
+        targetName: duplicateBusinessModel.modelName,
+        impactHint: `业务「${duplicateBusinessModel.businessTypeDesc || duplicateBusinessModel.businessType}」已有同模型配置，可能导致维护混淆。`,
+        type: 'warning'
+      })
     }
 
     if (isEditMode.value) {
@@ -441,22 +959,29 @@ const submitForm = async () => {
       }
       // 编辑态仅在用户输入新值时才提交 apiKey。
       if (formData.apiKey) {
-        payload.apiKey = formData.apiKey
+        payload.apiKey = String(formData.apiKey).trim()
       }
       await updateAdminAiEngine(payload)
-      ElMessage.success('AI 引擎配置修改成功')
+      const changedFields = collectChangedFields(editOriginalPayload.value, basePayload)
+      showAdminSuccess(
+        changedFields.length
+          ? `AI 引擎配置修改成功（${changedFields.join('、')}）`
+          : 'AI 引擎配置修改成功'
+      )
     } else {
       await createAdminAiEngine({
         ...basePayload,
-        apiKey: formData.apiKey
+        apiKey: String(formData.apiKey).trim()
       })
-      ElMessage.success('AI 引擎配置新增成功')
+      showAdminSuccess('AI 引擎配置新增成功')
     }
 
     dialogVisible.value = false
     await fetchEngineList()
   } catch (error) {
-    ElMessage.error(error?.message || '保存 AI 引擎配置失败')
+    if (error !== 'cancel' && error !== 'close') {
+      showAdminError(error?.message || '保存 AI 引擎配置失败')
+    }
   } finally {
     submitLoading.value = false
   }
@@ -468,27 +993,89 @@ const submitForm = async () => {
  * @param {Record<string, any>} row
  */
 const handleToggleActive = async (row) => {
+  if (toggleLoadingId.value) return
+
   const nextActive = row.isActive === 1 ? 0 : 1
   const actionText = nextActive === 1 ? '启用' : '禁用'
+
+  // 已经是当前业务生效项时，重复点击“启用”不需要再发请求。
+  if (nextActive === 1 && isCurrentActiveEngine(row)) {
+    showAdminWarning(`配置「${row.engineName}」已经是${row.businessTypeDesc}当前生效项`)
+    return
+  }
+
+  const currentActiveEngine = getCurrentActiveEngineByBusiness(row.businessType)
+  const confirmLines = [`确认${actionText}配置「${row.engineName}」吗？`]
+
+  if (nextActive === 1 && currentActiveEngine && Number(currentActiveEngine.id) !== Number(row.id)) {
+    confirmLines.push(`该操作会将当前生效配置「${currentActiveEngine.engineName}」自动切换为禁用。`)
+  }
+
+  if (nextActive === 0 && isCurrentActiveEngine(row)) {
+    confirmLines.push('禁用后该业务将暂时没有生效引擎，请确认已有替代配置。')
+  }
+
   try {
-    await ElMessageBox.confirm(
-      `确认${actionText}配置「${row.engineName}」吗？`,
-      `${actionText}确认`,
-      { type: 'warning' }
-    )
+    await confirmAdminRiskAction({
+      title: `${actionText}确认`,
+      actionText: `${actionText} AI 引擎配置`,
+      targetName: row.engineName,
+      // 将多行风险提示收敛为一句，保持统一模板同时保留影响范围说明。
+      impactHint: confirmLines.slice(1).join('；') || '该操作会影响当前业务的模型路由与线上调用结果。',
+      type: 'warning'
+    })
+    toggleLoadingId.value = row.id
     await toggleAdminAiEngineActive(row.id, nextActive)
-    ElMessage.success(`配置已${actionText}`)
     await fetchEngineList()
+
+    if (nextActive === 1 && currentActiveEngine && Number(currentActiveEngine.id) !== Number(row.id)) {
+      showAdminSuccess(`配置已启用，并替换生效项「${currentActiveEngine.engineName}」`)
+      return
+    }
+    showAdminSuccess(`配置已${actionText}`)
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') {
-      ElMessage.error(error?.message || `${actionText}配置失败`)
+      showAdminError(error?.message || `${actionText}配置失败`)
     }
+  } finally {
+    toggleLoadingId.value = null
   }
 }
 
 onMounted(() => {
   fetchEngineList()
 })
+
+/**
+ * 监听筛选项变化：
+ * 每次筛选变化都重置到第一页，避免落到空页。
+ */
+watch(
+  () => [
+    keyword.value,
+    businessTypeFilter.value,
+    providerFilter.value,
+    statusFilter.value,
+    activeScopeFilter.value
+  ],
+  () => {
+    pagination.page = 1
+  }
+)
+
+/**
+ * 监听筛选结果长度：
+ * 当数据减少导致页码越界时自动回退。
+ */
+watch(
+  () => filteredEngineList.value.length,
+  (total) => {
+    const totalPage = Math.max(1, Math.ceil(total / pagination.pageSize))
+    if (pagination.page > totalPage) {
+      pagination.page = totalPage
+    }
+  }
+)
 </script>
 
 <style scoped>
@@ -503,6 +1090,12 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .page-title {
@@ -533,6 +1126,53 @@ onMounted(() => {
   box-shadow: 0 4px 12px rgba(230, 126, 34, 0.4);
 }
 
+.refresh-btn {
+  border-radius: 8px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.stats-card {
+  border: 1px solid #e9ecef;
+  border-radius: 12px;
+  background: #fff;
+  padding: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.stats-card:hover {
+  border-color: #f1c40f;
+  box-shadow: 0 6px 16px rgba(241, 196, 15, 0.12);
+}
+
+.stats-card.active {
+  border-color: #e67e22;
+  background: #fff7ef;
+}
+
+.stats-card.warning:not(.active) {
+  border-color: #f8d7a5;
+}
+
+.stats-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: #7f8c8d;
+}
+
+.stats-value {
+  font-size: 22px;
+  color: #2c3e50;
+  line-height: 1;
+}
+
 .filter-bar {
   display: flex;
   align-items: center;
@@ -560,6 +1200,39 @@ onMounted(() => {
 
 .filter-item.keyword {
   width: 320px;
+}
+
+.reset-btn {
+  border-radius: 8px;
+}
+
+.filter-result {
+  margin-top: -8px;
+  font-size: 13px;
+  color: #7f8c8d;
+}
+
+.result-count {
+  color: #d35400;
+  font-weight: 600;
+}
+
+.risk-alert {
+  margin-top: -6px;
+}
+
+.field-tip {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #8e9aa6;
+  line-height: 1.4;
+}
+
+.base-url-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
 }
 
 .filter-icon {
@@ -595,6 +1268,12 @@ onMounted(() => {
   font-weight: 500;
 }
 
+.business-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .action-group {
   display: flex;
   align-items: center;
@@ -610,6 +1289,12 @@ onMounted(() => {
   color: #d35400;
   background: #fff5e6;
   border-radius: 6px;
+}
+
+.pagination-wrap {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .engine-dialog :deep(.el-dialog__header) {
@@ -640,5 +1325,39 @@ onMounted(() => {
 
 .dialog-btn.primary:hover {
   background: linear-gradient(135deg, #d35400 0%, #c0392b 100%);
+}
+
+@media (max-width: 1200px) {
+  .stats-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .header-actions {
+    width: 100%;
+  }
+
+  .filter-item,
+  .filter-item.keyword {
+    width: 100%;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pagination-wrap {
+    justify-content: center;
+  }
+
+  .base-url-row {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

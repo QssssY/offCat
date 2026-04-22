@@ -68,6 +68,34 @@ export function updateAdminUserRights(userId, data) {
 }
 
 /**
+ * 获取用户额度详情。
+ * 说明：用于管理员查看并编辑用户累计/每日使用次数。
+ * @param {string | number} userId
+ * @returns {Promise}
+ */
+export function getAdminUserQuota(userId) {
+  const safeUserId = normalizeUserId(userId)
+  return adminRequest({
+    url: `/api/admin/users/${encodeURIComponent(safeUserId)}/quota`,
+    method: 'get'
+  })
+}
+
+/**
+ * 更新用户额度。
+ * 说明：后端按字段非空做局部更新，这里由前端传入完整编辑表单值。
+ * @param {{userId: string | number, totalInterviewUsed?: number, totalResumeUsed?: number, dailyInterviewUsed?: number, dailyResumeUsed?: number, lastRefreshDate?: string | null}} data
+ * @returns {Promise}
+ */
+export function updateAdminUserQuota(data) {
+  return adminRequest({
+    url: '/api/admin/users/quota',
+    method: 'put',
+    data
+  })
+}
+
+/**
  * 获取会员套餐列表。
  * 说明：用于权益编辑时提供套餐编码下拉选项。
  * @returns {Promise}

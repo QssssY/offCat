@@ -1,5 +1,4 @@
 import axios from 'axios'
-import { ElMessage } from 'element-plus'
 import router from '@/router'
 import {
   clearAdminSession,
@@ -7,6 +6,11 @@ import {
   getAdminTokenType,
   isAdminLoggedIn
 } from '@/utils/adminAuth'
+import {
+  ADMIN_FEEDBACK_TEXT,
+  resolveAdminStatusErrorMessage,
+  showAdminError
+} from '@/utils/adminFeedback'
 
 /**
  * 解析 JSON 字符串并保留超长整型精度。
@@ -45,6 +49,9 @@ const adminRequest = axios.create({
   transformResponse: [(data) => parseJsonPreserveLongInteger(data)]
 })
 
+// 统一 401 处理锁：避免并发请求同时过期时重复弹错并重复跳转。
+let isHandlingUnauthorized = false
+
 // 管理端请求拦截：仅注入管理端 token，避免与用户端 token 混用。
 adminRequest.interceptors.request.use(
   (config) => {
@@ -63,8 +70,26 @@ adminRequest.interceptors.response.use(
     if (body?.code === 200) {
       return body
     }
-    ElMessage.error(body?.message || '管理端请求失败')
-    return Promise.reject(new Error(body?.message || '管理端请求失败'))
+
+    // 兼容后端通过业务码返回未授权场景，统一走会话失效处理。
+    if (body?.code === 401) {
+      if (!isHandlingUnauthorized) {
+        isHandlingUnauthorized = true
+        clearAdminSession()
+        showAdminError(ADMIN_FEEDBACK_TEXT.sessionExpired)
+        const currentPath = router.currentRoute.value.fullPath
+        router.push({
+          path: '/admin/login',
+          query: { redirect: currentPath }
+        }).finally(() => {
+          isHandlingUnauthorized = false
+        })
+      }
+      return Promise.reject(new Error(ADMIN_FEEDBACK_TEXT.sessionExpired))
+    }
+
+    showAdminError(body?.message || ADMIN_FEEDBACK_TEXT.requestFailed)
+    return Promise.reject(new Error(body?.message || ADMIN_FEEDBACK_TEXT.requestFailed))
   },
   (error) => {
     if (error.response) {
@@ -72,26 +97,25 @@ adminRequest.interceptors.response.use(
       const message = error.response.data?.message
 
       if (status === 401) {
-        clearAdminSession()
-        ElMessage.error('管理端登录已过期，请重新登录')
-        const currentPath = router.currentRoute.value.fullPath
-        router.push({
-          path: '/admin/login',
-          query: { redirect: currentPath }
-        })
-      } else if (status === 403) {
-        ElMessage.error(message || '当前账号无管理端权限')
-      } else if (status === 404) {
-        ElMessage.error(message || '管理端接口不存在')
-      } else if (status >= 500) {
-        ElMessage.error(message || '管理端服务异常')
+        if (!isHandlingUnauthorized) {
+          isHandlingUnauthorized = true
+          clearAdminSession()
+          showAdminError(ADMIN_FEEDBACK_TEXT.sessionExpired)
+          const currentPath = router.currentRoute.value.fullPath
+          router.push({
+            path: '/admin/login',
+            query: { redirect: currentPath }
+          }).finally(() => {
+            isHandlingUnauthorized = false
+          })
+        }
       } else {
-        ElMessage.error(message || '管理端请求失败')
+        showAdminError(resolveAdminStatusErrorMessage(status, message))
       }
     } else if (error.request) {
-      ElMessage.error('管理端网络异常，请检查连接')
+      showAdminError(ADMIN_FEEDBACK_TEXT.networkError)
     } else {
-      ElMessage.error(error.message || '管理端请求失败')
+      showAdminError(error.message || ADMIN_FEEDBACK_TEXT.requestFailed)
     }
     return Promise.reject(error)
   }

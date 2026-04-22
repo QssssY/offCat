@@ -59,10 +59,10 @@
 
 <script setup>
 import { reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import logoUrl from '@/assets/logo.jpg'
 import { useAdminUserStore } from '@/stores/adminUser'
+import { showAdminError, showAdminSuccess } from '@/utils/adminFeedback'
 
 const route = useRoute()
 const router = useRouter()
@@ -92,13 +92,13 @@ const handleLogin = async () => {
 
   try {
     await adminStore.doAdminLogin(formData)
-    ElMessage.success('管理端登录成功')
+    showAdminSuccess('管理端登录成功')
     const redirect = typeof route.query.redirect === 'string'
       ? route.query.redirect
       : '/admin/dashboard'
     router.push(redirect)
   } catch (error) {
-    ElMessage.error(error?.message || '管理端登录失败')
+    showAdminError(error?.message || '管理端登录失败')
   }
 }
 </script>
