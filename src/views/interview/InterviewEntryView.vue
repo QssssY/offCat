@@ -424,6 +424,53 @@ onMounted(() => {
   color: #909399;
 }
 
+.tag-orange-highlight {
+  background-color: rgba(255, 140, 66, 0.15);
+  color: #e67a35;
+}
+
+.tag-blue-info {
+  background-color: rgba(47, 125, 225, 0.12);
+  color: #2f7de1;
+}
+
+.tag-green-success {
+  background-color: rgba(48, 176, 111, 0.12);
+  color: #2a9658;
+}
+
+.tag-red-alert {
+  background-color: rgba(224, 84, 84, 0.12);
+  color: #d64545;
+}
+
+.tag-purple-feature {
+  background-color: rgba(123, 90, 217, 0.12);
+  color: #6b4dc9;
+}
+
+.tag-gray-muted {
+  background-color: rgba(143, 153, 167, 0.15);
+  color: #6b7280;
+}
+
+.tag-outline {
+  background-color: #ffffff;
+  border: 1px solid #d9b49a;
+  color: #9a5c33;
+}
+
+.tag-pill {
+  background-color: rgba(255, 140, 66, 0.12);
+  color: #b35f2b;
+  border-radius: 999px;
+}
+
+.tag-default {
+  background-color: #fdf1e6;
+  color: #a05a2c;
+}
+
 .empty-options {
   padding: 20px;
   text-align: center;
