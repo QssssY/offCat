@@ -48,6 +48,8 @@ public class AdminUserRightsServiceImpl implements AdminUserRightsService {
         // 同时确保管理员读取权益详情前，缺失的额度记录会被初始化。
         int resumeQuota = userQuotaService.getRemainingResumeQuota(userId);
         int interviewQuota = userQuotaService.getRemainingInterviewQuota(userId);
+        // 会员有效性要统一复用服务层判断，避免列表页和详情页判定口径不一致。
+        boolean vipActive = sysUserService.isVipUser(userId);
 
         UserQuota userQuota = userQuotaService.getByUserId(userId);
         if (userQuota == null) {
@@ -58,10 +60,10 @@ public class AdminUserRightsServiceImpl implements AdminUserRightsService {
                 .userId(user.getId())
                 .username(user.getUsername())
                 .role(user.getRole())
-                .roleDesc(getRoleDesc(user.getRole()))
+                .roleDesc(getRoleDesc(user.getRole(), vipActive))
                 .membershipPlanCode(user.getMembershipPlanCode())
                 .vipExpireTime(user.getVipExpireTime())
-                .isVipActive(sysUserService.isVipUser(userId))
+                .isVipActive(vipActive)
                 .resumeQuota(resumeQuota)
                 .interviewQuota(interviewQuota)
                 .dailyResumeUsed(safeValue(userQuota.getDailyResumeUsed()))
@@ -167,10 +169,11 @@ public class AdminUserRightsServiceImpl implements AdminUserRightsService {
         return user;
     }
 
-    private String getRoleDesc(Integer role) {
+    private String getRoleDesc(Integer role, boolean vipActive) {
         return switch (role) {
             case UserRoleConstants.ROLE_NORMAL -> "普通用户";
-            case UserRoleConstants.ROLE_VIP -> "会员用户";
+            // 会员角色但已过期时，管理端应明确显示已过期，避免误导管理员判断当前权益。
+            case UserRoleConstants.ROLE_VIP -> vipActive ? "会员用户" : "普通用户（会员已过期）";
             case UserRoleConstants.ROLE_ADMIN -> "管理员";
             default -> "未知";
         };

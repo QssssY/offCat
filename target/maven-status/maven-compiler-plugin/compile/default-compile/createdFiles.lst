@@ -51,6 +51,7 @@ com\airesume\server\common\entity\BaseEntity.class
 com\airesume\server\mq\ResumeDiagnosisProducer.class
 com\airesume\server\vo\membership\MembershipUpgradeVO$MembershipUpgradeVOBuilder.class
 com\airesume\server\service\impl\UserQuotaServiceImpl.class
+com\airesume\server\service\impl\InterviewAiServiceImpl$RuntimeAiConfig.class
 com\airesume\server\config\SecurityConfig.class
 com\airesume\server\dto\interview\ChatMessageResponse.class
 com\airesume\server\service\InterviewSessionService.class
@@ -68,6 +69,7 @@ com\airesume\server\common\constants\MembershipConstants.class
 com\airesume\server\vo\membership\MembershipUpgradeVO.class
 com\airesume\server\common\constants\InterviewConstants.class
 com\airesume\server\dto\resume\ResumeDiagnosisTaskResponse.class
+com\airesume\server\service\impl\ResumeAiServiceImpl$RuntimeAiConfig.class
 com\airesume\server\dto\admin\UserQuotaResponse$UserQuotaResponseBuilder.class
 com\airesume\server\mock\MockDiagnosisResultGenerator.class
 com\airesume\server\service\SysJobRoleService.class
@@ -136,6 +138,7 @@ com\airesume\server\service\PdfTextExtractor$PdfExtractionException.class
 com\airesume\server\controller\ResumeDiagnosisController.class
 com\airesume\server\common\result\Result.class
 com\airesume\server\service\impl\MembershipOrderServiceImpl.class
+com\airesume\server\service\InterviewService$2.class
 com\airesume\server\dto\resume\ResumeDiagnosisHistoryResponse.class
 com\airesume\server\dto\interview\InterviewJobRoleResponse$InterviewJobRoleResponseBuilder.class
 com\airesume\server\config\MyMetaObjectHandler.class

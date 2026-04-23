@@ -1,7 +1,10 @@
 package com.airesume.server.service.impl;
 
+import com.airesume.server.common.constants.AiEngineConstants;
 import com.airesume.server.common.constants.ResumeDiagnosisConstants;
+import com.airesume.server.entity.SysAiEngineConfig;
 import com.airesume.server.service.ResumeAiService;
+import com.airesume.server.service.SysAiEngineConfigService;
 import com.airesume.server.service.SysPromptService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
 import java.util.List;
+import java.util.Locale;
 
 /**
  * 简历诊断 AI 服务实现类（真实 AI 模式）
@@ -46,6 +50,8 @@ public class ResumeAiServiceImpl implements ResumeAiService {
     private final String endpoint;
     private final SysPromptService sysPromptService;
     private final String thinkingMode;
+    private final RestClient.Builder restClientBuilder;
+    private final SysAiEngineConfigService sysAiEngineConfigService;
 
     /**
      * 构造函数，初始化简历诊断 AI 服务
@@ -77,12 +83,15 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             @Value("${app.ai.model:}") String model,
             @Value("${app.ai.thinking-mode:none}") String thinkingMode,
             @Autowired SysPromptService sysPromptService,
+            SysAiEngineConfigService sysAiEngineConfigService,
             RestClient.Builder restClientBuilder) {
         this.provider = provider == null ? "doubao" : provider.toLowerCase();
         this.model = model;
         this.configuredBaseUrl = configuredBaseUrl;
         this.thinkingMode = thinkingMode;
         this.sysPromptService = sysPromptService;
+        this.sysAiEngineConfigService = sysAiEngineConfigService;
+        this.restClientBuilder = restClientBuilder;
 
         // 【重要】优先使用用户配置的 baseUrl，仅当配置为空时才使用默认值
         this.resolvedBaseUrl = resolveBaseUrl(this.provider, configuredBaseUrl);
@@ -212,7 +221,8 @@ public class ResumeAiServiceImpl implements ResumeAiService {
      */
     @Override
     public String diagnose(String resumeText) {
-        String tag = provider.toUpperCase();
+        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
+        String tag = runtimeConfig.provider().toUpperCase();
         log.info("[{}] 简历诊断调用, resumeTextLength: {}",
                 tag, resumeText == null ? 0 : resumeText.length());
 
@@ -220,38 +230,46 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             throw new IllegalArgumentException("简历文本不能为空");
         }
 
-        String apiKey = resolveApiKey();
+        String apiKey = runtimeConfig.apiKey();
         if (apiKey == null || apiKey.isBlank()) {
-            throw new IllegalStateException("请设置环境变量 " + getEnvKeyName() + " 或 API_KEY");
+            throw new IllegalStateException("请在管理端配置简历 AI 密钥，或设置环境变量 "
+                    + getEnvKeyName(runtimeConfig.provider()) + " / API_KEY");
         }
 
         String systemPrompt = resolveSystemPrompt(tag);
 
         RequestBody request = new RequestBody();
-        request.model = model;
+        request.model = runtimeConfig.model();
         request.messages = List.of(
                 new Message("system", systemPrompt),
                 new Message("user", buildUserPrompt(resumeText))
         );
 
         // 根据配置和模型支持情况设置 thinking 参数
-        request.thinking = buildThinkingConfig(model, thinkingMode);
+        request.thinking = buildThinkingConfig(runtimeConfig.model(), thinkingMode);
 
         try {
             // 【关键日志】打印完整请求参数
             log.info("[{}] ═══════════════════════════════════════════════", tag);
             log.info("[{}] ║  简历诊断请求参数验证  ║", tag);
             log.info("[{}] ═══════════════════════════════════════════════", tag);
-            log.info("[{}] 请求地址: {}{}", tag, resolvedBaseUrl, endpoint);
-            log.info("[{}] model: {}", tag, model);
+            log.info("[{}] 请求地址: {}{}", tag, runtimeConfig.baseUrl(), runtimeConfig.endpoint());
+            log.info("[{}] model: {}", tag, runtimeConfig.model());
+            log.info("[{}] 配置来源: {}", tag, runtimeConfig.source());
             if (request.thinking != null) {
                 log.info("[{}] thinking.type: {}", tag, request.thinking.type);
             } else {
                 log.info("[{}] thinking: 未设置", tag);
             }
             log.info("[{}] ═══════════════════════════════════════════════", tag);
-            ResponseBody response = restClient.post()
-                    .uri(endpoint)
+            // 按当前生效配置动态创建客户端，确保管理端切换后马上生效。
+            RestClient runtimeRestClient = restClientBuilder
+                    .baseUrl(runtimeConfig.baseUrl())
+                    .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+                    .build();
+
+            ResponseBody response = runtimeRestClient.post()
+                    .uri(runtimeConfig.endpoint())
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
                     .body(request)
                     .retrieve()
@@ -277,8 +295,13 @@ public class ResumeAiServiceImpl implements ResumeAiService {
      *
      * @return 对应 provider 的环境变量名
      */
-    private String getEnvKeyName() {
-        return switch (provider) {
+    private String getEnvKeyName(String providerType) {
+        String normalizedProvider = normalizeConfigValue(providerType);
+        if (normalizedProvider == null) {
+            normalizedProvider = "doubao";
+        }
+        normalizedProvider = normalizedProvider.toLowerCase(Locale.ROOT);
+        return switch (normalizedProvider) {
             case "doubao"  -> "DOUBAO_API_KEY";
             case "qwen"    -> "DASHSCOPE_API_KEY";
             case "ernie"   -> "ERNIE_API_KEY";
@@ -295,8 +318,8 @@ public class ResumeAiServiceImpl implements ResumeAiService {
      *
      * @return API Key，未设置时返回 null
      */
-    private String resolveApiKey() {
-        String key = System.getenv(getEnvKeyName());
+    private String resolveApiKey(String providerType) {
+        String key = System.getenv(getEnvKeyName(providerType));
         if (key != null && !key.isBlank()) return key;
         key = System.getenv("API_KEY");
         if (key != null && !key.isBlank()) return key;
@@ -320,6 +343,98 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             case "ernie" -> "/chat/completions";
             default -> "/chat/completions";
         };
+    }
+
+    /**
+     * 解析简历业务运行时 AI 配置。
+     *
+     * 作用：
+     * 1. 优先读取管理端“当前激活”的 resume 配置；
+     * 2. 缺失字段时回退到本地配置与环境变量，保证链路稳定。
+     */
+    private RuntimeAiConfig resolveRuntimeConfig() {
+        // 本地兜底配置：数据库没有激活配置时仍可继续服务。
+        String fallbackProvider = normalizeConfigValue(provider);
+        if (fallbackProvider == null) {
+            fallbackProvider = "doubao";
+        }
+        fallbackProvider = fallbackProvider.toLowerCase(Locale.ROOT);
+        String fallbackModel = normalizeConfigValue(model);
+        String fallbackBaseUrl = resolveBaseUrl(fallbackProvider, configuredBaseUrl);
+        String fallbackApiKey = resolveApiKey(fallbackProvider);
+
+        String runtimeProvider = fallbackProvider;
+        String runtimeModel = fallbackModel;
+        String runtimeBaseUrl = fallbackBaseUrl;
+        String runtimeApiKey = fallbackApiKey;
+        String source = "application";
+
+        // 优先应用管理端激活配置，确保切换后无需重启即可生效。
+        SysAiEngineConfig activeConfig = null;
+        try {
+            activeConfig = sysAiEngineConfigService.getActiveByBusinessType(AiEngineConstants.BUSINESS_TYPE_RESUME);
+        } catch (Exception e) {
+            log.warn("读取简历业务激活 AI 配置失败，回退本地配置: {}", e.getMessage());
+        }
+
+        if (activeConfig != null) {
+            String dbProvider = normalizeConfigValue(activeConfig.getProviderType());
+            if (dbProvider != null) {
+                runtimeProvider = dbProvider.toLowerCase(Locale.ROOT);
+            }
+            String dbModel = normalizeConfigValue(activeConfig.getModelName());
+            if (dbModel != null) {
+                runtimeModel = dbModel;
+            }
+            String dbBaseUrl = normalizeConfigValue(activeConfig.getBaseUrl());
+            runtimeBaseUrl = resolveBaseUrl(runtimeProvider, dbBaseUrl != null ? dbBaseUrl : configuredBaseUrl);
+            String dbApiKey = normalizeConfigValue(activeConfig.getApiKey());
+            if (dbApiKey != null) {
+                runtimeApiKey = dbApiKey;
+            }
+            source = "db-active:" + activeConfig.getEngineCode();
+        }
+
+        // 最后兜底：避免关键字段为空导致请求参数不可用。
+        if (runtimeModel == null) {
+            runtimeModel = fallbackModel;
+        }
+        if (runtimeBaseUrl == null) {
+            runtimeBaseUrl = fallbackBaseUrl;
+        }
+        if (runtimeApiKey == null) {
+            runtimeApiKey = resolveApiKey(runtimeProvider);
+        }
+
+        return new RuntimeAiConfig(
+                runtimeProvider,
+                runtimeModel,
+                runtimeBaseUrl,
+                getEndpointByProvider(runtimeProvider),
+                runtimeApiKey,
+                source
+        );
+    }
+
+    /**
+     * 按 provider 获取 endpoint，预留后续差异化扩展能力。
+     */
+    private String getEndpointByProvider(String providerType) {
+        return switch (providerType) {
+            case "ernie" -> "/chat/completions";
+            default -> "/chat/completions";
+        };
+    }
+
+    /**
+     * 统一处理配置字符串空值，减少各处重复判空逻辑。
+     */
+    private String normalizeConfigValue(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     /**
@@ -472,6 +587,20 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             trimmed = trimmed.substring(0, lastBacktick);
         }
         return trimmed.trim();
+    }
+
+    /**
+     * 简历 AI 运行时配置快照。
+     * 用于把数据库激活配置和本地兜底配置合并后传入单次请求。
+     */
+    private record RuntimeAiConfig(
+            String provider,
+            String model,
+            String baseUrl,
+            String endpoint,
+            String apiKey,
+            String source
+    ) {
     }
 
     /**

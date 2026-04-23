@@ -125,20 +125,20 @@ app:
     # 面试 AI 模式切换：
     # - mock: 使用模拟数据（开发调试用）
     # - real: 使用真实大模型 API
-    mode: mock
+    mode: real
 
     # 面试 AI 提供商
-    provider: doubao
+    provider: deepseek
 
     # 面试 API 基础地址
-    base-url: https://ark.cn-beijing.volces.com/api/coding/v3
+    base-url: https://api.siliconflow.cn/v1
 
     # 面试模型名称
     # 【推荐模型】
     # - Doubao-pro-4k（非Reasoning）：base-url: https://ark.cn-beijing.volces.com/api/v3, model: Doubao-pro-4k
     # - Doubao-Seed-2.0-lite：base-url: https://ark.cn-beijing.volces.com/api/v3, model: Doubao-Seed-2.0-lite
     # - DeepSeek-chat：base-url: https://api.deepseek.com, model: deepseek-chat
-    model: Doubao-Seed-2.0-lite
+    model: DeepSeek-V3
 
     # 思考模式配置：
     # - enabled: 显式开启思考模式；仅模型支持时传 thinking.type=enabled

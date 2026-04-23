@@ -94,7 +94,8 @@ public class InterviewController {
 
                 interviewService.validateSessionForStream(sessionId, userId);
 
-                interviewService.saveUserMessage(sessionId, request.getContent());
+                // 二次传入 userId，让服务层在落库前再次校验会话终态。
+                interviewService.saveUserMessage(sessionId, userId, request.getContent());
 
                 String userMessage = request.getContent();
 

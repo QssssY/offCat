@@ -27,6 +27,7 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
 import java.util.stream.Collectors;
@@ -770,11 +771,13 @@ public class AdminController {
      * @return 用户列表响应
      */
     private UserListResponse buildUserListResponse(SysUser user) {
+        // 角色展示要按“当前是否仍是有效会员”判断，避免会员过期后仍显示为会员用户。
+        boolean vipActive = isVipActive(user);
         return UserListResponse.builder()
                 .id(user.getId())
                 .username(user.getUsername())
                 .role(user.getRole())
-                .roleDesc(getRoleDesc(user.getRole()))
+                .roleDesc(getRoleDesc(user.getRole(), vipActive))
                 .status(user.getStatus())
                 .statusDesc(getUserStatusDesc(user.getStatus()))
                 .vipExpireTime(user.getVipExpireTime())
@@ -838,13 +841,28 @@ public class AdminController {
      * @param role 角色
      * @return 描述
      */
-    private String getRoleDesc(Integer role) {
+    private String getRoleDesc(Integer role, boolean vipActive) {
         return switch (role) {
             case UserRoleConstants.ROLE_NORMAL -> "普通用户";
-            case UserRoleConstants.ROLE_VIP -> "会员用户";
+            // VIP 角色但已过期时，管理端展示应回落为普通用户语义，避免误判用户权益状态。
+            case UserRoleConstants.ROLE_VIP -> vipActive ? "会员用户" : "普通用户（会员已过期）";
             case UserRoleConstants.ROLE_ADMIN -> "管理员";
             default -> "未知";
         };
+    }
+
+    /**
+     * 计算用户当前是否处于“有效 VIP”状态。
+     *
+     * 作用：
+     * 列表接口直接用实体字段判定，避免额外查询带来的 N+1 开销。
+     */
+    private boolean isVipActive(SysUser user) {
+        if (user == null || user.getRole() == null || user.getRole() != UserRoleConstants.ROLE_VIP) {
+            return false;
+        }
+        LocalDateTime vipExpireTime = user.getVipExpireTime();
+        return vipExpireTime != null && vipExpireTime.isAfter(LocalDateTime.now());
     }
 
     /**

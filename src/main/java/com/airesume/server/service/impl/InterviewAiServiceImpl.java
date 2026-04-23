@@ -1,10 +1,16 @@
 package com.airesume.server.service.impl;
 
+import com.airesume.server.common.constants.AiEngineConstants;
 import com.airesume.server.dto.interview.InterviewEvaluationReport;
+import com.airesume.server.entity.SysAiEngineConfig;
 import com.airesume.server.service.InterviewAiService;
+import com.airesume.server.service.SysAiEngineConfigService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.reactivestreams.Publisher;
+import org.reactivestreams.Subscriber;
+import org.reactivestreams.Subscription;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpHeaders;
@@ -17,12 +23,9 @@ import reactor.core.scheduler.Schedulers;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
-import org.reactivestreams.Publisher;
-import org.reactivestreams.Subscriber;
-import org.reactivestreams.Subscription;
 
 /**
  * 模拟面试 AI 服务实现类（真实 AI 模式）
@@ -50,6 +53,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
 
     private final RestClient restClient;
     private final WebClient webClient;
+    private final RestClient.Builder restClientBuilder;
+    private final WebClient.Builder webClientBuilder;
     private final String provider;
     private final String model;
     private final String configuredBaseUrl;
@@ -57,6 +62,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     private final String endpoint;
     private final ObjectMapper objectMapper;
     private final String thinkingMode;
+    private final SysAiEngineConfigService sysAiEngineConfigService;
 
     /**
      * 是否开启流式调试日志（详细逐行日志）
@@ -96,13 +102,18 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             @Value("${app.interview.base-url:}") String configuredBaseUrl,
             @Value("${app.interview.model:}") String model,
             @Value("${app.interview.thinking-mode:none}") String thinkingMode,
+            WebClient.Builder webClientBuilder,
             RestClient.Builder restClientBuilder,
+            SysAiEngineConfigService sysAiEngineConfigService,
             ObjectMapper objectMapper) {
         this.provider = provider == null ? "doubao" : provider.toLowerCase();
         this.model = model;
         this.configuredBaseUrl = configuredBaseUrl;
         this.thinkingMode = thinkingMode;
         this.objectMapper = objectMapper;
+        this.restClientBuilder = restClientBuilder;
+        this.webClientBuilder = webClientBuilder;
+        this.sysAiEngineConfigService = sysAiEngineConfigService;
 
         // 【重要】优先使用用户配置的 baseUrl，仅当配置为空时才使用默认值
         this.resolvedBaseUrl = resolveBaseUrl(this.provider, configuredBaseUrl);
@@ -230,11 +241,21 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      */
     private String getApiKey() {
         String key = System.getenv("DOUBAO_API_KEY");
-        if (key != null && !key.isBlank()) return key;
+        if (key != null && !key.isBlank()) {
+            log.info("[DEBUG] getApiKey: 读取到 DOUBAO_API_KEY, 长度={}, 前5位={}", key.length(), key.substring(0, 5));
+            return key;
+        }
         key = System.getenv("API_KEY");
-        if (key != null && !key.isBlank()) return key;
+        if (key != null && !key.isBlank()) {
+            log.info("[DEBUG] getApiKey: 读取到 API_KEY, 长度={}, 前5位={}", key.length(), key.substring(0, 5));
+            return key;
+        }
         key = System.getenv("AI_API_KEY");
-        if (key != null && !key.isBlank()) return key;
+        if (key != null && !key.isBlank()) {
+            log.info("[DEBUG] getApiKey: 读取到 AI_API_KEY, 长度={}, 前5位={}", key.length(), key.substring(0, 5));
+            return key;
+        }
+        log.info("[DEBUG] getApiKey: 未读取到任何 API_KEY");
         return null;
     }
 
@@ -265,7 +286,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      */
     @Override
     public String generateOpening(String jobRole, Integer difficulty) {
-        String tag = provider.toUpperCase();
+        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
+        String tag = runtimeConfig.provider().toUpperCase();
         log.info("[{}] 生成面试开场白, jobRole: {}, difficulty: {}", tag, jobRole, difficulty);
         String systemPrompt = buildSystemPrompt(jobRole, difficulty);
         String userPrompt = buildOpeningUserPrompt(jobRole, difficulty);
@@ -284,7 +306,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      */
     @Override
     public String generateReply(String sessionId, List<ChatMessageItem> history, String userMessage) {
-        String tag = provider.toUpperCase();
+        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
+        String tag = runtimeConfig.provider().toUpperCase();
         log.info("[{}] 生成面试官回复, sessionId: {}, historySize: {}, userMessageLength: {}",
                 tag, sessionId, history == null ? 0 : history.size(),
                 userMessage == null ? 0 : userMessage.length());
@@ -333,7 +356,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      */
     @Override
     public Publisher<String> generateReplyStream(String sessionId, List<ChatMessageItem> history, String userMessage) {
-        String tag = provider.toUpperCase();
+        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
+        String tag = runtimeConfig.provider().toUpperCase();
         // 【版本指纹】全项目唯一字符串，用于确认运行时代码是否为最新版本
         log.info("[{}] ═══════════════════════════════════════════════", tag);
         log.info("[{}] ║  新版逐条JSON解析V3已生效  ║", tag);
@@ -344,23 +368,32 @@ public class InterviewAiServiceImpl implements InterviewAiService {
 
         List<Message> messages = buildConversationMessages(history, userMessage, null);
 
-        String apiKey = getApiKey();
+        String apiKey = runtimeConfig.apiKey();
         if (apiKey == null || apiKey.isBlank()) {
-            throw new IllegalStateException("请设置环境变量 DOUBAO_API_KEY 或 API_KEY");
+            throw new IllegalStateException("未找到可用的面试 AI 密钥，请检查管理端激活配置或环境变量");
         }
 
-        log.info("[{}] 流式请求地址: {}{}, model: {}", tag, resolvedBaseUrl, endpoint, model);
+        log.info("[{}] 流式请求地址: {}{}, model: {}, source: {}",
+                tag, runtimeConfig.baseUrl(), runtimeConfig.endpoint(), runtimeConfig.model(), runtimeConfig.source());
 
-        StreamRequestBody reqBody = new StreamRequestBody(model, messages, true);
+        StreamRequestBody reqBody = new StreamRequestBody(runtimeConfig.model(), messages, true);
         // 根据配置和模型支持情况设置 thinking 参数
-        reqBody.thinking = buildThinkingConfig(model, thinkingMode);
+        reqBody.thinking = buildThinkingConfig(runtimeConfig.model(), thinkingMode);
+
+        // 打印完整请求体 JSON
+        try {
+            String requestJson = objectMapper.writeValueAsString(reqBody);
+            log.info("[{}] 请求体JSON: {}", tag, requestJson);
+        } catch (Exception e) {
+            log.warn("[{}] 请求体序列化失败", tag, e);
+        }
 
         // 【关键日志】打印请求参数
         log.info("[{}] ═══════════════════════════════════════════════", tag);
         log.info("[{}] ║  流式请求参数验证  ║", tag);
         log.info("[{}] ═══════════════════════════════════════════════", tag);
-        log.info("[{}] 请求地址: {}{}", tag, resolvedBaseUrl, endpoint);
-        log.info("[{}] model: {}", tag, model);
+        log.info("[{}] 请求地址: {}{}", tag, runtimeConfig.baseUrl(), runtimeConfig.endpoint());
+        log.info("[{}] model: {}", tag, runtimeConfig.model());
         log.info("[{}] stream: {}", tag, reqBody.stream);
         if (reqBody.thinking != null) {
             log.info("[{}] thinking.type: {}", tag, reqBody.thinking.type);
@@ -370,8 +403,14 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         log.info("[{}] ═══════════════════════════════════════════════", tag);
 
         // 【第一层】WebClient 发起请求，返回原始 SSE 行流（按 '\n' 分割）
-        Flux<String> rawLineFlux = webClient.post()
-                .uri(endpoint)
+        // 运行时按当前生效配置构造客户端，确保管理端切换后立即生效。
+        WebClient runtimeWebClient = webClientBuilder
+                .baseUrl(runtimeConfig.baseUrl())
+                .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .build();
+
+        Flux<String> rawLineFlux = runtimeWebClient.post()
+                .uri(runtimeConfig.endpoint())
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
                 .bodyValue(reqBody)
                 .retrieve()
@@ -573,7 +612,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                     log.info("╔══════════════════════════════════════════════════════════════╗");
                     log.info("║          【流式处理完成-最终统计报告 V3】                   ║");
                     log.info("╠══════════════════════════════════════════════════════════════╣");
-                    log.info("║  模型: {}", model);
+                    log.info("║  模型: {}", runtimeConfig.model());
                     log.info("║  总接收行数:              {}", total);
                     log.info("║  成功解析JSON的行数:     {}", parsed);
                     log.info("║  跳过的行数:             {}", skipped);
@@ -631,7 +670,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     @Override
     @Deprecated
     public EvaluationResult generateEvaluation(String sessionId, List<ChatMessageItem> history) {
-        String tag = provider.toUpperCase();
+        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
+        String tag = runtimeConfig.provider().toUpperCase();
         log.info("[{}] 调用旧版评价接口, sessionId: {}, historySize: {}",
                 tag, sessionId, history == null ? 0 : history.size());
         // 调用新版方法并转换为旧版格式
@@ -669,7 +709,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             Integer difficulty,
             String interviewMode
     ) {
-        String tag = provider.toUpperCase();
+        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
+        String tag = runtimeConfig.provider().toUpperCase();
         log.info("[{}] ═══════════════════════════════════════════════", tag);
         log.info("[{}] ║  开始生成 AI 面试评价报告  ║", tag);
         log.info("[{}] ═══════════════════════════════════════════════", tag);
@@ -967,36 +1008,42 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      * @throws RuntimeException AI 调用失败时抛出
      */
     private String chat(String systemPrompt, String userPrompt) {
-        String tag = provider.toUpperCase();
-        String apiKey = getApiKey();
+        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
+        String tag = runtimeConfig.provider().toUpperCase();
+        String apiKey = runtimeConfig.apiKey();
         if (apiKey == null || apiKey.isBlank()) {
-            throw new IllegalStateException("请设置环境变量 DOUBAO_API_KEY 或 API_KEY");
+            throw new IllegalStateException("未找到可用的面试 AI 密钥，请检查管理端激活配置或环境变量");
         }
 
         RequestBody request = new RequestBody();
-        request.model = model;
+        request.model = runtimeConfig.model();
         request.messages = List.of(
                 new Message("system", systemPrompt),
                 new Message("user", userPrompt)
         );
         // 根据配置和模型支持情况设置 thinking 参数
-        request.thinking = buildThinkingConfig(model, thinkingMode);
+        request.thinking = buildThinkingConfig(runtimeConfig.model(), thinkingMode);
 
         try {
             // 【关键日志】打印请求参数
             log.info("[{}] ═══════════════════════════════════════════════", tag);
             log.info("[{}] ║  非流式请求参数验证  ║", tag);
             log.info("[{}] ═══════════════════════════════════════════════", tag);
-            log.info("[{}] 请求地址: {}{}", tag, resolvedBaseUrl, endpoint);
-            log.info("[{}] model: {}", tag, model);
+            log.info("[{}] 请求地址: {}{}", tag, runtimeConfig.baseUrl(), runtimeConfig.endpoint());
+            log.info("[{}] model: {}", tag, runtimeConfig.model());
             if (request.thinking != null) {
                 log.info("[{}] thinking.type: {}", tag, request.thinking.type);
             } else {
                 log.info("[{}] thinking: 未设置", tag);
             }
             log.info("[{}] ═══════════════════════════════════════════════", tag);
-            ResponseBody response = restClient.post()
-                    .uri(endpoint)
+            RestClient runtimeRestClient = restClientBuilder
+                    .baseUrl(runtimeConfig.baseUrl())
+                    .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                    .build();
+
+            ResponseBody response = runtimeRestClient.post()
+                    .uri(runtimeConfig.endpoint())
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
                     .body(request)
                     .retrieve()
@@ -1025,33 +1072,39 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      * @throws RuntimeException AI 调用失败时抛出
      */
     private String chatWithMessages(List<Message> messages) {
-        String tag = provider.toUpperCase();
-        String apiKey = getApiKey();
+        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
+        String tag = runtimeConfig.provider().toUpperCase();
+        String apiKey = runtimeConfig.apiKey();
         if (apiKey == null || apiKey.isBlank()) {
-            throw new IllegalStateException("请设置环境变量 DOUBAO_API_KEY 或 API_KEY");
+            throw new IllegalStateException("未找到可用的面试 AI 密钥，请检查管理端激活配置或环境变量");
         }
 
         RequestBody request = new RequestBody();
-        request.model = model;
+        request.model = runtimeConfig.model();
         request.messages = messages;
         // 根据配置和模型支持情况设置 thinking 参数
-        request.thinking = buildThinkingConfig(model, thinkingMode);
+        request.thinking = buildThinkingConfig(runtimeConfig.model(), thinkingMode);
 
         try {
             // 【关键日志】打印请求参数
             log.info("[{}] ═══════════════════════════════════════════════", tag);
             log.info("[{}] ║  多轮对话请求参数验证  ║", tag);
             log.info("[{}] ═══════════════════════════════════════════════", tag);
-            log.info("[{}] 请求地址: {}{}", tag, resolvedBaseUrl, endpoint);
-            log.info("[{}] model: {}", tag, model);
+            log.info("[{}] 请求地址: {}{}", tag, runtimeConfig.baseUrl(), runtimeConfig.endpoint());
+            log.info("[{}] model: {}", tag, runtimeConfig.model());
             if (request.thinking != null) {
                 log.info("[{}] thinking.type: {}", tag, request.thinking.type);
             } else {
                 log.info("[{}] thinking: 未设置", tag);
             }
             log.info("[{}] ═══════════════════════════════════════════════", tag);
-            ResponseBody response = restClient.post()
-                    .uri(endpoint)
+            RestClient runtimeRestClient = restClientBuilder
+                    .baseUrl(runtimeConfig.baseUrl())
+                    .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                    .build();
+
+            ResponseBody response = runtimeRestClient.post()
+                    .uri(runtimeConfig.endpoint())
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
                     .body(request)
                     .retrieve()
@@ -1205,6 +1258,102 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     }
 
     /**
+     * 解析面试业务运行时 AI 配置。
+     *
+     * 作用：
+     * 1. 优先读取管理端“当前激活”的 interview 配置，确保切换后立即生效；
+     * 2. 当数据库配置缺失字段时，回退到 application.yml/环境变量，保证服务可用。
+     */
+    private RuntimeAiConfig resolveRuntimeConfig() {
+        // 先准备本地兜底配置，避免数据库不可用时影响核心链路。
+        String fallbackProvider = normalizeConfigValue(provider);
+        if (fallbackProvider == null) {
+            fallbackProvider = "doubao";
+        }
+        fallbackProvider = fallbackProvider.toLowerCase(Locale.ROOT);
+        String fallbackModel = normalizeConfigValue(model);
+        String fallbackBaseUrl = resolveBaseUrl(fallbackProvider, configuredBaseUrl);
+        String fallbackApiKey = getApiKey();
+
+        String runtimeProvider = fallbackProvider;
+        String runtimeModel = fallbackModel;
+        String runtimeBaseUrl = fallbackBaseUrl;
+        String runtimeApiKey = fallbackApiKey;
+        String source = "application";
+
+        // 尝试读取 interview 业务的激活配置；读取失败时继续使用本地兜底。
+        SysAiEngineConfig activeConfig = null;
+        try {
+            activeConfig = sysAiEngineConfigService.getActiveByBusinessType(AiEngineConstants.BUSINESS_TYPE_INTERVIEW);
+        } catch (Exception e) {
+            log.warn("读取面试业务激活 AI 配置失败，回退本地配置: {}", e.getMessage());
+        }
+
+        if (activeConfig != null) {
+            // 使用管理端激活配置覆盖运行时参数，确保切换配置后立即生效。
+            String dbProvider = normalizeConfigValue(activeConfig.getProviderType());
+            if (dbProvider != null) {
+                runtimeProvider = dbProvider.toLowerCase(Locale.ROOT);
+            }
+            String dbModel = normalizeConfigValue(activeConfig.getModelName());
+            if (dbModel != null) {
+                runtimeModel = dbModel;
+            }
+            String dbBaseUrl = normalizeConfigValue(activeConfig.getBaseUrl());
+            runtimeBaseUrl = resolveBaseUrl(runtimeProvider, dbBaseUrl != null ? dbBaseUrl : configuredBaseUrl);
+            String dbApiKey = normalizeConfigValue(activeConfig.getApiKey());
+            if (dbApiKey != null) {
+                runtimeApiKey = dbApiKey;
+            }
+            source = "db-active:" + activeConfig.getEngineCode();
+        }
+
+        // 对关键字段做最后兜底，避免空值进入请求链路。
+        if (runtimeModel == null) {
+            runtimeModel = fallbackModel;
+        }
+        if (runtimeBaseUrl == null) {
+            runtimeBaseUrl = fallbackBaseUrl;
+        }
+
+        return new RuntimeAiConfig(
+                runtimeProvider,
+                runtimeModel,
+                runtimeBaseUrl,
+                getEndpointByProvider(runtimeProvider),
+                runtimeApiKey,
+                source
+        );
+    }
+
+    /**
+     * 按 provider 获取请求 endpoint。
+     *
+     * 说明：
+     * 当前已接入供应商都兼容 /chat/completions，保留分支是为了后续扩展差异化路径。
+     */
+    private String getEndpointByProvider(String providerType) {
+        return switch (providerType) {
+            case "ernie" -> "/chat/completions";
+            default -> "/chat/completions";
+        };
+    }
+
+    /**
+     * 统一归一化配置字符串。
+     *
+     * 作用：
+     * 把 null、空串、纯空白统一处理为 null，降低配置分支判断复杂度。
+     */
+    private String normalizeConfigValue(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    /**
      * 非流式请求体
      *
      * 【thinking 参数说明】
@@ -1213,6 +1362,20 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      * - type = "disabled": 关闭深度思考
      * - 该字段是否传递由配置和模型支持情况共同决定
      */
+    /**
+     * 面试 AI 运行时配置快照。
+     * 用于把数据库激活配置与本地兜底配置统一封装后下发到单次请求。
+     */
+    private record RuntimeAiConfig(
+            String provider,
+            String model,
+            String baseUrl,
+            String endpoint,
+            String apiKey,
+            String source
+    ) {
+    }
+
     private static class RequestBody {
         public String model;
         public List<Message> messages;
