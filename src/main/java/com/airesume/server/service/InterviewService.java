@@ -30,6 +30,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
 
 import java.io.IOException;
@@ -56,6 +57,7 @@ public class InterviewService {
     private final InterviewAiService interviewAiService;
     private final ObjectMapper objectMapper;
     private final SysJobRoleService sysJobRoleService;
+    private final TransactionTemplate transactionTemplate;
     private final UserQuotaService userQuotaService;
 
     /**
@@ -185,12 +187,10 @@ public class InterviewService {
             return;
         }
         if (isSessionInProgress(session)) {
-            // 仅允许已结束会话生成报告。
             log.warn("会话仍为进行中，跳过报告生成, sessionId: {}", sessionId);
             return;
         }
         if (session.getEvaluationReport() != null && !session.getEvaluationReport().isBlank()) {
-            // 已有报告时直接跳过，避免重复消耗 token。
             log.info("会话报告已存在，跳过重复生成, sessionId: {}", sessionId);
             return;
         }
@@ -214,22 +214,24 @@ public class InterviewService {
             evaluationReportJson = objectMapper.writeValueAsString(report);
             log.info("异步 AI 评估报告生成成功, sessionId: {}, score: {}", sessionId, score);
         } catch (Exception e) {
-            // AI 失败时降级为 Mock，保证会话最终有报告结果。
             log.warn("异步 AI 评估失败，降级 Mock, sessionId: {}, error: {}", sessionId, e.getMessage());
             score = mockInterviewService.generateMockScore(sessionId);
             evaluationReportJson = mockInterviewService.generateMockEvaluationReport(sessionId, score);
             log.info("异步 Mock 评估报告生成成功, sessionId: {}, score: {}", sessionId, score);
         }
 
-        // 仅回写报告相关字段并强制保持结束态，避免把 status 覆盖回进行中。
-        interviewSessionRepository.updateEvaluationReport(
-                sessionId,
-                score,
-                evaluationReportJson,
-                InterviewConstants.STATUS_ENDED,
-                LocalDateTime.now()
-        );
-        log.info("异步报告写回成功, sessionId: {}, userId: {}, score: {}", sessionId, session.getUserId(), score);
+        final Integer finalScore = score;
+        final String finalReportJson = evaluationReportJson;
+        transactionTemplate.executeWithoutResult(status -> {
+            interviewSessionRepository.updateEvaluationReport(
+                    sessionId,
+                    finalScore,
+                    finalReportJson,
+                    InterviewConstants.STATUS_ENDED,
+                    LocalDateTime.now()
+            );
+            log.info("异步报告写回成功, sessionId: {}, userId: {}, score: {}", sessionId, session.getUserId(), finalScore);
+        });
     }
 
     /**

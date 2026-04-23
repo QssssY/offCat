@@ -264,6 +264,11 @@ public class AdminController {
             config.setBaseUrl(normalizeRequiredValue(request.getBaseUrl(), "基础地址不能为空"));
         }
         if (request.getApiKey() != null) {
+            // 【关键修复】防止脱敏值误写入数据库
+            // 如果提交的 apiKey 符合脱敏格式（如 "sk-****abcd"），则拒绝更新，防止前端把脱敏值覆盖真实值
+            if (isMaskedApiKey(request.getApiKey())) {
+                throw new BusinessException("API Key 不能为脱敏格式，请输入完整的真实 API Key");
+            }
             config.setApiKey(normalizeRequiredValue(request.getApiKey(), "API Key 不能为空"));
         }
         if (request.getTemperature() != null) {
@@ -954,8 +959,37 @@ public class AdminController {
         return normalized == null ? null : normalized.toLowerCase(Locale.ROOT);
     }
 
+/**
+     * 验证是否为脱敏格式的 API Key。
+     *
+     * 作用：
+     * 防止前端把列表返回的脱敏值（如 "sk-****abcd"）提交回后端，
+     * 导致真实 API Key 被覆盖为脱敏值。
+     *
+     * 判断逻辑：
+     * - 如果包含 "****" 且长度明显短于真实 key（真实 key 通常 > 20 字符），则判定为脱敏值
+     *
+     * @param apiKey 待验证的 API Key
+     * @return true 表示是脱敏格式，false 表示可能是真实值
+     */
+    private boolean isMaskedApiKey(String apiKey) {
+        if (apiKey == null) {
+            return false;
+        }
+        String trimmed = apiKey.trim();
+        // 不包含脱敏标记，不是脱敏格式
+        if (!trimmed.contains("****")) {
+            return false;
+        }
+        // 【关键修复】真实 API Key 通常 > 20 字符，如果 <= 20 字符且包含 "****"，很可能是脱敏值
+        if (trimmed.length() <= 20) {
+            return true;
+        }
+        return false;
+    }
+
     /**
-     * 对列表返回的 API Key 做脱敏
+     * 将 API Key 脱敏返回。
      *
      * 作用：
      * 原始密钥只应该保存在数据库中，管理端列表返回时必须遮罩，

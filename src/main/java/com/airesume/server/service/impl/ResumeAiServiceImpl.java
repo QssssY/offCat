@@ -345,12 +345,21 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         };
     }
 
-    /**
+/**
      * 解析简历业务运行时 AI 配置。
      *
      * 作用：
-     * 1. 优先读取管理端“当前激活”的 resume 配置；
+     * 1. 优先读取管理端"当前激活"的 resume 配置；
      * 2. 缺失字段时回退到本地配置与环境变量，保证链路稳定。
+     *
+     * 【运行时配置读取优先级】（确保 403 问题不再复现）：
+     * 1. 优先读取数据库激活配置的 apiKey（可能是 SiliconFlow 等新 provider）
+     * 2. 兜底读取本地环境变量的 apiKey
+     * 3. 最后兜底到本地配置 model（避免空值导致请求失败）
+     *
+     * 【关键修复】对 runtimeApiKey 和关键字段补充兜底处理：
+     * - 旧逻辑：仅当数据库返回非空时才覆盖，不为空时保持 null，导致后续请求带空 key
+     * - 新逻辑：始终确保关键字段不为 null，防止 403 Forbidden
      */
     private RuntimeAiConfig resolveRuntimeConfig() {
         // 本地兜底配置：数据库没有激活配置时仍可继续服务。
@@ -389,21 +398,34 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             String dbBaseUrl = normalizeConfigValue(activeConfig.getBaseUrl());
             runtimeBaseUrl = resolveBaseUrl(runtimeProvider, dbBaseUrl != null ? dbBaseUrl : configuredBaseUrl);
             String dbApiKey = normalizeConfigValue(activeConfig.getApiKey());
+            // 【关键修复】只要数据库返回的 apiKey 非空就使用，否则继续使用本地兜底
             if (dbApiKey != null) {
                 runtimeApiKey = dbApiKey;
+            } else {
+                // 数据库 apiKey 为空时，保持使用本地兜底，不要覆盖为 null
+                log.debug("数据库 apiKey 为空，使用本地兜底");
             }
             source = "db-active:" + activeConfig.getEngineCode();
         }
 
-        // 最后兜底：避免关键字段为空导致请求参数不可用。
+        // 【关键修复】对关键字段做最后兜底，确保不传空值导致 403
+        // 1. model 最后兜底
         if (runtimeModel == null) {
             runtimeModel = fallbackModel;
         }
+        // 2. baseUrl 最后兜底
         if (runtimeBaseUrl == null) {
             runtimeBaseUrl = fallbackBaseUrl;
         }
-        if (runtimeApiKey == null) {
+        // 3. apiKey 最后兜底（最重要，防止 403）
+        if (runtimeApiKey == null || runtimeApiKey.isBlank()) {
+            log.warn("[RESUME] runtimeApiKey 仍为空，尝试从环境变量兜底获取");
             runtimeApiKey = resolveApiKey(runtimeProvider);
+        }
+// 4. 如果所有兜底都失败，当前 provider 不可用（抛出明确错误而非静默失败）
+        if (runtimeApiKey == null || runtimeApiKey.isBlank()) {
+            throw new IllegalStateException("简历 AI 密钥不可用：数据库和管理端均无有效配置。"
+                    + "请在管理端激活 AI 引擎配置，或设置环境变量 " + getEnvKeyName(runtimeProvider));
         }
 
         return new RuntimeAiConfig(
