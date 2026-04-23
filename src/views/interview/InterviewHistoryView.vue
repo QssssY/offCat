@@ -164,6 +164,13 @@ const statusMap = {
   1: { text: '已结束', type: 'success' }
 }
 
+// 新增：报告状态映射
+// 修复目的：区分"已结束但报告未生成"和"已结束且报告已生成"
+const reportStatusMap = {
+  0: { text: '未生成', type: 'info' },
+  1: { text: '已完成', type: 'success' }
+}
+
 // 获取难度显示文本
 const getDifficultyText = (item) => {
   if (item.difficultyDesc) return item.difficultyDesc
@@ -185,13 +192,30 @@ const getModeText = (item) => {
 }
 
 // 获取状态显示文本
+// 修复：增加对报告生成的区分显示
 const getStatusText = (item) => {
+  // 如果后端返回了 reportStatus，使用它区分报告状态
+  if (item.reportStatus !== undefined) {
+    return reportStatusMap[item.reportStatus]?.text || '未知'
+  }
+  // 兼容旧字段
   if (item.statusDesc) return item.statusDesc
   return statusMap[item.status]?.text || '未知'
 }
 
 // 获取状态标签类型
+// 修复：已结束但报告未生成时显示不同状态
 const getStatusType = (item) => {
+  // 如果后端返回了 reportStatus
+  if (item.reportStatus !== undefined) {
+    // 报告未生成 -> 报告生成中的颜色（warning）
+    if (item.reportStatus === 0) {
+      return item.status === 1 ? 'warning' : 'info'
+    }
+    // 报告已完成 -> 绿色
+    return 'success'
+  }
+  // 兼容旧字段
   if (item.statusDesc) {
     return item.status === 0 ? 'warning' : 'success'
   }

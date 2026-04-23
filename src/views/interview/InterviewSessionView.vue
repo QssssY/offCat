@@ -67,16 +67,16 @@
       <!-- 对话主舞台 -->
       <div class="chat-stage">
         <div class="chat-container">
-          <div class="chat-messages" ref="chatContainer">
+          <div class="chat-messages" ref="chatContainer" :key="sessionId">
             <template v-if="groupedChatLogs.length > 0">
               <template
                 v-for="item in groupedChatLogs"
-                :key="item.id || item.tempId || `msg-${item.createTime}`"
               >
                 <!-- 日期分割线 -->
                 <div
                   v-if="item.type === 'date-separator'"
                   class="date-separator"
+                  :key="'date-' + item.date"
                 >
                   <span class="date-separator-line"></span>
                   <span class="date-separator-text">{{
@@ -89,6 +89,7 @@
                 <div
                   v-else-if="item.messageRole === 'assistant'"
                   class="message-row assistant-row"
+                  :key="item.id || item.tempId || `msg-${item.createTime}`"
                 >
                   <div class="message-avatar assistant-avatar">
                     <img
@@ -131,7 +132,7 @@
                 </div>
 
                 <!-- 用户消息 - 右对齐 -->
-                <div v-else class="message-row user-row">
+                <div v-else class="message-row user-row" :key="'user-' + (item.id || item.tempId || item.createTime)">
                   <div class="message-avatar user-avatar">
                     <img
                       :src="userAvatar"
@@ -586,8 +587,14 @@ const confirmEndInterview = async () => {
   try {
     await apiEndInterview(sessionId.value);
     showEndDialog.value = false;
-    ElMessage.success("面试已结束");
+    ElMessage.success("面试已结束，报告生成中...");
+    // 访问会话详情以刷新状态
     await fetchSessionDetail();
+    // 提示用户报告会稍后生成
+    ElMessage.info({
+      message: "评价报告正在生成，请稍后在报告页查看",
+      duration: 3000
+    });
   } catch (err) {
     console.error("结束面试失败:", err);
     ElMessage.error(err.message || "结束面试失败，请稍后重试");

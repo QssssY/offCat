@@ -22,22 +22,8 @@
         <div class="error-icon-wrap">
           <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
             <circle cx="12" cy="12" r="10" stroke="#f56c6c" stroke-width="2" />
-            <line
-              x1="15"
-              y1="9"
-              x2="9"
-              y2="15"
-              stroke="#f56c6c"
-              stroke-width="2"
-            />
-            <line
-              x1="9"
-              y1="9"
-              x2="15"
-              y2="15"
-              stroke="#f56c6c"
-              stroke-width="2"
-            />
+            <line x1="15" y1="9" x2="9" y2="15" stroke="#f56c6c" stroke-width="2" />
+            <line x1="9" y1="9" x2="15" y2="15" stroke="#f56c6c" stroke-width="2" />
           </svg>
         </div>
         <div class="error-title">加载失败</div>
@@ -55,12 +41,7 @@
         <div class="empty-icon-wrap">
           <svg width="56" height="56" viewBox="0 0 24 24" fill="none">
             <circle cx="12" cy="12" r="10" stroke="#F3D8C7" stroke-width="2" />
-            <polyline
-              points="12 6 12 12 16 14"
-              stroke="#FF8C42"
-              stroke-width="2"
-              stroke-linecap="round"
-            />
+            <polyline points="12 6 12 12 16 14" stroke="#FF8C42" stroke-width="2" stroke-linecap="round" />
           </svg>
         </div>
         <div class="empty-title">面试尚未结束</div>
@@ -74,8 +55,33 @@
       </div>
     </div>
 
+    <!-- 【修复】报告生成中状态（会话已结束但报告尚未生成） -->
+    <div v-else-if="isReportGenerating" class="generating-section">
+      <div class="generating-card">
+        <div class="generating-icon-wrap">
+          <div class="generating-spinner"></div>
+        </div>
+        <div class="generating-title">报告生成中</div>
+        <div class="generating-desc">
+          {{ generatingDesc }}
+        </div>
+        <div class="generating-progress">
+          <div class="progress-bar">
+            <div class="progress-fill" :style="{ width: progressPercent + '%' }"></div>
+          </div>
+          <div class="progress-text">请稍候，自动刷新中...</div>
+        </div>
+        <div class="generating-actions">
+          <el-button type="primary" size="small" :loading="refreshingReport" @click="refreshReportNow">
+            立即刷新
+          </el-button>
+          <el-button size="small" @click="goToSession">查看会话</el-button>
+        </div>
+      </div>
+    </div>
+
     <!-- 报告内容 -->
-    <div v-else class="report-content">
+    <div v-else-if="hasReport" class="report-content">
       <!-- Hero 报告总览区 -->
       <div class="hero-section">
         <div class="hero-main">
@@ -846,6 +852,35 @@ let reportPollingTimer = null;
 
 const isEnded = computed(() => sessionData.value?.status === 1);
 
+// 新增：报告生成中状态区分（会话已结束但报告尚未生成）
+// 修复目的：解决"会话已结束但报告仍在生成"的过渡态显示问题
+const isReportGenerating = computed(() => {
+  // 条件1：会话已结束（status === 1）
+  // 条件2：报告尚未生成（hasReport 为 false）
+  // 条件3：轮询仍在进行（reportPolling 为 true）
+  return isEnded.value && !hasReport.value && reportPolling.value;
+});
+
+// 动态描述文案
+const generatingDesc = computed(() => {
+  const rounds = reportPollRounds.value;
+  if (rounds <= 3) {
+    return "AI 面试官正在撰写个性化评价报告，请稍候...";
+  } else if (rounds <= 10) {
+    return "报告生成中，预计还需等待几秒钟...";
+  } else {
+    return "报告生成时间较长，请耐心等待...";
+  }
+});
+
+// 进度条百分比（模拟）
+const progressPercent = computed(() => {
+  const rounds = reportPollRounds.value;
+  const max = REPORT_POLL_MAX_ROUNDS;
+  const pct = Math.min(Math.round((rounds / max) * 100), 95);
+  return pct;
+});
+
 const statusDesc = computed(() => sessionData.value?.statusDesc || "");
 
 const difficultyDesc = computed(() => sessionData.value?.difficultyDesc || "");
@@ -876,7 +911,7 @@ const displayScoreValue = computed(() => {
 
 const parsedReport = computed(() => {
   const report = sessionData.value?.evaluationReport;
-  if (report === null || report === undefined) return null;
+  if (report === null || report === undefined || report === "") return null;
   if (typeof report === "string") {
     // 兼容后端可能返回的 markdown 包裹格式，避免“报告已生成但前端解析失败”。
     let trimmed = report.trim();
@@ -1258,6 +1293,85 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   min-height: 400px;
+}
+
+/* ============================================
+   报告生成中状态（新增）
+   修复目的：明确显示"会话已结束但报告仍在生成"的过渡态
+   ============================================ */
+.generating-section {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+}
+
+.generating-card {
+  background: #fff;
+  border-radius: 20px;
+  padding: 48px;
+  text-align: center;
+  max-width: 420px;
+  border: 1px solid rgba(243, 216, 199, 0.5);
+  box-shadow: 0 4px 20px rgba(255, 140, 66, 0.08);
+}
+
+.generating-icon-wrap {
+  margin-bottom: 24px;
+}
+
+.generating-spinner {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto;
+  border: 4px solid #f3d8c7;
+  border-top-color: #ff8c42;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.generating-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #2f2f2f;
+  margin-bottom: 8px;
+}
+
+.generating-desc {
+  font-size: 14px;
+  color: #666;
+  margin-bottom: 24px;
+  line-height: 1.6;
+}
+
+.generating-progress {
+  margin-bottom: 24px;
+}
+
+.progress-bar {
+  height: 6px;
+  background: #f3d8c7;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ff8c42 0%, #ffb380 100%);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  font-size: 12px;
+  color: #999;
+}
+
+.generating-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
 }
 
 .empty-card {
