@@ -1,47 +1,35 @@
 package com.airesume.server.dto.admin;
 
 import jakarta.validation.constraints.NotNull;
-import lombok.Data;
 
 /**
  * 更新Prompt模板请求DTO
  */
-@Data
 public class PromptUpdateRequest {
 
-    /**
-     * Prompt模板ID
-     */
     @NotNull(message = "Prompt ID不能为空")
     private Long id;
 
-    /**
-     * 场景类型：1-面试系统设定，2-简历诊断设定
-     */
     private Integer scenarioType;
-
-    /**
-     * 岗位编码
-     */
     private String jobRoleCode;
-
-    /**
-     * 兼容字段：岗位名称
-     */
     private String jobRole;
-
-    /**
-     * 难度级别：1-初级，2-中级，3-高级
-     */
     private Integer difficulty;
-
-    /**
-     * 具体的Prompt模板内容
-     */
     private String promptContent;
+    private Integer activeStatus;
 
-    /**
-     * 是否启用当前模板：1-启用，0-禁用
-     */
-    private Integer isActive;
+    public Long getId() { return id; }
+    public Integer getScenarioType() { return scenarioType; }
+    public String getJobRoleCode() { return jobRoleCode; }
+    public String getJobRole() { return jobRole; }
+    public Integer getDifficulty() { return difficulty; }
+    public String getPromptContent() { return promptContent; }
+    public Integer getActiveStatus() { return activeStatus; }
+
+    public void setId(Long v) { this.id = v; }
+    public void setScenarioType(Integer v) { this.scenarioType = v; }
+    public void setJobRoleCode(String v) { this.jobRoleCode = v; }
+    public void setJobRole(String v) { this.jobRole = v; }
+    public void setDifficulty(Integer v) { this.difficulty = v; }
+    public void setPromptContent(String v) { this.promptContent = v; }
+    public void setActiveStatus(Integer v) { this.activeStatus = v; }
 }

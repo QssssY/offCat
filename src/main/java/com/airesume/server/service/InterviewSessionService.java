@@ -19,10 +19,11 @@ public interface InterviewSessionService extends IService<InterviewSession> {
      *
      * @param userId   用户ID
      * @param jobRole  面试岗位
+     * @param jobRoleCode 岗位编码（可选，用于关联 prompt）
      * @param difficulty 难度级别
      * @return 会话ID
      */
-    String createSession(Long userId, String jobRole, Integer difficulty);
+    String createSession(Long userId, String jobRole, String jobRoleCode, Integer difficulty);
 
     /**
      * 发送面试消息并获取回复
@@ -30,9 +31,10 @@ public interface InterviewSessionService extends IService<InterviewSession> {
      * @param sessionId 会话ID
      * @param userId    用户ID
      * @param content   用户消息内容
+     * @param jobRoleCode 岗位编码（可选，用于加载 prompt）
      * @return 面试官回复
      */
-    SendMessageResponse sendMessage(String sessionId, Long userId, String content);
+    SendMessageResponse sendMessage(String sessionId, Long userId, String content, String jobRoleCode, Integer difficulty);
 
     /**
      * 结束面试

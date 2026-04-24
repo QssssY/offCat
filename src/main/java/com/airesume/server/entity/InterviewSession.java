@@ -38,6 +38,12 @@ public class InterviewSession extends BaseEntity {
     private String jobRole;
 
     /**
+     * 岗位编码（用于关联 prompt 配置）
+     */
+    @TableField("job_role_code")
+    private String jobRoleCode;
+
+    /**
      * 难度级别
      */
     @TableField("difficulty")

@@ -35,8 +35,9 @@ public class InterviewSessionServiceImpl extends ServiceImpl<InterviewSessionMap
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public String createSession(Long userId, String jobRole, Integer difficulty) {
-        log.info("Creating interview session, userId: {}, jobRole: {}, difficulty: {}", userId, jobRole, difficulty);
+    public String createSession(Long userId, String jobRole, String jobRoleCode, Integer difficulty) {
+        log.info("Creating interview session, userId: {}, jobRole: {}, jobRoleCode: {}, difficulty: {}",
+                userId, jobRole, jobRoleCode, difficulty);
 
         boolean hasQuota = userQuotaService.checkInterviewQuota(userId);
         if (!hasQuota) {
@@ -50,6 +51,7 @@ public class InterviewSessionServiceImpl extends ServiceImpl<InterviewSessionMap
         session.setSessionId(sessionId);
         session.setUserId(userId);
         session.setJobRole(jobRole);
+        session.setJobRoleCode(jobRoleCode);
         session.setDifficulty(difficulty);
         session.setStatus(InterviewConstants.STATUS_IN_PROGRESS);
         session.setComprehensiveScore(null);
@@ -60,7 +62,7 @@ public class InterviewSessionServiceImpl extends ServiceImpl<InterviewSessionMap
 
         userQuotaService.deductInterviewQuota(userId);
 
-        String openingMessage = interviewAiService.generateOpening(jobRole, difficulty);
+        String openingMessage = interviewAiService.generateOpening(jobRole, jobRoleCode, difficulty);
         saveChatMessage(sessionId, InterviewConstants.ROLE_ASSISTANT, openingMessage);
 
         log.info("Interview session initialization completed, sessionId: {}", sessionId);
@@ -69,8 +71,8 @@ public class InterviewSessionServiceImpl extends ServiceImpl<InterviewSessionMap
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public SendMessageResponse sendMessage(String sessionId, Long userId, String content) {
-        log.info("Processing send message request, sessionId: {}, userId: {}", sessionId, userId);
+    public SendMessageResponse sendMessage(String sessionId, Long userId, String content, String jobRoleCode, Integer difficulty) {
+        log.info("Processing send message request, sessionId: {}, userId: {}, jobRoleCode: {}", sessionId, userId, jobRoleCode);
 
         InterviewSession session = getSessionBySessionId(sessionId);
         if (session == null) {
@@ -90,7 +92,7 @@ public class InterviewSessionServiceImpl extends ServiceImpl<InterviewSessionMap
                 .map(log -> new InterviewAiService.ChatMessageItem(log.getMessageRole(), log.getContent()))
                 .collect(Collectors.toList());
 
-        String replyContent = interviewAiService.generateReply(sessionId, history, content);
+        String replyContent = interviewAiService.generateReply(sessionId, history, content, jobRoleCode, difficulty);
 
         saveChatMessage(sessionId, InterviewConstants.ROLE_ASSISTANT, replyContent);
 

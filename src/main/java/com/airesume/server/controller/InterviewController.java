@@ -6,6 +6,7 @@ import com.airesume.server.common.result.PageResult;
 import com.airesume.server.common.result.Result;
 import com.airesume.server.dto.interview.*;
 import com.airesume.server.entity.InterviewChatLog;
+import com.airesume.server.entity.InterviewSession;
 import com.airesume.server.entity.SysJobRole;
 import com.airesume.server.mapper.InterviewChatLogMapper;
 import com.airesume.server.service.InterviewAiService;
@@ -97,9 +98,12 @@ public class InterviewController {
                 // 二次传入 userId，让服务层在落库前再次校验会话终态。
                 interviewService.saveUserMessage(sessionId, userId, request.getContent());
 
+                InterviewSession session = interviewService.getSessionByOwner(sessionId, userId);
                 String userMessage = request.getContent();
+                String jobRoleCode = session != null ? session.getJobRoleCode() : null;
+                Integer difficulty = session != null ? session.getDifficulty() : null;
 
-                Publisher<String> publisher = interviewAiService.generateReplyStream(sessionId, history, userMessage);
+                Publisher<String> publisher = interviewAiService.generateReplyStream(sessionId, history, userMessage, jobRoleCode, difficulty);
 
                 interviewService.subscribeAndWriteStream(sessionId, emitter, publisher, fullReply);
 

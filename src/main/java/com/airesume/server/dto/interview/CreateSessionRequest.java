@@ -18,6 +18,11 @@ public class CreateSessionRequest {
     private String jobRole;
 
     /**
+     * 岗位编码（可选，用于关联 prompt 配置）
+     */
+    private String jobRoleCode;
+
+    /**
      * 难度级别：1-初级，2-中级，3-高级
      */
     @NotNull(message = "难度级别不能为空")

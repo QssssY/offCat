@@ -421,16 +421,22 @@ public class AdminController {
         log.info("Admin create prompt, scenarioType: {}, jobRoleCode: {}, jobRoleName: {}, difficulty: {}",
                 request.getScenarioType(), configuredJobRole.getRoleCode(), configuredJobRole.getRoleName(), request.getDifficulty());
 
-        SysPrompt prompt = new SysPrompt();
+SysPrompt prompt = new SysPrompt();
         prompt.setScenarioType(request.getScenarioType());
-        // 作用：
-        // 提示词模板绑定岗位不能继续直接落自由输入字符串。
-        // 这里统一以 sys_job_role 为唯一合法来源，保存编码和名称快照两份信息。
         prompt.setJobRoleCode(configuredJobRole.getRoleCode());
         prompt.setJobRole(configuredJobRole.getRoleName());
         prompt.setDifficulty(request.getDifficulty());
         prompt.setPromptContent(request.getPromptContent());
-        prompt.setIsActive(PromptConstants.ACTIVE);
+
+        Integer isActive = request.getActiveStatus() != null ? request.getActiveStatus() : PromptConstants.ACTIVE;
+        if (PromptConstants.ACTIVE ==(isActive)) {
+            sysPromptService.deactivateOtherPrompts(
+                    request.getScenarioType(),
+                    configuredJobRole.getRoleCode(),
+                    request.getDifficulty()
+            );
+        }
+        prompt.setIsActive(isActive);
         sysPromptService.save(prompt);
 
         log.info("Prompt created, id: {}", prompt.getId());
@@ -473,8 +479,15 @@ public class AdminController {
         if (request.getPromptContent() != null) {
             prompt.setPromptContent(request.getPromptContent());
         }
-        if (request.getIsActive() != null) {
-            prompt.setIsActive(request.getIsActive());
+        if (request.getActiveStatus() != null) {
+            if (PromptConstants.ACTIVE ==(request.getActiveStatus())) {
+                sysPromptService.deactivateOtherPrompts(
+                        prompt.getScenarioType(),
+                        prompt.getJobRoleCode(),
+                        prompt.getDifficulty()
+                );
+            }
+            prompt.setIsActive(request.getActiveStatus());
         }
 
         sysPromptService.updateById(prompt);
@@ -503,6 +516,13 @@ public class AdminController {
             throw new BusinessException("Prompt不存在");
         }
 
+        if (PromptConstants.ACTIVE ==(isActive)) {
+            sysPromptService.deactivateOtherPrompts(
+                    prompt.getScenarioType(),
+                    prompt.getJobRoleCode(),
+                    prompt.getDifficulty()
+            );
+        }
         prompt.setIsActive(isActive);
         sysPromptService.updateById(prompt);
 

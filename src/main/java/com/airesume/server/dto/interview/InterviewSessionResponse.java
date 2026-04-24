@@ -39,6 +39,11 @@ public class InterviewSessionResponse {
     private String jobRole;
 
     /**
+     * 岗位编码
+     */
+    private String jobRoleCode;
+
+    /**
      * 难度级别
      */
     private Integer difficulty;

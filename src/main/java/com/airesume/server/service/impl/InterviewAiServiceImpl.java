@@ -1,10 +1,13 @@
 package com.airesume.server.service.impl;
 
 import com.airesume.server.common.constants.AiEngineConstants;
+import com.airesume.server.common.constants.PromptConstants;
 import com.airesume.server.dto.interview.InterviewEvaluationReport;
 import com.airesume.server.entity.SysAiEngineConfig;
+import com.airesume.server.entity.SysPrompt;
 import com.airesume.server.service.InterviewAiService;
 import com.airesume.server.service.SysAiEngineConfigService;
+import com.airesume.server.service.SysPromptService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -63,6 +66,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     private final ObjectMapper objectMapper;
     private final String thinkingMode;
     private final SysAiEngineConfigService sysAiEngineConfigService;
+    private final SysPromptService sysPromptService;
 
     /**
      * 是否开启流式调试日志（详细逐行日志）
@@ -105,6 +109,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             WebClient.Builder webClientBuilder,
             RestClient.Builder restClientBuilder,
             SysAiEngineConfigService sysAiEngineConfigService,
+            SysPromptService sysPromptService,
             ObjectMapper objectMapper) {
         this.provider = provider == null ? "doubao" : provider.toLowerCase();
         this.model = model;
@@ -114,6 +119,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         this.restClientBuilder = restClientBuilder;
         this.webClientBuilder = webClientBuilder;
         this.sysAiEngineConfigService = sysAiEngineConfigService;
+        this.sysPromptService = sysPromptService;
 
         // 【重要】优先使用用户配置的 baseUrl，仅当配置为空时才使用默认值
         this.resolvedBaseUrl = resolveBaseUrl(this.provider, configuredBaseUrl);
@@ -285,11 +291,12 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      * @return 开场白文本
      */
     @Override
-    public String generateOpening(String jobRole, Integer difficulty) {
+    public String generateOpening(String jobRole, String jobRoleCode, Integer difficulty) {
         RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
         String tag = runtimeConfig.provider().toUpperCase();
-        log.info("[{}] 生成面试开场白, jobRole: {}, difficulty: {}", tag, jobRole, difficulty);
-        String systemPrompt = buildSystemPrompt(jobRole, difficulty);
+        log.info("[{}] 生成面试开场白, jobRole: {}, jobRoleCode: {}, difficulty: {}",
+                tag, jobRole, jobRoleCode, difficulty);
+        String systemPrompt = buildSystemPrompt(jobRole, jobRoleCode, difficulty);
         String userPrompt = buildOpeningUserPrompt(jobRole, difficulty);
         return chat(systemPrompt, userPrompt);
     }
@@ -305,14 +312,14 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      * @throws RuntimeException AI 调用失败时抛出
      */
     @Override
-    public String generateReply(String sessionId, List<ChatMessageItem> history, String userMessage) {
+    public String generateReply(String sessionId, List<ChatMessageItem> history, String userMessage, String jobRoleCode, Integer difficulty) {
         RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
         String tag = runtimeConfig.provider().toUpperCase();
-        log.info("[{}] 生成面试官回复, sessionId: {}, historySize: {}, userMessageLength: {}",
+        log.info("[{}] 生成面试官回复, sessionId: {}, historySize: {}, userMessageLength: {}, jobRoleCode: {}, difficulty: {}",
                 tag, sessionId, history == null ? 0 : history.size(),
-                userMessage == null ? 0 : userMessage.length());
+                userMessage == null ? 0 : userMessage.length(), jobRoleCode, difficulty);
 
-        List<Message> messages = buildConversationMessages(history, userMessage, null);
+        List<Message> messages = buildConversationMessages(history, userMessage, null, jobRoleCode, difficulty);
 
         try {
             return chatWithMessages(messages);
@@ -355,7 +362,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      * @return Publisher<String> 逐条输出的文本片段流
      */
     @Override
-    public Publisher<String> generateReplyStream(String sessionId, List<ChatMessageItem> history, String userMessage) {
+    public Publisher<String> generateReplyStream(String sessionId, List<ChatMessageItem> history, String userMessage, String jobRoleCode, Integer difficulty) {
         RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
         String tag = runtimeConfig.provider().toUpperCase();
         // 【版本指纹】全项目唯一字符串，用于确认运行时代码是否为最新版本
@@ -363,10 +370,10 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         log.info("[{}] ║  新版逐条JSON解析V3已生效  ║", tag);
         log.info("[{}] ║  兼容: data:{...} 和純JSON  ║", tag);
         log.info("[{}] ═══════════════════════════════════════════════", tag);
-        log.info("[{}] 流式生成面试官回复, sessionId: {}, historySize: {}",
-                tag, sessionId, history == null ? 0 : history.size());
+        log.info("[{}] 流式生成面试官回复, sessionId: {}, historySize: {}, jobRoleCode: {}, difficulty: {}",
+                tag, sessionId, history == null ? 0 : history.size(), jobRoleCode, difficulty);
 
-        List<Message> messages = buildConversationMessages(history, userMessage, null);
+        List<Message> messages = buildConversationMessages(history, userMessage, null, jobRoleCode, difficulty);
 
         String apiKey = runtimeConfig.apiKey();
         if (apiKey == null || apiKey.isBlank()) {
@@ -675,7 +682,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         log.info("[{}] 调用旧版评价接口, sessionId: {}, historySize: {}",
                 tag, sessionId, history == null ? 0 : history.size());
         // 调用新版方法并转换为旧版格式
-        InterviewEvaluationReport report = generateEvaluationReport(sessionId, history, "软件工程师", 2, "normal");
+        InterviewEvaluationReport report = generateEvaluationReport(sessionId, history, "软件工程师", null, 2, "normal");
         try {
             String jsonReport = objectMapper.writeValueAsString(report);
             return new EvaluationResult(report.getOverallScore(), jsonReport);
@@ -706,6 +713,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             String sessionId,
             List<ChatMessageItem> history,
             String jobRole,
+            String jobRoleCode,
             Integer difficulty,
             String interviewMode
     ) {
@@ -714,12 +722,12 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         log.info("[{}] ═══════════════════════════════════════════════", tag);
         log.info("[{}] ║  开始生成 AI 面试评价报告  ║", tag);
         log.info("[{}] ═══════════════════════════════════════════════", tag);
-        log.info("[{}] sessionId: {}, jobRole: {}, difficulty: {}, mode: {}, historySize: {}",
-                tag, sessionId, jobRole, difficulty, interviewMode,
+        log.info("[{}] sessionId: {}, jobRole: {}, jobRoleCode: {}, difficulty: {}, mode: {}, historySize: {}",
+                tag, sessionId, jobRole, jobRoleCode, difficulty, interviewMode,
                 history == null ? 0 : history.size());
 
-        // 1. 构建评价提示词和对话上下文
-        String systemPrompt = buildEvaluationSystemPrompt(jobRole, difficulty, interviewMode);
+        // 1. 构建评价提示词（优先数据库，硬编码兜底）
+        String systemPrompt = buildEvaluationSystemPrompt(jobRole, jobRoleCode, difficulty, interviewMode);
         String userPrompt = buildEvaluationUserPrompt(history);
 
         // 2. 调用 AI 生成评价
@@ -744,13 +752,35 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     /**
      * 构建评价系统提示词
      *
+     * 【优先级】
+     * 1. 如果数据库有该岗位+难度的 prompt → 使用数据库配置
+     * 2. 否则 → 使用硬编码兜底
+     *
      * 【评价标准】
      * - 严格按照大厂（字节/阿里/腾讯/美团）招聘标准
      * - 不做鼓励式表扬，实事求是
      * - 直接指出基础不扎实、答非所问、项目不清等问题
      * - 评分宁可保守，不要虚高
      */
-    private String buildEvaluationSystemPrompt(String jobRole, Integer difficulty, String interviewMode) {
+    private String buildEvaluationSystemPrompt(String jobRole, String jobRoleCode, Integer difficulty, String interviewMode) {
+        SysPrompt dbPrompt = null;
+        if (jobRoleCode != null && !jobRoleCode.isBlank()) {
+            dbPrompt = sysPromptService.getActivePromptByJobRole(
+                    PromptConstants.SCENARIO_INTERVIEW, jobRoleCode, difficulty);
+        }
+        if (dbPrompt != null && dbPrompt.getPromptContent() != null && !dbPrompt.getPromptContent().isBlank()) {
+            log.info("评价 Prompt 使用数据库配置, jobRoleCode: {}, difficulty: {}, promptId: {}",
+                    jobRoleCode, difficulty, dbPrompt.getId());
+            return dbPrompt.getPromptContent();
+        }
+        log.debug("评价 Prompt 使用硬编码兜底, jobRole: {}, difficulty: {}", jobRole, difficulty);
+        return buildDefaultEvaluationSystemPrompt(jobRole, difficulty, interviewMode);
+    }
+
+    /**
+     * 硬编码的默认评价系统提示词（兜底）
+     */
+    private String buildDefaultEvaluationSystemPrompt(String jobRole, Integer difficulty, String interviewMode) {
         String difficultyDesc = switch (difficulty == null ? 2 : difficulty) {
             case 1 -> "初级（1-3年经验）";
             case 3 -> "高级（5年以上经验）";
@@ -1137,11 +1167,11 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      * @param jobRole           面试岗位（可选）
      * @return 格式化后的消息列表
      */
-    private List<Message> buildConversationMessages(List<ChatMessageItem> history, String currentUserMessage, String jobRole) {
+    private List<Message> buildConversationMessages(List<ChatMessageItem> history, String currentUserMessage, String jobRole, String jobRoleCode, Integer difficulty) {
         java.util.List<Message> messages = new java.util.ArrayList<>();
 
-        // 1. 添加系统提示词（从历史中推断岗位，或使用默认值）
-        String systemPrompt = buildSystemPromptFromJobRole(history);
+        // 1. 添加系统提示词（优先使用数据库配置，硬编码兜底）
+        String systemPrompt = buildSystemPromptFromJobRole(history, jobRoleCode, difficulty);
         messages.add(new Message("system", systemPrompt));
 
         int historyUserCount = 0;
@@ -1192,10 +1222,12 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     /**
      * 从历史消息中推断岗位并构建系统提示词
      *
-     * @param history 历史消息列表
+     * @param history      历史消息列表
+     * @param jobRoleCode  岗位编码（优先使用，可为空）
+     * @param difficulty  难度级别（用于查询数据库 prompt）
      * @return 系统提示词
      */
-    private String buildSystemPromptFromJobRole(List<ChatMessageItem> history) {
+    private String buildSystemPromptFromJobRole(List<ChatMessageItem> history, String jobRoleCode, Integer difficulty) {
         String jobRole = "软件工程师";
         if (history != null && !history.isEmpty()) {
             String first = history.get(0).content();
@@ -1206,17 +1238,40 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 jobRole = first.substring(Math.max(0, start - 10), end);
             }
         }
-        return buildSystemPrompt(jobRole, 2);
+        return buildSystemPrompt(jobRole, jobRoleCode, difficulty);
     }
 
     /**
      * 构建面试官系统提示词
      *
+     * 【优先级】
+     * 1. 如果数据库有该岗位+难度的 prompt → 使用数据库配置
+     * 2. 否则 → 使用硬编码兜底
+     *
      * @param jobRole    面试岗位
+     * @param jobRoleCode 岗位编码（可为空）
      * @param difficulty 难度级别
      * @return 完整的系统提示词
      */
-    private String buildSystemPrompt(String jobRole, Integer difficulty) {
+    private String buildSystemPrompt(String jobRole, String jobRoleCode, Integer difficulty) {
+        SysPrompt dbPrompt = null;
+        if (jobRoleCode != null && !jobRoleCode.isBlank()) {
+            dbPrompt = sysPromptService.getActivePromptByJobRole(
+                    PromptConstants.SCENARIO_INTERVIEW, jobRoleCode, difficulty);
+        }
+        if (dbPrompt != null && dbPrompt.getPromptContent() != null && !dbPrompt.getPromptContent().isBlank()) {
+            log.info("使用数据库配置的 Prompt, jobRoleCode: {}, difficulty: {}, promptId: {}",
+                    jobRoleCode, difficulty, dbPrompt.getId());
+            return dbPrompt.getPromptContent();
+        }
+        log.debug("使用硬编码兜底 Prompt, jobRole: {}, difficulty: {}", jobRole, difficulty);
+        return buildDefaultSystemPrompt(jobRole, difficulty);
+    }
+
+    /**
+     * 硬编码的默认系统提示词（兜底）
+     */
+    private String buildDefaultSystemPrompt(String jobRole, Integer difficulty) {
         String difficultyDesc = switch (difficulty == null ? 2 : difficulty) {
             case 1 -> "初级（1-3年经验）";
             case 3 -> "高级（5年以上经验）";

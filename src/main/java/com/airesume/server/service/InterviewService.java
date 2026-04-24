@@ -77,6 +77,7 @@ public class InterviewService {
         session.setUserId(userId);
         session.setSessionId(UUID.randomUUID().toString().replace("-", ""));
         session.setJobRole(request.getJobRole());
+        session.setJobRoleCode(request.getJobRoleCode());
         session.setDifficulty(request.getDifficulty());
         session.setInterviewMode(interviewMode);
         session.setStatus(InterviewConstants.STATUS_IN_PROGRESS);
@@ -107,11 +108,21 @@ public class InterviewService {
      */
     @Transactional(rollbackFor = Exception.class)
     public SendMessageResponse sendMessage(Long userId, String sessionId, SendMessageRequest request) {
-        // 已结束会话不能继续发送消息。
         InterviewSession session = getSessionByOwnerOrThrow(sessionId, userId);
         assertSessionInProgress(session);
 
-        String reply = interviewMessageService.processMessageAndGetReply(session, request.getContent());
+        List<InterviewChatLog> chatLogs = interviewMessageService.getMessageList(sessionId);
+        List<InterviewAiService.ChatMessageItem> history = chatLogs.stream()
+                .map(log -> new InterviewAiService.ChatMessageItem(log.getMessageRole(), log.getContent()))
+                .toList();
+
+        String reply = interviewAiService.generateReply(
+                sessionId, history, request.getContent(), 
+                session.getJobRoleCode(), session.getDifficulty());
+
+        interviewMessageService.saveMessage(session, "user", request.getContent());
+        interviewMessageService.saveMessage(session, "assistant", reply);
+
         return SendMessageResponse.builder()
                 .sessionId(sessionId)
                 .replyContent(reply)
@@ -207,6 +218,7 @@ public class InterviewService {
                     sessionId,
                     history,
                     session.getJobRole(),
+                    session.getJobRoleCode(),
                     session.getDifficulty(),
                     session.getInterviewMode()
             );
@@ -455,6 +467,7 @@ public class InterviewService {
                 .sessionId(session.getSessionId())
                 .userId(session.getUserId())
                 .jobRole(session.getJobRole())
+                .jobRoleCode(session.getJobRoleCode())
                 .difficulty(session.getDifficulty())
                 .difficultyDesc(convertDifficultyToDesc(session.getDifficulty()))
                 .interviewMode(session.getInterviewMode())
@@ -532,6 +545,13 @@ public class InterviewService {
     private InterviewSession getSessionByOwnerOrThrow(String sessionId, Long userId) {
         return interviewSessionRepository.findBySessionIdAndUserId(sessionId, userId)
                 .orElseThrow(() -> new BusinessException("会话不存在或无权访问"));
+    }
+
+    /**
+     * 获取用户归属会话（不抛出异常）。
+     */
+    public InterviewSession getSessionByOwner(String sessionId, Long userId) {
+        return interviewSessionRepository.findBySessionIdAndUserId(sessionId, userId).orElse(null);
     }
 
     /**

@@ -27,13 +27,13 @@ public class MockInterviewAiServiceImpl implements InterviewAiService {
     private final Random random = new Random();
 
     @Override
-    public String generateOpening(String jobRole, Integer difficulty) {
+    public String generateOpening(String jobRole, String jobRoleCode, Integer difficulty) {
         log.info("[MOCK] 生成面试开场白, jobRole: {}, difficulty: {}", jobRole, difficulty);
         return mockInterviewService.generateMockOpening(jobRole, difficulty);
     }
 
     @Override
-    public String generateReply(String sessionId, List<ChatMessageItem> history, String userMessage) {
+    public String generateReply(String sessionId, List<ChatMessageItem> history, String userMessage, String jobRoleCode, Integer difficulty) {
         log.info("[MOCK] 生成面试官回复, sessionId: {}, historySize: {}, userMessageLength: {}",
                 sessionId, history == null ? 0 : history.size(),
                 userMessage == null ? 0 : userMessage.length());
@@ -43,7 +43,7 @@ public class MockInterviewAiServiceImpl implements InterviewAiService {
     }
 
     @Override
-    public Publisher<String> generateReplyStream(String sessionId, List<ChatMessageItem> history, String userMessage) {
+    public Publisher<String> generateReplyStream(String sessionId, List<ChatMessageItem> history, String userMessage, String jobRoleCode, Integer difficulty) {
         log.info("[MOCK] 流式生成面试官回复, sessionId: {}, historySize: {}",
                 sessionId, history == null ? 0 : history.size());
 
@@ -81,7 +81,7 @@ public class MockInterviewAiServiceImpl implements InterviewAiService {
                 sessionId, history == null ? 0 : history.size());
         // 内部转调新方法，保持兼容
         InterviewEvaluationReport report = generateEvaluationReport(
-                sessionId, history, "软件工程师", 2, "normal");
+                sessionId, history, "软件工程师", null, 2, "normal");
         try {
             String jsonReport = objectMapper.writeValueAsString(report);
             return new EvaluationResult(report.getOverallScore(), jsonReport);
@@ -110,11 +110,12 @@ public class MockInterviewAiServiceImpl implements InterviewAiService {
             String sessionId,
             List<ChatMessageItem> history,
             String jobRole,
+            String jobRoleCode,
             Integer difficulty,
             String interviewMode
     ) {
-        log.info("[MOCK] 生成结构化面试评价, sessionId: {}, jobRole: {}, difficulty: {}, mode: {}, historySize: {}",
-                sessionId, jobRole, difficulty, interviewMode,
+        log.info("[MOCK] 生成结构化面试评价, sessionId: {}, jobRole: {}, jobRoleCode: {}, difficulty: {}, mode: {}, historySize: {}",
+                sessionId, jobRole, jobRoleCode, difficulty, interviewMode,
                 history == null ? 0 : history.size());
 
         // 生成基础分数（60-85分，Mock 模式下不要太高）

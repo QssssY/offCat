@@ -6,11 +6,11 @@ import org.reactivestreams.Publisher;
 
 public interface InterviewAiService {
 
-    String generateOpening(String jobRole, Integer difficulty);
+    String generateOpening(String jobRole, String jobRoleCode, Integer difficulty);
 
-    String generateReply(String sessionId, List<ChatMessageItem> history, String userMessage);
+    String generateReply(String sessionId, List<ChatMessageItem> history, String userMessage, String jobRoleCode, Integer difficulty);
 
-    Publisher<String> generateReplyStream(String sessionId, List<ChatMessageItem> history, String userMessage);
+    Publisher<String> generateReplyStream(String sessionId, List<ChatMessageItem> history, String userMessage, String jobRoleCode, Integer difficulty);
 
     /**
      * 生成面试评价报告（旧版兼容，返回字符串JSON）
@@ -24,6 +24,7 @@ public interface InterviewAiService {
      * @param sessionId 会话ID
      * @param history 历史消息列表
      * @param jobRole 面试岗位
+     * @param jobRoleCode 岗位编码（可为空，用于加载 prompt）
      * @param difficulty 难度级别
      * @param interviewMode 面试模式
      * @return 结构化评价报告
@@ -32,6 +33,7 @@ public interface InterviewAiService {
             String sessionId,
             List<ChatMessageItem> history,
             String jobRole,
+            String jobRoleCode,
             Integer difficulty,
             String interviewMode
     );

@@ -24,6 +24,24 @@ public class InterviewMessageService {
     private final InterviewMessageRepository interviewMessageRepository;
 
     /**
+     * 保存单条消息
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void saveMessage(InterviewSession session, String messageRole, String content) {
+        InterviewChatLog message = new InterviewChatLog();
+        message.setId(IdWorker.getId());
+        message.setSessionId(session.getSessionId());
+        message.setMessageRole(messageRole);
+        message.setContent(content);
+        message.setCreateTime(LocalDateTime.now());
+        message.setUpdateTime(LocalDateTime.now());
+        message.setIsDeleted(0);
+        interviewMessageRepository.save(message);
+        log.info("消息已保存, sessionId: {}, role: {}, messageId: {}",
+                session.getSessionId(), messageRole, message.getId());
+    }
+
+    /**
      * 处理消息并获取AI回复
      */
     @Transactional(rollbackFor = Exception.class)
