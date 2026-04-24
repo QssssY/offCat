@@ -36,6 +36,10 @@ public class UserQuotaUpdateRequest {
      * 今日已使用简历诊断次数（调整后的值）
      */
     private Integer dailyResumeUsed;
+
+    private Integer interviewQuota;
+
+    private Integer resumeQuota;
     /**
      * 最后刷新日期。
      *

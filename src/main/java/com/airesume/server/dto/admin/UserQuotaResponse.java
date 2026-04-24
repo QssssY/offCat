@@ -52,6 +52,10 @@ public class UserQuotaResponse {
      */
     private Integer dailyResumeUsed;
 
+    private Integer interviewQuota;
+
+    private Integer resumeQuota;
+
     /**
      * 最后刷新日期记录
      */

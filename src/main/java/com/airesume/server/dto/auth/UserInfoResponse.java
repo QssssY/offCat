@@ -21,5 +21,7 @@ public class UserInfoResponse {
     private LocalDateTime vipExpireTime;
     private Integer resumeQuota;
     private Integer interviewQuota;
+    private Integer vipDailyResumeQuota;
+    private Integer vipDailyInterviewQuota;
 
 }

@@ -1,5 +1,6 @@
 package com.airesume.server.service.impl;
 
+import com.airesume.server.common.constants.QuotaConstants;
 import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.ResultCode;
 import com.airesume.server.dto.auth.LoginRequest;
@@ -7,6 +8,7 @@ import com.airesume.server.dto.auth.LoginResponse;
 import com.airesume.server.dto.auth.RegisterRequest;
 import com.airesume.server.dto.auth.UserInfoResponse;
 import com.airesume.server.entity.SysUser;
+import com.airesume.server.entity.UserQuota;
 import com.airesume.server.infrastructure.security.JwtProperties;
 import com.airesume.server.infrastructure.security.JwtUtil;
 import com.airesume.server.service.AuthService;
@@ -128,6 +130,14 @@ public class AuthServiceImpl implements AuthService {
         // 获取用户剩余额度
         int resumeQuota = userQuotaService.getRemainingResumeQuota(userId);
         int interviewQuota = userQuotaService.getRemainingInterviewQuota(userId);
+        UserQuota userQuota = userQuotaService.getByUserId(userId);
+        userQuotaService.refreshDailyQuotaIfNeeded(userId, userQuota);
+        int vipDailyResumeQuota = userQuota == null
+                ? 0
+                : Math.max(0, QuotaConstants.VIP_USER_DAILY_RESUME_LIMIT - safeValue(userQuota.getDailyResumeUsed()));
+        int vipDailyInterviewQuota = userQuota == null
+                ? 0
+                : Math.max(0, QuotaConstants.VIP_USER_DAILY_INTERVIEW_LIMIT - safeValue(userQuota.getDailyInterviewUsed()));
 
         log.debug("User info fetched successfully, userId: {}, username: {}, resumeQuota: {}, interviewQuota: {}",
                 userId, user.getUsername(), resumeQuota, interviewQuota);
@@ -140,7 +150,13 @@ public class AuthServiceImpl implements AuthService {
                 .vipExpireTime(user.getVipExpireTime())
                 .resumeQuota(resumeQuota)
                 .interviewQuota(interviewQuota)
+                .vipDailyResumeQuota(vipDailyResumeQuota)
+                .vipDailyInterviewQuota(vipDailyInterviewQuota)
                 .build();
+    }
+
+    private int safeValue(Integer value) {
+        return value == null ? 0 : value;
     }
 
 }

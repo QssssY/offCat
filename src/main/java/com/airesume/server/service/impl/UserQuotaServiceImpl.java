@@ -50,12 +50,8 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
         quota.setUserId(userId);
         quota.setTotalInterviewUsed(0);
         quota.setTotalResumeUsed(0);
-
-        // Legacy fields from the old "buy package and stack remaining count" model.
-        // The current business rule does not use these columns as the source of truth anymore.
-        quota.setInterviewQuota(0);
-        quota.setResumeQuota(0);
-
+        quota.setInterviewQuota(QuotaConstants.NORMAL_USER_FREE_INTERVIEW_LIMIT);
+        quota.setResumeQuota(QuotaConstants.NORMAL_USER_FREE_RESUME_LIMIT);
         quota.setDailyInterviewUsed(0);
         quota.setDailyResumeUsed(0);
         quota.setLastRefreshDate(LocalDate.now());
@@ -69,12 +65,10 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
         refreshDailyQuotaIfNeeded(userId, userQuota);
 
         if (sysUserService.isVipUser(userId)) {
-            // VIP quota must be based on today's usage, because VIP rules reset every day.
-            return safeValue(userQuota.getDailyInterviewUsed()) < QuotaConstants.VIP_USER_DAILY_INTERVIEW_LIMIT;
+            return getVipDailyInterviewRemaining(userQuota) > 0 || safeValue(userQuota.getInterviewQuota()) > 0;
         }
 
-        // Normal users use a one-time total free quota and do not refresh daily.
-        return safeValue(userQuota.getTotalInterviewUsed()) < QuotaConstants.NORMAL_USER_FREE_INTERVIEW_LIMIT;
+        return safeValue(userQuota.getInterviewQuota()) > 0;
     }
 
     @Override
@@ -83,12 +77,10 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
         refreshDailyQuotaIfNeeded(userId, userQuota);
 
         if (sysUserService.isVipUser(userId)) {
-            // VIP quota must be based on today's usage, because VIP rules reset every day.
-            return safeValue(userQuota.getDailyResumeUsed()) < QuotaConstants.VIP_USER_DAILY_RESUME_LIMIT;
+            return getVipDailyResumeRemaining(userQuota) > 0 || safeValue(userQuota.getResumeQuota()) > 0;
         }
 
-        // Normal users use a one-time total free quota and do not refresh daily.
-        return safeValue(userQuota.getTotalResumeUsed()) < QuotaConstants.NORMAL_USER_FREE_RESUME_LIMIT;
+        return safeValue(userQuota.getResumeQuota()) > 0;
     }
 
     @Override
@@ -98,26 +90,23 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
         refreshDailyQuotaIfNeeded(userId, userQuota);
 
         if (sysUserService.isVipUser(userId)) {
-            // The old logic deducted a stored "remaining total" field.
-            // That does not match the current business rule, because VIP users are limited by
-            // daily_interview_used and the count should refresh on the next day.
-            if (safeValue(userQuota.getDailyInterviewUsed()) >= QuotaConstants.VIP_USER_DAILY_INTERVIEW_LIMIT) {
-                throw new BusinessException("Today's VIP interview quota is exhausted");
+            if (getVipDailyInterviewRemaining(userQuota) > 0) {
+                userQuota.setDailyInterviewUsed(safeValue(userQuota.getDailyInterviewUsed()) + 1);
+            } else if (safeValue(userQuota.getInterviewQuota()) > 0) {
+                userQuota.setInterviewQuota(safeValue(userQuota.getInterviewQuota()) - 1);
+                userQuota.setDailyInterviewUsed(safeValue(userQuota.getDailyInterviewUsed()) + 1);
+            } else {
+                throw new BusinessException("Interview quota is exhausted");
             }
-
-            userQuota.setDailyInterviewUsed(safeValue(userQuota.getDailyInterviewUsed()) + 1);
         } else {
-            if (safeValue(userQuota.getTotalInterviewUsed()) >= QuotaConstants.NORMAL_USER_FREE_INTERVIEW_LIMIT) {
-                throw new BusinessException("Free interview quota is exhausted");
+            if (safeValue(userQuota.getInterviewQuota()) <= 0) {
+                throw new BusinessException("Interview quota is exhausted");
             }
-
-            userQuota.setTotalInterviewUsed(safeValue(userQuota.getTotalInterviewUsed()) + 1);
-
-            // Keep daily usage in sync as operational data.
-            // This also makes same-day upgrade behavior consistent with actual usage.
+            userQuota.setInterviewQuota(safeValue(userQuota.getInterviewQuota()) - 1);
             userQuota.setDailyInterviewUsed(safeValue(userQuota.getDailyInterviewUsed()) + 1);
         }
 
+        userQuota.setTotalInterviewUsed(safeValue(userQuota.getTotalInterviewUsed()) + 1);
         updateById(userQuota);
         log.info("Deducted interview quota for userId: {}", userId);
     }
@@ -129,26 +118,23 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
         refreshDailyQuotaIfNeeded(userId, userQuota);
 
         if (sysUserService.isVipUser(userId)) {
-            // The old logic deducted a stored "remaining total" field.
-            // That does not match the current business rule, because VIP users are limited by
-            // daily_resume_used and the count should refresh on the next day.
-            if (safeValue(userQuota.getDailyResumeUsed()) >= QuotaConstants.VIP_USER_DAILY_RESUME_LIMIT) {
-                throw new BusinessException("Today's VIP resume quota is exhausted");
+            if (getVipDailyResumeRemaining(userQuota) > 0) {
+                userQuota.setDailyResumeUsed(safeValue(userQuota.getDailyResumeUsed()) + 1);
+            } else if (safeValue(userQuota.getResumeQuota()) > 0) {
+                userQuota.setResumeQuota(safeValue(userQuota.getResumeQuota()) - 1);
+                userQuota.setDailyResumeUsed(safeValue(userQuota.getDailyResumeUsed()) + 1);
+            } else {
+                throw new BusinessException("Resume quota is exhausted");
             }
-
-            userQuota.setDailyResumeUsed(safeValue(userQuota.getDailyResumeUsed()) + 1);
         } else {
-            if (safeValue(userQuota.getTotalResumeUsed()) >= QuotaConstants.NORMAL_USER_FREE_RESUME_LIMIT) {
-                throw new BusinessException("Free resume quota is exhausted");
+            if (safeValue(userQuota.getResumeQuota()) <= 0) {
+                throw new BusinessException("Resume quota is exhausted");
             }
-
-            userQuota.setTotalResumeUsed(safeValue(userQuota.getTotalResumeUsed()) + 1);
-
-            // Keep daily usage in sync as operational data.
-            // This also makes same-day upgrade behavior consistent with actual usage.
+            userQuota.setResumeQuota(safeValue(userQuota.getResumeQuota()) - 1);
             userQuota.setDailyResumeUsed(safeValue(userQuota.getDailyResumeUsed()) + 1);
         }
 
+        userQuota.setTotalResumeUsed(safeValue(userQuota.getTotalResumeUsed()) + 1);
         updateById(userQuota);
         log.info("Deducted resume quota for userId: {}", userId);
     }
@@ -175,26 +161,14 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
     public int getRemainingResumeQuota(Long userId) {
         UserQuota userQuota = ensureUserQuota(userId);
         refreshDailyQuotaIfNeeded(userId, userQuota);
-
-        if (sysUserService.isVipUser(userId)) {
-            // VIP remaining quota is "today's remaining count", not a cumulative purchased total.
-            return Math.max(0, QuotaConstants.VIP_USER_DAILY_RESUME_LIMIT - safeValue(userQuota.getDailyResumeUsed()));
-        }
-
-        return Math.max(0, QuotaConstants.NORMAL_USER_FREE_RESUME_LIMIT - safeValue(userQuota.getTotalResumeUsed()));
+        return Math.max(0, safeValue(userQuota.getResumeQuota()));
     }
 
     @Override
     public int getRemainingInterviewQuota(Long userId) {
         UserQuota userQuota = ensureUserQuota(userId);
         refreshDailyQuotaIfNeeded(userId, userQuota);
-
-        if (sysUserService.isVipUser(userId)) {
-            // VIP remaining quota is "today's remaining count", not a cumulative purchased total.
-            return Math.max(0, QuotaConstants.VIP_USER_DAILY_INTERVIEW_LIMIT - safeValue(userQuota.getDailyInterviewUsed()));
-        }
-
-        return Math.max(0, QuotaConstants.NORMAL_USER_FREE_INTERVIEW_LIMIT - safeValue(userQuota.getTotalInterviewUsed()));
+        return Math.max(0, safeValue(userQuota.getInterviewQuota()));
     }
 
     private UserQuota ensureUserQuota(Long userId) {
@@ -213,6 +187,14 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
             throw new BusinessException("User quota record not found");
         }
         return userQuota;
+    }
+
+    private int getVipDailyInterviewRemaining(UserQuota userQuota) {
+        return Math.max(0, QuotaConstants.VIP_USER_DAILY_INTERVIEW_LIMIT - safeValue(userQuota.getDailyInterviewUsed()));
+    }
+
+    private int getVipDailyResumeRemaining(UserQuota userQuota) {
+        return Math.max(0, QuotaConstants.VIP_USER_DAILY_RESUME_LIMIT - safeValue(userQuota.getDailyResumeUsed()));
     }
 
     private int safeValue(Integer value) {

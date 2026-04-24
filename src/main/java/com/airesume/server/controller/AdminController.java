@@ -649,6 +649,8 @@ SysPrompt prompt = new SysPrompt();
                 .totalResumeUsed(quota.getTotalResumeUsed())
                 .dailyInterviewUsed(quota.getDailyInterviewUsed())
                 .dailyResumeUsed(quota.getDailyResumeUsed())
+                .interviewQuota(userQuotaService.getRemainingInterviewQuota(userId))
+                .resumeQuota(userQuotaService.getRemainingResumeQuota(userId))
                 .lastRefreshDate(quota.getLastRefreshDate())
                 .createTime(quota.getCreateTime())
                 .updateTime(quota.getUpdateTime())
@@ -688,6 +690,12 @@ SysPrompt prompt = new SysPrompt();
         }
         if (request.getDailyResumeUsed() != null) {
             quota.setDailyResumeUsed(request.getDailyResumeUsed());
+        }
+        if (request.getInterviewQuota() != null) {
+            quota.setInterviewQuota(Math.max(0, request.getInterviewQuota()));
+        }
+        if (request.getResumeQuota() != null) {
+            quota.setResumeQuota(Math.max(0, request.getResumeQuota()));
         }
         if (request.getLastRefreshDate() != null) {
             // 允许管理员修正日刷新边界，避免手工测试数据导致
