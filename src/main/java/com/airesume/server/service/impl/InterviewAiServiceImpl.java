@@ -763,16 +763,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      * - 评分宁可保守，不要虚高
      */
     private String buildEvaluationSystemPrompt(String jobRole, String jobRoleCode, Integer difficulty, String interviewMode) {
-        SysPrompt dbPrompt = null;
-        if (jobRoleCode != null && !jobRoleCode.isBlank()) {
-            dbPrompt = sysPromptService.getActivePromptByJobRole(
-                    PromptConstants.SCENARIO_INTERVIEW, jobRoleCode, difficulty);
-        }
-        if (dbPrompt != null && dbPrompt.getPromptContent() != null && !dbPrompt.getPromptContent().isBlank()) {
-            log.info("评价 Prompt 使用数据库配置, jobRoleCode: {}, difficulty: {}, promptId: {}",
-                    jobRoleCode, difficulty, dbPrompt.getId());
-            return dbPrompt.getPromptContent();
-        }
         log.debug("评价 Prompt 使用硬编码兜底, jobRole: {}, difficulty: {}", jobRole, difficulty);
         return buildDefaultEvaluationSystemPrompt(jobRole, difficulty, interviewMode);
     }
