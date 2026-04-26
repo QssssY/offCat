@@ -5,6 +5,8 @@ DROP TABLE IF EXISTS `membership_order`;
 DROP TABLE IF EXISTS `membership_plan`;
 DROP TABLE IF EXISTS `interview_chat_log`;
 DROP TABLE IF EXISTS `interview_session`;
+DROP TABLE IF EXISTS `resume_polish_record`;
+DROP TABLE IF EXISTS `resume_job_match_record`;
 DROP TABLE IF EXISTS `resume_diagnosis_task`;
 DROP TABLE IF EXISTS `user_rights_change_log`;
 DROP TABLE IF EXISTS `sys_ai_engine_config`;
@@ -202,6 +204,45 @@ CREATE TABLE `resume_diagnosis_task` (
   INDEX `idx_resume_task_user_status` (`user_id`, `status`),
   CONSTRAINT `fk_resume_task_user_id` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Resume diagnosis task table';
+
+CREATE TABLE `resume_job_match_record` (
+  `id` BIGINT NOT NULL COMMENT 'Primary key',
+  `user_id` BIGINT NOT NULL COMMENT 'User id',
+  `resume_task_id` BIGINT NOT NULL COMMENT 'Resume diagnosis task id',
+  `resume_text` MEDIUMTEXT NOT NULL COMMENT 'Resume text snapshot',
+  `jd_text` MEDIUMTEXT NOT NULL COMMENT 'Job description text snapshot',
+  `match_score` INT NOT NULL DEFAULT 0 COMMENT 'Match score',
+  `analysis_result` JSON NULL COMMENT 'Structured analysis result',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Create time',
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Update time',
+  `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT 'Logical delete flag',
+  PRIMARY KEY (`id`),
+  INDEX `idx_resume_job_match_user_id` (`user_id`),
+  INDEX `idx_resume_job_match_resume_task_id` (`resume_task_id`),
+  INDEX `idx_resume_job_match_create_time` (`create_time`),
+  CONSTRAINT `fk_resume_job_match_user_id` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`),
+  CONSTRAINT `fk_resume_job_match_resume_task_id` FOREIGN KEY (`resume_task_id`) REFERENCES `resume_diagnosis_task` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Resume job match analysis record table';
+
+CREATE TABLE `resume_polish_record` (
+  `id` BIGINT NOT NULL COMMENT 'Primary key',
+  `user_id` BIGINT NOT NULL COMMENT 'User id',
+  `resume_task_id` BIGINT NOT NULL COMMENT 'Resume diagnosis task id',
+  `source_resume_text` MEDIUMTEXT NOT NULL COMMENT 'Source resume text snapshot',
+  `jd_text` MEDIUMTEXT NULL COMMENT 'Job description text snapshot',
+  `polished_resume_text` MEDIUMTEXT NOT NULL COMMENT 'Polished resume text',
+  `modification_notes` JSON NULL COMMENT 'Modification notes',
+  `source_type` VARCHAR(32) NOT NULL COMMENT 'Polish source type',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Create time',
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Update time',
+  `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT 'Logical delete flag',
+  PRIMARY KEY (`id`),
+  INDEX `idx_resume_polish_user_id` (`user_id`),
+  INDEX `idx_resume_polish_resume_task_id` (`resume_task_id`),
+  INDEX `idx_resume_polish_create_time` (`create_time`),
+  CONSTRAINT `fk_resume_polish_user_id` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`),
+  CONSTRAINT `fk_resume_polish_resume_task_id` FOREIGN KEY (`resume_task_id`) REFERENCES `resume_diagnosis_task` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Resume polish record table';
 
 CREATE TABLE `interview_session` (
   `id` BIGINT NOT NULL COMMENT 'Primary key',

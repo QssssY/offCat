@@ -2,10 +2,15 @@ package com.airesume.server.service.impl;
 
 import com.airesume.server.common.constants.AiEngineConstants;
 import com.airesume.server.common.constants.ResumeDiagnosisConstants;
+import com.airesume.server.dto.resume.ResumeJobMatchAnalyzeResponse;
+import com.airesume.server.dto.resume.ResumePolishAiResult;
 import com.airesume.server.entity.SysAiEngineConfig;
 import com.airesume.server.service.ResumeAiService;
 import com.airesume.server.service.SysAiEngineConfigService;
 import com.airesume.server.service.SysPromptService;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -14,8 +19,11 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 简历诊断 AI 服务实现类（真实 AI 模式）
@@ -52,6 +60,19 @@ public class ResumeAiServiceImpl implements ResumeAiService {
     private final String thinkingMode;
     private final RestClient.Builder restClientBuilder;
     private final SysAiEngineConfigService sysAiEngineConfigService;
+    private final ObjectMapper objectMapper;
+    private static final Pattern POLISHED_TEXT_PATTERN = Pattern.compile(
+            "\"polishedResumeText\"\\s*:\\s*\"(.*?)\"\\s*,\\s*\"modificationNotes\"",
+            Pattern.DOTALL
+    );
+    private static final Pattern MODIFICATION_NOTES_PATTERN = Pattern.compile(
+            "\"modificationNotes\"\\s*:\\s*\\[(.*?)]",
+            Pattern.DOTALL
+    );
+    private static final Pattern QUOTED_TEXT_PATTERN = Pattern.compile(
+            "\"((?:\\\\.|[^\"\\\\])*)\"",
+            Pattern.DOTALL
+    );
 
     /**
      * 构造函数，初始化简历诊断 AI 服务
@@ -84,6 +105,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             @Value("${app.ai.thinking-mode:none}") String thinkingMode,
             @Autowired SysPromptService sysPromptService,
             SysAiEngineConfigService sysAiEngineConfigService,
+            ObjectMapper objectMapper,
             RestClient.Builder restClientBuilder) {
         this.provider = provider == null ? "doubao" : provider.toLowerCase();
         this.model = model;
@@ -91,6 +113,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         this.thinkingMode = thinkingMode;
         this.sysPromptService = sysPromptService;
         this.sysAiEngineConfigService = sysAiEngineConfigService;
+        this.objectMapper = objectMapper;
         this.restClientBuilder = restClientBuilder;
 
         // 【重要】优先使用用户配置的 baseUrl，仅当配置为空时才使用默认值
@@ -485,23 +508,33 @@ public class ResumeAiServiceImpl implements ResumeAiService {
      */
     private String getDefaultSystemPrompt() {
         return """
-                你是一个专业的简历诊断分析师，擅长评估简历质量并给出改进建议。
+                你是一位拥有10年大厂招聘经验的资深HRBP，精通互联网大厂技术岗位招聘。
+                你的任务是以大厂HR的严格视角，对简历进行深度诊断和问题暴露。
 
-                你的职责：
-                1. 严格分析用户提供的简历内容
-                2. 按照要求的JSON格式返回结构化诊断结果
-                3. 评分要客观公正，结合简历完整度、表述清晰度、内容量化程度综合评估
+                诊断原则：
+                1. 严苛标准：按大厂P6/P7级技术岗位要求评估，不符合岗位价值的一律指出
+                2. 实话实说：优点要明确说优点，缺点要毫不留情地暴露，不当老好人
+                3. 项目为王：项目经历必须有实际业务价值、技术挑战和可量化成果，空洞描述一律批评
+                4. 量化优先：所有成果必须用数据说话，无法量化的成果要扣分
+                5. 学历宽容：对学历要求放宽，二本/专科有亮点项目可接受，但项目内容必须硬
+
+                评估维度权重：
+                - 基本信息(10%)：联系方式完整即可，不强求GitHub/Blog
+                - 技术技能(15%)：技术栈深度和匹配度，有新技术加分
+                - 工作经历(25%)：业务价值、技术深度、成长性
+                - 项目经历(40%)：核心重点，业务意义、技术难点、量化成果、个人贡献
+                - 教育学历(10%)：可以放宽，但有清晰的教育背景可追溯
 
                 重要规则：
                 - 只返回JSON，不要有任何额外解释、问候语或结尾总结
-                - 不要在JSON外添加任何markdown代码块标记（如 ``` json）
+                - 不要在JSON外添加任何markdown代码块标记
                 - JSON字段必须完整，所有数组和对象都要正确闭合
                 - 如果简历中缺少某项信息，对应字段返回null或空数组，不要编造内容
                 - basicInfoDetails 字段必须从简历原文中提取真实值，提取不到返回空字符串
                 """;
     }
 
-    /**
+/**
      * 构建用户 Prompt
      *
      * @param resumeText 简历文本
@@ -509,10 +542,24 @@ public class ResumeAiServiceImpl implements ResumeAiService {
      */
     private String buildUserPrompt(String resumeText) {
         return """
-                请对以下简历内容进行诊断分析，并返回结构化的评价结果。
+                请对以下简历内容进行严格的HR视角诊断，暴露所有问题和不足。
 
                 简历内容：
                 """ + resumeText + """
+
+                诊断要求：
+                1. 项目经历是核心评审重点，必须严格审视：
+                   - 项目是否有真实业务价值？解决了什么问题？
+                   - 技术挑战在哪里？有什么技术难点？
+                   - 成果如何量化？数据是否可信？
+                   - 个人贡献是什么？是否是核心参与者？
+                   - 如项目描述空洞（如"负责XXX功能开发"）一律扣分
+                2. 工作经历需评估：
+                   - 业务贡献是否具体可量化？
+                   - 技术深度是否足够？
+                   - 是否有成长性？
+                3. 技能评估需检查技术栈匹配度和深度
+                4. 学历可放宽但必须有清晰的Timeline
 
                 请严格按照以下JSON格式返回分析结果，不要添加任何其他内容：
 
@@ -520,7 +567,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                   "overallEvaluation": {
                     "totalScore": 综合分数(0-100整数),
                     "level": "等级，如S/A/B/C/D",
-                    "summary": "一段话的总体评价"
+                    "summary": "一段话的总体评价，必须明确指出不足"
                   },
                   "highlights": ["亮点1", "亮点2", "亮点3"],
                   "basicInfoEvaluation": {
@@ -545,7 +592,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                     "score": 分数(0-100整数),
                     "skillList": ["技能1", "技能2", "技能3"],
                     "strengths": ["技能相关亮点1"],
-                    "weaknesses": ["技能相关不足1"],
+                    "weaknesses": ["技能相关不足1，如：技术栈偏旧、缺少主流技术、深度不足等"],
                     "suggestions": ["技能提升建议1"]
                   },
                   "workExperienceEvaluation": {
@@ -576,15 +623,15 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                         "highlights": ["项目成果1"]
                       }
                     ],
-                    "suggestions": ["项目经历改进建议1"]
+                    "suggestions": ["项目经历改进建议，如：缺乏业务价值、无量化数据、技术挑战不足等"]
                   },
                   "optimizationSuggestions": ["综合优化建议1", "优化建议2", "优化建议3"]
                 }
 
-                【重要提示】basicInfoDetails 字段必须严格从简历原文中提取：
-                - 能提取到真实值则返回真实内容
-                - 提取不到则返回空字符串 ""
-                - 绝对不要编造或猜测任何内容
+                【关键】项目经历的评审重点：
+                - 避免"负责XX功能开发"这种空洞描述
+                - 必须有业务背景、技术难点、个人贡献、量化成果
+                - 如果项目描述无法体现以上任何一点，score要从严给分
                 """;
     }
 
@@ -596,6 +643,106 @@ public class ResumeAiServiceImpl implements ResumeAiService {
      * @param raw AI 原始响应
      * @return 提取后的 JSON 字符串
      */
+    @Override
+    public ResumePolishAiResult polishResume(String resumeText, String jdText, ResumeJobMatchAnalyzeResponse latestJobMatchAnalysis) {
+        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
+        String tag = runtimeConfig.provider().toUpperCase();
+        log.info("[{}] AI 简历润色调用, resumeTextLength: {}, hasJd: {}",
+                tag, resumeText == null ? 0 : resumeText.length(), jdText != null && !jdText.isBlank());
+
+        if (resumeText == null || resumeText.isBlank()) {
+            throw new IllegalArgumentException("简历文本不能为空");
+        }
+
+        String apiKey = runtimeConfig.apiKey();
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new IllegalStateException("请先配置简历 AI 密钥");
+        }
+
+        RequestBody request = new RequestBody();
+        request.model = runtimeConfig.model();
+        request.messages = List.of(
+                new Message("system", buildResumePolishSystemPrompt()),
+                new Message("user", buildResumePolishUserPrompt(resumeText, jdText, latestJobMatchAnalysis))
+        );
+        request.thinking = buildThinkingConfig(runtimeConfig.model(), thinkingMode);
+
+        try {
+            RestClient runtimeRestClient = restClientBuilder
+                    .baseUrl(runtimeConfig.baseUrl())
+                    .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+                    .build();
+
+            ResponseBody response = runtimeRestClient.post()
+                    .uri(runtimeConfig.endpoint())
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                    .body(request)
+                    .retrieve()
+                    .body(ResponseBody.class);
+
+            if (response == null || response.choices == null || response.choices.isEmpty()) {
+                throw new RuntimeException("AI 润色返回内容为空");
+            }
+
+            String result = extractJsonFromResponse(response.choices.get(0).message.content);
+            return parseResumePolishAiResult(result);
+        } catch (Exception e) {
+            log.error("[{}] AI 简历润色失败", tag, e);
+            throw new RuntimeException("AI 简历润色失败: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 润色场景固定输出结构化 JSON，便于结果页稳定展示和回显。
+     */
+    private String buildResumePolishSystemPrompt() {
+        return """
+                你是一名资深求职简历优化顾问。
+                你的任务是基于用户原始简历内容，生成更适合投递的润色版本。
+                必须严格遵守以下要求：
+                1. 只输出 JSON，不要输出 markdown 代码块，不要额外解释。
+                2. 不要编造用户不存在的经历、公司、项目、学历或成果。
+                3. 可以优化表达顺序、结构、措辞和成果呈现方式，但不能虚构事实。
+                4. 如果提供了岗位 JD 或岗位匹配分析结果，要优先强化岗位相关技能、项目关键词和成果表达。
+                5. modificationNotes 必须可解释，说明改了什么以及为什么这样改。
+                返回格式必须为：
+                {
+                  "polishedResumeText": "润色后的完整简历文本",
+                  "modificationNotes": ["说明1", "说明2", "说明3"]
+                }
+                """;
+    }
+
+    /**
+     * 润色场景优先拼接最近一次 JD 对比结果，保证定向润色逻辑尽量复用已完成链路。
+     */
+    private String buildResumePolishUserPrompt(String resumeText, String jdText, ResumeJobMatchAnalyzeResponse latestJobMatchAnalysis) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("请对以下简历进行润色优化。\n");
+        builder.append("【原始简历】\n").append(resumeText).append("\n\n");
+
+        if (jdText != null && !jdText.isBlank()) {
+            builder.append("【目标岗位 JD】\n").append(jdText).append("\n\n");
+        }
+
+        if (latestJobMatchAnalysis != null) {
+            builder.append("【最近一次岗位匹配分析】\n");
+            builder.append("匹配度评分：").append(latestJobMatchAnalysis.getMatchScore()).append("\n");
+            builder.append("已匹配关键词：").append(latestJobMatchAnalysis.getMatchedKeywords()).append("\n");
+            builder.append("缺失关键词：").append(latestJobMatchAnalysis.getMissingKeywords()).append("\n");
+            builder.append("优化建议：").append(latestJobMatchAnalysis.getSuggestions()).append("\n\n");
+        }
+
+        builder.append("""
+                请输出更适合求职投递的版本，并满足以下要求：
+                1. 优先优化摘要、技能和项目表达的清晰度。
+                2. 尽量用“能力/动作/结果”方式重写经历描述。
+                3. 如果提供了 JD，请体现更强的岗位针对性。
+                4. modificationNotes 至少输出 3 条，必须能让用户理解改动原因。
+                """);
+        return builder.toString();
+    }
+
     private String extractJsonFromResponse(String raw) {
         if (raw == null) return raw;
         String trimmed = raw.trim();
@@ -615,6 +762,248 @@ public class ResumeAiServiceImpl implements ResumeAiService {
      * 简历 AI 运行时配置快照。
      * 用于把数据库激活配置和本地兜底配置合并后传入单次请求。
      */
+    /**
+     * 润色结果先按严格 JSON 解析；如果模型输出了弱格式数组或未完全转义的文本，
+     * 则进入最小容错解析，避免整次润色链路直接失败。
+     */
+    private ResumePolishAiResult parseResumePolishAiResult(String rawJson) throws Exception {
+        try {
+            return objectMapper.readValue(rawJson, ResumePolishAiResult.class);
+        } catch (Exception ex) {
+            log.warn("AI 润色结果严格 JSON 解析失败，进入容错解析。rawPreview: {}",
+                    buildRawPreview(rawJson), ex);
+        }
+
+        JsonNode rootNode = tryReadJsonNode(rawJson);
+        if (rootNode != null) {
+            ResumePolishAiResult jsonNodeResult = new ResumePolishAiResult();
+            jsonNodeResult.setPolishedResumeText(readTextNode(rootNode, "polishedResumeText"));
+            jsonNodeResult.setModificationNotes(readTextListNode(rootNode, "modificationNotes"));
+            if (isValidPolishResult(jsonNodeResult)) {
+                return jsonNodeResult;
+            }
+        }
+
+        ResumePolishAiResult regexFallbackResult = new ResumePolishAiResult();
+        regexFallbackResult.setPolishedResumeText(extractPolishedResumeText(rawJson));
+        regexFallbackResult.setModificationNotes(extractModificationNotes(rawJson));
+        if (isValidPolishResult(regexFallbackResult)) {
+            return regexFallbackResult;
+        }
+
+        throw new IllegalStateException("AI 润色结果解析失败，返回内容不是可用的结构化结果");
+    }
+
+    /**
+     * 先尝试按 JsonNode 解析，兼容后续字段扩展或字段顺序变化。
+     */
+    private JsonNode tryReadJsonNode(String rawJson) {
+        try {
+            return objectMapper.readTree(rawJson);
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    /**
+     * 从原始返回中提取润色后的简历正文，允许正文里包含多行文本。
+     */
+    private String extractPolishedResumeText(String rawJson) {
+        Matcher matcher = POLISHED_TEXT_PATTERN.matcher(rawJson);
+        if (!matcher.find()) {
+            return "";
+        }
+        return normalizePolishText(unescapeLooseJsonText(matcher.group(1)));
+    }
+
+    /**
+     * 润色说明优先按标准 JSON 数组读取，失败后降级为逐条弱解析。
+     */
+    private List<String> extractModificationNotes(String rawJson) {
+        Matcher matcher = MODIFICATION_NOTES_PATTERN.matcher(rawJson);
+        if (!matcher.find()) {
+            return List.of();
+        }
+
+        String notesBody = matcher.group(1).trim();
+        if (notesBody.isEmpty()) {
+            return List.of();
+        }
+
+        try {
+            return objectMapper.readValue("[" + notesBody + "]", new TypeReference<List<String>>() {});
+        } catch (Exception ignored) {
+            // 标准数组解析失败时，继续执行弱格式兜底
+        }
+
+        List<String> notes = new ArrayList<>();
+        Matcher quotedTextMatcher = QUOTED_TEXT_PATTERN.matcher(notesBody);
+        while (quotedTextMatcher.find()) {
+            String item = normalizeSingleNote(unescapeLooseJsonText(quotedTextMatcher.group(1)));
+            if (!item.isBlank()) {
+                notes.add(item);
+            }
+        }
+        if (!notes.isEmpty()) {
+            return notes;
+        }
+
+        String normalizedNotesBody = notesBody
+                .replace("\r\n", "\n")
+                .replace('\r', '\n');
+        String[] lines = normalizedNotesBody.split("\n");
+        for (String line : lines) {
+            String item = normalizeSingleNote(line);
+            if (!item.isBlank()) {
+                notes.add(item);
+            }
+        }
+        return notes;
+    }
+
+    /**
+     * 统一还原常见 JSON 转义，保证前端看到的是正常文本。
+     */
+    private String unescapeLooseJsonText(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text
+                .replace("\\r\\n", "\n")
+                .replace("\\n", "\n")
+                .replace("\\t", "\t")
+                .replace("\\\"", "\"")
+                .replace("\\\\", "\\");
+    }
+
+    private String normalizePolishText(String text) {
+        return text == null ? "" : text.trim();
+    }
+
+    /**
+     * 去掉 AI 常见的编号、项目符号和包裹引号，尽量保留用户可读的说明正文。
+     */
+    private String normalizeSingleNote(String note) {
+        if (note == null) {
+            return "";
+        }
+        return note.trim()
+                .replaceFirst("^[\"'\\s]+", "")
+                .replaceFirst("[\"'\\s]+$", "")
+                .replaceFirst("^[0-9]+[.、:：\\-\\s]+", "")
+                .replaceFirst("^[一二三四五六七八九十]+[、:：\\-\\s]+", "")
+                .replaceFirst("^[-*•·\\s]+", "")
+                .trim();
+    }
+
+    private String readTextNode(JsonNode rootNode, String fieldName) {
+        JsonNode fieldNode = rootNode.get(fieldName);
+        if (fieldNode == null || fieldNode.isNull()) {
+            return "";
+        }
+        return normalizePolishText(convertNodeToReadableText(fieldNode));
+    }
+
+    private List<String> readTextListNode(JsonNode rootNode, String fieldName) {
+        JsonNode fieldNode = rootNode.get(fieldName);
+        if (fieldNode == null || fieldNode.isNull()) {
+            return List.of();
+        }
+        if (fieldNode.isArray()) {
+            List<String> values = new ArrayList<>();
+            for (JsonNode itemNode : fieldNode) {
+                String item = normalizeSingleNote(convertNodeToReadableText(itemNode));
+                if (!item.isBlank()) {
+                    values.add(item);
+                }
+            }
+            return values;
+        }
+        String singleValue = normalizeSingleNote(convertNodeToReadableText(fieldNode));
+        return singleValue.isBlank() ? List.of() : List.of(singleValue);
+    }
+
+    /**
+     * AI 有时会把本应为字符串的字段返回成对象或数组，这里统一转成可读文本，
+     * 避免 Jackson 在 DTO 绑定阶段因为类型不一致直接失败。
+     */
+    private String convertNodeToReadableText(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return "";
+        }
+        if (node.isTextual()) {
+            return node.asText("");
+        }
+        if (node.isNumber() || node.isBoolean()) {
+            return node.asText("");
+        }
+        if (node.isArray()) {
+            List<String> parts = new ArrayList<>();
+            for (JsonNode itemNode : node) {
+                String itemText = normalizeSingleNote(convertNodeToReadableText(itemNode));
+                if (!itemText.isBlank()) {
+                    parts.add(itemText);
+                }
+            }
+            return String.join("\n", parts);
+        }
+
+        String preferredText = firstNonBlankField(node,
+                "text", "content", "value", "desc", "description", "note", "summary", "reason");
+        if (!preferredText.isBlank()) {
+            return preferredText;
+        }
+
+        List<String> objectParts = new ArrayList<>();
+        node.fields().forEachRemaining(entry -> {
+            String valueText = normalizeSingleNote(convertNodeToReadableText(entry.getValue()));
+            if (!valueText.isBlank()) {
+                objectParts.add(valueText);
+            }
+        });
+        if (!objectParts.isEmpty()) {
+            return String.join("；", objectParts);
+        }
+
+        return node.toString();
+    }
+
+    /**
+     * 优先读取常见语义字段，减少把整个对象 JSON 原样展示给用户。
+     */
+    private String firstNonBlankField(JsonNode node, String... fieldNames) {
+        for (String fieldName : fieldNames) {
+            JsonNode valueNode = node.get(fieldName);
+            if (valueNode == null || valueNode.isNull()) {
+                continue;
+            }
+            String valueText = normalizeSingleNote(convertNodeToReadableText(valueNode));
+            if (!valueText.isBlank()) {
+                return valueText;
+            }
+        }
+        return "";
+    }
+
+    private boolean isValidPolishResult(ResumePolishAiResult result) {
+        return result != null
+                && result.getPolishedResumeText() != null
+                && !result.getPolishedResumeText().isBlank()
+                && result.getModificationNotes() != null
+                && !result.getModificationNotes().isEmpty();
+    }
+
+    /**
+     * 只截取部分原始返回做日志预览，避免日志里完整打印简历正文。
+     */
+    private String buildRawPreview(String rawJson) {
+        if (rawJson == null || rawJson.isBlank()) {
+            return "";
+        }
+        String preview = rawJson.replace("\r", "\\r").replace("\n", "\\n");
+        return preview.length() > 300 ? preview.substring(0, 300) + "..." : preview;
+    }
+
     private record RuntimeAiConfig(
             String provider,
             String model,

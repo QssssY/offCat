@@ -8,8 +8,7 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 /**
- * 简历诊断任务响应DTO
- * 用于返回任务状态和结果信息
+ * 简历诊断任务响应 DTO。
  */
 @Data
 @Builder
@@ -18,48 +17,62 @@ import java.time.LocalDateTime;
 public class ResumeDiagnosisTaskResponse {
 
     /**
-     * 任务ID
-     * 使用String类型避免JavaScript精度丢失问题
+     * 任务 ID。
      */
     private String taskId;
 
     /**
-     * 用户ID
+     * 用户 ID。
      */
     private Long userId;
 
     /**
-     * PDF简历存储地址
+     * PDF 简历存储地址。
      */
     private String fileUrl;
 
     /**
-     * 任务状态：0-排队中，1-解析分析中，2-完成，3-失败
+     * 任务状态。
      */
     private Integer status;
 
     /**
-     * 任务状态描述
+     * 任务状态描述。
      */
     private String statusDesc;
 
     /**
-     * AI返回的结构化诊断报告（JSON格式）
+     * AI 诊断结果。
      */
     private String diagnosisResult;
 
     /**
-     * 失败时的异常记录
+     * 失败原因。
      */
     private String errorMsg;
 
     /**
-     * 创建时间
+     * 简历原文文本。
+     */
+    private String resumeText;
+
+    /**
+     * 最近一次岗位 JD 对比分析结果。
+     */
+    private ResumeJobMatchAnalyzeResponse latestJobMatchAnalysis;
+
+    /**
+     * 最近一次 AI 简历润色结果。
+     */
+    private ResumePolishAnalyzeResponse latestPolishResult;
+
+    /**
+     * 创建时间。
      */
     private LocalDateTime createTime;
 
     /**
-     * 更新时间
+     * 更新时间。
      */
     private LocalDateTime updateTime;
 }

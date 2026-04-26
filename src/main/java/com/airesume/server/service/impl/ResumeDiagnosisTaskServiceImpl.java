@@ -8,7 +8,10 @@ import com.airesume.server.dto.resume.ResumeDiagnosisTaskResponse;
 import com.airesume.server.entity.ResumeDiagnosisTask;
 import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
 import com.airesume.server.mq.ResumeDiagnosisProducer;
+import com.airesume.server.service.PdfTextExtractor;
 import com.airesume.server.service.ResumeDiagnosisTaskService;
+import com.airesume.server.service.ResumeJobMatchService;
+import com.airesume.server.service.ResumePolishService;
 import com.airesume.server.service.UserQuotaService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -33,6 +36,9 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
 
     private final UserQuotaService userQuotaService;
     private final ResumeDiagnosisProducer resumeDiagnosisProducer;
+    private final PdfTextExtractor pdfTextExtractor;
+    private final ResumeJobMatchService resumeJobMatchService;
+    private final ResumePolishService resumePolishService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -220,6 +226,16 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
      * @return 任务详情响应
      */
     private ResumeDiagnosisTaskResponse buildTaskResponse(ResumeDiagnosisTask task) {
+        String resumeText = null;
+        if (task.getFileUrl() != null && !task.getFileUrl().isBlank()) {
+            try {
+                // 为 JD 对比功能提供简历原文，避免改动现有上传与诊断主链路。
+                resumeText = pdfTextExtractor.extractText(task.getFileUrl());
+            } catch (Exception e) {
+                log.warn("Extract resume text failed when building task response, taskId: {}", task.getId(), e);
+            }
+        }
+
         return ResumeDiagnosisTaskResponse.builder()
                 .taskId(String.valueOf(task.getId()))
                 .userId(task.getUserId())
@@ -228,6 +244,9 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
                 .statusDesc(getStatusDescription(task.getStatus()))
                 .diagnosisResult(task.getDiagnosisResult())
                 .errorMsg(task.getErrorMsg())
+                .resumeText(resumeText)
+                .latestJobMatchAnalysis(resumeJobMatchService.getLatestAnalysis(task.getUserId(), task.getId()))
+                .latestPolishResult(resumePolishService.getLatestPolishResult(task.getUserId(), task.getId()))
                 .createTime(task.getCreateTime())
                 .updateTime(task.getUpdateTime())
                 .build();

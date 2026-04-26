@@ -4,19 +4,28 @@ import com.airesume.server.common.result.PageResult;
 import com.airesume.server.common.result.Result;
 import com.airesume.server.dto.resume.ResumeDiagnosisHistoryResponse;
 import com.airesume.server.dto.resume.ResumeDiagnosisTaskResponse;
+import com.airesume.server.dto.resume.ResumeJobMatchAnalyzeRequest;
+import com.airesume.server.dto.resume.ResumeJobMatchAnalyzeResponse;
+import com.airesume.server.dto.resume.ResumePolishAnalyzeRequest;
+import com.airesume.server.dto.resume.ResumePolishAnalyzeResponse;
 import com.airesume.server.service.ResumeDiagnosisTaskService;
+import com.airesume.server.service.ResumeJobMatchService;
+import com.airesume.server.service.ResumePolishService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.util.List;
-
 /**
- * 简历诊断控制器
- * 提供简历上传、任务查询、历史记录等接口
+ * 简历诊断控制器。
  */
 @Slf4j
 @RestController
@@ -25,17 +34,15 @@ import java.util.List;
 public class ResumeDiagnosisController {
 
     private final ResumeDiagnosisTaskService resumeDiagnosisTaskService;
+    private final ResumeJobMatchService resumeJobMatchService;
+    private final ResumePolishService resumePolishService;
 
     /**
-     * 上传简历文件并创建诊断任务
-     *
-     * @param file 简历PDF文件
-     * @param authentication Spring Security 认证对象
-     * @return 任务ID
+     * 上传简历文件并创建诊断任务。
      */
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Result<String> uploadResume(@RequestParam("file") MultipartFile file,
-                                      Authentication authentication) {
+                                       Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         log.info("Upload resume request, userId: {}, fileName: {}, fileSize: {}",
                 userId, file.getOriginalFilename(), file.getSize());
@@ -45,15 +52,11 @@ public class ResumeDiagnosisController {
     }
 
     /**
-     * 查询任务详情
-     *
-     * @param taskId 任务ID
-     * @param authentication Spring Security 认证对象
-     * @return 任务详情
+     * 查询任务详情。
      */
     @GetMapping("/task/{taskId}")
     public Result<ResumeDiagnosisTaskResponse> getTaskDetail(@PathVariable Long taskId,
-                                                                Authentication authentication) {
+                                                             Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         log.info("Get task detail request, taskId: {}, userId: {}", taskId, userId);
 
@@ -62,12 +65,7 @@ public class ResumeDiagnosisController {
     }
 
     /**
-     * 查询当前用户的简历诊断历史记录（分页）
-     *
-     * @param pageNum 页码，默认1
-     * @param pageSize 每页大小，默认10
-     * @param authentication Spring Security 认证对象
-     * @return 分页历史记录
+     * 查询当前用户的简历诊断历史记录。
      */
     @GetMapping("/history")
     public Result<PageResult<ResumeDiagnosisHistoryResponse>> getHistory(
@@ -77,7 +75,36 @@ public class ResumeDiagnosisController {
         Long userId = (Long) authentication.getPrincipal();
         log.info("Get history request, userId: {}, pageNum: {}, pageSize: {}", userId, pageNum, pageSize);
 
-        PageResult<ResumeDiagnosisHistoryResponse> history = resumeDiagnosisTaskService.getHistoryByUserId(userId, pageNum, pageSize);
+        PageResult<ResumeDiagnosisHistoryResponse> history =
+                resumeDiagnosisTaskService.getHistoryByUserId(userId, pageNum, pageSize);
         return Result.success(history);
+    }
+
+    /**
+     * 执行岗位 JD 对比分析。
+     */
+    @PostMapping("/job-match/analyze")
+    public Result<ResumeJobMatchAnalyzeResponse> analyzeJobMatch(
+            @RequestBody ResumeJobMatchAnalyzeRequest request,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("Analyze job match request, userId: {}, resumeTaskId: {}", userId, request.getResumeTaskId());
+
+        ResumeJobMatchAnalyzeResponse response = resumeJobMatchService.analyzeJobMatch(userId, request);
+        return Result.success("岗位 JD 对比分析完成", response);
+    }
+
+    /**
+     * 执行 AI 简历润色。
+     */
+    @PostMapping("/polish/analyze")
+    public Result<ResumePolishAnalyzeResponse> analyzeResumePolish(
+            @RequestBody ResumePolishAnalyzeRequest request,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("Analyze resume polish request, userId: {}, resumeTaskId: {}", userId, request.getResumeTaskId());
+
+        ResumePolishAnalyzeResponse response = resumePolishService.analyzeResumePolish(userId, request);
+        return Result.success("AI 简历润色完成", response);
     }
 }

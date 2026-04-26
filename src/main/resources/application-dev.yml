@@ -114,22 +114,22 @@ app:
     # AI 模式：mock / real
     # mock: 使用 MockDiagnosisResultGenerator 生成模拟数据
     # real: 调用 ResumeAiServiceImpl 真实 API
-    mode: mock
+    mode: real
 
     # AI 提供商：doubao / qwen / ernie / deepseek / minimax
-    provider: doubao
+    provider: deepseek
 
     # API 基础地址
     # 豆包（火山引擎）：https://ark.cn-beijing.volces.com/api/v3
     # 留空时会根据 provider 自动选择默认地址
-    base-url: https://ark.cn-beijing.volces.com/api/coding/v3
+    base-url: https://api.siliconflow.cn/v1
 
     # 模型名称
     # 豆包可选模型：
     #   - doubao-pro-32k（推荐，32K 上下文）
     #   - Doubao-Seed-2.0-pro（新版模型）
     #   - doubao-lite-32k（轻量版）
-    model: Doubao-Seed-2.0-pro
+    model: deepseek-ai/DeepSeek-V3
 
     # 思考模式配置：
     # - enabled: 显式开启思考模式；仅模型支持时传 thinking.type=enabled
@@ -165,4 +165,4 @@ app:
     #   适用场景：需要快速响应的简单任务，如日常对话、文本摘要等
     # - none: 不传 thinking 参数，使用模型默认行为
     #   适用场景：模型不支持 thinking 参数，或不需要显式控制思考模式
-    thinking-mode: disabled
+    thinking-mode: none

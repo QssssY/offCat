@@ -1260,34 +1260,71 @@ public class InterviewAiServiceImpl implements InterviewAiService {
 
     /**
      * 硬编码的默认系统提示词（兜底）
+     * 按大厂面试官视角，根据岗位类型灵活提问
      */
     private String buildDefaultSystemPrompt(String jobRole, Integer difficulty) {
         String difficultyDesc = switch (difficulty == null ? 2 : difficulty) {
-            case 1 -> "初级（1-3年经验）";
-            case 3 -> "高级（5年以上经验）";
-            default -> "中级（3-5年经验）";
+            case 1 -> "初级";
+            case 3 -> "高级";
+            default -> "中级";
         };
 
+        // 根据岗位类型调整提问重点
+        boolean isTechnicalRole = isTechnicalJobRole(jobRole);
+
         return """
-                你是一位专业、友好、经验丰富的面试官，正在对候选人进行模拟面试。
+                你是一位大厂面试官，正在对候选人进行模拟面试。
 
                 角色设定：
-                - 你是一名专业的技术面试官，擅长考察候选人的技术能力、项目经验和问题解决能力
+                - 你有10年大厂招聘经验，精通各岗位招聘
                 - 面试岗位：%s
-                - 难度级别：%s
-                - 你会逐步提出有针对性的问题，并根据候选人的回答进行深入追问
+                - 难度级别：%s（根据候选人背景调整问题深度）
+
+                岗位类型判断：
+                - 技术岗（开发/测试/运维/算法等）：重点考察技术能力、解决问题思路、业务理解
+                - 非技术岗（产品/运营/销售/老师/HR等）：重点考察岗位核心能力、沟通表达、行业理解
+
+                提问规则（必须严格遵守）：
+                1. 紧扣%s岗位核心能力：
+                   - 技术岗：只问该岗位必须掌握的技术、工具、思维方式
+                   - 非技术岗：问该岗位的核心技能、工作方法、沟通协调能力
+                2. 难度递进：
+                   - 初级：基础概念、工作流程、简单任务处理
+                   - 中级：独立负责项目、跨部门协作、复杂问题解决
+                   - 高级：团队管理、业务规划、战略决策
+                3. 业务关联：问题要与实际业务场景结合，不要问脱离业务的纯理论或空想
+                4. 深度追问：根据候选人回答深入挖掘细节
+                5. 避免跳脱：不要问与本岗位完全无关的内容
+
+                技术岗判断规则：
+                - 含"开发"、"工程师"、"测试"、"运维"、"算法"、"技术"、"前端"、"后端"、"全栈"等关键词为技术岗
+                - 含"产品"、"运营"、"销售"、"老师"、"教师"、" HR"、"人力"等为非技术岗
+                - 不确定时优先按非技术岗提问，可简要提及数据分析等通用技能
 
                 沟通要求：
-                - 使用简洁、专业的语言
-                - 每次回复控制在100字以内，聚焦在一个问题上
-                - 不要一次性问太多问题
-                - 如果候选人的回答很好，可以适当给予肯定并继续追问
-                - 如果回答不够清晰，要温和但专业地要求对方进一步解释
+                - 简洁专业，每次只问1-2个问题
+                - 先确认基础，再深入了解业务价值，最后评估发展潜力
+                - 如实告知候选人回答的好坏，不做无谓鼓励
+                - 回答优秀时可以追问"能详细说说吗"或"有什么具体案例吗"
 
                 当前面试模式：
-                - 用户说一句话，你回复一句（单轮对话模式）
-                - 不要做开场白，直接开始提问第一个问题
-                """.formatted(jobRole, difficultyDesc);
+                - 用户说一句，你回复一句
+                - 直接开始提问第一个问题
+                """.formatted(jobRole, difficultyDesc, isTechnicalRole ? "该" : "该岗位的");
+    }
+
+    /**
+     * 判断是否为技术岗位
+     */
+    private boolean isTechnicalJobRole(String jobRole) {
+        if (jobRole == null) return false;
+        String lower = jobRole.toLowerCase();
+        // 技术岗关键词
+        return lower.contains("开发") || lower.contains("工程师") || lower.contains("测试") ||
+               lower.contains("运维") || lower.contains("算法") || lower.contains("技术") ||
+               lower.contains("前端") || lower.contains("后端") || lower.contains("全栈") ||
+               lower.contains("java") || lower.contains("python") || lower.contains("go") ||
+               lower.contains("数据") || lower.contains("安全") || lower.contains("运维");
     }
 
     /**
@@ -1298,8 +1335,30 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      * @return 用户提示词
      */
     private String buildOpeningUserPrompt(String jobRole, Integer difficulty) {
-        return "请开始面试，岗位是" + jobRole + "，难度级别为" +
-                (difficulty == null ? 2 : difficulty) + "。请先做一个简短的自我介绍，然后提出第一个技术问题。";
+        String diffText = switch (difficulty == null ? 2 : difficulty) {
+            case 1 -> "初级";
+            case 3 -> "高级";
+            default -> "中级";
+        };
+        boolean isTech = isTechnicalJobRole(jobRole);
+        String skillFocus = isTech ? "技术能力和业务理解" : "岗位核心能力和沟通协调";
+
+        return """
+                请开始模拟面试。
+                岗位：%s
+                难度：%s
+
+                请按以下流程进行：
+                1. 简短确认候选人的背景（工作年限、主要经验）
+                2. 从该岗位%s级别的核心%s开始提问
+                3. 根据候选人回答递进深入
+
+                注意事项：
+                - 刚开始可以问"请简单介绍一下你的工作经历"或"请介绍一下你的主要经验"
+                - 然后切入%s岗位的核心技能问题
+                - 问题要贴合实际业务场景
+                - 技术岗深入问技术实现，非技术岗深入问工作方法和成果
+                """.formatted(jobRole, diffText, diffText, skillFocus, jobRole);
     }
 
 /**
