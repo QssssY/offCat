@@ -257,22 +257,59 @@
     <el-dialog
       v-model="nicknameDialogVisible"
       title="修改昵称"
-      width="400px"
+      width="440px"
       :close-on-click-modal="false"
+      class="nickname-dialog"
+      :show-close="true"
+      :append-to-body="true"
     >
-      <el-form label-width="80px">
-        <el-form-item label="新昵称">
+      <div class="nickname-modal-content">
+        <div class="nickname-icon-wrapper">
+          <svg class="nickname-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+            <circle cx="12" cy="7" r="4"/>
+          </svg>
+        </div>
+        <div class="nickname-header">
+          <h3 class="nickname-title">设置你的专属昵称</h3>
+          <p class="nickname-desc">昵称将用于个人中心、会员中心等展示</p>
+        </div>
+        <div class="nickname-current">
+          <span class="current-label">当前昵称</span>
+          <span class="current-value">{{ userStore.userInfo?.nickname || userStore.userInfo?.username || '未设置' }}</span>
+        </div>
+        <div class="nickname-input-wrapper">
           <el-input
             v-model="nicknameForm.nickname"
-            placeholder="请输入新昵称(2-12个字符)"
+            placeholder="请输入新昵称"
             maxlength="12"
             show-word-limit
-          />
-        </el-form-item>
-      </el-form>
+            clearable
+            size="large"
+            class="nickname-input"
+          >
+            <template #prefix>
+              <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M17 3a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2 2 2 0 0 1 2 2v2a2 2 0 0 1-2 2 2 2 0 0 1-2-2 2 2 0 0 1-2-2V7a2 2 0 0 1 2-2 2 2 0 0 1-2-2V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v2a2 2 0 0 1-2 2 2 2 0 0 1 2 2v2a2 2 0 0 1-2 2 2 2 0 0 1-2-2 2 2 0 0 1-2-2V7a2 2 0 0 1 2-2 2 2 0 0 1 2 2v2a2 2 0 0 1-2 2"/>
+              </svg>
+            </template>
+          </el-input>
+          <div class="input-tips">2-12个字符，可使用中文、字母、数字</div>
+        </div>
+      </div>
       <template #footer>
-        <el-button @click="nicknameDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveNickname">保存</el-button>
+        <div class="dialog-footer">
+          <el-button size="large" @click="nicknameDialogVisible = false">取消</el-button>
+          <el-button
+            size="large"
+            type="primary"
+            @click="saveNickname"
+            :disabled="!nicknameForm.nickname || nicknameForm.nickname.trim().length < 2"
+            class="save-btn"
+          >
+            保存修改
+          </el-button>
+        </div>
       </template>
     </el-dialog>
   </header>
@@ -291,7 +328,13 @@ const route = useRoute();
 const userStore = useUserStore();
 
 const drawerVisible = ref(false);
+/**
+ * 修改昵称弹窗显示状态
+ */
 const nicknameDialogVisible = ref(false);
+/**
+ * 昵称表单数据
+ */
 const nicknameForm = ref({ nickname: "" });
 const isLoggedIn = computed(() => userStore.isLoggedIn());
 const username = computed(() => userStore.userInfo?.nickname || userStore.userInfo?.username || "用户");
@@ -365,6 +408,7 @@ const handleCommand = (command) => {
   } else if (command === "membership") {
     router.push("/membership");
   } else if (command === "nickname") {
+    // 打开弹窗时填充当前昵称
     nicknameForm.value.nickname = userStore.userInfo?.nickname || "";
     nicknameDialogVisible.value = true;
 } else if (command === "logout") {
@@ -379,13 +423,20 @@ const handleCommand = (command) => {
   }
 };
 
+/**
+ * 保存修改后的昵称
+ * 1. 校验昵称长度（2-12字符）
+ * 2. 调用后端接口更新昵称
+ * 3. 成功后刷新用户信息
+ */
 const saveNickname = async () => {
-  if (!nicknameForm.value.nickname || nicknameForm.value.nickname.trim().length < 2) {
-    ElMessage.warning("昵称长度至少2个字符");
+  const trimmed = nicknameForm.value.nickname?.trim() || "";
+  if (trimmed.length < 2 || trimmed.length > 12) {
+    ElMessage.warning("昵称长度需为2-12个字符");
     return;
   }
   try {
-    await updateNickname({ nickname: nicknameForm.value.nickname.trim() });
+    await updateNickname({ nickname: trimmed });
     ElMessage.success("昵称修改成功");
     nicknameDialogVisible.value = false;
     userStore.fetchUserInfo();
@@ -580,5 +631,262 @@ const saveNickname = async () => {
     overflow: hidden;
     text-overflow: ellipsis;
   }
+}
+
+/* 修改昵称弹窗样式 - 全新美学设计 */
+.nickname-dialog :deep(.el-dialog) {
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.nickname-dialog :deep(.el-dialog__header) {
+  padding: 0;
+  border-bottom: none;
+}
+
+.nickname-dialog :deep(.el-dialog__headerbtn) {
+  top: 16px;
+  right: 16px;
+  z-index: 10;
+}
+
+.nickname-dialog :deep(.el-dialog__headerbtn .el-dialog__close) {
+  color: #999;
+  transition: all 0.2s;
+}
+
+.nickname-dialog :deep(.el-dialog__headerbtn .el-dialog__close:hover) {
+  color: #333;
+  transform: rotate(90deg);
+}
+
+.nickname-dialog :deep(.el-dialog__body) {
+  padding: 0;
+}
+
+.nickname-dialog :deep(.el-dialog__footer) {
+  padding: 0 24px 24px;
+  border-top: none;
+}
+
+/* 弹窗主体内容 */
+.nickname-modal-content {
+  padding: 32px 24px 16px;
+  text-align: center;
+}
+
+/* 图标包装 */
+.nickname-icon-wrapper {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 20px;
+  background: linear-gradient(135deg, #fff8f3 0%, #ffecd9 100%);
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: icon-pulse 2s ease-in-out infinite;
+}
+
+@keyframes icon-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+.nickname-icon {
+  width: 32px;
+  height: 32px;
+  color: #ff8c42;
+}
+
+/* 标题区域 */
+.nickname-header {
+  margin-bottom: 24px;
+}
+
+.nickname-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin: 0 0 8px;
+  letter-spacing: -0.02em;
+}
+
+.nickname-desc {
+  font-size: 14px;
+  color: #888;
+  margin: 0;
+}
+
+/* 当前昵称展示 */
+.nickname-current {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, #fafafa 0%, #f5f5f5 100%);
+  border-radius: 12px;
+  margin-bottom: 20px;
+}
+
+.current-label {
+  font-size: 13px;
+  color: #999;
+  font-weight: 500;
+}
+
+.current-value {
+  font-size: 15px;
+  font-weight: 600;
+  color: #ff8c42;
+}
+
+/* 输入框包装 */
+.nickname-input-wrapper {
+  text-align: left;
+}
+
+.nickname-input :deep(.el-input__wrapper) {
+  border-radius: 12px;
+  padding: 4px 16px;
+  box-shadow: none;
+  border: 2px solid #f0f0f0;
+  transition: all 0.25s ease;
+}
+
+.nickname-input :deep(.el-input__wrapper):hover {
+  border-color: #e0e0e0;
+}
+
+.nickname-input :deep(.el-input__wrapper.is-focus) {
+  border-color: #ff8c42;
+  box-shadow: 0 0 0 3px rgba(255, 140, 66, 0.15);
+}
+
+.nickname-input :deep(.el-input__inner) {
+  font-size: 15px;
+  color: #333;
+}
+
+.nickname-input :deep(.el-input__inner::placeholder) {
+  color: #bbb;
+}
+
+.nickname-input :deep(.el-input__prefix) {
+  left: 12px;
+}
+
+.input-icon {
+  width: 18px;
+  height: 18px;
+  color: #ccc;
+}
+
+.input-tips {
+  font-size: 12px;
+  color: #aaa;
+  margin-top: 8px;
+  text-align: center;
+}
+
+/* 底部按钮 */
+.dialog-footer {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.dialog-footer .el-button {
+  padding: 12px 32px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.dialog-footer .el-button:not(.el-button--primary) {
+  background: #f5f5f5;
+  border: none;
+  color: #666;
+}
+
+.dialog-footer .el-button:not(.el-button--primary):hover {
+  background: #e8e8e8;
+  color: #333;
+}
+
+.dialog-footer .el-button--primary {
+  background: linear-gradient(135deg, #ff8c42 0%, #ff6b2b 100%);
+  border: none;
+  box-shadow: 0 4px 12px rgba(255, 140, 66, 0.3);
+}
+
+.dialog-footer .el-button--primary:hover {
+  background: linear-gradient(135deg, #ff7a2e 0%, #e55a1f 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(255, 140, 66, 0.4);
+}
+
+.dialog-footer .el-button--primary:active {
+  transform: translateY(0);
+}
+
+.dialog-footer .el-button--primary:disabled {
+  background: #ccc;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+/* 响应式 */
+@media (max-width: 480px) {
+  .nickname-dialog :deep(.el-dialog) {
+    width: 90% !important;
+    max-width: 360px;
+  }
+
+  .nickname-modal-content {
+    padding: 24px 16px 12px;
+  }
+
+  .nickname-icon-wrapper {
+    width: 56px;
+    height: 56px;
+  }
+
+  .nickname-title {
+    font-size: 18px;
+  }
+
+  .dialog-footer .el-button {
+    padding: 10px 24px;
+    flex: 1;
+  }
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.dialog-footer .el-button {
+  padding: 10px 24px;
+  border-radius: 8px;
+}
+
+.dialog-footer .el-button--primary {
+  background: #ff8c42;
+  border-color: #ff8c42;
+}
+
+.dialog-footer .el-button--primary:hover {
+  background: #ff7a2e;
+  border-color: #ff7a2e;
+}
+
+.dialog-footer .el-button--primary:disabled {
+  background: #c8c9cc;
+  border-color: #c8c9cc;
 }
 </style>

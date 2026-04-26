@@ -7,7 +7,7 @@
       <div class="admin-user-info">
         <el-icon><User /></el-icon>
         <span class="admin-user-name">
-          {{ adminStore.adminInfo?.username || "管理员" }}
+          {{ adminStore.adminInfo?.nickname || adminStore.adminInfo?.username || "管理员" }}
         </span>
       </div>
       <el-button text type="danger" @click="handleLogout" class="logout-btn">
