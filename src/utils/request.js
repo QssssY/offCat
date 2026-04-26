@@ -8,10 +8,9 @@ const request = axios.create({
   timeout: 30000
 })
 
-// 请求拦截器
+// 请求拦截器：自动注入登录态 token
 request.interceptors.request.use(
   (config) => {
-    // 自动注入 token
     if (isLoggedIn()) {
       const token = getToken()
       const tokenType = getTokenType()
@@ -25,32 +24,41 @@ request.interceptors.request.use(
   }
 )
 
-// 响应拦截器
+// 响应拦截器：统一处理业务码与网络异常
 request.interceptors.response.use(
   (response) => {
     const res = response.data
     if (res.code === 200) {
       return res
-    } else {
-      ElMessage.error(res.message || '请求失败')
+    }
+
+    // 某些长耗时接口会在页面内自行处理异常，此处允许跳过默认弹窗
+    if (response.config?.skipDefaultErrorHandler) {
       return Promise.reject(new Error(res.message || '请求失败'))
     }
+
+    ElMessage.error(res.message || '请求失败')
+    return Promise.reject(new Error(res.message || '请求失败'))
   },
   (error) => {
+    // 允许单个请求自行兜底处理超时、重试和状态回查
+    if (error.config?.skipDefaultErrorHandler) {
+      return Promise.reject(error)
+    }
+
     if (error.response) {
       const { status, data } = error.response
       switch (status) {
-        case 401:
-          // 未授权，清除 token 并跳转登录页
+        case 401: {
           removeToken()
           ElMessage.error('登录已过期，请重新登录')
-          // 保存当前路径，登录后返回
           const currentPath = router.currentRoute.value.fullPath
           router.push({
             path: '/login',
             query: { redirect: currentPath }
           })
           break
+        }
         case 403:
           ElMessage.error('无权限访问')
           break
@@ -68,6 +76,7 @@ request.interceptors.response.use(
     } else {
       ElMessage.error('请求失败')
     }
+
     return Promise.reject(error)
   }
 )

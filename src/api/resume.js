@@ -48,6 +48,34 @@ export function getResumeHistory(params = { pageNum: 1, pageSize: 10 }) {
 }
 
 /**
+ * 执行岗位 JD 对比分析
+ * @param {{resumeTaskId: string|number, resumeText: string, jdText: string}} data - 分析请求参数
+ * @returns {Promise}
+ */
+export function analyzeResumeJobMatch(data) {
+  return request({
+    url: '/api/resume/job-match/analyze',
+    method: 'post',
+    data
+  })
+}
+
+/**
+ * 执行 AI 简历润色
+ * @param {{resumeTaskId: string|number, resumeText: string, jdText?: string}} data - 润色请求参数
+ * @returns {Promise}
+ */
+export function analyzeResumePolish(data) {
+  return request({
+    url: '/api/resume/polish/analyze',
+    method: 'post',
+    data,
+    timeout: 180000,
+    skipDefaultErrorHandler: true
+  })
+}
+
+/**
  * 从文件URL中提取文件名
  * @param {string} fileUrl - 文件URL
  * @returns {string} 文件名

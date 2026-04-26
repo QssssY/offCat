@@ -356,6 +356,147 @@
       </div>
 
       <!-- 底部操作区 -->
+      <div v-if="isCompleted" class="section-card job-match-card">
+        <div class="section-header">
+          <div class="section-icon overall">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M3 3v18h18" />
+              <path d="M7 14l3-3 3 2 4-5" />
+            </svg>
+          </div>
+          <h3 class="section-title">岗位匹配分析</h3>
+        </div>
+        <div class="section-body">
+          <div class="job-match-intro">
+            <p class="job-match-desc">输入目标岗位 JD，查看当前简历与岗位要求的匹配度、缺口与优化方向。</p>
+            <el-button type="primary" plain class="job-match-entry-btn" @click="toggleJobMatchPanel">
+              {{ jobMatchVisible ? '收起岗位匹配分析' : '岗位匹配分析' }}
+            </el-button>
+          </div>
+
+          <div v-if="jobMatchVisible" class="job-match-panel">
+            <el-input
+              v-model="jobDescriptionText"
+              type="textarea"
+              :rows="8"
+              resize="vertical"
+              maxlength="5000"
+              show-word-limit
+              placeholder="请粘贴岗位 JD 文本，本轮仅支持手动输入。"
+            />
+
+            <div class="job-match-actions">
+              <el-button type="primary" :loading="jobMatchLoading" @click="submitJobMatchAnalysis">
+                {{ jobMatchLoading ? '分析中...' : '开始分析' }}
+              </el-button>
+              <el-button :loading="polishLoading" @click="triggerAiPolishPlaceholder">
+                {{ polishLoading ? '润色中...' : '去 AI 润色' }}
+              </el-button>
+            </div>
+
+            <div v-if="jobMatchResult" class="job-match-result">
+              <div class="job-match-score-card">
+                <div class="job-match-score-label">匹配度评分</div>
+                <div class="job-match-score-value">{{ jobMatchResult.matchScore ?? 0 }}</div>
+              </div>
+
+              <div class="job-match-result-grid">
+                <div class="job-match-result-block">
+                  <div class="job-match-block-title">已匹配关键词</div>
+                  <div v-if="jobMatchResult.matchedKeywords?.length" class="job-match-tag-list">
+                    <span
+                      v-for="keyword in jobMatchResult.matchedKeywords"
+                      :key="`matched-${keyword}`"
+                      class="job-match-tag matched"
+                    >
+                      {{ keyword }}
+                    </span>
+                  </div>
+                  <div v-else class="job-match-empty">暂无已匹配关键词</div>
+                </div>
+
+                <div class="job-match-result-block">
+                  <div class="job-match-block-title">缺失关键词或缺失能力项</div>
+                  <div v-if="jobMatchResult.missingKeywords?.length" class="job-match-tag-list">
+                    <span
+                      v-for="keyword in jobMatchResult.missingKeywords"
+                      :key="`missing-${keyword}`"
+                      class="job-match-tag missing"
+                    >
+                      {{ keyword }}
+                    </span>
+                  </div>
+                  <div v-else class="job-match-empty">当前未识别到明显缺口</div>
+                </div>
+              </div>
+
+              <div class="job-match-suggestions">
+                <div class="job-match-block-title">优化建议</div>
+                <div v-if="jobMatchResult.suggestions?.length" class="suggestions-list">
+                  <div
+                    v-for="(item, idx) in jobMatchResult.suggestions"
+                    :key="`job-suggestion-${idx}`"
+                    class="suggestion-item"
+                  >
+                    <span class="suggestion-index">{{ idx + 1 }}</span>
+                    <span class="suggestion-text">{{ item }}</span>
+                  </div>
+                </div>
+                <div v-else class="job-match-empty">暂无优化建议</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="isCompleted" ref="polishSectionRef" class="section-card polish-card">
+        <div class="section-header">
+          <div class="section-icon optimization">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 20h9" />
+              <path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4z" />
+            </svg>
+          </div>
+          <h3 class="section-title">AI 简历润色</h3>
+        </div>
+        <div class="section-body">
+          <div v-if="polishResult" class="polish-result">
+            <div class="polish-meta">
+              <el-tag type="success">{{ polishResult.sourceType || '仅基于简历' }}</el-tag>
+              <span class="polish-time" v-if="polishResult.createTime">
+                {{ formatTime(polishResult.createTime) }}
+              </span>
+            </div>
+
+            <div class="polish-content-block">
+              <div class="polish-block-header">
+                <div class="job-match-block-title">润色后的简历内容</div>
+                <el-button size="small" @click="copyPolishedResume">复制内容</el-button>
+              </div>
+              <pre class="polish-content-pre">{{ polishResult.polishedResumeText }}</pre>
+            </div>
+
+            <div class="polish-content-block">
+              <div class="job-match-block-title">修改说明 / 优化说明</div>
+              <div v-if="polishResult.modificationNotes?.length" class="suggestions-list">
+                <div
+                  v-for="(item, idx) in polishResult.modificationNotes"
+                  :key="`polish-note-${idx}`"
+                  class="suggestion-item"
+                >
+                  <span class="suggestion-index">{{ idx + 1 }}</span>
+                  <span class="suggestion-text">{{ item }}</span>
+                </div>
+              </div>
+              <div v-else class="job-match-empty">暂无修改说明</div>
+            </div>
+          </div>
+          <div v-else class="job-match-empty">
+            请在上方“岗位匹配分析”区点击“去 AI 润色”生成结果。
+          </div>
+        </div>
+      </div>
+
       <div class="action-section">
         <div class="action-group">
           <el-button @click="goToHome" class="action-btn secondary">返回首页</el-button>
@@ -375,9 +516,9 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { getResumeTask } from '@/api/resume'
+import { analyzeResumeJobMatch, analyzeResumePolish, getResumeTask } from '@/api/resume'
 import { useUserStore } from '@/stores/user'
 import { ElMessage } from 'element-plus'
 
@@ -398,6 +539,13 @@ const error = ref('')
 const task = ref(null)
 const pollTimer = ref(null)
 const hasRefreshedUserInfo = ref(false)
+const jobMatchVisible = ref(false)
+const jobDescriptionText = ref('')
+const jobMatchLoading = ref(false)
+const jobMatchResult = ref(null)
+const polishLoading = ref(false)
+const polishResult = ref(null)
+const polishSectionRef = ref(null)
 
 const taskId = computed(() => route.params.taskId)
 
@@ -548,6 +696,12 @@ const fetchTaskDetail = async () => {
     const res = await getResumeTask(taskId.value)
     const previousStatus = task.value?.status
     task.value = res.data
+    if (task.value?.latestJobMatchAnalysis) {
+      jobMatchResult.value = task.value.latestJobMatchAnalysis
+    }
+    if (task.value?.latestPolishResult) {
+      polishResult.value = task.value.latestPolishResult
+    }
     loading.value = false
     refreshing.value = false
 
@@ -589,6 +743,112 @@ const goToInterview = () => {
   }
 }
 
+const toggleJobMatchPanel = () => {
+  jobMatchVisible.value = !jobMatchVisible.value
+}
+
+// 润色完成后先直接更新本地页面状态，再补一次任务详情同步，保证用户无需刷新页面即可看到结果
+const applyLatestPolishResult = async (latestPolishResult) => {
+  if (!latestPolishResult) {
+    return
+  }
+  polishResult.value = latestPolishResult
+  if (task.value) {
+    task.value = {
+      ...task.value,
+      latestPolishResult
+    }
+  }
+  await nextTick()
+  polishSectionRef.value?.scrollIntoView({
+    behavior: 'smooth',
+    block: 'start'
+  })
+}
+
+// AI 润色属于长耗时操作，若请求超时但后端已落库，则主动回查最新结果并立即展示
+const recoverLatestPolishResultAfterTimeout = async () => {
+  for (let retryIndex = 0; retryIndex < 3; retryIndex += 1) {
+    await new Promise((resolve) => setTimeout(resolve, retryIndex === 0 ? 1200 : 2000))
+    try {
+      const res = await getResumeTask(taskId.value)
+      const latestTask = res?.data || res
+      if (latestTask) {
+        task.value = latestTask
+      }
+      if (latestTask?.latestPolishResult) {
+        await applyLatestPolishResult(latestTask.latestPolishResult)
+        return true
+      }
+    } catch (error) {
+      console.error('[AI 简历润色] 超时后回查失败:', error)
+    }
+  }
+  return false
+}
+
+const triggerAiPolishPlaceholder = async () => {
+  if (!task.value?.taskId) {
+    ElMessage.error('当前简历任务不存在')
+    return
+  }
+  polishLoading.value = true
+  try {
+    const res = await analyzeResumePolish({
+      resumeTaskId: task.value.taskId,
+      resumeText: task.value.resumeText || '',
+      jdText: jobDescriptionText.value.trim() || undefined
+    })
+    const latestPolishResult = res?.data || res
+    await applyLatestPolishResult(latestPolishResult)
+    fetchTaskDetail()
+    ElMessage.success('AI 简历润色完成')
+  } catch (err) {
+    if (err?.code === 'ECONNABORTED' || String(err?.message || '').includes('timeout')) {
+      const recovered = await recoverLatestPolishResultAfterTimeout()
+      if (recovered) {
+        ElMessage.success('AI 简历润色已完成，结果已同步展示')
+        return
+      }
+      ElMessage.warning('AI 润色请求超时，正在等待后端完成，请稍后刷新查看结果')
+      return
+    }
+    console.error('[AI 简历润色] 执行失败:', err)
+    ElMessage.error(err?.message || 'AI 简历润色失败，请稍后重试')
+  } finally {
+    polishLoading.value = false
+  }
+}
+
+const submitJobMatchAnalysis = async () => {
+  if (!task.value?.taskId) {
+    ElMessage.error('当前简历任务不存在')
+    return
+  }
+  if (!jobDescriptionText.value.trim()) {
+    ElMessage.warning('请先输入岗位 JD 文本')
+    return
+  }
+
+  jobMatchLoading.value = true
+  try {
+    const res = await analyzeResumeJobMatch({
+      resumeTaskId: task.value.taskId,
+      resumeText: task.value.resumeText || '',
+      jdText: jobDescriptionText.value.trim()
+    })
+    jobMatchResult.value = res.data
+    if (task.value) {
+      task.value.latestJobMatchAnalysis = res.data
+    }
+    ElMessage.success('岗位匹配分析完成')
+  } catch (err) {
+    console.error('[岗位匹配分析] 执行失败:', err)
+  } finally {
+    jobMatchLoading.value = false
+  }
+}
+
 onMounted(() => {
   fetchTaskDetail()
 })
@@ -604,6 +864,29 @@ const unwatch = watch(isProcessing, (newVal) => {
     stopPolling()
   }
 }, { immediate: true })
+
+watch(task, (newTask) => {
+  if (newTask?.latestJobMatchAnalysis) {
+    jobMatchResult.value = newTask.latestJobMatchAnalysis
+  }
+  if (newTask?.latestPolishResult) {
+    polishResult.value = newTask.latestPolishResult
+  }
+}, { deep: true })
+
+const copyPolishedResume = async () => {
+  if (!polishResult.value?.polishedResumeText) {
+    ElMessage.warning('暂无可复制的润色内容')
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(polishResult.value.polishedResumeText)
+    ElMessage.success('润色内容已复制')
+  } catch (err) {
+    console.error('[AI 简历润色] 复制失败:', err)
+    ElMessage.error('复制失败，请稍后重试')
+  }
+}
 
 onUnmounted(() => {
   unwatch()
@@ -1177,6 +1460,166 @@ onUnmounted(() => {
   box-sizing: border-box;
 }
 
+.job-match-card {
+  margin-top: 20px;
+}
+
+.job-match-intro {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.job-match-desc {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #666;
+}
+
+.job-match-entry-btn {
+  border-color: #FF8C42;
+  color: #FF8C42;
+}
+
+.job-match-panel {
+  margin-top: 20px;
+}
+
+.job-match-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.job-match-result {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.job-match-score-card {
+  padding: 18px 20px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #fff8f3 0%, #fff 100%);
+  border: 1px solid rgba(243, 216, 199, 0.7);
+}
+
+.job-match-score-label {
+  font-size: 13px;
+  color: #666;
+}
+
+.job-match-score-value {
+  margin-top: 8px;
+  font-size: 34px;
+  line-height: 1;
+  font-weight: 700;
+  color: #FF8C42;
+}
+
+.job-match-result-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.job-match-result-block,
+.job-match-suggestions {
+  padding: 18px 20px;
+  border-radius: 14px;
+  background: #f9fafb;
+}
+
+.job-match-block-title {
+  margin-bottom: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #2f2f2f;
+}
+
+.job-match-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.job-match-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.job-match-tag.matched {
+  background: #edf9f1;
+  color: #2f9b5d;
+}
+
+.job-match-tag.missing {
+  background: #fff1f0;
+  color: #d94841;
+}
+
+.job-match-empty {
+  font-size: 13px;
+  line-height: 1.7;
+  color: #909399;
+}
+
+.polish-card {
+  margin-top: 20px;
+}
+
+.polish-result {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.polish-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.polish-time {
+  font-size: 13px;
+  color: #909399;
+}
+
+.polish-content-block {
+  padding: 18px 20px;
+  border-radius: 14px;
+  background: #f9fafb;
+}
+
+.polish-block-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.polish-content-pre {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.8;
+  color: #2f2f2f;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* ============================================
    底部操作区
    ============================================ */
@@ -1270,6 +1713,10 @@ onUnmounted(() => {
   }
 
   .basic-items-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .job-match-result-grid {
     grid-template-columns: 1fr;
   }
 
