@@ -162,6 +162,79 @@ public class AdminController {
     }
 
     /**
+     * 删除岗位配置（物理删除）
+     *
+     * 作用：
+     * 管理员可以通过此接口物理删除岗位配置，删除后数据无法恢复。
+     * 此操作会绕过逻辑删除，直接从数据库移除记录。
+     */
+    @DeleteMapping("/job-roles/{id}")
+    public Result<Void> deleteJobRole(@PathVariable Long id, Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin delete job role, id: {}", id);
+
+        SysJobRole jobRole = sysJobRoleService.getById(id);
+        if (jobRole == null) {
+            throw new BusinessException("岗位配置不存在");
+        }
+
+        // 物理删除：直接使用 removeById 绕过逻辑删除机制
+        sysJobRoleService.removeById(id);
+        return Result.success("岗位删除成功", null);
+    }
+
+    /**
+     * 批量删除岗位配置（物理删除）
+     *
+     * 作用：
+     * 管理员可以批量物理删除岗位配置，删除后数据无法恢复。
+     */
+    @DeleteMapping("/job-roles/batch")
+    public Result<Void> deleteJobRolesBatch(@RequestBody List<Long> ids, Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin batch delete job roles, ids: {}", ids);
+
+        if (ids == null || ids.isEmpty()) {
+            throw new BusinessException("请选择要删除的岗位配置");
+        }
+
+        // 物理删除：批量移除
+        sysJobRoleService.removeByIds(ids, false);
+        log.info("Batch delete job roles completed, count: {}", ids.size());
+        return Result.success("批量删除成功", null);
+    }
+
+    /**
+     * 批量启用/禁用岗位配置
+     *
+     * 作用：
+     * 管理员可以批量启用或禁用岗位配置。
+     */
+    @PutMapping("/job-roles/batch/active")
+    public Result<Void> toggleJobRolesBatchActive(@RequestBody BatchActiveRequest request,
+                                           Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin batch toggle job roles active, ids: {}, isActive: {}", request.getIds(), request.getIsActive());
+
+        if (request.getIds() == null || request.getIds().isEmpty()) {
+            throw new BusinessException("请选择要操作的岗位配置");
+        }
+
+        for (Long id : request.getIds()) {
+            SysJobRole jobRole = sysJobRoleService.getById(id);
+            if (jobRole != null) {
+                jobRole.setIsActive(request.getIsActive());
+                sysJobRoleService.updateById(jobRole);
+            }
+        }
+        log.info("Batch toggle job roles active completed, count: {}", request.getIds().size());
+        return Result.success("批量更新成功", null);
+    }
+
+    /**
      * 查询提示词模板列表
      *
      * @param authentication 认证对象
@@ -311,6 +384,79 @@ public class AdminController {
 
         sysAiEngineConfigService.switchActive(id, isActive);
         return Result.success("AI 引擎配置状态更新成功", null);
+    }
+
+    /**
+     * 删除 AI 引擎配置（物理删除）
+     *
+     * 作用：
+     * 管理员可以通过此接口物理删除 AI 引擎配置，删除后数据无法恢复。
+     * 注意：如果删除的引擎正处于启用状态，需要谨慎操作。
+     */
+    @DeleteMapping("/ai-engines/{id}")
+    public Result<Void> deleteAiEngine(@PathVariable Long id, Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin delete AI engine, id: {}", id);
+
+        SysAiEngineConfig config = sysAiEngineConfigService.getById(id);
+        if (config == null) {
+            throw new BusinessException("AI 引擎配置不存在");
+        }
+
+        // 物理删除：直接移除
+        sysAiEngineConfigService.removeById(id);
+        return Result.success("AI 引擎配置删除成功", null);
+    }
+
+    /**
+     * 批量删除 AI 引擎配置（物理删除）
+     *
+     * 作用：
+     * 管理员可以批量物理删除 AI 引擎配置，删除后数据无法恢复。
+     */
+    @DeleteMapping("/ai-engines/batch")
+    public Result<Void> deleteAiEnginesBatch(@RequestBody List<Long> ids, Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin batch delete AI engines, ids: {}", ids);
+
+        if (ids == null || ids.isEmpty()) {
+            throw new BusinessException("请选择要删除的AI引擎配置");
+        }
+
+        // 物理删除：批量移除
+        sysAiEngineConfigService.removeByIds(ids, false);
+        log.info("Batch delete AI engines completed, count: {}", ids.size());
+        return Result.success("批量删除成功", null);
+    }
+
+    /**
+     * 批量启用/禁用 AI 引擎配置
+     *
+     * 作用：
+     * 管理员可以批量启用或禁用 AI 引擎配置。
+     */
+    @PutMapping("/ai-engines/batch/active")
+    public Result<Void> toggleAiEnginesBatchActive(@RequestBody BatchActiveRequest request,
+                                                 Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin batch toggle AI engines active, ids: {}, isActive: {}", request.getIds(), request.getIsActive());
+
+        if (request.getIds() == null || request.getIds().isEmpty()) {
+            throw new BusinessException("请选择要操作的AI引擎配置");
+        }
+
+        for (Long id : request.getIds()) {
+            SysAiEngineConfig config = sysAiEngineConfigService.getById(id);
+            if (config != null) {
+                config.setIsActive(request.getIsActive());
+                sysAiEngineConfigService.updateById(config);
+            }
+        }
+        log.info("Batch toggle AI engines active completed, count: {}", request.getIds().size());
+        return Result.success("批量更新成功", null);
     }
 
     /**
@@ -530,6 +676,79 @@ SysPrompt prompt = new SysPrompt();
         return Result.success("Prompt状态更新成功", null);
     }
 
+    /**
+     * 删除提示词模板（物理删除）
+     *
+     * 作用：
+     * 管理员可以通过此接口物理删除 Prompt 模板，删除后数据无法恢复。
+     * 注意：如果删除的 Prompt 正处于启用状态，需要谨慎操作。
+     */
+    @DeleteMapping("/prompts/{id}")
+    public Result<Void> deletePrompt(@PathVariable Long id, Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin delete prompt, id: {}", id);
+
+        SysPrompt prompt = sysPromptService.getById(id);
+        if (prompt == null) {
+            throw new BusinessException("Prompt不存在");
+        }
+
+        // 物理删除：直接移除
+        sysPromptService.removeById(id);
+        return Result.success("Prompt删除成功", null);
+    }
+
+    /**
+     * 批量删除提示词模板（物理删除）
+     *
+     * 作用：
+     * 管理员可以批量物理删除 Prompt 模板，删除后数据无法恢复。
+     */
+    @DeleteMapping("/prompts/batch")
+    public Result<Void> deletePromptsBatch(@RequestBody List<Long> ids, Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin batch delete prompts, ids: {}", ids);
+
+        if (ids == null || ids.isEmpty()) {
+            throw new BusinessException("请选择要删除的Prompt");
+        }
+
+        // 物理删除：批量移除
+        sysPromptService.removeByIds(ids, false);
+        log.info("Batch delete prompts completed, count: {}", ids.size());
+        return Result.success("批量删除成功", null);
+    }
+
+    /**
+     * 批量启用/禁用提示词模板
+     *
+     * 作用：
+     * 管理员可以批量启用或禁用提示词模板。
+     */
+    @PutMapping("/prompts/batch/active")
+    public Result<Void> togglePromptsBatchActive(@RequestBody BatchActiveRequest request,
+                                            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin batch toggle prompts active, ids: {}, isActive: {}", request.getIds(), request.getIsActive());
+
+        if (request.getIds() == null || request.getIds().isEmpty()) {
+            throw new BusinessException("请选择要操作的Prompt");
+        }
+
+        for (Long id : request.getIds()) {
+            SysPrompt prompt = sysPromptService.getById(id);
+            if (prompt != null) {
+                prompt.setIsActive(request.getIsActive());
+                sysPromptService.updateById(prompt);
+            }
+        }
+        log.info("Batch toggle prompts active completed, count: {}", request.getIds().size());
+        return Result.success("批量更新成功", null);
+    }
+
     // ==================== 用户管理接口 ====================
 
     /**
@@ -615,6 +834,34 @@ SysPrompt prompt = new SysPrompt();
 
         log.info("User status updated, userId: {}, status: {}", userId, status);
         return Result.success("用户状态更新成功", null);
+    }
+
+    /**
+     * 批量启用/禁用用户
+     *
+     * 作用：
+     * 管理员可以批量启用或禁用用户账号。
+     */
+    @PutMapping("/users/batch/status")
+    public Result<Void> updateUsersBatchStatus(@RequestBody BatchActiveRequest request,
+                                               Authentication authentication) {
+        Long adminUserId = (Long) authentication.getPrincipal();
+        checkAdminPermission(adminUserId);
+        log.info("Admin batch update users status, ids: {}, status: {}", request.getIds(), request.getIsActive());
+
+        if (request.getIds() == null || request.getIds().isEmpty()) {
+            throw new BusinessException("请选择要操作的用户");
+        }
+
+        for (Long userId : request.getIds()) {
+            SysUser user = sysUserService.getById(userId);
+            if (user != null) {
+                user.setStatus(request.getIsActive());
+                sysUserService.updateById(user);
+            }
+        }
+        log.info("Batch update users status completed, count: {}", request.getIds().size());
+        return Result.success("批量更新成功", null);
     }
 
     // ==================== 额度管理接口 ====================
