@@ -431,15 +431,16 @@ public class AdminController {
         return Result.success("批量删除成功", null);
     }
 
-    /**
+/**
      * 批量启用/禁用 AI 引擎配置
      *
      * 作用：
      * 管理员可以批量启用或禁用 AI 引擎配置。
+     * 启用时会自动禁用同业务类型的其他配置，保证最多只有一个启用。
      */
     @PutMapping("/ai-engines/batch/active")
     public Result<Void> toggleAiEnginesBatchActive(@RequestBody BatchActiveRequest request,
-                                                 Authentication authentication) {
+                                               Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         checkAdminPermission(userId);
         log.info("Admin batch toggle AI engines active, ids: {}, isActive: {}", request.getIds(), request.getIsActive());
@@ -448,12 +449,9 @@ public class AdminController {
             throw new BusinessException("请选择要操作的AI引擎配置");
         }
 
+        // 使用事务确保同业务类型只有一个启用配置
         for (Long id : request.getIds()) {
-            SysAiEngineConfig config = sysAiEngineConfigService.getById(id);
-            if (config != null) {
-                config.setIsActive(request.getIsActive());
-                sysAiEngineConfigService.updateById(config);
-            }
+            sysAiEngineConfigService.switchActive(id, request.getIsActive());
         }
         log.info("Batch toggle AI engines active completed, count: {}", request.getIds().size());
         return Result.success("批量更新成功", null);
@@ -721,15 +719,16 @@ SysPrompt prompt = new SysPrompt();
         return Result.success("批量删除成功", null);
     }
 
-    /**
+/**
      * 批量启用/禁用提示词模板
      *
      * 作用：
      * 管理员可以批量启用或禁用提示词模板。
+     * 启用时会自动禁用同岗位同难度的其他模板，保证最多只有一个启用。
      */
     @PutMapping("/prompts/batch/active")
     public Result<Void> togglePromptsBatchActive(@RequestBody BatchActiveRequest request,
-                                            Authentication authentication) {
+                                                Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         checkAdminPermission(userId);
         log.info("Admin batch toggle prompts active, ids: {}, isActive: {}", request.getIds(), request.getIsActive());
@@ -738,11 +737,31 @@ SysPrompt prompt = new SysPrompt();
             throw new BusinessException("请选择要操作的Prompt");
         }
 
-        for (Long id : request.getIds()) {
-            SysPrompt prompt = sysPromptService.getById(id);
-            if (prompt != null) {
-                prompt.setIsActive(request.getIsActive());
-                sysPromptService.updateById(prompt);
+        // 如果是启用操作，需要处理同岗位同难度的互斥逻辑
+        if (request.getIsActive() != null && request.getIsActive() == 1) {
+            // 先收集所有要启用的prompt信息，按jobRoleCode+difficulty分组
+            for (Long id : request.getIds()) {
+                SysPrompt prompt = sysPromptService.getById(id);
+                if (prompt != null) {
+                    // 先禁用同岗位同难度的其他prompts
+                    sysPromptService.deactivateOtherPrompts(
+                            prompt.getScenarioType(),
+                            prompt.getJobRoleCode(),
+                            prompt.getDifficulty()
+                    );
+                    // 然后启用当前prompt
+                    prompt.setIsActive(1);
+                    sysPromptService.updateById(prompt);
+                }
+            }
+        } else {
+            // 禁用操作直接设置
+            for (Long id : request.getIds()) {
+                SysPrompt prompt = sysPromptService.getById(id);
+                if (prompt != null) {
+                    prompt.setIsActive(request.getIsActive());
+                    sysPromptService.updateById(prompt);
+                }
             }
         }
         log.info("Batch toggle prompts active completed, count: {}", request.getIds().size());
