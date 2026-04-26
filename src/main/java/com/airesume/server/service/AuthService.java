@@ -36,4 +36,12 @@ public interface AuthService {
      */
     UserInfoResponse getCurrentUserInfo(Long userId);
 
+    /**
+     * 更新用户昵称
+     *
+     * @param userId 用户ID
+     * @param nickname 新昵称
+     */
+    void updateNickname(Long userId, String nickname);
+
 }

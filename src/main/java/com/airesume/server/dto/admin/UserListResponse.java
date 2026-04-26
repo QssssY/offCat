@@ -27,6 +27,11 @@ public class UserListResponse {
     private String username;
 
     /**
+     * 昵称
+     */
+    private String nickname;
+
+    /**
      * 角色：0-普通用户，1-会员用户，9-管理员
      */
     private Integer role;

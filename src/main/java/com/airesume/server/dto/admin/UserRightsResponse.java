@@ -31,6 +31,11 @@ public class UserRightsResponse {
     private String username;
 
     /**
+     * 昵称。
+     */
+    private String nickname;
+
+    /**
      * 用户角色编码。
      */
     private Integer role;

@@ -59,6 +59,7 @@ public class AdminUserRightsServiceImpl implements AdminUserRightsService {
         return UserRightsResponse.builder()
                 .userId(user.getId())
                 .username(user.getUsername())
+                .nickname(user.getNickname())
                 .role(user.getRole())
                 .roleDesc(getRoleDesc(user.getRole(), vipActive))
                 .membershipPlanCode(user.getMembershipPlanCode())

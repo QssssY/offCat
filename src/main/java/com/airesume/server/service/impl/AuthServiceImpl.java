@@ -58,6 +58,7 @@ public class AuthServiceImpl implements AuthService {
         // 创建新用户
         SysUser user = new SysUser();
         user.setUsername(username);
+        user.setNickname(generateRandomNickname());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setRole(0); // 0-普通用户
         user.setStatus(1); // 1-正常状态
@@ -144,6 +145,7 @@ public class AuthServiceImpl implements AuthService {
         return UserInfoResponse.builder()
                 .id(user.getId())
                 .username(user.getUsername())
+                .nickname(user.getNickname())
                 .role(user.getRole())
                 .status(user.getStatus())
                 .membershipPlanCode(user.getMembershipPlanCode())
@@ -155,8 +157,31 @@ public class AuthServiceImpl implements AuthService {
                 .build();
     }
 
-    private int safeValue(Integer value) {
+private int safeValue(Integer value) {
         return value == null ? 0 : value;
+    }
+
+    @Override
+    public void updateNickname(Long userId, String nickname) {
+        log.info("Updating nickname, userId: {}, nickname: {}", userId, nickname);
+        SysUser user = sysUserService.getById(userId);
+        if (user == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND);
+        }
+        user.setNickname(nickname);
+        sysUserService.updateById(user);
+        log.info("Nickname updated successfully, userId: {}", userId);
+    }
+
+    private String generateRandomNickname() {
+        String prefix = "用户_";
+        String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        StringBuilder sb = new StringBuilder(prefix);
+        java.util.Random random = new java.util.Random();
+        for (int i = 0; i < 6; i++) {
+            sb.append(chars.charAt(random.nextInt(chars.length())));
+        }
+        return sb.toString();
     }
 
 }

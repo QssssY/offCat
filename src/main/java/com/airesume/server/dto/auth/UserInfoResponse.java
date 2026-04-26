@@ -15,6 +15,7 @@ public class UserInfoResponse {
 
     private Long id;
     private String username;
+    private String nickname;
     private Integer role;
     private Integer status;
     private String membershipPlanCode;

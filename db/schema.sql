@@ -1,0 +1,270 @@
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+DROP TABLE IF EXISTS `membership_order`;
+DROP TABLE IF EXISTS `membership_plan`;
+DROP TABLE IF EXISTS `interview_chat_log`;
+DROP TABLE IF EXISTS `interview_session`;
+DROP TABLE IF EXISTS `resume_diagnosis_task`;
+DROP TABLE IF EXISTS `user_rights_change_log`;
+DROP TABLE IF EXISTS `sys_ai_engine_config`;
+DROP TABLE IF EXISTS `sys_job_role`;
+DROP TABLE IF EXISTS `sys_prompt`;
+DROP TABLE IF EXISTS `user_quota`;
+DROP TABLE IF EXISTS `sys_user`;
+
+CREATE TABLE `sys_user` (
+  `id` BIGINT NOT NULL COMMENT 'Primary key',
+  `username` VARCHAR(50) NOT NULL COMMENT 'Username',
+  `nickname` VARCHAR(50) NULL DEFAULT NULL COMMENT 'User nickname',
+  `password` VARCHAR(255) NOT NULL COMMENT 'Encrypted password',
+  `role` TINYINT NOT NULL COMMENT '0-normal, 1-vip, 9-admin',
+  `status` TINYINT NOT NULL DEFAULT 1 COMMENT '1-active, 0-disabled',
+  `membership_plan_code` VARCHAR(32) NULL DEFAULT NULL COMMENT 'Current membership plan code',
+  `vip_expire_time` DATETIME NULL DEFAULT NULL COMMENT 'VIP expire time',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Create time',
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Update time',
+  `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT 'Logical delete flag',
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `uk_sys_user_username` (`username`),
+  INDEX `idx_sys_user_role` (`role`),
+  INDEX `idx_sys_user_status` (`status`),
+  INDEX `idx_sys_user_membership_plan_code` (`membership_plan_code`),
+  INDEX `idx_sys_user_vip_expire_time` (`vip_expire_time`),
+  INDEX `idx_sys_user_create_time` (`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='User table';
+
+CREATE TABLE `user_quota` (
+  `id` BIGINT NOT NULL COMMENT 'Primary key',
+  `user_id` BIGINT NOT NULL COMMENT 'User id',
+  `total_interview_used` INT NOT NULL DEFAULT 0 COMMENT 'Total interview used',
+  `total_resume_used` INT NOT NULL DEFAULT 0 COMMENT 'Total resume used',
+  `interview_quota` INT NOT NULL DEFAULT 0 COMMENT 'Remaining interview quota',
+  `resume_quota` INT NOT NULL DEFAULT 0 COMMENT 'Remaining resume quota',
+  `daily_interview_used` INT NOT NULL DEFAULT 0 COMMENT 'Daily interview used',
+  `daily_resume_used` INT NOT NULL DEFAULT 0 COMMENT 'Daily resume used',
+  `last_refresh_date` DATE NOT NULL COMMENT 'Last refresh date',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Create time',
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Update time',
+  `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT 'Logical delete flag',
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `uk_user_quota_user_id` (`user_id`),
+  INDEX `idx_user_quota_last_refresh_date` (`last_refresh_date`),
+  INDEX `idx_user_quota_create_time` (`create_time`),
+  CONSTRAINT `fk_user_quota_user_id` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='User quota table';
+
+CREATE TABLE `membership_plan` (
+  `id` BIGINT NOT NULL COMMENT 'Primary key',
+  `plan_code` VARCHAR(32) NOT NULL COMMENT 'Plan code',
+  `plan_name` VARCHAR(64) NOT NULL COMMENT 'Plan name',
+  `description` VARCHAR(255) NULL DEFAULT NULL COMMENT 'Plan description',
+  `price_amount` DECIMAL(10,2) NOT NULL COMMENT 'Price amount',
+  `duration_days` INT NOT NULL COMMENT 'Duration days',
+  `resume_quota` INT NOT NULL DEFAULT 0 COMMENT 'Granted resume quota',
+  `interview_quota` INT NOT NULL DEFAULT 0 COMMENT 'Granted interview quota',
+  `status` TINYINT NOT NULL DEFAULT 1 COMMENT '1-enabled, 0-disabled',
+  `sort` INT NOT NULL DEFAULT 0 COMMENT 'Sort order',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Create time',
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Update time',
+  `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT 'Logical delete flag',
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `uk_membership_plan_code` (`plan_code`),
+  INDEX `idx_membership_plan_status_sort` (`status`, `sort`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Membership plan table';
+
+CREATE TABLE `membership_order` (
+  `id` BIGINT NOT NULL COMMENT 'Primary key',
+  `order_no` VARCHAR(64) NOT NULL COMMENT 'Order no',
+  `user_id` BIGINT NOT NULL COMMENT 'User id',
+  `plan_id` BIGINT NOT NULL COMMENT 'Plan id',
+  `plan_code` VARCHAR(32) NOT NULL COMMENT 'Plan code snapshot',
+  `plan_name` VARCHAR(64) NOT NULL COMMENT 'Plan name snapshot',
+  `order_status` VARCHAR(20) NOT NULL COMMENT 'CREATED/PAID',
+  `pay_channel` VARCHAR(20) NOT NULL COMMENT 'MOCK',
+  `order_amount` DECIMAL(10,2) NOT NULL COMMENT 'Order amount',
+  `duration_days` INT NOT NULL COMMENT 'Duration days',
+  `granted_resume_quota` INT NOT NULL DEFAULT 0 COMMENT 'Granted resume quota',
+  `granted_interview_quota` INT NOT NULL DEFAULT 0 COMMENT 'Granted interview quota',
+  `expire_time_before` DATETIME NULL DEFAULT NULL COMMENT 'Expire time before upgrade',
+  `expire_time_after` DATETIME NOT NULL COMMENT 'Expire time after upgrade',
+  `paid_at` DATETIME NOT NULL COMMENT 'Paid time',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Create time',
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Update time',
+  `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT 'Logical delete flag',
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `uk_membership_order_no` (`order_no`),
+  INDEX `idx_membership_order_user_id` (`user_id`),
+  INDEX `idx_membership_order_plan_id` (`plan_id`),
+  INDEX `idx_membership_order_status` (`order_status`),
+  INDEX `idx_membership_order_create_time` (`create_time`),
+  CONSTRAINT `fk_membership_order_user_id` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`),
+  CONSTRAINT `fk_membership_order_plan_id` FOREIGN KEY (`plan_id`) REFERENCES `membership_plan` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Membership order table';
+
+CREATE TABLE `sys_prompt` (
+  `id` BIGINT NOT NULL COMMENT 'Primary key',
+  `scenario_type` TINYINT NOT NULL COMMENT '1-interview, 2-resume',
+  `job_role_code` VARCHAR(64) NULL DEFAULT NULL COMMENT 'Configured job role code',
+  `job_role` VARCHAR(50) NOT NULL COMMENT 'Job role',
+  `difficulty` TINYINT NOT NULL DEFAULT 1 COMMENT '1-primary, 2-intermediate, 3-advanced',
+  `prompt_content` TEXT NOT NULL COMMENT 'Prompt content',
+  `is_active` TINYINT NOT NULL DEFAULT 1 COMMENT '1-active, 0-inactive',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Create time',
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Update time',
+  `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT 'Logical delete flag',
+  PRIMARY KEY (`id`),
+  INDEX `idx_sys_prompt_scenario_type` (`scenario_type`),
+  INDEX `idx_sys_prompt_job_role_code` (`job_role_code`),
+  INDEX `idx_sys_prompt_job_role` (`job_role`),
+  INDEX `idx_sys_prompt_difficulty` (`difficulty`),
+  INDEX `idx_sys_prompt_is_active` (`is_active`),
+  INDEX `idx_sys_prompt_query` (`scenario_type`, `job_role`, `difficulty`, `is_active`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Prompt table';
+
+CREATE TABLE `sys_job_role` (
+  `id` BIGINT NOT NULL COMMENT 'Primary key',
+  `role_code` VARCHAR(64) NOT NULL COMMENT 'Stable role code for admin management',
+  `role_name` VARCHAR(64) NOT NULL COMMENT 'Displayed interview job role name',
+  `interview_tag` VARCHAR(32) NULL DEFAULT NULL COMMENT 'Optional tag shown in interview selector',
+  `tag_type` VARCHAR(32) NULL DEFAULT NULL COMMENT 'Tag type used by frontend style mapping',
+  `is_active` TINYINT NOT NULL DEFAULT 1 COMMENT '1-enabled, 0-disabled',
+  `sort` INT NOT NULL DEFAULT 0 COMMENT 'Sort order',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Create time',
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Update time',
+  `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT 'Logical delete flag',
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `uk_sys_job_role_code` (`role_code`),
+  UNIQUE INDEX `uk_sys_job_role_name` (`role_name`),
+  INDEX `idx_sys_job_role_active_sort` (`is_active`, `sort`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Admin configurable interview job roles';
+
+CREATE TABLE `sys_ai_engine_config` (
+  `id` BIGINT NOT NULL COMMENT 'Primary key',
+  `engine_code` VARCHAR(64) NOT NULL COMMENT 'Stable engine code for admin management',
+  `engine_name` VARCHAR(64) NOT NULL COMMENT 'Displayed engine name',
+  `provider_type` VARCHAR(32) NOT NULL COMMENT 'AI provider type such as openai/doubao/mock',
+  `business_type` VARCHAR(32) NOT NULL COMMENT 'Business type: interview/resume',
+  `model_name` VARCHAR(128) NOT NULL COMMENT 'Model name used by current config',
+  `base_url` VARCHAR(255) NOT NULL COMMENT 'Base URL for provider API',
+  `api_key` VARCHAR(255) NOT NULL COMMENT 'Provider API key',
+  `temperature` DECIMAL(4,2) NOT NULL DEFAULT 0.70 COMMENT 'Model temperature',
+  `max_tokens` INT NOT NULL DEFAULT 4096 COMMENT 'Maximum tokens',
+  `timeout_ms` INT NOT NULL DEFAULT 30000 COMMENT 'Request timeout in milliseconds',
+  `is_active` TINYINT NOT NULL DEFAULT 0 COMMENT '1-enabled, 0-disabled',
+  `sort` INT NOT NULL DEFAULT 0 COMMENT 'Sort order',
+  `remark` VARCHAR(255) NULL DEFAULT NULL COMMENT 'Admin remark',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Create time',
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Update time',
+  `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT 'Logical delete flag',
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `uk_sys_ai_engine_config_engine_code` (`engine_code`),
+  INDEX `idx_sys_ai_engine_config_business_active` (`business_type`, `is_active`, `sort`),
+  INDEX `idx_sys_ai_engine_config_provider` (`provider_type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Admin configurable AI engine configs';
+
+CREATE TABLE `user_rights_change_log` (
+  `id` BIGINT NOT NULL COMMENT 'Primary key',
+  `user_id` BIGINT NOT NULL COMMENT 'Target user id',
+  `operator_user_id` BIGINT NOT NULL COMMENT 'Admin operator user id',
+  `before_role` TINYINT NULL DEFAULT NULL COMMENT 'Role before change',
+  `after_role` TINYINT NULL DEFAULT NULL COMMENT 'Role after change',
+  `before_membership_plan_code` VARCHAR(32) NULL DEFAULT NULL COMMENT 'Membership plan code before change',
+  `after_membership_plan_code` VARCHAR(32) NULL DEFAULT NULL COMMENT 'Membership plan code after change',
+  `before_vip_expire_time` DATETIME NULL DEFAULT NULL COMMENT 'VIP expire time before change',
+  `after_vip_expire_time` DATETIME NULL DEFAULT NULL COMMENT 'VIP expire time after change',
+  `remark` VARCHAR(255) NULL DEFAULT NULL COMMENT 'Admin change remark',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Create time',
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Update time',
+  `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT 'Logical delete flag',
+  PRIMARY KEY (`id`),
+  INDEX `idx_user_rights_change_log_user_id` (`user_id`),
+  INDEX `idx_user_rights_change_log_operator_user_id` (`operator_user_id`),
+  INDEX `idx_user_rights_change_log_create_time` (`create_time`),
+  CONSTRAINT `fk_user_rights_change_log_user_id` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`),
+  CONSTRAINT `fk_user_rights_change_log_operator_user_id` FOREIGN KEY (`operator_user_id`) REFERENCES `sys_user` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Admin user rights change log';
+
+CREATE TABLE `resume_diagnosis_task` (
+  `id` BIGINT NOT NULL COMMENT 'Primary key',
+  `user_id` BIGINT NOT NULL COMMENT 'User id',
+  `file_url` VARCHAR(255) NOT NULL COMMENT 'Uploaded file url',
+  `status` TINYINT NOT NULL DEFAULT 0 COMMENT '0-pending, 1-processing, 2-completed, 3-failed',
+  `diagnosis_result` JSON NULL COMMENT 'Diagnosis result',
+  `error_msg` VARCHAR(255) NULL DEFAULT NULL COMMENT 'Error message',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Create time',
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Update time',
+  `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT 'Logical delete flag',
+  PRIMARY KEY (`id`),
+  INDEX `idx_resume_task_user_id` (`user_id`),
+  INDEX `idx_resume_task_status` (`status`),
+  INDEX `idx_resume_task_create_time` (`create_time`),
+  INDEX `idx_resume_task_user_status` (`user_id`, `status`),
+  CONSTRAINT `fk_resume_task_user_id` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Resume diagnosis task table';
+
+CREATE TABLE `interview_session` (
+  `id` BIGINT NOT NULL COMMENT 'Primary key',
+  `session_id` VARCHAR(64) NOT NULL COMMENT 'Session id',
+  `user_id` BIGINT NOT NULL COMMENT 'User id',
+  `job_role` VARCHAR(50) NOT NULL COMMENT 'Job role',
+  `job_role_code` VARCHAR(64) NULL COMMENT 'Job role code (for prompt linking)',
+  `difficulty` TINYINT NOT NULL COMMENT 'Difficulty',
+  `interview_mode` VARCHAR(20) NOT NULL DEFAULT 'normal' COMMENT 'normal/stress',
+  `status` TINYINT NOT NULL DEFAULT 0 COMMENT '0-running, 1-finished',
+  `comprehensive_score` INT NULL DEFAULT NULL COMMENT 'Score',
+  `evaluation_report` JSON NULL COMMENT 'Evaluation report',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Create time',
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Update time',
+  `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT 'Logical delete flag',
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `uk_interview_session_session_id` (`session_id`),
+  INDEX `idx_interview_session_user_id` (`user_id`),
+  INDEX `idx_interview_session_status` (`status`),
+  INDEX `idx_interview_session_job_role` (`job_role`),
+  INDEX `idx_interview_session_job_role_code` (`job_role_code`),
+  INDEX `idx_interview_session_interview_mode` (`interview_mode`),
+  INDEX `idx_interview_session_create_time` (`create_time`),
+  INDEX `idx_interview_session_user_status` (`user_id`, `status`),
+  CONSTRAINT `fk_interview_session_user_id` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Interview session table';
+
+CREATE TABLE `interview_chat_log` (
+  `id` BIGINT NOT NULL COMMENT 'Primary key',
+  `session_id` VARCHAR(64) NOT NULL COMMENT 'Session id',
+  `message_role` VARCHAR(20) NOT NULL COMMENT 'user/assistant/system',
+  `content` TEXT NOT NULL COMMENT 'Message content',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Create time',
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Update time',
+  `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT 'Logical delete flag',
+  PRIMARY KEY (`id`),
+  INDEX `idx_chat_log_session_id` (`session_id`),
+  INDEX `idx_chat_log_message_role` (`message_role`),
+  INDEX `idx_chat_log_create_time` (`create_time`),
+  INDEX `idx_chat_log_session_create_time` (`session_id`, `create_time`),
+  CONSTRAINT `fk_chat_log_session_id` FOREIGN KEY (`session_id`) REFERENCES `interview_session` (`session_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Interview chat log table';
+
+INSERT INTO `membership_plan` (`id`, `plan_code`, `plan_name`, `description`, `price_amount`, `duration_days`, `resume_quota`, `interview_quota`, `status`, `sort`)
+VALUES
+  (2001, 'vip_month', 'Monthly VIP', '30 days VIP with 10 resume diagnoses and 10 mock interviews', 29.90, 30, 10, 10, 1, 1),
+  (2002, 'vip_quarter', 'Quarterly VIP', '90 days VIP with 35 resume diagnoses and 35 mock interviews', 79.90, 90, 35, 35, 1, 2),
+  (2003, 'vip_year', 'Yearly VIP', '365 days VIP with 150 resume diagnoses and 150 mock interviews', 299.00, 365, 150, 150, 1, 3);
+
+INSERT INTO `sys_job_role` (`id`, `role_code`, `role_name`, `interview_tag`, `tag_type`, `is_active`, `sort`)
+VALUES
+  (3001, 'frontend_engineer', '前端开发工程师', '热门', 'hot', 1, 10),
+  (3002, 'backend_engineer', '后端开发工程师', '热门', 'hot', 1, 20),
+  (3003, 'java_engineer', 'Java开发工程师', '热门', 'hot', 1, 30),
+  (3004, 'product_manager', '产品经理', '常见', 'common', 1, 40),
+  (3005, 'algorithm_engineer', '算法工程师', '高竞争', 'competitive', 1, 50),
+  (3006, 'operations_specialist', '运营', '常规', 'normal', 1, 60),
+  (3007, 'sales_marketing', '市场/销售', '常规', 'normal', 1, 70);
+
+INSERT INTO `sys_ai_engine_config`
+(`id`, `engine_code`, `engine_name`, `provider_type`, `business_type`, `model_name`, `base_url`, `api_key`, `temperature`, `max_tokens`, `timeout_ms`, `is_active`, `sort`, `remark`)
+VALUES
+  (4001, 'interview_mock_engine', 'Interview Mock Engine', 'mock', 'interview', 'mock-interview-model', 'https://mock.example.com/interview', 'sk-interview-demo-key', 0.70, 4096, 30000, 1, 10, 'Seed config for interview business'),
+  (4002, 'resume_mock_engine', 'Resume Mock Engine', 'mock', 'resume', 'mock-resume-model', 'https://mock.example.com/resume', 'sk-resume-demo-key', 0.50, 4096, 30000, 1, 20, 'Seed config for resume business');
+
+SET FOREIGN_KEY_CHECKS = 1;

@@ -3,6 +3,7 @@ package com.airesume.server.controller;
 import com.airesume.server.common.result.Result;
 import com.airesume.server.dto.auth.LoginRequest;
 import com.airesume.server.dto.auth.LoginResponse;
+import com.airesume.server.dto.auth.NicknameUpdateRequest;
 import com.airesume.server.dto.auth.RegisterRequest;
 import com.airesume.server.dto.auth.UserInfoResponse;
 import com.airesume.server.service.AuthService;
@@ -12,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -66,6 +68,16 @@ public class AuthController {
         log.info("Get current user info request, userId: {}", userId);
         UserInfoResponse userInfo = authService.getCurrentUserInfo(userId);
         return Result.success(userInfo);
+    }
+
+    @PutMapping("/nickname")
+    public Result<Void> updateNickname(
+            @Valid @RequestBody NicknameUpdateRequest request,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("Update nickname request, userId: {}, nickname: {}", userId, request.getNickname());
+        authService.updateNickname(userId, request.getNickname());
+        return Result.success();
     }
 
 }

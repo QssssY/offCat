@@ -1069,12 +1069,13 @@ SysPrompt prompt = new SysPrompt();
      * @param user 用户实体
      * @return 用户列表响应
      */
-    private UserListResponse buildUserListResponse(SysUser user) {
-        // 角色展示要按“当前是否仍是有效会员”判断，避免会员过期后仍显示为会员用户。
+private UserListResponse buildUserListResponse(SysUser user) {
+        // 角色展示要按"当前是否仍是有效会员"判断，避免会员过期后仍显示为会员用户。
         boolean vipActive = isVipActive(user);
         return UserListResponse.builder()
                 .id(user.getId())
                 .username(user.getUsername())
+                .nickname(user.getNickname())
                 .role(user.getRole())
                 .roleDesc(getRoleDesc(user.getRole(), vipActive))
                 .status(user.getStatus())
