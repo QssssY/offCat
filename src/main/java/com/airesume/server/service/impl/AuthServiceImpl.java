@@ -157,12 +157,19 @@ public class AuthServiceImpl implements AuthService {
                 .build();
     }
 
-private int safeValue(Integer value) {
+/**
+     * 安全获取整数值
+     * 处理可能为 null 的整型返回默认值 0
+     *
+     * @param value 可能为 null 的整数值
+     * @return 非 null 值或默认值 0
+     */
+    private int safeValue(Integer value) {
         return value == null ? 0 : value;
     }
 
-    @Override
-    public void updateNickname(Long userId, String nickname) {
+    /**
+     * 更新用户昵称
         log.info("Updating nickname, userId: {}, nickname: {}", userId, nickname);
         SysUser user = sysUserService.getById(userId);
         if (user == null) {
@@ -173,6 +180,12 @@ private int safeValue(Integer value) {
         log.info("Nickname updated successfully, userId: {}", userId);
     }
 
+    /**
+     * 生成随机默认昵称
+     * 格式：固定前缀"用户_" + 6位随机字符（大写字母或数字）
+     *
+     * @return 随机生成的默认昵称
+     */
     private String generateRandomNickname() {
         String prefix = "用户_";
         String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";

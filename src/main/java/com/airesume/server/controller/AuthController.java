@@ -70,6 +70,13 @@ public class AuthController {
         return Result.success(userInfo);
     }
 
+    /**
+     * 更新用户昵称接口
+     *
+     * @param request 昵称更新请求参数，包含新昵称
+     * @param authentication Spring Security 认证对象，包含当前用户ID
+     * @return 更新成功返回空结果
+     */
     @PutMapping("/nickname")
     public Result<Void> updateNickname(
             @Valid @RequestBody NicknameUpdateRequest request,
