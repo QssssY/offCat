@@ -235,34 +235,34 @@
             </div>
             <!-- 五项填写状态 -->
             <div class="basic-items-grid" v-if="basicInfoDetails">
-              <div class="basic-item" v-if="basicInfoDetails.hasName !== undefined">
+              <div class="basic-item" v-if="basicInfoDetails.name || basicInfoDetails.hasName !== undefined">
                 <span class="label">姓名</span>
-                <span :class="basicInfoDetails.hasName ? 'value success' : 'value warning'">
-                  {{ basicInfoDetails.hasName ? '已填写' : '未填写' }}
+                <span :class="basicInfoDetails.name || basicInfoDetails.hasName ? 'value success' : 'value warning'">
+                  {{ basicInfoDetails.name ? '已填写' : (basicInfoDetails.hasName ? '已填写' : '未填写') }}
                 </span>
               </div>
-              <div class="basic-item" v-if="basicInfoDetails.hasEmail !== undefined">
+              <div class="basic-item" v-if="basicInfoDetails.email || basicInfoDetails.hasEmail !== undefined">
                 <span class="label">邮箱</span>
-                <span :class="basicInfoDetails.hasEmail ? 'value success' : 'value warning'">
-                  {{ basicInfoDetails.hasEmail ? '已填写' : '未填写' }}
+                <span :class="basicInfoDetails.email || basicInfoDetails.hasEmail ? 'value success' : 'value warning'">
+                  {{ basicInfoDetails.email ? '已填写' : (basicInfoDetails.hasEmail ? '已填写' : '未填写') }}
                 </span>
               </div>
-              <div class="basic-item" v-if="basicInfoDetails.hasPhone !== undefined">
+              <div class="basic-item" v-if="basicInfoDetails.phone || basicInfoDetails.hasPhone !== undefined">
                 <span class="label">电话</span>
-                <span :class="basicInfoDetails.hasPhone ? 'value success' : 'value warning'">
-                  {{ basicInfoDetails.hasPhone ? '已填写' : '未填写' }}
+                <span :class="basicInfoDetails.phone || basicInfoDetails.hasPhone ? 'value success' : 'value warning'">
+                  {{ basicInfoDetails.phone ? '已填写' : (basicInfoDetails.hasPhone ? '已填写' : '未填写') }}
                 </span>
               </div>
-              <div class="basic-item" v-if="basicInfoDetails.hasGithub !== undefined">
+              <div class="basic-item" v-if="basicInfoDetails.github || basicInfoDetails.hasGithub !== undefined">
                 <span class="label">GitHub</span>
-                <span :class="basicInfoDetails.hasGithub ? 'value success' : 'value warning'">
-                  {{ basicInfoDetails.hasGithub ? '已填写' : '未填写' }}
+                <span :class="basicInfoDetails.github || basicInfoDetails.hasGithub ? 'value success' : 'value warning'">
+                  {{ basicInfoDetails.github ? '已填写' : (basicInfoDetails.hasGithub ? '已填写' : '未填写') }}
                 </span>
               </div>
-              <div class="basic-item" v-if="basicInfoDetails.hasBlog !== undefined">
+              <div class="basic-item" v-if="basicInfoDetails.blog || basicInfoDetails.hasBlog !== undefined">
                 <span class="label">博客</span>
-                <span :class="basicInfoDetails.hasBlog ? 'value success' : 'value warning'">
-                  {{ basicInfoDetails.hasBlog ? '已填写' : '未填写' }}
+                <span :class="basicInfoDetails.blog || basicInfoDetails.hasBlog ? 'value success' : 'value warning'">
+                  {{ basicInfoDetails.blog ? '已填写' : (basicInfoDetails.hasBlog ? '已填写' : '未填写') }}
                 </span>
               </div>
             </div>
