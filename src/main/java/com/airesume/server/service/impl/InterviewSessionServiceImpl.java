@@ -62,7 +62,7 @@ public class InterviewSessionServiceImpl extends ServiceImpl<InterviewSessionMap
 
         userQuotaService.deductInterviewQuota(userId);
 
-        String openingMessage = interviewAiService.generateOpening(jobRole, jobRoleCode, difficulty);
+        String openingMessage = interviewAiService.generateOpening(jobRole, jobRoleCode, difficulty, null);
         saveChatMessage(sessionId, InterviewConstants.ROLE_ASSISTANT, openingMessage);
 
         log.info("Interview session initialization completed, sessionId: {}", sessionId);
@@ -92,7 +92,7 @@ public class InterviewSessionServiceImpl extends ServiceImpl<InterviewSessionMap
                 .map(log -> new InterviewAiService.ChatMessageItem(log.getMessageRole(), log.getContent()))
                 .collect(Collectors.toList());
 
-        String replyContent = interviewAiService.generateReply(sessionId, history, content, jobRoleCode, difficulty);
+        String replyContent = interviewAiService.generateReply(sessionId, history, content, jobRoleCode, difficulty, null);
 
         saveChatMessage(sessionId, InterviewConstants.ROLE_ASSISTANT, replyContent);
 

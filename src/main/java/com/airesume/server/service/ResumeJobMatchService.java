@@ -27,4 +27,19 @@ public interface ResumeJobMatchService extends IService<ResumeJobMatchRecord> {
      * @return 最近一次分析结果
      */
     ResumeJobMatchAnalyzeResponse getLatestAnalysis(Long userId, Long resumeTaskId);
+
+    /**
+     * 查询指定用户、指定简历任务的最近一次岗位 JD 对比记录。
+     */
+    ResumeJobMatchRecord getLatestRecord(Long userId, Long resumeTaskId);
+
+    /**
+     * 查询指定用户的最近一次岗位 JD 对比记录。
+     */
+    ResumeJobMatchRecord getLatestRecord(Long userId);
+
+    /**
+     * 查询当前用户指定的岗位 JD 对比记录。
+     */
+    ResumeJobMatchRecord getOwnedRecordById(Long userId, Long recordId);
 }

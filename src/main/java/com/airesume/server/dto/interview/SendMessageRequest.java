@@ -4,20 +4,19 @@ import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
 /**
- * 发送面试消息请求DTO
- * 用于接收用户发送的面试消息
+ * 发送面试消息请求 DTO。
  */
 @Data
 public class SendMessageRequest {
 
     /**
-     * 会话ID
+     * 会话 ID。
+     * 当前主链路已经通过路径参数传递，这里只保留作兼容字段，不再要求必填。
      */
-    @NotBlank(message = "会话ID不能为空")
     private String sessionId;
 
     /**
-     * 用户消息内容
+     * 用户消息内容。
      */
     @NotBlank(message = "消息内容不能为空")
     private String content;

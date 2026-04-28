@@ -7,6 +7,7 @@ import com.airesume.server.dto.interview.ChatMessageResponse;
 import com.airesume.server.dto.interview.CreateSessionRequest;
 import com.airesume.server.dto.interview.InterviewEvaluationReport;
 import com.airesume.server.dto.interview.InterviewHistoryResponse;
+import com.airesume.server.dto.interview.InterviewJobTargetContext;
 import com.airesume.server.dto.interview.InterviewSessionResponse;
 import com.airesume.server.dto.interview.SendMessageRequest;
 import com.airesume.server.dto.interview.SendMessageResponse;
@@ -16,6 +17,7 @@ import com.airesume.server.mock.MockInterviewService;
 import com.airesume.server.repository.InterviewMessageRepository;
 import com.airesume.server.repository.InterviewSessionRepository;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -43,7 +45,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 /**
- * 模拟面试服务。
+ * 模拟面试主服务。
+ * 本轮在不破坏原有普通模拟面试链路的前提下，补齐岗位定向上下文解析、落库和反馈回写能力。
  */
 @Service
 @RequiredArgsConstructor
@@ -59,19 +62,22 @@ public class InterviewService {
     private final SysJobRoleService sysJobRoleService;
     private final TransactionTemplate transactionTemplate;
     private final UserQuotaService userQuotaService;
+    private final MockInterviewJobTargetService mockInterviewJobTargetService;
 
     /**
      * 创建面试会话。
+     * 先解析岗位定向上下文，再统一复用同一条会话创建链路。
      */
     @Transactional(rollbackFor = Exception.class)
     public InterviewSessionResponse createSession(Long userId, CreateSessionRequest request) {
-        // 创建前先校验参数与配额，避免生成无效会话。
         validateCreateRequest(request);
         if (!userQuotaService.checkInterviewQuota(userId)) {
             throw new BusinessException("模拟面试次数已用完");
         }
 
+        InterviewJobTargetContext jobTargetContext = mockInterviewJobTargetService.resolveContext(userId, request);
         String interviewMode = resolveInterviewMode(request.getInterviewMode());
+
         InterviewSession session = new InterviewSession();
         session.setId(IdWorker.getId());
         session.setUserId(userId);
@@ -83,12 +89,18 @@ public class InterviewService {
         session.setStatus(InterviewConstants.STATUS_IN_PROGRESS);
         session.setCreateTime(LocalDateTime.now());
         session.setUpdateTime(LocalDateTime.now());
-        interviewSessionRepository.save(session);
+        interviewSessionRepository.saveAndFlush(session);
 
-        // 会话创建成功后再扣减配额，保证计费链路一致。
+        // 仅在会话成功创建后扣减次数，避免无效扣费。
         userQuotaService.deductInterviewQuota(userId);
 
-        String openingMessage = mockInterviewService.generateMockOpening(request.getJobRole(), request.getDifficulty());
+        String openingMessage = interviewAiService.generateOpening(
+                request.getJobRole(),
+                request.getJobRoleCode(),
+                request.getDifficulty(),
+                jobTargetContext
+        );
+
         InterviewChatLog welcomeMessage = new InterviewChatLog();
         welcomeMessage.setId(IdWorker.getId());
         welcomeMessage.setSessionId(session.getSessionId());
@@ -99,12 +111,15 @@ public class InterviewService {
         welcomeMessage.setIsDeleted(0);
         interviewMessageRepository.save(welcomeMessage);
 
+        // 仅在真正启用岗位定向时记录独立上下文，不影响普通面试表结构。
+        mockInterviewJobTargetService.saveSessionContext(userId, session.getSessionId(), jobTargetContext, openingMessage);
+
         log.info("面试会话创建成功, sessionId: {}, userId: {}", session.getSessionId(), userId);
-        return convertToSessionResponse(session);
+        return convertToSessionResponse(session, jobTargetContext);
     }
 
     /**
-     * 普通发消息。
+     * 非流式发送消息。
      */
     @Transactional(rollbackFor = Exception.class)
     public SendMessageResponse sendMessage(Long userId, String sessionId, SendMessageRequest request) {
@@ -115,13 +130,20 @@ public class InterviewService {
         List<InterviewAiService.ChatMessageItem> history = chatLogs.stream()
                 .map(log -> new InterviewAiService.ChatMessageItem(log.getMessageRole(), log.getContent()))
                 .toList();
+        InterviewJobTargetContext jobTargetContext =
+                mockInterviewJobTargetService.getSessionContext(userId, sessionId);
 
         String reply = interviewAiService.generateReply(
-                sessionId, history, request.getContent(), 
-                session.getJobRoleCode(), session.getDifficulty());
+                sessionId,
+                history,
+                request.getContent(),
+                session.getJobRoleCode(),
+                session.getDifficulty(),
+                jobTargetContext
+        );
 
-        interviewMessageService.saveMessage(session, "user", request.getContent());
-        interviewMessageService.saveMessage(session, "assistant", reply);
+        interviewMessageService.saveMessage(session, InterviewConstants.ROLE_USER, request.getContent());
+        interviewMessageService.saveMessage(session, InterviewConstants.ROLE_ASSISTANT, reply);
 
         return SendMessageResponse.builder()
                 .sessionId(sessionId)
@@ -130,12 +152,14 @@ public class InterviewService {
     }
 
     /**
-     * 获取会话详情。
+     * 查询会话详情。
      */
     public InterviewSessionResponse getSessionDetail(Long userId, String sessionId) {
         InterviewSession session = getSessionByOwnerOrThrow(sessionId, userId);
         List<InterviewChatLog> chatLogs = interviewMessageService.getMessageList(sessionId);
-        return convertToSessionResponse(session, chatLogs);
+        InterviewJobTargetContext jobTargetContext =
+                mockInterviewJobTargetService.getSessionContext(userId, sessionId);
+        return convertToSessionResponse(session, chatLogs, jobTargetContext);
     }
 
     /**
@@ -144,8 +168,6 @@ public class InterviewService {
     @Transactional(rollbackFor = Exception.class)
     public void endSession(Long userId, String sessionId) {
         InterviewSession session = getSessionByOwnerOrThrow(sessionId, userId);
-
-        // 结束接口做幂等保护，已结束时直接返回。
         if (!isSessionInProgress(session)) {
             log.info("会话已结束，忽略重复结束请求, sessionId: {}, userId: {}", sessionId, userId);
             return;
@@ -159,12 +181,10 @@ public class InterviewService {
                 LocalDateTime.now()
         );
         if (updatedRows == 0) {
-            // 并发场景下如果已被其他请求结束，也按幂等返回。
             log.info("会话已被并发请求结束，忽略重复结束, sessionId: {}, userId: {}", sessionId, userId);
             return;
         }
 
-        // 报告任务必须在事务提交后触发，避免读取旧状态并覆盖终态。
         Runnable reportTask = () -> triggerEvaluationReportAsync(sessionId);
         if (TransactionSynchronizationManager.isActualTransactionActive()
                 && TransactionSynchronizationManager.isSynchronizationActive()) {
@@ -178,18 +198,19 @@ public class InterviewService {
             reportTask.run();
         }
 
-        log.info("面试会话结束成功，报告任务已提交, sessionId: {}, userId: {}", sessionId, userId);
+        log.info("面试会话结束成功，已提交报告生成任务, sessionId: {}, userId: {}", sessionId, userId);
     }
 
     /**
-     * 异步触发报告生成。
+     * 异步触发面试评估报告生成。
      */
     private void triggerEvaluationReportAsync(String sessionId) {
         CompletableFuture.runAsync(() -> generateAndPersistEvaluationReport(sessionId));
     }
 
     /**
-     * 生成并持久化评估报告。
+     * 生成并落库评估报告。
+     * 岗位定向反馈由同一份结构化报告二次提取，避免再起一套 AI 调用。
      */
     private void generateAndPersistEvaluationReport(String sessionId) {
         InterviewSession session = interviewSessionRepository.findBySessionId(sessionId).orElse(null);
@@ -198,7 +219,7 @@ public class InterviewService {
             return;
         }
         if (isSessionInProgress(session)) {
-            log.warn("会话仍为进行中，跳过报告生成, sessionId: {}", sessionId);
+            log.warn("会话仍在进行中，跳过报告生成, sessionId: {}", sessionId);
             return;
         }
         if (session.getEvaluationReport() != null && !session.getEvaluationReport().isBlank()) {
@@ -210,6 +231,8 @@ public class InterviewService {
         List<InterviewAiService.ChatMessageItem> history = chatLogs.stream()
                 .map(log -> new InterviewAiService.ChatMessageItem(log.getMessageRole(), log.getContent()))
                 .toList();
+        InterviewJobTargetContext jobTargetContext =
+                mockInterviewJobTargetService.getSessionContext(session.getUserId(), sessionId);
 
         Integer score;
         String evaluationReportJson;
@@ -220,34 +243,41 @@ public class InterviewService {
                     session.getJobRole(),
                     session.getJobRoleCode(),
                     session.getDifficulty(),
-                    session.getInterviewMode()
+                    session.getInterviewMode(),
+                    jobTargetContext
             );
             score = report.getOverallScore();
-            evaluationReportJson = objectMapper.writeValueAsString(report);
+            mockInterviewJobTargetService.updateFeedback(
+                    sessionId,
+                    mockInterviewJobTargetService.buildFeedback(report, jobTargetContext)
+            );
+            evaluationReportJson = writeEvaluationReport(report);
             log.info("异步 AI 评估报告生成成功, sessionId: {}, score: {}", sessionId, score);
         } catch (Exception e) {
-            log.warn("异步 AI 评估失败，降级 Mock, sessionId: {}, error: {}", sessionId, e.getMessage());
-            score = mockInterviewService.generateMockScore(sessionId);
-            evaluationReportJson = mockInterviewService.generateMockEvaluationReport(sessionId, score);
+            log.warn("异步 AI 评估失败，降级使用 Mock 报告, sessionId: {}, error: {}", sessionId, e.getMessage());
+            InterviewEvaluationReport fallbackReport = buildFallbackEvaluationReport(session, jobTargetContext);
+            score = fallbackReport.getOverallScore();
+            mockInterviewJobTargetService.updateFeedback(
+                    sessionId,
+                    mockInterviewJobTargetService.buildFeedback(fallbackReport, jobTargetContext)
+            );
+            evaluationReportJson = writeEvaluationReport(fallbackReport);
             log.info("异步 Mock 评估报告生成成功, sessionId: {}, score: {}", sessionId, score);
         }
 
-        final Integer finalScore = score;
-        final String finalReportJson = evaluationReportJson;
-        transactionTemplate.executeWithoutResult(status -> {
-            interviewSessionRepository.updateEvaluationReport(
-                    sessionId,
-                    finalScore,
-                    finalReportJson,
-                    InterviewConstants.STATUS_ENDED,
-                    LocalDateTime.now()
-            );
-            log.info("异步报告写回成功, sessionId: {}, userId: {}, score: {}", sessionId, session.getUserId(), finalScore);
-        });
+        Integer finalScore = score;
+        String finalReportJson = evaluationReportJson;
+        transactionTemplate.executeWithoutResult(status -> interviewSessionRepository.updateEvaluationReport(
+                sessionId,
+                finalScore,
+                finalReportJson,
+                InterviewConstants.STATUS_ENDED,
+                LocalDateTime.now()
+        ));
     }
 
     /**
-     * 获取面试历史（分页）。
+     * 历史记录分页查询。
      */
     public PageResult<InterviewHistoryResponse> getHistory(Long userId, Integer pageNum, Integer pageSize) {
         Pageable pageable = PageRequest.of(pageNum - 1, pageSize, Sort.by(Sort.Direction.DESC, "createTime"));
@@ -259,7 +289,7 @@ public class InterviewService {
     }
 
     /**
-     * 获取全部面试历史（兼容旧版）。
+     * 兼容旧版全量历史接口。
      */
     @Deprecated
     public List<InterviewHistoryResponse> getAllHistory(Long userId) {
@@ -270,7 +300,7 @@ public class InterviewService {
     }
 
     /**
-     * 流式发送前拉取历史并校验终态。
+     * 流式发送前统一拉取历史并校验状态。
      */
     public List<InterviewChatLog> getChatLogsForStream(String sessionId, Long userId) {
         InterviewSession session = getSessionByOwnerOrThrow(sessionId, userId);
@@ -279,7 +309,7 @@ public class InterviewService {
     }
 
     /**
-     * 流式发送前二次校验终态。
+     * 流式发送前二次校验会话状态。
      */
     public void validateSessionForStream(String sessionId, Long userId) {
         InterviewSession session = getSessionByOwnerOrThrow(sessionId, userId);
@@ -287,11 +317,10 @@ public class InterviewService {
     }
 
     /**
-     * 保存用户消息。
+     * 在流式返回前先保存用户消息，避免历史上下文丢失。
      */
     @Transactional(rollbackFor = Exception.class)
     public void saveUserMessage(String sessionId, Long userId, String content) {
-        // 落库前再次校验，防止已结束会话继续写入用户消息。
         InterviewSession session = getSessionByOwnerOrThrow(sessionId, userId);
         assertSessionInProgress(session);
 
@@ -304,22 +333,21 @@ public class InterviewService {
         userMessage.setUpdateTime(LocalDateTime.now());
         userMessage.setIsDeleted(0);
         interviewMessageRepository.save(userMessage);
-        log.debug("用户消息已保存, sessionId: {}", sessionId);
     }
 
     /**
-     * 订阅并写出流式回复。
+     * 订阅并写出 SSE 数据。
      */
     public void subscribeAndWriteStream(
             String sessionId,
             ResponseBodyEmitter emitter,
             Publisher<String> publisher,
-            StringBuilder fullReply) throws IOException {
-
+            StringBuilder fullReply
+    ) throws IOException {
         Subscription[] subscriptionRef = new Subscription[1];
         AtomicBoolean done = new AtomicBoolean(false);
 
-        publisher.subscribe(new Subscriber<String>() {
+        publisher.subscribe(new Subscriber<>() {
             @Override
             public void onSubscribe(Subscription s) {
                 subscriptionRef[0] = s;
@@ -397,7 +425,6 @@ public class InterviewService {
         if (request.getJobRole() == null || request.getJobRole().trim().isEmpty()) {
             throw new BusinessException("面试岗位不能为空");
         }
-        // 岗位由后台配置，后端必须做最终校验，防止伪造岗位入参。
         if (!sysJobRoleService.isActiveRoleName(request.getJobRole())) {
             throw new BusinessException("面试岗位不存在或已禁用");
         }
@@ -418,7 +445,7 @@ public class InterviewService {
     }
 
     /**
-     * 获取面试模式描述。
+     * 获取面试模式文案。
      */
     private String getInterviewModeDescription(String interviewMode) {
         if ("stress".equals(interviewMode)) {
@@ -428,14 +455,18 @@ public class InterviewService {
     }
 
     /**
-     * 转换为会话响应（不带聊天记录）。
+     * 转换为会话响应，不携带聊天记录。
      */
-    private InterviewSessionResponse convertToSessionResponse(InterviewSession session) {
+    private InterviewSessionResponse convertToSessionResponse(
+            InterviewSession session,
+            InterviewJobTargetContext jobTargetContext
+    ) {
         return InterviewSessionResponse.builder()
                 .id(session.getId())
                 .sessionId(session.getSessionId())
                 .userId(session.getUserId())
                 .jobRole(session.getJobRole())
+                .jobRoleCode(session.getJobRoleCode())
                 .difficulty(session.getDifficulty())
                 .difficultyDesc(convertDifficultyToDesc(session.getDifficulty()))
                 .interviewMode(session.getInterviewMode())
@@ -443,15 +474,21 @@ public class InterviewService {
                 .status(session.getStatus())
                 .statusDesc(isSessionInProgress(session) ? "进行中" : "已结束")
                 .comprehensiveScore(session.getComprehensiveScore())
+                .jobTargeted(jobTargetContext != null && Boolean.TRUE.equals(jobTargetContext.getJobTargeted()))
+                .jobTargetContext(jobTargetContext)
                 .createTime(session.getCreateTime())
                 .updateTime(session.getUpdateTime())
                 .build();
     }
 
     /**
-     * 转换为会话响应（带聊天记录）。
+     * 转换为会话响应，携带聊天记录。
      */
-    private InterviewSessionResponse convertToSessionResponse(InterviewSession session, List<InterviewChatLog> chatLogs) {
+    private InterviewSessionResponse convertToSessionResponse(
+            InterviewSession session,
+            List<InterviewChatLog> chatLogs,
+            InterviewJobTargetContext jobTargetContext
+    ) {
         List<ChatMessageResponse> dtoLogs = (chatLogs == null ? Collections.<InterviewChatLog>emptyList() : chatLogs)
                 .stream()
                 .map(log -> ChatMessageResponse.builder()
@@ -476,6 +513,8 @@ public class InterviewService {
                 .statusDesc(isSessionInProgress(session) ? "进行中" : "已结束")
                 .comprehensiveScore(session.getComprehensiveScore())
                 .evaluationReport(session.getEvaluationReport())
+                .jobTargeted(jobTargetContext != null && Boolean.TRUE.equals(jobTargetContext.getJobTargeted()))
+                .jobTargetContext(jobTargetContext)
                 .chatLogs(dtoLogs)
                 .createTime(session.getCreateTime())
                 .updateTime(session.getUpdateTime())
@@ -483,7 +522,7 @@ public class InterviewService {
     }
 
     /**
-     * 转换为历史响应。
+     * 转换历史记录响应。
      */
     private InterviewHistoryResponse convertToHistoryResponse(InterviewSession session) {
         Integer messageCount = interviewMessageService.getMessageCount(session.getSessionId());
@@ -491,6 +530,8 @@ public class InterviewService {
         if (interviewMode == null || interviewMode.isBlank()) {
             interviewMode = "normal";
         }
+        InterviewJobTargetContext jobTargetContext =
+                mockInterviewJobTargetService.getSessionContext(session.getUserId(), session.getSessionId());
 
         return InterviewHistoryResponse.builder()
                 .id(session.getId())
@@ -504,9 +545,79 @@ public class InterviewService {
                 .statusDesc(isSessionInProgress(session) ? "进行中" : "已结束")
                 .comprehensiveScore(session.getComprehensiveScore())
                 .messageCount(messageCount)
+                .jobTargeted(jobTargetContext != null && Boolean.TRUE.equals(jobTargetContext.getJobTargeted()))
+                .sourceType(jobTargetContext == null ? null : jobTargetContext.getSourceType())
                 .createTime(session.getCreateTime())
                 .updateTime(session.getUpdateTime())
                 .build();
+    }
+
+    /**
+     * 生成 fallback 报告。
+     * 当真实 AI 失败时，仍保持结构化字段完整，方便前端稳定展示岗位反馈区。
+     */
+    private InterviewEvaluationReport buildFallbackEvaluationReport(
+            InterviewSession session,
+            InterviewJobTargetContext jobTargetContext
+    ) {
+        int score = mockInterviewService.generateMockScore(session.getSessionId());
+        String summary = Boolean.TRUE.equals(jobTargetContext != null ? jobTargetContext.getJobTargeted() : false)
+                ? "本次岗位定向模拟面试已结合目标岗位要求给出基础评估，建议继续围绕岗位关键能力补齐案例表达。"
+                : "本次模拟面试已生成基础评估，建议继续补强案例细节与表达完整性。";
+
+        return InterviewEvaluationReport.builder()
+                .overallScore(score)
+                .level(resolveLevel(score))
+                .summary(summary)
+                .finalVerdict(score >= 80 ? "表现较好" : "仍有提升空间")
+                .strengths(List.of("回答具备基本结构", "能够围绕问题给出业务表达"))
+                .weaknesses(Boolean.TRUE.equals(jobTargetContext != null ? jobTargetContext.getJobTargeted() : false)
+                        ? List.of("岗位要求与案例关联仍可加强")
+                        : List.of("案例细节不够充分"))
+                .improvementSuggestions(Boolean.TRUE.equals(jobTargetContext != null ? jobTargetContext.getJobTargeted() : false)
+                        ? List.of("补充与目标岗位最相关的项目证据", "强化对 JD 关键能力项的量化表达")
+                        : List.of("补充更多项目细节", "提升回答的结构化程度"))
+                .suggestions(Boolean.TRUE.equals(jobTargetContext != null ? jobTargetContext.getJobTargeted() : false)
+                        ? List.of("补充与目标岗位最相关的项目证据", "强化对 JD 关键能力项的量化表达")
+                        : List.of("补充更多项目细节", "提升回答的结构化程度"))
+                .improvements(Boolean.TRUE.equals(jobTargetContext != null ? jobTargetContext.getJobTargeted() : false)
+                        ? List.of("加强岗位匹配表达")
+                        : List.of("加强案例细节表达"))
+                .jobMatch(InterviewEvaluationReport.DimensionScore.builder()
+                        .score(Boolean.TRUE.equals(jobTargetContext != null ? jobTargetContext.getJobTargeted() : false) ? score : null)
+                        .comment(Boolean.TRUE.equals(jobTargetContext != null ? jobTargetContext.getJobTargeted() : false)
+                                ? "当前回答与目标岗位存在基础匹配度，但仍需提升案例与岗位要求的贴合程度。"
+                                : null)
+                        .build())
+                .build();
+    }
+
+    /**
+     * 统一序列化评估报告。
+     */
+    private String writeEvaluationReport(InterviewEvaluationReport report) {
+        try {
+            return objectMapper.writeValueAsString(report);
+        } catch (JsonProcessingException e) {
+            throw new BusinessException("评估报告序列化失败");
+        }
+    }
+
+    /**
+     * 根据分数生成等级，兼容前端既有展示逻辑。
+     */
+    private String resolveLevel(Integer score) {
+        int safeScore = score == null ? 0 : score;
+        if (safeScore >= 85) {
+            return "A";
+        }
+        if (safeScore >= 75) {
+            return "B";
+        }
+        if (safeScore >= 60) {
+            return "C";
+        }
+        return "D";
     }
 
     /**
@@ -525,7 +636,7 @@ public class InterviewService {
     }
 
     /**
-     * SSE 数据中的 JSON 字符转义。
+     * SSE 返回中的 JSON 转义。
      */
     private String escapeJsonForSse(String raw) {
         if (raw == null || raw.isEmpty()) {
@@ -540,7 +651,7 @@ public class InterviewService {
     }
 
     /**
-     * 校验并返回用户归属会话。
+     * 按归属查询会话，不存在则抛错。
      */
     private InterviewSession getSessionByOwnerOrThrow(String sessionId, Long userId) {
         return interviewSessionRepository.findBySessionIdAndUserId(sessionId, userId)
@@ -548,7 +659,7 @@ public class InterviewService {
     }
 
     /**
-     * 获取用户归属会话（不抛出异常）。
+     * 获取用户归属会话，兼容旧 Controller 的空值判断。
      */
     public InterviewSession getSessionByOwner(String sessionId, Long userId) {
         return interviewSessionRepository.findBySessionIdAndUserId(sessionId, userId).orElse(null);
@@ -564,7 +675,7 @@ public class InterviewService {
     }
 
     /**
-     * 统一拦截非进行中会话的发送行为。
+     * 统一拦截非进行中会话的继续发送行为。
      */
     private void assertSessionInProgress(InterviewSession session) {
         if (!isSessionInProgress(session)) {

@@ -72,6 +72,16 @@ public class InterviewHistoryResponse {
     private Integer messageCount;
 
     /**
+     * 是否为岗位定向模拟面试。
+     */
+    private Boolean jobTargeted;
+
+    /**
+     * 岗位定向来源类型。
+     */
+    private String sourceType;
+
+    /**
      * 创建时间
      */
     private LocalDateTime createTime;

@@ -114,13 +114,7 @@ public class ResumeJobMatchServiceImpl extends ServiceImpl<ResumeJobMatchRecordM
 
     @Override
     public ResumeJobMatchAnalyzeResponse getLatestAnalysis(Long userId, Long resumeTaskId) {
-        LambdaQueryWrapper<ResumeJobMatchRecord> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(ResumeJobMatchRecord::getUserId, userId)
-                .eq(ResumeJobMatchRecord::getResumeTaskId, resumeTaskId)
-                .orderByDesc(ResumeJobMatchRecord::getCreateTime)
-                .last("limit 1");
-
-        ResumeJobMatchRecord record = getOne(wrapper, false);
+        ResumeJobMatchRecord record = getLatestRecord(userId, resumeTaskId);
         if (record == null || record.getAnalysisResult() == null || record.getAnalysisResult().isBlank()) {
             return null;
         }
@@ -136,6 +130,37 @@ public class ResumeJobMatchServiceImpl extends ServiceImpl<ResumeJobMatchRecordM
             log.error("解析岗位 JD 对比记录失败, recordId: {}", record.getId(), e);
             return null;
         }
+    }
+
+    @Override
+    public ResumeJobMatchRecord getLatestRecord(Long userId, Long resumeTaskId) {
+        LambdaQueryWrapper<ResumeJobMatchRecord> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(ResumeJobMatchRecord::getUserId, userId)
+                .eq(ResumeJobMatchRecord::getResumeTaskId, resumeTaskId)
+                .orderByDesc(ResumeJobMatchRecord::getCreateTime)
+                .last("limit 1");
+        return getOne(wrapper, false);
+    }
+
+    @Override
+    public ResumeJobMatchRecord getLatestRecord(Long userId) {
+        LambdaQueryWrapper<ResumeJobMatchRecord> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(ResumeJobMatchRecord::getUserId, userId)
+                .orderByDesc(ResumeJobMatchRecord::getCreateTime)
+                .last("limit 1");
+        return getOne(wrapper, false);
+    }
+
+    @Override
+    public ResumeJobMatchRecord getOwnedRecordById(Long userId, Long recordId) {
+        if (recordId == null) {
+            return null;
+        }
+        LambdaQueryWrapper<ResumeJobMatchRecord> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(ResumeJobMatchRecord::getId, recordId)
+                .eq(ResumeJobMatchRecord::getUserId, userId)
+                .last("limit 1");
+        return getOne(wrapper, false);
     }
 
     private ResumeDiagnosisTask loadOwnedTask(Long userId, Long resumeTaskId) {

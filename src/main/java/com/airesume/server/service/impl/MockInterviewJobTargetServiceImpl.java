@@ -1,0 +1,345 @@
+package com.airesume.server.service.impl;
+
+import com.airesume.server.common.exception.BusinessException;
+import com.airesume.server.dto.interview.CreateSessionRequest;
+import com.airesume.server.dto.interview.InterviewEvaluationReport;
+import com.airesume.server.dto.interview.InterviewJobTargetContext;
+import com.airesume.server.dto.interview.InterviewJobTargetedFeedback;
+import com.airesume.server.dto.resume.ResumeJobMatchAnalyzeResponse;
+import com.airesume.server.entity.MockInterviewJobTargetRecord;
+import com.airesume.server.entity.ResumeDiagnosisTask;
+import com.airesume.server.entity.ResumeJobMatchRecord;
+import com.airesume.server.mapper.MockInterviewJobTargetRecordMapper;
+import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
+import com.airesume.server.service.MockInterviewJobTargetService;
+import com.airesume.server.service.PdfTextExtractor;
+import com.airesume.server.service.ResumeJobMatchService;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+
+/**
+ * 岗位定向模拟面试服务实现。
+ * 该实现负责把 JD、简历文本和最近一次 JD 对比结果统一整理成面试上下文。
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class MockInterviewJobTargetServiceImpl
+        extends ServiceImpl<MockInterviewJobTargetRecordMapper, MockInterviewJobTargetRecord>
+        implements MockInterviewJobTargetService {
+
+    private final ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper;
+    private final ResumeJobMatchService resumeJobMatchService;
+    private final PdfTextExtractor pdfTextExtractor;
+    private final ObjectMapper objectMapper;
+
+    @Override
+    public InterviewJobTargetContext resolveContext(Long userId, CreateSessionRequest request) {
+        InterviewJobTargetContext fallbackContext = InterviewJobTargetContext.builder().jobTargeted(false).build();
+        if (!Boolean.TRUE.equals(request.getJobTargeted())) {
+            return fallbackContext;
+        }
+
+        Long resumeTaskId = parseOptionalLong(request.getResumeTaskId(), "简历任务 ID");
+        Long jobMatchRecordId = parseOptionalLong(request.getJobMatchRecordId(), "岗位对比记录 ID");
+        String jdText = normalizeText(request.getJdText());
+
+        ResumeJobMatchRecord selectedRecord = resolveJobMatchRecord(
+                userId,
+                resumeTaskId,
+                jobMatchRecordId,
+                Boolean.TRUE.equals(request.getUseLatestJobMatch()),
+                jdText
+        );
+
+        if (jdText.isBlank() && selectedRecord != null) {
+            jdText = normalizeText(selectedRecord.getJdText());
+        }
+
+        // 没有可用 JD 时，自动回落到普通模拟面试，不强制报错。
+        if (jdText.isBlank()) {
+            return fallbackContext;
+        }
+
+        String resumeText = loadResumeText(userId, resumeTaskId);
+        if (resumeText.isBlank() && selectedRecord != null) {
+            resumeText = normalizeText(selectedRecord.getResumeText());
+        }
+
+        InterviewJobTargetContext context = InterviewJobTargetContext.builder()
+                .jobTargeted(true)
+                .sourceType(resolveSourceType(jdText, request, selectedRecord))
+                .resumeTaskId(resolveResumeTaskId(resumeTaskId, selectedRecord))
+                .jdText(jdText)
+                .jobMatchRecordId(selectedRecord == null ? null : String.valueOf(selectedRecord.getId()))
+                .resumeText(resumeText)
+                .matchedKeywords(new ArrayList<>())
+                .missingKeywords(new ArrayList<>())
+                .suggestions(new ArrayList<>())
+                .build();
+
+        if (selectedRecord != null) {
+            ResumeJobMatchAnalyzeResponse analysis = parseAnalysisResponse(selectedRecord);
+            if (analysis != null) {
+                context.setMatchedKeywords(defaultList(analysis.getMatchedKeywords()));
+                context.setMissingKeywords(defaultList(analysis.getMissingKeywords()));
+                context.setSuggestions(defaultList(analysis.getSuggestions()));
+            }
+        }
+        return context;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void saveSessionContext(Long userId, String sessionId, InterviewJobTargetContext context, String openingQuestion) {
+        if (context == null || !Boolean.TRUE.equals(context.getJobTargeted())) {
+            return;
+        }
+
+        MockInterviewJobTargetRecord record = new MockInterviewJobTargetRecord();
+        record.setUserId(userId);
+        record.setSessionId(sessionId);
+        record.setResumeTaskId(parseOptionalLong(context.getResumeTaskId(), "简历任务 ID"));
+        record.setJdText(context.getJdText());
+        record.setJobMatchRecordId(parseOptionalLong(context.getJobMatchRecordId(), "岗位对比记录 ID"));
+        record.setGeneratedQuestions(openingQuestion);
+        record.setSourceType(context.getSourceType());
+        save(record);
+    }
+
+    @Override
+    public InterviewJobTargetContext getSessionContext(Long userId, String sessionId) {
+        LambdaQueryWrapper<MockInterviewJobTargetRecord> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(MockInterviewJobTargetRecord::getUserId, userId)
+                .eq(MockInterviewJobTargetRecord::getSessionId, sessionId)
+                .last("limit 1");
+        MockInterviewJobTargetRecord record = getOne(wrapper, false);
+        if (record == null) {
+            return null;
+        }
+
+        InterviewJobTargetContext context = InterviewJobTargetContext.builder()
+                .jobTargeted(true)
+                .sourceType(record.getSourceType())
+                .resumeTaskId(record.getResumeTaskId() == null ? null : String.valueOf(record.getResumeTaskId()))
+                .jdText(record.getJdText())
+                .jobMatchRecordId(record.getJobMatchRecordId() == null ? null : String.valueOf(record.getJobMatchRecordId()))
+                .matchedKeywords(new ArrayList<>())
+                .missingKeywords(new ArrayList<>())
+                .suggestions(new ArrayList<>())
+                .jobTargetedFeedback(parseFeedback(record.getJobTargetedFeedback()))
+                .build();
+
+        ResumeJobMatchRecord jobMatchRecord = resumeJobMatchService.getOwnedRecordById(userId, record.getJobMatchRecordId());
+        if (jobMatchRecord != null) {
+            ResumeJobMatchAnalyzeResponse analysis = parseAnalysisResponse(jobMatchRecord);
+            if (analysis != null) {
+                context.setMatchedKeywords(defaultList(analysis.getMatchedKeywords()));
+                context.setMissingKeywords(defaultList(analysis.getMissingKeywords()));
+                context.setSuggestions(defaultList(analysis.getSuggestions()));
+            }
+        }
+
+        return context;
+    }
+
+    @Override
+    public InterviewJobTargetedFeedback buildFeedback(InterviewEvaluationReport report, InterviewJobTargetContext context) {
+        if (report == null || context == null || !Boolean.TRUE.equals(context.getJobTargeted())) {
+            return null;
+        }
+
+        String performance = "";
+        if (report.getJobMatch() != null && report.getJobMatch().getComment() != null) {
+            performance = report.getJobMatch().getComment();
+        } else if (report.getSummary() != null) {
+            performance = report.getSummary();
+        }
+
+        return InterviewJobTargetedFeedback.builder()
+                .jobMatchPerformance(performance)
+                .strengths(defaultList(report.getStrengths()))
+                .weaknesses(mergeWeaknesses(report))
+                .improvementSuggestions(defaultList(report.getImprovementSuggestions()))
+                .build();
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void updateFeedback(String sessionId, InterviewJobTargetedFeedback feedback) {
+        if (sessionId == null || sessionId.isBlank() || feedback == null) {
+            return;
+        }
+        LambdaQueryWrapper<MockInterviewJobTargetRecord> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(MockInterviewJobTargetRecord::getSessionId, sessionId).last("limit 1");
+        MockInterviewJobTargetRecord record = getOne(wrapper, false);
+        if (record == null) {
+            return;
+        }
+        record.setJobTargetedFeedback(writeJson(feedback));
+        updateById(record);
+    }
+
+    /**
+     * 解析应当复用的岗位 JD 对比记录。
+     * 优先级为：指定记录 ID > 最近一次匹配记录 > 与手动 JD 相同的最近记录。
+     */
+    private ResumeJobMatchRecord resolveJobMatchRecord(
+            Long userId,
+            Long resumeTaskId,
+            Long jobMatchRecordId,
+            boolean useLatestJobMatch,
+            String jdText
+    ) {
+        if (jobMatchRecordId != null) {
+            return resumeJobMatchService.getOwnedRecordById(userId, jobMatchRecordId);
+        }
+
+        ResumeJobMatchRecord latestRecord = resumeTaskId == null
+                ? resumeJobMatchService.getLatestRecord(userId)
+                : resumeJobMatchService.getLatestRecord(userId, resumeTaskId);
+
+        if (latestRecord == null) {
+            return null;
+        }
+        if (useLatestJobMatch) {
+            return latestRecord;
+        }
+        if (!jdText.isBlank() && Objects.equals(normalizeText(latestRecord.getJdText()), jdText)) {
+            return latestRecord;
+        }
+        if (jdText.isBlank()) {
+            return latestRecord;
+        }
+        return null;
+    }
+
+    /**
+     * 从简历任务中兜底提取简历文本。
+     */
+    private String loadResumeText(Long userId, Long resumeTaskId) {
+        if (resumeTaskId == null) {
+            return "";
+        }
+        ResumeDiagnosisTask task = resumeDiagnosisTaskMapper.selectById(resumeTaskId);
+        if (task == null) {
+            throw new BusinessException("简历诊断任务不存在");
+        }
+        if (!Objects.equals(task.getUserId(), userId)) {
+            throw new BusinessException("无权访问该简历诊断任务");
+        }
+        if (task.getFileUrl() == null || task.getFileUrl().isBlank()) {
+            return "";
+        }
+        try {
+            return normalizeText(pdfTextExtractor.extractText(task.getFileUrl()));
+        } catch (Exception e) {
+            log.warn("提取简历文本失败, userId: {}, resumeTaskId: {}", userId, resumeTaskId, e);
+            return "";
+        }
+    }
+
+    /**
+     * 合并短板与缺失能力，生成更适合前端展示的不足列表。
+     */
+    private List<String> mergeWeaknesses(InterviewEvaluationReport report) {
+        List<String> merged = new ArrayList<>();
+        merged.addAll(defaultList(report.getWeaknesses()));
+        merged.addAll(defaultList(report.getMissingCompetencies()));
+        return merged.stream().distinct().toList();
+    }
+
+    private String resolveSourceType(String jdText, CreateSessionRequest request, ResumeJobMatchRecord selectedRecord) {
+        boolean hasManualJd = jdText != null && !jdText.isBlank();
+        boolean hasJobMatch = selectedRecord != null;
+        if (hasManualJd && hasJobMatch) {
+            return "manual_jd_with_job_match";
+        }
+        if (hasManualJd) {
+            return "manual_jd";
+        }
+        if (hasJobMatch) {
+            return "latest_job_match";
+        }
+        return "general";
+    }
+
+    private String resolveResumeTaskId(Long resumeTaskId, ResumeJobMatchRecord selectedRecord) {
+        if (resumeTaskId != null) {
+            return String.valueOf(resumeTaskId);
+        }
+        if (selectedRecord != null && selectedRecord.getResumeTaskId() != null) {
+            return String.valueOf(selectedRecord.getResumeTaskId());
+        }
+        return null;
+    }
+
+    private ResumeJobMatchAnalyzeResponse parseAnalysisResponse(ResumeJobMatchRecord record) {
+        if (record == null || record.getAnalysisResult() == null || record.getAnalysisResult().isBlank()) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(record.getAnalysisResult(), ResumeJobMatchAnalyzeResponse.class);
+        } catch (JsonProcessingException e) {
+            log.warn("解析岗位 JD 对比分析记录失败, recordId: {}", record.getId(), e);
+            return null;
+        }
+    }
+
+    private InterviewJobTargetedFeedback parseFeedback(String rawJson) {
+        if (rawJson == null || rawJson.isBlank()) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(rawJson, InterviewJobTargetedFeedback.class);
+        } catch (JsonProcessingException e) {
+            log.warn("解析岗位定向反馈失败", e);
+            return null;
+        }
+    }
+
+    private String writeJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (JsonProcessingException e) {
+            throw new BusinessException("岗位定向数据保存失败");
+        }
+    }
+
+    private List<String> defaultList(List<String> value) {
+        return value == null ? new ArrayList<>() : new ArrayList<>(value);
+    }
+
+    private Long parseOptionalLong(String rawValue, String fieldName) {
+        if (rawValue == null || rawValue.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(rawValue.trim());
+        } catch (NumberFormatException e) {
+            throw new BusinessException(fieldName + "格式不正确");
+        }
+    }
+
+    private String normalizeText(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.replace("\r\n", "\n")
+                .replace('\r', '\n')
+                .replace('\t', ' ')
+                .replaceAll("[\\u200B-\\u200F\\uFEFF]", "")
+                .replaceAll(" {2,}", " ")
+                .trim();
+    }
+}

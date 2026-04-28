@@ -1,16 +1,31 @@
 package com.airesume.server.service;
 
 import com.airesume.server.dto.interview.InterviewEvaluationReport;
+import com.airesume.server.dto.interview.InterviewJobTargetContext;
 import java.util.List;
 import org.reactivestreams.Publisher;
 
 public interface InterviewAiService {
 
-    String generateOpening(String jobRole, String jobRoleCode, Integer difficulty);
+    String generateOpening(String jobRole, String jobRoleCode, Integer difficulty, InterviewJobTargetContext jobTargetContext);
 
-    String generateReply(String sessionId, List<ChatMessageItem> history, String userMessage, String jobRoleCode, Integer difficulty);
+    String generateReply(
+            String sessionId,
+            List<ChatMessageItem> history,
+            String userMessage,
+            String jobRoleCode,
+            Integer difficulty,
+            InterviewJobTargetContext jobTargetContext
+    );
 
-    Publisher<String> generateReplyStream(String sessionId, List<ChatMessageItem> history, String userMessage, String jobRoleCode, Integer difficulty);
+    Publisher<String> generateReplyStream(
+            String sessionId,
+            List<ChatMessageItem> history,
+            String userMessage,
+            String jobRoleCode,
+            Integer difficulty,
+            InterviewJobTargetContext jobTargetContext
+    );
 
     /**
      * 生成面试评价报告（旧版兼容，返回字符串JSON）
@@ -35,7 +50,8 @@ public interface InterviewAiService {
             String jobRole,
             String jobRoleCode,
             Integer difficulty,
-            String interviewMode
+            String interviewMode,
+            InterviewJobTargetContext jobTargetContext
     );
 
     record ChatMessageItem(String role, String content) {}

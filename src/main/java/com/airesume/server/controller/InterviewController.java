@@ -11,6 +11,7 @@ import com.airesume.server.entity.SysJobRole;
 import com.airesume.server.mapper.InterviewChatLogMapper;
 import com.airesume.server.service.InterviewAiService;
 import com.airesume.server.service.InterviewService;
+import com.airesume.server.service.MockInterviewJobTargetService;
 import com.airesume.server.service.SysJobRoleService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,6 +37,7 @@ public class InterviewController {
     private final InterviewAiService interviewAiService;
     private final InterviewChatLogMapper interviewChatLogMapper;
     private final SysJobRoleService sysJobRoleService;
+    private final MockInterviewJobTargetService mockInterviewJobTargetService;
 
     /**
      * 查询当前启用的面试岗位选项
@@ -102,8 +104,18 @@ public class InterviewController {
                 String userMessage = request.getContent();
                 String jobRoleCode = session != null ? session.getJobRoleCode() : null;
                 Integer difficulty = session != null ? session.getDifficulty() : null;
+                // 流式问答也要补齐岗位定向上下文，保证与非流式链路一致。
+                InterviewJobTargetContext jobTargetContext =
+                        mockInterviewJobTargetService.getSessionContext(userId, sessionId);
 
-                Publisher<String> publisher = interviewAiService.generateReplyStream(sessionId, history, userMessage, jobRoleCode, difficulty);
+                Publisher<String> publisher = interviewAiService.generateReplyStream(
+                        sessionId,
+                        history,
+                        userMessage,
+                        jobRoleCode,
+                        difficulty,
+                        jobTargetContext
+                );
 
                 interviewService.subscribeAndWriteStream(sessionId, emitter, publisher, fullReply);
 

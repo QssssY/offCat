@@ -84,6 +84,16 @@ public class InterviewSessionResponse {
     private String evaluationReport;
 
     /**
+     * 当前会话是否启用了岗位定向模拟。
+     */
+    private Boolean jobTargeted;
+
+    /**
+     * 岗位定向上下文与反馈。
+     */
+    private InterviewJobTargetContext jobTargetContext;
+
+    /**
      * 聊天记录列表
      */
     private List<ChatMessageResponse> chatLogs;

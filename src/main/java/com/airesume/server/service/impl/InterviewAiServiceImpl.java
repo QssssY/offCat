@@ -3,6 +3,7 @@ package com.airesume.server.service.impl;
 import com.airesume.server.common.constants.AiEngineConstants;
 import com.airesume.server.common.constants.PromptConstants;
 import com.airesume.server.dto.interview.InterviewEvaluationReport;
+import com.airesume.server.dto.interview.InterviewJobTargetContext;
 import com.airesume.server.entity.SysAiEngineConfig;
 import com.airesume.server.entity.SysPrompt;
 import com.airesume.server.service.InterviewAiService;
@@ -291,13 +292,14 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      * @return 开场白文本
      */
     @Override
-    public String generateOpening(String jobRole, String jobRoleCode, Integer difficulty) {
+    public String generateOpening(String jobRole, String jobRoleCode, Integer difficulty,
+                                  InterviewJobTargetContext jobTargetContext) {
         RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
         String tag = runtimeConfig.provider().toUpperCase();
         log.info("[{}] 生成面试开场白, jobRole: {}, jobRoleCode: {}, difficulty: {}",
                 tag, jobRole, jobRoleCode, difficulty);
-        String systemPrompt = buildSystemPrompt(jobRole, jobRoleCode, difficulty);
-        String userPrompt = buildOpeningUserPrompt(jobRole, difficulty);
+        String systemPrompt = buildSystemPrompt(jobRole, jobRoleCode, difficulty, jobTargetContext);
+        String userPrompt = buildOpeningUserPrompt(jobRole, difficulty, jobTargetContext);
         return chat(systemPrompt, userPrompt);
     }
 
@@ -312,14 +314,16 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      * @throws RuntimeException AI 调用失败时抛出
      */
     @Override
-    public String generateReply(String sessionId, List<ChatMessageItem> history, String userMessage, String jobRoleCode, Integer difficulty) {
+    public String generateReply(String sessionId, List<ChatMessageItem> history, String userMessage,
+                                String jobRoleCode, Integer difficulty,
+                                InterviewJobTargetContext jobTargetContext) {
         RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
         String tag = runtimeConfig.provider().toUpperCase();
         log.info("[{}] 生成面试官回复, sessionId: {}, historySize: {}, userMessageLength: {}, jobRoleCode: {}, difficulty: {}",
                 tag, sessionId, history == null ? 0 : history.size(),
                 userMessage == null ? 0 : userMessage.length(), jobRoleCode, difficulty);
 
-        List<Message> messages = buildConversationMessages(history, userMessage, null, jobRoleCode, difficulty);
+        List<Message> messages = buildConversationMessages(history, userMessage, null, jobRoleCode, difficulty, jobTargetContext);
 
         try {
             return chatWithMessages(messages);
@@ -362,7 +366,9 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      * @return Publisher<String> 逐条输出的文本片段流
      */
     @Override
-    public Publisher<String> generateReplyStream(String sessionId, List<ChatMessageItem> history, String userMessage, String jobRoleCode, Integer difficulty) {
+    public Publisher<String> generateReplyStream(String sessionId, List<ChatMessageItem> history, String userMessage,
+                                                 String jobRoleCode, Integer difficulty,
+                                                 InterviewJobTargetContext jobTargetContext) {
         RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
         String tag = runtimeConfig.provider().toUpperCase();
         // 【版本指纹】全项目唯一字符串，用于确认运行时代码是否为最新版本
@@ -373,7 +379,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         log.info("[{}] 流式生成面试官回复, sessionId: {}, historySize: {}, jobRoleCode: {}, difficulty: {}",
                 tag, sessionId, history == null ? 0 : history.size(), jobRoleCode, difficulty);
 
-        List<Message> messages = buildConversationMessages(history, userMessage, null, jobRoleCode, difficulty);
+        List<Message> messages = buildConversationMessages(history, userMessage, null, jobRoleCode, difficulty, jobTargetContext);
 
         String apiKey = runtimeConfig.apiKey();
         if (apiKey == null || apiKey.isBlank()) {
@@ -682,7 +688,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         log.info("[{}] 调用旧版评价接口, sessionId: {}, historySize: {}",
                 tag, sessionId, history == null ? 0 : history.size());
         // 调用新版方法并转换为旧版格式
-        InterviewEvaluationReport report = generateEvaluationReport(sessionId, history, "软件工程师", null, 2, "normal");
+        InterviewEvaluationReport report = generateEvaluationReport(sessionId, history, "软件工程师", null, 2, "normal", null);
         try {
             String jsonReport = objectMapper.writeValueAsString(report);
             return new EvaluationResult(report.getOverallScore(), jsonReport);
@@ -715,7 +721,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             String jobRole,
             String jobRoleCode,
             Integer difficulty,
-            String interviewMode
+            String interviewMode,
+            InterviewJobTargetContext jobTargetContext
     ) {
         RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
         String tag = runtimeConfig.provider().toUpperCase();
@@ -727,8 +734,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 history == null ? 0 : history.size());
 
         // 1. 构建评价提示词（优先数据库，硬编码兜底）
-        String systemPrompt = buildEvaluationSystemPrompt(jobRole, jobRoleCode, difficulty, interviewMode);
-        String userPrompt = buildEvaluationUserPrompt(history);
+        String systemPrompt = buildEvaluationSystemPrompt(jobRole, jobRoleCode, difficulty, interviewMode, jobTargetContext);
+        String userPrompt = buildEvaluationUserPrompt(history, jobTargetContext);
 
         // 2. 调用 AI 生成评价
         String aiResponse = chat(systemPrompt, userPrompt);
@@ -762,9 +769,11 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      * - 直接指出基础不扎实、答非所问、项目不清等问题
      * - 评分宁可保守，不要虚高
      */
-    private String buildEvaluationSystemPrompt(String jobRole, String jobRoleCode, Integer difficulty, String interviewMode) {
+    private String buildEvaluationSystemPrompt(String jobRole, String jobRoleCode, Integer difficulty,
+                                               String interviewMode, InterviewJobTargetContext jobTargetContext) {
         log.debug("评价 Prompt 使用硬编码兜底, jobRole: {}, difficulty: {}", jobRole, difficulty);
-        return buildDefaultEvaluationSystemPrompt(jobRole, difficulty, interviewMode);
+        return buildDefaultEvaluationSystemPrompt(jobRole, difficulty, interviewMode)
+                + buildJobTargetEvaluationPrompt(jobTargetContext);
     }
 
     /**
@@ -847,8 +856,12 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     /**
      * 构建评价用户提示词（包含完整对话历史）
      */
-    private String buildEvaluationUserPrompt(List<ChatMessageItem> history) {
+    private String buildEvaluationUserPrompt(List<ChatMessageItem> history, InterviewJobTargetContext jobTargetContext) {
         StringBuilder sb = new StringBuilder();
+        if (jobTargetContext != null && Boolean.TRUE.equals(jobTargetContext.getJobTargeted())) {
+            sb.append("以下为岗位定向补充上下文，请将其纳入评价：\n");
+            sb.append(buildJobTargetContextSummary(jobTargetContext)).append("\n\n");
+        }
         sb.append("以下是完整的面试对话记录，请根据上述标准进行严格评估：\n\n");
 
         if (history != null && !history.isEmpty()) {
@@ -1157,11 +1170,13 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      * @param jobRole           面试岗位（可选）
      * @return 格式化后的消息列表
      */
-    private List<Message> buildConversationMessages(List<ChatMessageItem> history, String currentUserMessage, String jobRole, String jobRoleCode, Integer difficulty) {
+    private List<Message> buildConversationMessages(List<ChatMessageItem> history, String currentUserMessage, String jobRole,
+                                                    String jobRoleCode, Integer difficulty,
+                                                    InterviewJobTargetContext jobTargetContext) {
         java.util.List<Message> messages = new java.util.ArrayList<>();
 
         // 1. 添加系统提示词（优先使用数据库配置，硬编码兜底）
-        String systemPrompt = buildSystemPromptFromJobRole(history, jobRoleCode, difficulty);
+        String systemPrompt = buildSystemPromptFromJobRole(history, jobRoleCode, difficulty, jobTargetContext);
         messages.add(new Message("system", systemPrompt));
 
         int historyUserCount = 0;
@@ -1217,7 +1232,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      * @param difficulty  难度级别（用于查询数据库 prompt）
      * @return 系统提示词
      */
-    private String buildSystemPromptFromJobRole(List<ChatMessageItem> history, String jobRoleCode, Integer difficulty) {
+    private String buildSystemPromptFromJobRole(List<ChatMessageItem> history, String jobRoleCode, Integer difficulty,
+                                                InterviewJobTargetContext jobTargetContext) {
         String jobRole = "软件工程师";
         if (history != null && !history.isEmpty()) {
             String first = history.get(0).content();
@@ -1228,7 +1244,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 jobRole = first.substring(Math.max(0, start - 10), end);
             }
         }
-        return buildSystemPrompt(jobRole, jobRoleCode, difficulty);
+        return buildSystemPrompt(jobRole, jobRoleCode, difficulty, jobTargetContext);
     }
 
     /**
@@ -1243,7 +1259,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      * @param difficulty 难度级别
      * @return 完整的系统提示词
      */
-    private String buildSystemPrompt(String jobRole, String jobRoleCode, Integer difficulty) {
+    private String buildSystemPrompt(String jobRole, String jobRoleCode, Integer difficulty,
+                                     InterviewJobTargetContext jobTargetContext) {
         SysPrompt dbPrompt = null;
         if (jobRoleCode != null && !jobRoleCode.isBlank()) {
             dbPrompt = sysPromptService.getActivePromptByJobRole(
@@ -1252,10 +1269,10 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         if (dbPrompt != null && dbPrompt.getPromptContent() != null && !dbPrompt.getPromptContent().isBlank()) {
             log.info("使用数据库配置的 Prompt, jobRoleCode: {}, difficulty: {}, promptId: {}",
                     jobRoleCode, difficulty, dbPrompt.getId());
-            return dbPrompt.getPromptContent();
+            return dbPrompt.getPromptContent() + buildJobTargetInstruction(jobTargetContext);
         }
         log.debug("使用硬编码兜底 Prompt, jobRole: {}, difficulty: {}", jobRole, difficulty);
-        return buildDefaultSystemPrompt(jobRole, difficulty);
+        return buildDefaultSystemPrompt(jobRole, difficulty) + buildJobTargetInstruction(jobTargetContext);
     }
 
     /**
@@ -1273,43 +1290,46 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         boolean isTechnicalRole = isTechnicalJobRole(jobRole);
 
         return """
-                你是一位大厂面试官，正在对候选人进行模拟面试。
+你是一位大厂面试官，正在对候选人进行模拟面试。
 
-                角色设定：
-                - 你有10年大厂招聘经验，精通各岗位招聘
-                - 面试岗位：%s
-                - 难度级别：%s（根据候选人背景调整问题深度）
+角色设定：
+- 你有10年大厂招聘经验，精通各岗位招聘
+- 面试岗位：%s
+- 难度级别：%s（根据候选人背景调整问题深度）
 
-                岗位类型判断：
-                - 技术岗（开发/测试/运维/算法等）：重点考察技术能力、解决问题思路、业务理解
-                - 非技术岗（产品/运营/销售/老师/HR等）：重点考察岗位核心能力、沟通表达、行业理解
+岗位类型判断：
+- 技术岗（开发/测试/运维/算法等）：重点考察技术能力、解决问题思路、业务理解
+- 非技术岗（产品/运营/销售/老师/HR等）：重点考察岗位核心能力、沟通表达、行业理解
 
-                提问规则（必须严格遵守）：
-                1. 紧扣%s岗位核心能力：
-                   - 技术岗：只问该岗位必须掌握的技术、工具、思维方式
-                   - 非技术岗：问该岗位的核心技能、工作方法、沟通协调能力
-                2. 难度递进：
-                   - 初级：基础概念、工作流程、简单任务处理
-                   - 中级：独立负责项目、跨部门协作、复杂问题解决
-                   - 高级：团队管理、业务规划、战略决策
-                3. 业务关联：问题要与实际业务场景结合，不要问脱离业务的纯理论或空想
-                4. 深度追问：根据候选人回答深入挖掘细节
-                5. 避免跳脱：不要问与本岗位完全无关的内容
+提问规则（必须严格遵守）：
+1. 紧扣%s岗位核心能力：
+   - 技术岗：只问该岗位必须掌握的技术、工具、思维方式
+   - 非技术岗：问该岗位的核心技能、工作方法、沟通协调能力
+2. 难度递进：
+   - 初级：基础概念、工作流程、简单任务处理
+   - 中级：独立负责项目、跨部门协作、复杂问题解决
+   - 高级：团队管理、业务规划、战略决策
+3. 业务关联：问题要与实际业务场景结合，不要问脱离业务的纯理论或空想
+4. 深度追问：根据候选人回答深入挖掘细节
+5. 避免跳脱：不要问与本岗位完全无关的内容
 
-                技术岗判断规则：
-                - 含"开发"、"工程师"、"测试"、"运维"、"算法"、"技术"、"前端"、"后端"、"全栈"等关键词为技术岗
-                - 含"产品"、"运营"、"销售"、"老师"、"教师"、" HR"、"人力"等为非技术岗
-                - 不确定时优先按非技术岗提问，可简要提及数据分析等通用技能
+技术岗判断规则：
+- 含"开发"、"工程师"、"测试"、"运维"、"算法"、"技术"、"前端"、"后端"、"全栈"等关键词为技术岗
+- 含"产品"、"运营"、"销售"、"老师"、"教师"、" HR"、"人力"等为非技术岗
+- 不确定时优先按非技术岗提问，可简要提及数据分析等通用技能
 
-                沟通要求：
-                - 简洁专业，每次只问1-2个问题
-                - 先确认基础，再深入了解业务价值，最后评估发展潜力
-                - 如实告知候选人回答的好坏，不做无谓鼓励
-                - 回答优秀时可以追问"能详细说说吗"或"有什么具体案例吗"
+【重要】面试过程中的行为规范：
+1. 你只能以真实面试官在面试现场会说的话进行回复
+2. 每次回复只能提出一个问题，或简短承接候选人的回答后追问
+3. 不得输出任何评分、优点、不足、待改进、建议、回答分析等报告式内容
+4. 不得告诉候选人是否达标、是否通过、是否推荐录用
+5. 不要生成面试报告或阶段性总结
+6. 如果候选人回答较差，只能通过追问继续考察，不能直接点评缺点
+7. 保持专业、自然、口语化的面试官语气
 
-                当前面试模式：
-                - 用户说一句，你回复一句
-                - 直接开始提问第一个问题
+当前面试模式：
+- 用户说一句，你回复一句
+- 直接开始提问第一个问题
                 """.formatted(jobRole, difficultyDesc, isTechnicalRole ? "该" : "该岗位的");
     }
 
@@ -1334,7 +1354,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      * @param difficulty 难度级别
      * @return 用户提示词
      */
-    private String buildOpeningUserPrompt(String jobRole, Integer difficulty) {
+    private String buildOpeningUserPrompt(String jobRole, Integer difficulty, InterviewJobTargetContext jobTargetContext) {
         String diffText = switch (difficulty == null ? 2 : difficulty) {
             case 1 -> "初级";
             case 3 -> "高级";
@@ -1358,7 +1378,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 - 然后切入%s岗位的核心技能问题
                 - 问题要贴合实际业务场景
                 - 技术岗深入问技术实现，非技术岗深入问工作方法和成果
-                """.formatted(jobRole, diffText, diffText, skillFocus, jobRole);
+                """.formatted(jobRole, diffText, diffText, skillFocus, jobRole)
+                + buildJobTargetUserPrompt(jobTargetContext);
     }
 
 /**
@@ -1377,6 +1398,78 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      * - 旧逻辑：仅当数据库返回非空时才覆盖，不为空时保持 null，导致后续请求带空 key
      * - 新逻辑：始终确保 runtimeApiKey 不为 null，防止 403 Forbidden
      */
+    /**
+     * 构建岗位定向问答提示补充。
+     * 该段提示会追加到系统 Prompt 中，让模型在提问时真正关联 JD 与简历经历。
+     */
+    private String buildJobTargetInstruction(InterviewJobTargetContext jobTargetContext) {
+        if (jobTargetContext == null || !Boolean.TRUE.equals(jobTargetContext.getJobTargeted())) {
+            return "";
+        }
+        return "\n\n【岗位定向要求】\n"
+                + buildJobTargetContextSummary(jobTargetContext)
+                + "\n请优先围绕目标岗位真实要求提问，并把简历经历与岗位要求关联起来，避免泛泛而谈。";
+    }
+
+    /**
+     * 构建岗位定向开场提示补充。
+     */
+    private String buildJobTargetUserPrompt(InterviewJobTargetContext jobTargetContext) {
+        if (jobTargetContext == null || !Boolean.TRUE.equals(jobTargetContext.getJobTargeted())) {
+            return "";
+        }
+        return "\n\n请优先围绕以下岗位定向上下文开始提问：\n" + buildJobTargetContextSummary(jobTargetContext);
+    }
+
+    /**
+     * 构建岗位定向评价提示补充。
+     */
+    private String buildJobTargetEvaluationPrompt(InterviewJobTargetContext jobTargetContext) {
+        if (jobTargetContext == null || !Boolean.TRUE.equals(jobTargetContext.getJobTargeted())) {
+            return "";
+        }
+        return "\n\n【岗位定向评价要求】\n"
+                + buildJobTargetContextSummary(jobTargetContext)
+                + "\n请在评价中明确体现岗位匹配表现、回答优势、暴露短板和针对目标岗位的改进建议。";
+    }
+
+    /**
+     * 汇总岗位定向上下文，供提问与评价两条链路复用。
+     */
+    private String buildJobTargetContextSummary(InterviewJobTargetContext jobTargetContext) {
+        StringBuilder sb = new StringBuilder();
+        if (jobTargetContext.getJdText() != null && !jobTargetContext.getJdText().isBlank()) {
+            sb.append("- 目标岗位 JD：").append(trimPromptText(jobTargetContext.getJdText(), 800)).append("\n");
+        }
+        if (jobTargetContext.getResumeText() != null && !jobTargetContext.getResumeText().isBlank()) {
+            sb.append("- 简历核心经历：").append(trimPromptText(jobTargetContext.getResumeText(), 800)).append("\n");
+        }
+        if (jobTargetContext.getMatchedKeywords() != null && !jobTargetContext.getMatchedKeywords().isEmpty()) {
+            sb.append("- 已匹配关键词：").append(String.join("、", jobTargetContext.getMatchedKeywords())).append("\n");
+        }
+        if (jobTargetContext.getMissingKeywords() != null && !jobTargetContext.getMissingKeywords().isEmpty()) {
+            sb.append("- 缺失关键词：").append(String.join("、", jobTargetContext.getMissingKeywords())).append("\n");
+        }
+        if (jobTargetContext.getSuggestions() != null && !jobTargetContext.getSuggestions().isEmpty()) {
+            sb.append("- 岗位优化建议：").append(String.join("；", jobTargetContext.getSuggestions())).append("\n");
+        }
+        return sb.toString().trim();
+    }
+
+    /**
+     * 截断过长文本，避免岗位 JD 或简历原文过长影响提示词稳定性。
+     */
+    private String trimPromptText(String text, int maxLength) {
+        if (text == null) {
+            return "";
+        }
+        String normalized = text.replace("\r\n", "\n").replace('\r', '\n').trim();
+        if (normalized.length() <= maxLength) {
+            return normalized;
+        }
+        return normalized.substring(0, maxLength) + "...";
+    }
+
     private RuntimeAiConfig resolveRuntimeConfig() {
         // 先准备本地兜底配置，避免数据库不可用时影响核心链路。
         String fallbackProvider = normalizeConfigValue(provider);

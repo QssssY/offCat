@@ -1,8 +1,6 @@
 package com.airesume.server.mock;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.airesume.server.dto.interview.InterviewJobTargetContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -12,209 +10,122 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * 模拟面试服务
- * 用于在未接入真实大模型时生成模拟的面试官回复、评分和评价报告
+ * Mock 模拟面试服务。
+ * 当未接入真实 AI 时，负责生成可用于联调的开场问题、追问和报告兜底内容。
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class MockInterviewService {
 
-    private final ObjectMapper objectMapper;
     private final Random random = new Random();
 
-    // 模拟面试官回复模板
-    private static final List<String> MOCK_REPLIES = Arrays.asList(
-            "这是一个很好的问题！让我从以下几个方面来考察你...",
-            "感谢你的回答。接下来我们来聊聊另一个话题：你在项目中遇到过的最大挑战是什么？",
-            "你的回答很有意思。能否举一个具体的例子来说明你是如何应用这个技术的？",
-            "好的，我了解了。现在让我们进入下一个问题：请谈谈你对这个技术的理解。",
-            "这个回答不错！那你有没有考虑过其他的实现方案呢？",
-            "非常好！你的基础很扎实。接下来我们来聊聊系统设计相关的问题。",
-            "这个问题你答得不错，那我再追问一下：这种方案有什么优缺点？",
-            "好的，我明白了。让我们换一个话题，谈谈你在团队协作方面的经验。"
-    );
-
-    // 模拟面试问题
-    private static final List<String> MOCK_QUESTIONS = Arrays.asList(
-            "请介绍一下你自己？",
-            "你为什么想要申请这个岗位？",
-            "请谈谈你最有成就感的一个项目？",
-            "你遇到过的最大技术挑战是什么？你是如何解决的？",
-            "请描述一下你的技术栈和熟悉的工具？",
-            "你对我们公司有什么了解？",
-            "你在团队中通常扮演什么角色？",
-            "请谈谈你的职业规划？"
+    /**
+     * 通用追问模板。
+     */
+    private static final List<String> GENERIC_REPLIES = Arrays.asList(
+            "我理解了。请继续结合你自己的实际项目说明一下。",
+            "这个回答还可以，再往深一点讲讲你的关键决策过程。",
+            "如果放到真实业务场景里，你会如何落地这件事？",
+            "这个方向不错。你能补充一下结果数据或业务影响吗？"
     );
 
     /**
-     * 生成模拟的面试官回复
-     *
-     * @param sessionId     会话ID
-     * @param userMessage   用户消息
-     * @param messageIndex  消息索引（用于生成连贯的对话）
-     * @return 面试官回复
+     * 通用问题模板。
      */
-    public String generateMockReply(String sessionId, String userMessage, int messageIndex) {
-        log.info("Generating mock interview reply, sessionId: {}, messageIndex: {}", sessionId, messageIndex);
+    private static final List<String> GENERIC_QUESTIONS = Arrays.asList(
+            "请先做一个简短的自我介绍，并重点说明与你申请岗位最相关的经历。",
+            "请讲一个你最近主导或深度参与的项目，重点说清楚你的职责和成果。",
+            "当你在项目中遇到复杂问题时，通常如何定位并推动解决？",
+            "如果让你重新做一次这个项目，你最想优化的部分是什么？"
+    );
 
-        String reply;
-        if (messageIndex == 0) {
-            // 第一条消息，面试官先提问
-            reply = "你好！欢迎参加本次模拟面试。我是你的面试官。" +
-                    "我们今天的面试岗位是Java开发工程师，难度为中级。" +
-                    "首先，请你做一下自我介绍？";
-        } else if (messageIndex % 2 == 1) {
-            // 奇数索引：面试官根据用户回答继续提问
-            int questionIndex = (messageIndex / 2) % MOCK_QUESTIONS.size();
-            reply = MOCK_REPLIES.get(random.nextInt(MOCK_REPLIES.size())) +
-                    "\n\n" + MOCK_QUESTIONS.get(questionIndex);
-        } else {
-            // 偶数索引：面试官继续追问
-            reply = MOCK_REPLIES.get(random.nextInt(MOCK_REPLIES.size()));
+    /**
+     * 生成 Mock 开场问题。
+     */
+    public String generateMockOpening(String jobRole, Integer difficulty, InterviewJobTargetContext context) {
+        String difficultyDesc = getDifficultyDesc(difficulty);
+        if (context != null && Boolean.TRUE.equals(context.getJobTargeted())) {
+            String focusKeyword = pickFirst(context.getMatchedKeywords(), "岗位核心能力");
+            String missingKeyword = pickFirst(context.getMissingKeywords(), "关键能力补位");
+            return String.format(
+                    "你好，欢迎参加本次岗位定向模拟面试。\n\n今天我们聚焦的目标岗位是%s，难度为%s。\n" +
+                            "我会结合你的简历经历、目标 JD，以及最近一次岗位对比结果来提问。\n" +
+                            "目前我会重点关注你在“%s”方面的真实实践，同时也会追问你如何补足“%s”。\n\n" +
+                            "先请你用 2 到 3 分钟介绍一下自己，并重点说明最能支撑该岗位的一段经历。",
+                    jobRole,
+                    difficultyDesc,
+                    focusKeyword,
+                    missingKeyword
+            );
         }
 
-        log.debug("Mock reply generated successfully, sessionId: {}", sessionId);
-        return reply;
+        return String.format(
+                "你好，欢迎参加本次模拟面试。\n\n今天的目标岗位是%s，难度为%s。\n" +
+                        "请先做一个简短的自我介绍，并重点说明最近一段与你岗位最相关的项目经历。",
+                jobRole,
+                difficultyDesc
+        );
     }
 
     /**
-     * 生成模拟的面试开场白
-     *
-     * @param jobRole    面试岗位
-     * @param difficulty 难度级别
-     * @return 开场白内容
+     * 生成 Mock 追问。
      */
-    public String generateMockOpening(String jobRole, Integer difficulty) {
-        String difficultyDesc = getDifficultyDesc(difficulty);
-        return String.format("你好！欢迎参加本次模拟面试。我是你的面试官。\n\n" +
-                "我们今天的面试岗位是%s，难度为%s。\n\n" +
-                "面试过程中，请尽量详细地回答问题，展示你的思考过程。\n\n" +
-                "准备好了吗？首先，请你做一下自我介绍？", jobRole, difficultyDesc);
+    public String generateMockReply(String sessionId, String userMessage, int messageIndex, InterviewJobTargetContext context) {
+        log.info("Generating mock interview reply, sessionId: {}, messageIndex: {}", sessionId, messageIndex);
+
+        String prefix = GENERIC_REPLIES.get(random.nextInt(GENERIC_REPLIES.size()));
+        if (context != null && Boolean.TRUE.equals(context.getJobTargeted())) {
+            String targetedQuestion = buildTargetedQuestion(context, messageIndex);
+            return prefix + "\n\n" + targetedQuestion;
+        }
+
+        String genericQuestion = GENERIC_QUESTIONS.get((messageIndex / 2) % GENERIC_QUESTIONS.size());
+        return prefix + "\n\n" + genericQuestion;
     }
 
     /**
-     * 生成模拟的综合评分
-     *
-     * @param sessionId 会话ID
-     * @return 评分（0-100）
+     * 生成兜底分数。
      */
     public int generateMockScore(String sessionId) {
         log.info("Generating mock interview score, sessionId: {}", sessionId);
-        int score = 60 + random.nextInt(35); // 60-94分
-        log.info("Mock score generated: {}, sessionId: {}", score, sessionId);
-        return score;
+        return 60 + random.nextInt(35);
     }
 
     /**
-     * 生成模拟的综合评价报告（JSON格式）
-     *
-     * @param sessionId 会话ID
-     * @param score     评分
-     * @return JSON格式的评价报告
+     * 基于岗位定向上下文构造追问。
      */
-    public String generateMockEvaluationReport(String sessionId, int score) {
-        log.info("Generating mock evaluation report, sessionId: {}, score: {}", sessionId, score);
+    private String buildTargetedQuestion(InterviewJobTargetContext context, int messageIndex) {
+        List<String> matchedKeywords = context.getMatchedKeywords();
+        List<String> missingKeywords = context.getMissingKeywords();
+        List<String> suggestions = context.getSuggestions();
 
-        try {
-            ObjectNode report = objectMapper.createObjectNode();
-
-            // 总体评价
-            report.put("overallScore", score);
-            report.put("level", getLevel(score));
-            report.put("summary", getSummary(score));
-
-            // 各维度评分
-            ObjectNode dimensions = objectMapper.createObjectNode();
-            dimensions.put("technicalDepth", 60 + random.nextInt(35));
-            dimensions.put("problemSolving", 60 + random.nextInt(35));
-            dimensions.put("communication", 60 + random.nextInt(35));
-            dimensions.put("systemDesign", 55 + random.nextInt(35));
-            report.set("dimensions", dimensions);
-
-            // 优点
-            ArrayNode strengths = objectMapper.createArrayNode();
-            strengths.add("基础知识掌握扎实");
-            strengths.add("表达清晰，逻辑通顺");
-            strengths.add("具有一定的项目经验");
-            report.set("strengths", strengths);
-
-            // 待改进
-            ArrayNode improvements = objectMapper.createArrayNode();
-            improvements.add("系统设计能力有待提升");
-            improvements.add("部分技术细节理解不够深入");
-            report.set("improvements", improvements);
-
-            // 建议
-            ArrayNode suggestions = objectMapper.createArrayNode();
-            suggestions.add("建议多学习系统设计相关知识");
-            suggestions.add("建议深入了解技术底层原理");
-            report.set("suggestions", suggestions);
-
-            // 标记为模拟数据
-            report.put("isMock", true);
-            report.put("mockGeneratedAt", System.currentTimeMillis());
-
-            String jsonReport = objectMapper.writeValueAsString(report);
-            log.info("Mock evaluation report generated successfully, sessionId: {}", sessionId);
-            return jsonReport;
-
-        } catch (Exception e) {
-            log.error("Failed to generate mock evaluation report, sessionId: {}", sessionId, e);
-            throw new RuntimeException("生成模拟评价报告失败", e);
+        if (messageIndex <= 2 && matchedKeywords != null && !matchedKeywords.isEmpty()) {
+            String keyword = matchedKeywords.get(messageIndex % matchedKeywords.size());
+            return "请结合一个真实项目，详细说明你是如何把“" + keyword + "”落到业务结果上的？";
         }
-    }
-
-    /**
-     * 根据分数获取等级
-     *
-     * @param score 分数
-     * @return 等级
-     */
-    private String getLevel(int score) {
-        if (score >= 90) {
-            return "S - 优秀";
-        } else if (score >= 80) {
-            return "A - 良好";
-        } else if (score >= 70) {
-            return "B - 中等";
-        } else if (score >= 60) {
-            return "C - 及格";
-        } else {
-            return "D - 需改进";
+        if (missingKeywords != null && !missingKeywords.isEmpty()) {
+            String keyword = missingKeywords.get(messageIndex % missingKeywords.size());
+            return "目标岗位对“" + keyword + "”有明确要求。请说说你目前的理解，以及如果入职后会如何快速补强？";
         }
-    }
-
-    /**
-     * 根据分数获取总结
-     *
-     * @param score 分数
-     * @return 总结
-     */
-    private String getSummary(int score) {
-        if (score >= 85) {
-            return "本次面试表现优秀，技术基础扎实，表达能力强，具有较好的解决问题能力。";
-        } else if (score >= 70) {
-            return "本次面试表现良好，技术基础较为扎实，能够回答大部分问题，但在某些方面还有提升空间。";
-        } else if (score >= 60) {
-            return "本次面试表现基本合格，具备一定的技术基础，但还需要加强系统学习和实践。";
-        } else {
-            return "本次面试还有较大提升空间，建议加强基础知识的学习和项目经验的积累。";
+        if (suggestions != null && !suggestions.isEmpty()) {
+            return "最近一次岗位对比建议你重点优化这类表达：“" + suggestions.get(0) + "”。你会如何在面试中把这部分讲得更有说服力？";
         }
+        return "如果让你围绕目标岗位再补充一个最有说服力的案例，你会讲哪一段经历？";
     }
 
-    /**
-     * 获取难度描述
-     *
-     * @param difficulty 难度级别
-     * @return 难度描述
-     */
+    private String pickFirst(List<String> values, String fallback) {
+        if (values == null || values.isEmpty()) {
+            return fallback;
+        }
+        return values.get(0);
+    }
+
     private String getDifficultyDesc(Integer difficulty) {
-        return switch (difficulty) {
+        return switch (difficulty == null ? 2 : difficulty) {
             case 1 -> "初级";
-            case 2 -> "中级";
             case 3 -> "高级";
-            default -> "未知";
+            default -> "中级";
         };
     }
 }

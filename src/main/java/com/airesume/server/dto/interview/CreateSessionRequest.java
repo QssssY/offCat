@@ -32,4 +32,29 @@ public class CreateSessionRequest {
      * 面试模式：normal-普通面试，stress-压力面试
      */
     private String interviewMode;
+
+    /**
+     * 是否开启岗位定向模拟。
+     */
+    private Boolean jobTargeted;
+
+    /**
+     * 关联的简历诊断任务 ID。
+     */
+    private String resumeTaskId;
+
+    /**
+     * 用户手动输入的岗位 JD 文本。
+     */
+    private String jdText;
+
+    /**
+     * 是否优先复用最近一次岗位 JD 对比分析结果。
+     */
+    private Boolean useLatestJobMatch;
+
+    /**
+     * 指定复用的岗位 JD 对比分析记录 ID。
+     */
+    private String jobMatchRecordId;
 }
