@@ -17,15 +17,25 @@ import AppHeader from "@/components/AppHeader.vue";
 .main-layout {
   min-height: 100vh;
   background-color: var(--bg-page, #fff8f3);
+  display: flex;
+  flex-direction: column;
 }
 
 .layout-main {
   padding-top: 60px;
-  min-height: 100vh;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .layout-content {
+  flex: 1;
+  min-height: 0;
   padding: 24px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 /* 移动端适配 */

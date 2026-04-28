@@ -1,23 +1,19 @@
 <template>
   <div class="interview-entry-view">
-    <!-- 页面标题区 -->
     <div class="page-header">
       <h1 class="page-title">模拟面试</h1>
-      <p class="page-desc">配置面试参数，开始一场真实的模拟面试</p>
+      <p class="page-desc">配置面试参数，开始一场更贴近真实岗位场景的模拟面试</p>
     </div>
 
-    <!-- 准备就绪提示条 -->
     <div class="ready-bar">
       <div class="ready-icon">
         <el-icon :size="20"><CircleCheckFilled /></el-icon>
       </div>
-      <span class="ready-text">准备就绪，随时可以开始面试</span>
+      <span class="ready-text">普通模拟面试可直接开始，开启岗位定向后会额外结合 JD 要求提问</span>
     </div>
 
-    <!-- 配置选项 -->
     <div class="config-section">
       <div class="config-card">
-        <!-- 面试岗位下拉选择 -->
         <div class="config-item">
           <div class="config-label">面试岗位</div>
           <div class="config-control">
@@ -41,16 +37,13 @@
               >
                 <div class="job-option-content">
                   <span class="job-name">{{ job.label }}</span>
-                  <span class="job-tag" :class="'tag-' + job.tagType">{{
-                    job.tag
-                  }}</span>
+                  <span class="job-tag" :class="'tag-' + job.tagType">{{ job.tag }}</span>
                 </div>
               </el-option>
             </el-select>
           </div>
         </div>
 
-        <!-- 难度级别选择 - pill 风格按钮组 -->
         <div class="config-item">
           <div class="config-label">难度级别</div>
           <div class="config-control pill-control">
@@ -67,7 +60,6 @@
           </div>
         </div>
 
-        <!-- 面试模式选择 - pill 风格按钮组 -->
         <div class="config-item">
           <div class="config-label">面试模式</div>
           <div class="config-control pill-control">
@@ -84,7 +76,101 @@
           </div>
         </div>
 
-        <!-- 开始面试按钮 -->
+        <div class="config-item">
+          <div class="config-label">岗位定向模拟</div>
+          <div class="job-target-card">
+            <div class="job-target-header">
+              <div>
+                <div class="job-target-title">按目标岗位生成更贴近 JD 的问题</div>
+                <div class="job-target-desc">
+                  开启后会优先结合简历内容、岗位 JD 和最近一次 JD 对比结果生成问题，并在反馈中增加岗位匹配建议。
+                </div>
+              </div>
+              <el-switch
+                v-model="jobTargeted"
+                :disabled="creating"
+                inline-prompt
+                active-text="开启"
+                inactive-text="关闭"
+              />
+            </div>
+
+            <div v-if="jobTargeted" class="job-target-body">
+              <div v-if="resumeTaskId" class="resume-link-bar">
+                <span class="resume-link-label">当前已关联简历任务：</span>
+                <span class="resume-link-value">#{{ resumeTaskId }}</span>
+              </div>
+
+              <div class="source-select-row">
+                <div class="source-option" :class="{ active: useLatestJobMatch }">
+                  <div class="source-option-head">
+                    <span class="source-option-title">优先复用最近一次 JD 对比结果</span>
+                    <el-switch
+                      v-model="useLatestJobMatch"
+                      :disabled="creating || !hasLatestJobMatch"
+                    />
+                  </div>
+                  <div class="source-option-desc">
+                    <template v-if="hasLatestJobMatch">
+                      已检测到最近一次 JD 对比结果，可直接复用其 JD、匹配关键词和优化建议。
+                    </template>
+                    <template v-else>
+                      当前未检测到可复用的 JD 对比结果，仍可手动粘贴岗位 JD。
+                    </template>
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="hasLatestJobMatch" class="job-match-summary">
+                <div class="summary-title">最近一次 JD 对比结果</div>
+                <div class="summary-score">
+                  匹配度：{{ latestJobMatchAnalysis?.matchScore ?? "--" }} 分
+                </div>
+                <div v-if="matchedKeywords.length" class="summary-tags">
+                  <span class="summary-label">已匹配：</span>
+                  <el-tag
+                    v-for="keyword in matchedKeywords"
+                    :key="'matched-' + keyword"
+                    size="small"
+                    type="success"
+                  >
+                    {{ keyword }}
+                  </el-tag>
+                </div>
+                <div v-if="missingKeywords.length" class="summary-tags">
+                  <span class="summary-label">缺失项：</span>
+                  <el-tag
+                    v-for="keyword in missingKeywords"
+                    :key="'missing-' + keyword"
+                    size="small"
+                    type="warning"
+                  >
+                    {{ keyword }}
+                  </el-tag>
+                </div>
+              </div>
+
+              <div class="config-sub-item">
+                <div class="config-sub-label">岗位 JD 文本</div>
+                <el-input
+                  v-model="jdText"
+                  type="textarea"
+                  :rows="8"
+                  resize="none"
+                  maxlength="6000"
+                  show-word-limit
+                  :disabled="creating"
+                  placeholder="可直接粘贴目标岗位 JD；若留空且存在最近一次 JD 对比结果，系统会自动复用最近一次 JD。"
+                />
+              </div>
+
+              <div class="job-target-tip">
+                普通模拟面试不会强制依赖 JD。若你关闭岗位定向，系统仍按原有通用模拟面试流程运行。
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="start-section">
           <el-button
             type="primary"
@@ -95,28 +181,27 @@
             @click="handleStart"
           >
             <span v-if="creating" class="btn-text">正在创建面试...</span>
-            <span v-else>开始面试</span>
+            <span v-else>{{ jobTargeted ? "开始岗位定向模拟" : "开始普通模拟面试" }}</span>
           </el-button>
         </div>
       </div>
     </div>
 
-    <!-- 面试说明 -->
     <div class="info-section">
       <div class="info-card">
-        <h3 class="info-title">面试说明</h3>
+        <h3 class="info-title">使用说明</h3>
         <div class="info-list">
           <div class="info-item">
             <div class="info-number">1</div>
-            <div class="info-text">AI 面试官会通过文字与您交流</div>
+            <div class="info-text">普通模拟面试保持原有流程可用，不会因为本轮改动被替换</div>
           </div>
           <div class="info-item">
             <div class="info-number">2</div>
-            <div class="info-text">面试结束后会自动生成评估报告</div>
+            <div class="info-text">岗位定向模式会优先结合简历、JD 和最近一次 JD 对比记录生成问题</div>
           </div>
           <div class="info-item">
             <div class="info-number">3</div>
-            <div class="info-text">报告包含表现评分和改进建议</div>
+            <div class="info-text">面试结束后会额外展示岗位匹配表现、优势、不足和改进建议</div>
           </div>
         </div>
       </div>
@@ -125,55 +210,54 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue";
-import { useRouter } from "vue-router";
+import { computed, onMounted, ref } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { CircleCheckFilled } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
 import { useUserStore } from "@/stores/user";
 import { createInterviewSession, getInterviewJobRoles } from "@/api/interview";
+import { getResumeTask } from "@/api/resume";
 
 const router = useRouter();
+const route = useRoute();
 const userStore = useUserStore();
 
-// 岗位选项
-// 作用：岗位选项必须统一从后台配置读取，不能继续在前端写死。
-// 后端返回的是管理员维护的启用岗位列表，前端只负责渲染。
 const jobOptions = ref([]);
-
-// 难度级别选项 - 带辅助说明
-const difficultyOptions = [
-  { label: "初级", value: "primary", hint: "入门基础" },
-  { label: "中级", value: "intermediate", hint: "项目实践" },
-  { label: "高级", value: "advanced", hint: "深度能力" },
-];
-
-// 面试模式选项 - 带辅助说明
-const modeOptions = [
-  { label: "普通面试", value: "normal", hint: "标准流程" },
-  { label: "压力面试", value: "stress", hint: "高压情境" },
-];
-
-// 难度级别映射：前端值 -> 后端期望值
-const difficultyMap = {
-  primary: 1,
-  intermediate: 2,
-  advanced: 3,
-};
-
-// 选中状态
 const selectedJob = ref("");
 const selectedRoleCode = ref("");
 const selectedDifficulty = ref("primary");
 const selectedMode = ref("normal");
 const creating = ref(false);
 
-/**
- * 获取岗位选项
- *
- * 作用：
- * 让模拟面试入口页直接消费后台岗位配置，满足“岗位由管理员配置”的业务要求。
- * 返回的 tag / tagType 也来自后端，避免前端继续维护一套平行的静态配置。
- */
+// 岗位定向状态统一收敛在入口页，便于清楚区分普通模拟与岗位定向模拟。
+const jobTargeted = ref(false);
+const resumeTaskId = ref(route.query.resumeTaskId ? String(route.query.resumeTaskId) : "");
+const jdText = ref("");
+const useLatestJobMatch = ref(true);
+const latestJobMatchAnalysis = ref(null);
+const latestJobMatchRecordId = ref("");
+
+const difficultyOptions = [
+  { label: "初级", value: "primary", hint: "入门基础" },
+  { label: "中级", value: "intermediate", hint: "项目实战" },
+  { label: "高级", value: "advanced", hint: "深度能力" },
+];
+
+const modeOptions = [
+  { label: "普通面试", value: "normal", hint: "标准流程" },
+  { label: "压力面试", value: "stress", hint: "高压情境" },
+];
+
+const difficultyMap = {
+  primary: 1,
+  intermediate: 2,
+  advanced: 3,
+};
+
+const hasLatestJobMatch = computed(() => Boolean(latestJobMatchAnalysis.value));
+const matchedKeywords = computed(() => latestJobMatchAnalysis.value?.matchedKeywords || []);
+const missingKeywords = computed(() => latestJobMatchAnalysis.value?.missingKeywords || []);
+
 const fetchJobOptions = async () => {
   try {
     const res = await getInterviewJobRoles();
@@ -191,10 +275,56 @@ const fetchJobOptions = async () => {
   }
 };
 
-// 开始面试 - 先创建会话，再跳转
+/**
+ * 从简历任务详情中自动带出最近一次 JD 对比结果。
+ * 这里只做最小增量复用，不新增额外历史管理页面。
+ */
+const fetchResumeTaskDetail = async () => {
+  if (!resumeTaskId.value) {
+    return;
+  }
+
+  try {
+    const res = await getResumeTask(resumeTaskId.value);
+    const taskData = res.data || {};
+    latestJobMatchAnalysis.value = taskData.latestJobMatchAnalysis || null;
+    latestJobMatchRecordId.value = taskData.latestJobMatchAnalysis?.analysisId
+      ? String(taskData.latestJobMatchAnalysis.analysisId)
+      : "";
+
+    if (hasLatestJobMatch.value) {
+      jobTargeted.value = true;
+    }
+  } catch (err) {
+    ElMessage.warning(err.message || "获取简历任务详情失败，岗位定向将仅支持手动输入 JD");
+  }
+};
+
 const onJobChange = (jobName) => {
-  const job = jobOptions.value.find((j) => j.label === jobName);
+  const job = jobOptions.value.find((item) => item.label === jobName);
   selectedRoleCode.value = job?.roleCode || "";
+};
+
+const buildCreatePayload = () => {
+  const payload = {
+    jobRole: selectedJob.value,
+    jobRoleCode: selectedRoleCode.value,
+    difficulty: difficultyMap[selectedDifficulty.value],
+    interviewMode: selectedMode.value,
+  };
+
+  if (!jobTargeted.value) {
+    return payload;
+  }
+
+  return {
+    ...payload,
+    jobTargeted: true,
+    resumeTaskId: resumeTaskId.value || undefined,
+    jdText: jdText.value.trim() || undefined,
+    useLatestJobMatch: useLatestJobMatch.value,
+    jobMatchRecordId: latestJobMatchRecordId.value || undefined,
+  };
 };
 
 const handleStart = async () => {
@@ -210,42 +340,23 @@ const handleStart = async () => {
   }
 
   creating.value = true;
-
   try {
-    // 调用创建会话接口
-    const res = await createInterviewSession({
-      jobRole: selectedJob.value,
-      jobRoleCode: selectedRoleCode.value,
-      difficulty: difficultyMap[selectedDifficulty.value],
-      interviewMode: selectedMode.value,
-    });
-
-    // 从响应中提取 sessionId
-    let sessionId = null;
-    if (res.data) {
-      sessionId = res.data.sessionId || res.data.id || res.data;
-    } else if (res.sessionId) {
-      sessionId = res.sessionId;
-    } else if (typeof res === "string") {
-      sessionId = res;
-    }
-
+    const res = await createInterviewSession(buildCreatePayload());
+    const sessionId = res?.data?.sessionId || res?.data?.id || res?.sessionId || res;
     if (!sessionId) {
-      throw new Error("创建会话失败，未获取到会话ID");
+      throw new Error("创建会话失败，未获取到会话 ID");
     }
-
-    // 跳转到真实会话页
     router.push(`/interview/session/${sessionId}`);
   } catch (err) {
-    console.error("创建面试会话失败:", err);
     ElMessage.error(err.message || "创建面试会话失败，请稍后重试");
   } finally {
     creating.value = false;
   }
 };
 
-onMounted(() => {
-  fetchJobOptions();
+onMounted(async () => {
+  await fetchJobOptions();
+  await fetchResumeTaskDetail();
 });
 </script>
 
@@ -254,7 +365,6 @@ onMounted(() => {
   min-height: 100%;
 }
 
-/* 页面标题区 */
 .page-header {
   margin-bottom: 24px;
 }
@@ -272,7 +382,6 @@ onMounted(() => {
   color: #888888;
 }
 
-/* 准备就绪提示条 */
 .ready-bar {
   display: flex;
   align-items: center;
@@ -300,7 +409,6 @@ onMounted(() => {
   color: #555555;
 }
 
-/* 配置选项区 */
 .config-section {
   margin-bottom: 24px;
 }
@@ -335,7 +443,6 @@ onMounted(() => {
   gap: 12px;
 }
 
-/* 岗位下拉选择器样式 */
 .job-select {
   width: 360px;
 }
@@ -357,16 +464,6 @@ onMounted(() => {
   box-shadow: 0 0 0 3px rgba(255, 140, 66, 0.1);
 }
 
-.job-select :deep(.el-input__inner) {
-  color: #2f2f2f;
-  font-size: 15px;
-}
-
-.job-select :deep(.el-input__inner::placeholder) {
-  color: #888888;
-}
-
-/* 下拉面板样式 - 使选项更舒展 */
 .job-select-popper {
   width: 380px !important;
   padding: 8px 0;
@@ -384,13 +481,6 @@ onMounted(() => {
   background-color: #fff8f3;
 }
 
-.job-select-popper .el-select-dropdown__item.selected {
-  color: #ff8c42;
-  font-weight: 600;
-  background-color: #fff8f3;
-}
-
-/* 下拉选项样式 */
 .job-option-content {
   display: flex;
   align-items: center;
@@ -414,7 +504,6 @@ onMounted(() => {
   margin-left: 16px;
 }
 
-/* 岗位标签颜色 */
 .tag-hot {
   background-color: #fff3e8;
   color: #ff8c42;
@@ -435,53 +524,6 @@ onMounted(() => {
   color: #909399;
 }
 
-.tag-orange-highlight {
-  background-color: rgba(255, 140, 66, 0.15);
-  color: #e67a35;
-}
-
-.tag-blue-info {
-  background-color: rgba(47, 125, 225, 0.12);
-  color: #2f7de1;
-}
-
-.tag-green-success {
-  background-color: rgba(48, 176, 111, 0.12);
-  color: #2a9658;
-}
-
-.tag-red-alert {
-  background-color: rgba(224, 84, 84, 0.12);
-  color: #d64545;
-}
-
-.tag-purple-feature {
-  background-color: rgba(123, 90, 217, 0.12);
-  color: #6b4dc9;
-}
-
-.tag-gray-muted {
-  background-color: rgba(143, 153, 167, 0.15);
-  color: #6b7280;
-}
-
-.tag-outline {
-  background-color: #ffffff;
-  border: 1px solid #d9b49a;
-  color: #9a5c33;
-}
-
-.tag-pill {
-  background-color: rgba(255, 140, 66, 0.12);
-  color: #b35f2b;
-  border-radius: 999px;
-}
-
-.tag-default {
-  background-color: #fdf1e6;
-  color: #a05a2c;
-}
-
 .empty-options {
   padding: 20px;
   text-align: center;
@@ -489,7 +531,6 @@ onMounted(() => {
   font-size: 14px;
 }
 
-/* Pill 风格按钮组 */
 .pill-control {
   gap: 16px;
 }
@@ -546,7 +587,149 @@ onMounted(() => {
   color: rgba(255, 255, 255, 0.85);
 }
 
-/* 开始面试按钮 */
+.job-target-card {
+  border: 1px solid #f3d8c7;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fffdfb 0%, #fff8f3 100%);
+  overflow: hidden;
+}
+
+.job-target-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px 22px;
+}
+
+.job-target-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #2f2f2f;
+  margin-bottom: 8px;
+}
+
+.job-target-desc {
+  font-size: 13px;
+  line-height: 1.7;
+  color: #666666;
+}
+
+.job-target-body {
+  border-top: 1px solid rgba(243, 216, 199, 0.7);
+  padding: 20px 22px 22px;
+}
+
+.resume-link-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  font-size: 13px;
+}
+
+.resume-link-label {
+  color: #888888;
+}
+
+.resume-link-value {
+  color: #ff8c42;
+  font-weight: 600;
+}
+
+.source-select-row {
+  margin-bottom: 14px;
+}
+
+.source-option {
+  border: 1px solid #f2d5c2;
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.source-option.active {
+  border-color: #ffb27a;
+  box-shadow: 0 4px 14px rgba(255, 140, 66, 0.08);
+}
+
+.source-option-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.source-option-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #2f2f2f;
+}
+
+.source-option-desc {
+  font-size: 13px;
+  line-height: 1.7;
+  color: #666666;
+}
+
+.job-match-summary {
+  margin-bottom: 16px;
+  padding: 16px;
+  background: #ffffff;
+  border: 1px solid #f4dfd0;
+  border-radius: 12px;
+}
+
+.summary-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #2f2f2f;
+  margin-bottom: 8px;
+}
+
+.summary-score {
+  font-size: 13px;
+  color: #ff8c42;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.summary-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.summary-tags:last-child {
+  margin-bottom: 0;
+}
+
+.summary-label {
+  font-size: 12px;
+  color: #888888;
+}
+
+.config-sub-item {
+  margin-bottom: 16px;
+}
+
+.config-sub-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #2f2f2f;
+  margin-bottom: 10px;
+}
+
+.job-target-tip {
+  font-size: 13px;
+  line-height: 1.7;
+  color: #8a5b39;
+  background: rgba(255, 140, 66, 0.08);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
 .start-section {
   display: flex;
   justify-content: center;
@@ -576,12 +759,6 @@ onMounted(() => {
   cursor: not-allowed;
 }
 
-@keyframes creating-bar {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
-}
-
-/* 面试说明区 */
 .info-section {
   margin-bottom: 24px;
 }
@@ -632,16 +809,19 @@ onMounted(() => {
   color: #555555;
 }
 
-/* 移动端适配 */
 @media (max-width: 768px) {
   .page-title {
     font-size: 20px;
   }
-  .job-selector-grid {
-    grid-template-columns: 1fr;
+
+  .job-select {
+    width: 100%;
   }
-  .info-list {
+
+  .job-target-header,
+  .source-option-head {
     flex-direction: column;
+    align-items: flex-start;
   }
 }
 
@@ -649,13 +829,15 @@ onMounted(() => {
   .page-title {
     font-size: 18px;
   }
+
   .page-desc {
     font-size: 13px;
   }
-  .difficulty-section,
-  .mode-section {
+
+  .config-card {
     padding: 20px 16px;
   }
+
   .start-section .el-button {
     width: 100%;
     padding: 14px 24px;

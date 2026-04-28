@@ -1,20 +1,18 @@
 <template>
   <div class="interview-history-view">
-    <!-- 页面标题区 -->
     <div class="page-header">
       <h1 class="page-title">面试历史</h1>
-      <p class="page-desc">查看您所有的模拟面试记录</p>
+      <p class="page-desc">查看你的模拟面试记录与岗位定向面试结果</p>
     </div>
 
-    <!-- 加载状态 - 骨架屏 -->
     <div v-if="loading" class="loading-section">
       <div class="skeleton-list">
-        <div class="skeleton-card" v-for="i in 3" :key="i">
+        <div v-for="i in 3" :key="i" class="skeleton-card">
           <el-skeleton :rows="0" animated :loading="true">
             <template #default>
               <div class="skeleton-header">
                 <el-skeleton-item variant="rect" style="width: 180px; height: 24px;" />
-                <el-skeleton-item variant="rect" style="width: 60px; height: 24px; margin-left: auto;" />
+                <el-skeleton-item variant="rect" style="width: 90px; height: 24px; margin-left: auto;" />
               </div>
               <div class="skeleton-info">
                 <el-skeleton-item variant="rect" style="width: 100px; height: 16px;" />
@@ -33,7 +31,6 @@
       </div>
     </div>
 
-    <!-- 错误状态 -->
     <div v-else-if="error" class="error-section">
       <div class="error-card">
         <div class="error-icon">
@@ -49,34 +46,40 @@
       </div>
     </div>
 
-    <!-- 空状态 -->
     <div v-else-if="total === 0" class="empty-section">
       <div class="empty-content">
         <InterviewEmpty :size="140" />
         <div class="empty-title">暂无面试记录</div>
-        <div class="empty-desc">选择目标岗位，开始第一次模拟面试，提升您的面试技巧</div>
+        <div class="empty-desc">选择目标岗位后开始模拟面试，系统会在这里保留普通面试和岗位定向面试历史。</div>
         <el-button type="primary" @click="goToEntry">开始面试</el-button>
       </div>
     </div>
 
-    <!-- 历史记录卡片列表 -->
     <div v-else class="history-list">
-      <div
-        v-for="item in historyList"
-        :key="item.sessionId"
-        class="history-card"
-      >
-        <!-- 卡片顶部：岗位 + 状态 -->
+      <div v-for="item in historyList" :key="item.sessionId" class="history-card">
         <div class="card-header">
-          <h3 class="job-title">{{ item.jobRole || '未知岗位' }}</h3>
+          <div class="title-block">
+            <h3 class="job-title">{{ item.jobRole || "未知岗位" }}</h3>
+            <div class="title-tags">
+              <el-tag
+                v-if="item.jobTargeted"
+                size="small"
+                type="warning"
+                effect="plain"
+              >
+                岗位定向
+              </el-tag>
+              <el-tag v-if="item.sourceTypeText" size="small" effect="plain">
+                {{ item.sourceTypeText }}
+              </el-tag>
+            </div>
+          </div>
           <el-tag :type="getStatusType(item)" size="small" class="status-tag">
             {{ getStatusText(item) }}
           </el-tag>
         </div>
 
-        <!-- 卡片中部：信息区分2行展示 -->
         <div class="card-info">
-          <!-- 第一行：难度 + 模式 -->
           <div class="info-row">
             <div class="info-item">
               <span class="info-label">难度</span>
@@ -89,55 +92,42 @@
               <span class="info-value">{{ getModeText(item) }}</span>
             </div>
           </div>
-          <!-- 第二行：评分 + 消息数 -->
           <div class="info-row">
             <div class="info-item">
               <span class="info-label">综合评分</span>
-              <span class="info-value score" v-if="item.comprehensiveScore">
-                {{ item.comprehensiveScore }}分
+              <span class="info-value score" v-if="item.comprehensiveScore !== null && item.comprehensiveScore !== undefined">
+                {{ item.comprehensiveScore }} 分
               </span>
               <span class="info-value" v-else>--</span>
             </div>
-            <div class="info-item" v-if="item.messageCount">
+            <div class="info-item">
               <span class="info-label">消息数</span>
-              <span class="info-value">{{ item.messageCount }}</span>
+              <span class="info-value">{{ item.messageCount || 0 }}</span>
             </div>
           </div>
         </div>
 
-        <!-- 卡片底部：时间 + 操作 -->
         <div class="card-footer">
           <div class="time-info">
             <span>{{ formatTime(item.createTime) }}</span>
           </div>
           <div class="card-actions">
-            <!-- 已结束会话：查看会话 + 查看报告 -->
             <template v-if="item.status === 1">
-              <el-button link type="primary" size="small" @click="viewSession(item)">
-                查看会话
-              </el-button>
-              <el-button type="primary" size="small" @click="viewReport(item)">
-                查看报告
-              </el-button>
+              <el-button link type="primary" size="small" @click="viewSession(item)">查看会话</el-button>
+              <el-button type="primary" size="small" @click="viewReport(item)">查看报告</el-button>
             </template>
-            <!-- 进行中会话：继续面试 + 查看会话 -->
             <template v-else>
-              <el-button type="primary" size="small" @click="continueSession(item)">
-                继续面试
-              </el-button>
-              <el-button link type="primary" size="small" @click="viewSession(item)">
-                查看会话
-              </el-button>
+              <el-button type="primary" size="small" @click="continueSession(item)">继续面试</el-button>
+              <el-button link type="primary" size="small" @click="viewSession(item)">查看会话</el-button>
             </template>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 分页器 -->
     <div v-if="total > 0" class="pagination-section">
       <el-pagination
-        :page-size="5"
+        :page-size="pageSize"
         :total="total"
         layout="total, prev, pager, next"
         @current-change="handleCurrentChange"
@@ -147,179 +137,116 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { Loading, CircleClose, ChatDotRound } from '@element-plus/icons-vue'
-import { getInterviewHistory } from '@/api/interview'
-import InterviewEmpty from '@/components/empty/InterviewEmpty.vue'
+import { onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
+import { CircleClose } from "@element-plus/icons-vue";
+import { getInterviewHistory } from "@/api/interview";
+import InterviewEmpty from "@/components/empty/InterviewEmpty.vue";
 
-const router = useRouter()
+const router = useRouter();
 
-// 状态
-const loading = ref(true)
-const error = ref('')
-const historyList = ref([])
+const loading = ref(true);
+const error = ref("");
+const historyList = ref([]);
+const pageNum = ref(1);
+const pageSize = ref(5);
+const total = ref(0);
 
-// 分页状态 - 每页固定5条
-const pageNum = ref(1)
-const pageSize = ref(5)
-const total = ref(0)
-
-// 难度映射：数字 -> 文字/颜色
 const difficultyMap = {
-  1: { text: '初级', type: 'success' },
-  2: { text: '中级', type: 'warning' },
-  3: { text: '高级', type: 'danger' }
-}
+  1: { text: "初级", type: "success" },
+  2: { text: "中级", type: "warning" },
+  3: { text: "高级", type: "danger" },
+};
 
-// 面试模式映射
 const interviewModeMap = {
-  'normal': '普通面试',
-  'stress': '压力面试'
-}
+  normal: "普通面试",
+  stress: "压力面试",
+};
 
-// 状态映射
 const statusMap = {
-  0: { text: '进行中', type: 'warning' },
-  1: { text: '已结束', type: 'success' }
-}
+  0: { text: "进行中", type: "warning" },
+  1: { text: "已结束", type: "success" },
+};
 
-// 新增：报告状态映射
-// 修复目的：区分"已结束但报告未生成"和"已结束且报告已生成"
-const reportStatusMap = {
-  0: { text: '未生成', type: 'info' },
-  1: { text: '已完成', type: 'success' }
-}
+const sourceTypeMap = {
+  manual_jd: "手动 JD",
+  manual_jd_with_job_match: "JD + 对比结果",
+  latest_job_match: "最近一次 JD 对比",
+};
 
-// 获取难度显示文本
-const getDifficultyText = (item) => {
-  if (item.difficultyDesc) return item.difficultyDesc
-  return difficultyMap[item.difficulty]?.text || '未知'
-}
+const normalizeHistoryList = (list) => {
+  return (Array.isArray(list) ? list : []).map((item) => ({
+    ...item,
+    sourceTypeText: item.sourceType ? sourceTypeMap[item.sourceType] || item.sourceType : "",
+  }));
+};
 
-// 获取难度标签类型
-const getDifficultyType = (item) => {
-  if (item.difficultyDesc) {
-    return difficultyMap[item.difficulty]?.type || 'info'
-  }
-  return difficultyMap[item.difficulty]?.type || 'info'
-}
+const getDifficultyText = (item) => item.difficultyDesc || difficultyMap[item.difficulty]?.text || "未知";
+const getDifficultyType = (item) => difficultyMap[item.difficulty]?.type || "info";
+const getModeText = (item) => item.interviewModeDesc || interviewModeMap[item.interviewMode] || "普通面试";
+const getStatusText = (item) => item.statusDesc || statusMap[item.status]?.text || "未知";
+const getStatusType = (item) => statusMap[item.status]?.type || "info";
 
-// 获取面试模式显示文本
-const getModeText = (item) => {
-  if (item.interviewModeDesc) return item.interviewModeDesc
-  return interviewModeMap[item.interviewMode] || '普通面试'
-}
-
-// 获取状态显示文本
-// 修复：增加对报告生成的区分显示
-const getStatusText = (item) => {
-  // 如果后端返回了 reportStatus，使用它区分报告状态
-  if (item.reportStatus !== undefined) {
-    return reportStatusMap[item.reportStatus]?.text || '未知'
-  }
-  // 兼容旧字段
-  if (item.statusDesc) return item.statusDesc
-  return statusMap[item.status]?.text || '未知'
-}
-
-// 获取状态标签类型
-// 修复：已结束但报告未生成时显示不同状态
-const getStatusType = (item) => {
-  // 如果后端返回了 reportStatus
-  if (item.reportStatus !== undefined) {
-    // 报告未生成 -> 报告生成中的颜色（warning）
-    if (item.reportStatus === 0) {
-      return item.status === 1 ? 'warning' : 'info'
-    }
-    // 报告已完成 -> 绿色
-    return 'success'
-  }
-  // 兼容旧字段
-  if (item.statusDesc) {
-    return item.status === 0 ? 'warning' : 'success'
-  }
-  return statusMap[item.status]?.type || 'info'
-}
-
-// 格式化时间
 const formatTime = (timeStr) => {
-  if (!timeStr) return ''
-  const date = new Date(timeStr)
-  return date.toLocaleString('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
-}
+  if (!timeStr) return "";
+  const date = new Date(timeStr);
+  return date.toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
 
-// 获取历史记录
 const fetchHistory = async () => {
-  loading.value = true
-  error.value = ''
-
+  loading.value = true;
+  error.value = "";
   try {
-    const res = await getInterviewHistory({ pageNum: pageNum.value, pageSize: pageSize.value })
-
-    if (res.data) {
-      if (Array.isArray(res.data)) {
-        historyList.value = res.data
-        total.value = res.data.length
-      } else if (res.data.list && Array.isArray(res.data.list)) {
-        historyList.value = res.data.list
-        total.value = res.data.total || 0
-        pageNum.value = res.data.pageNum || 1
-        pageSize.value = res.data.pageSize || 5
-      } else {
-        historyList.value = []
-        total.value = 0
-      }
-    } else {
-      historyList.value = []
-      total.value = 0
+    const res = await getInterviewHistory({ pageNum: pageNum.value, pageSize: pageSize.value });
+    const data = res.data;
+    if (Array.isArray(data)) {
+      historyList.value = normalizeHistoryList(data);
+      total.value = data.length;
+      return;
     }
+    historyList.value = normalizeHistoryList(data?.list || []);
+    total.value = data?.total || 0;
+    pageNum.value = data?.pageNum || 1;
+    pageSize.value = data?.pageSize || 5;
   } catch (err) {
-    console.error('获取面试历史失败:', err)
-    error.value = err.message || '获取历史记录失败，请稍后重试'
+    error.value = err.message || "获取历史记录失败，请稍后重试";
   } finally {
-    loading.value = false
+    loading.value = false;
   }
-}
+};
 
-// 页码变化
 const handleCurrentChange = (val) => {
-  pageNum.value = val
-  fetchHistory()
-}
+  pageNum.value = val;
+  fetchHistory();
+};
 
-// 查看会话
 const viewSession = (item) => {
-  if (!item.sessionId) return
-  router.push(`/interview/session/${item.sessionId}`)
-}
+  if (item?.sessionId) {
+    router.push(`/interview/session/${item.sessionId}`);
+  }
+};
 
-// 继续面试
-const continueSession = (item) => {
-  if (!item.sessionId) return
-  router.push(`/interview/session/${item.sessionId}`)
-}
+const continueSession = viewSession;
 
-// 查看报告
 const viewReport = (item) => {
-  if (!item.sessionId) return
-  router.push(`/interview/report/${item.sessionId}`)
-}
+  if (item?.sessionId) {
+    router.push(`/interview/report/${item.sessionId}`);
+  }
+};
 
-// 跳转到面试入口
 const goToEntry = () => {
-  router.push('/interview/entry')
-}
+  router.push("/interview/entry");
+};
 
 onMounted(() => {
-  fetchHistory()
-})
+  fetchHistory();
+});
 </script>
 
 <style scoped>
@@ -327,7 +254,6 @@ onMounted(() => {
   min-height: 100%;
 }
 
-/* 页面标题区 */
 .page-header {
   margin-bottom: 24px;
 }
@@ -336,7 +262,7 @@ onMounted(() => {
   margin: 0 0 6px 0;
   font-size: 24px;
   font-weight: 600;
-  color: #2F2F2F;
+  color: #2f2f2f;
 }
 
 .page-desc {
@@ -345,7 +271,6 @@ onMounted(() => {
   color: #888888;
 }
 
-/* 加载状态 - 骨架屏 */
 .loading-section {
   padding: 20px 0;
 }
@@ -356,20 +281,22 @@ onMounted(() => {
   gap: 24px;
 }
 
-.skeleton-card {
+.skeleton-card,
+.history-card {
   background: #ffffff;
   border: 1px solid #f3d8c7;
   border-radius: 16px;
   padding: 28px 32px;
 }
 
-.skeleton-header {
+.skeleton-header,
+.card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 20px;
   padding-bottom: 16px;
-  border-bottom: 1px solid #f5f5f5;
+  border-bottom: 1px solid #fff8f3;
 }
 
 .skeleton-info {
@@ -378,20 +305,22 @@ onMounted(() => {
   margin-bottom: 20px;
 }
 
-.skeleton-footer {
+.skeleton-footer,
+.card-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding-top: 16px;
 }
 
-.skeleton-actions {
+.skeleton-actions,
+.card-actions {
   display: flex;
   gap: 12px;
 }
 
-/* 错误状态 */
-.error-section {
+.error-section,
+.empty-section {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -402,46 +331,25 @@ onMounted(() => {
   display: flex;
   align-items: flex-start;
   gap: 20px;
-  background-color: #FFFFFF;
-  border: 1px solid #F3D8C7;
+  background-color: #ffffff;
+  border: 1px solid #f3d8c7;
   border-radius: 12px;
   padding: 32px;
   max-width: 500px;
   box-shadow: 0 2px 12px rgba(255, 140, 66, 0.06);
 }
 
-.error-icon {
-  flex-shrink: 0;
-}
-
-.error-content {
-  flex: 1;
-}
-
 .error-title {
   font-size: 16px;
   font-weight: 500;
-  color: #F56C6C;
+  color: #f56c6c;
   margin-bottom: 8px;
 }
 
-.error-desc {
+.error-desc,
+.empty-desc {
   font-size: 14px;
   color: #888888;
-  margin-bottom: 16px;
-}
-
-.error-actions {
-  display: flex;
-  gap: 12px;
-}
-
-/* 空状态 */
-.empty-section {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 60px 0;
 }
 
 .empty-content {
@@ -454,21 +362,10 @@ onMounted(() => {
 .empty-title {
   font-size: 18px;
   font-weight: 600;
-  color: #2F2F2F;
+  color: #2f2f2f;
   margin: 20px 0 8px;
 }
 
-.empty-desc {
-  font-size: 14px;
-  color: #888888;
-  margin-bottom: 24px;
-  max-width: 400px;
-  line-height: 1.6;
-}
-
-/* ============================================
-   卡片列表布局
-   ============================================ */
 .history-list {
   display: flex;
   flex-direction: column;
@@ -476,50 +373,41 @@ onMounted(() => {
   margin-bottom: 32px;
 }
 
-/* 单个卡片 */
 .history-card {
-  background: #FFFFFF;
-  border: 1px solid #F3D8C7;
-  border-radius: 16px;
-  padding: 28px 32px;
   transition: all 0.25s ease;
 }
 
 .history-card:hover {
-  border-color: #FF8C42;
+  border-color: #ff8c42;
   box-shadow: 0 6px 24px rgba(255, 140, 66, 0.12);
   transform: translateY(-2px);
 }
 
-/* 卡片顶部 */
-.card-header {
+.title-block {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 20px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid #FFF8F3;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.title-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .job-title {
   font-size: 20px;
   font-weight: 600;
-  color: #2F2F2F;
+  color: #2f2f2f;
   margin: 0;
 }
 
-.status-tag {
-  font-weight: 500;
-}
-
-/* 信息区 */
 .card-info {
   margin-bottom: 20px;
   padding-bottom: 16px;
-  border-bottom: 1px solid #FFF8F3;
+  border-bottom: 1px solid #fff8f3;
 }
 
-/* 信息行 */
 .info-row {
   display: flex;
   gap: 48px;
@@ -530,7 +418,6 @@ onMounted(() => {
   margin-bottom: 0;
 }
 
-/* 信息项 */
 .info-item {
   display: flex;
   align-items: center;
@@ -551,16 +438,8 @@ onMounted(() => {
 
 .info-value.score {
   font-weight: 600;
-  color: #FF8C42;
+  color: #ff8c42;
   font-size: 16px;
-}
-
-/* 卡片底部 */
-.card-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-top: 16px;
 }
 
 .time-info {
@@ -568,12 +447,6 @@ onMounted(() => {
   color: #999999;
 }
 
-.card-actions {
-  display: flex;
-  gap: 16px;
-}
-
-/* 分页器 */
 .pagination-section {
   display: flex;
   justify-content: center;
@@ -581,18 +454,16 @@ onMounted(() => {
   margin-top: 16px;
 }
 
-/* 移动端适配 */
 @media (max-width: 768px) {
   .page-title {
     font-size: 20px;
   }
+
   .info-row {
     flex-direction: column;
     gap: 12px;
   }
-  .info-item {
-    min-width: auto;
-  }
+
   .card-header {
     flex-direction: column;
     align-items: flex-start;
@@ -604,20 +475,26 @@ onMounted(() => {
   .page-title {
     font-size: 18px;
   }
+
   .page-desc {
     font-size: 13px;
   }
+
   .job-title {
     font-size: 16px;
   }
-  .history-card {
+
+  .history-card,
+  .skeleton-card {
     padding: 20px 16px;
   }
+
   .card-footer {
     flex-direction: column;
     gap: 12px;
     align-items: flex-start;
   }
+
   .card-actions {
     width: 100%;
     justify-content: flex-end;

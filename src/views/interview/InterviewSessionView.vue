@@ -1,16 +1,10 @@
 <template>
   <div class="interview-session-view">
-    <!-- 顶部面试状态栏（sticky） -->
     <div class="session-status-bar">
       <div class="status-bar-left">
-        <span class="interview-title"
-          >模拟面试 · {{ sessionData?.jobRole || "加载中" }}</span
-        >
+        <span class="interview-title">模拟面试 · {{ sessionData?.jobRole || "加载中" }}</span>
         <span class="status-divider">|</span>
-        <span
-          class="difficulty-badge"
-          :class="`difficulty-${sessionData?.difficulty || 1}`"
-        >
+        <span class="difficulty-badge" :class="`difficulty-${sessionData?.difficulty || 1}`">
           {{ difficultyText }}
         </span>
         <span class="mode-text">{{ modeText }}</span>
@@ -20,7 +14,7 @@
           <span class="status-dot"></span>
           {{ sessionStatusText }}
         </span>
-        <el-button link @click="goBack" class="back-btn">
+        <el-button link class="back-btn" @click="goBack">
           <el-icon><ArrowLeft /></el-icon>
         </el-button>
         <el-button
@@ -28,8 +22,8 @@
           type="danger"
           plain
           size="small"
-          @click="endInterview"
           class="end-btn"
+          @click="endInterview"
         >
           结束面试
         </el-button>
@@ -44,7 +38,11 @@
       </div>
     </div>
 
-    <!-- 加载状态 -->
+    <div v-if="sessionData?.jobTargeted" class="job-target-banner">
+      <div class="job-target-banner-title">岗位定向模拟已开启</div>
+      <div class="job-target-banner-desc">{{ jobTargetSummary }}</div>
+    </div>
+
     <div v-if="loading" class="loading-section">
       <div class="loading-content">
         <el-icon class="loading-icon" :size="48"><Loading /></el-icon>
@@ -52,7 +50,6 @@
       </div>
     </div>
 
-    <!-- 错误状态 -->
     <div v-else-if="error" class="error-section">
       <el-result icon="error" title="加载失败" :sub-title="error">
         <template #extra>
@@ -62,155 +59,101 @@
       </el-result>
     </div>
 
-    <!-- 会话内容区 -->
     <div v-else class="session-content">
-      <!-- 对话主舞台 -->
       <div class="chat-stage">
         <div class="chat-container">
-          <div class="chat-messages" ref="chatContainer" :key="sessionId">
+          <div class="chat-messages" ref="chatContainer">
             <template v-if="groupedChatLogs.length > 0">
-              <template
-                v-for="item in groupedChatLogs"
-              >
-                <!-- 日期分割线 -->
-                <div
-                  v-if="item.type === 'date-separator'"
-                  class="date-separator"
-                  :key="'date-' + item.date"
-                >
+              <template v-for="item in groupedChatLogs" :key="item.id || item.tempId || item.date">
+                <div v-if="item.type === 'date-separator'" class="date-separator">
                   <span class="date-separator-line"></span>
-                  <span class="date-separator-text">{{
-                    formatDateSeparator(item.date)
-                  }}</span>
+                  <span class="date-separator-text">{{ formatDateSeparator(item.date) }}</span>
                   <span class="date-separator-line"></span>
                 </div>
 
-                <!-- AI 面试官消息 - 左对齐 -->
-                <div
-                  v-else-if="item.messageRole === 'assistant'"
-                  class="message-row assistant-row"
-                  :key="item.id || item.tempId || `msg-${item.createTime}`"
-                >
+                <div v-else-if="item.messageRole === 'assistant'" class="message-row assistant-row">
                   <div class="message-avatar assistant-avatar">
-                    <img
-                      :src="assistantAvatar"
-                      alt="AI面试官"
-                      @error="handleImageError"
-                    />
+                    <img :src="assistantAvatar" alt="AI面试官" @error="handleImageError" />
                   </div>
                   <div class="message-content">
                     <div class="message-bubble assistant-bubble">
-                      <span
-                        v-if="item.status === 'thinking'"
-                        class="thinking-indicator"
-                      >
-                        <span class="thinking-text">思考中</span
-                        ><span class="thinking-dots">...</span>
+                      <span v-if="item.status === 'thinking'" class="thinking-indicator">
+                        <span class="thinking-text">思考中</span><span class="thinking-dots">...</span>
                       </span>
-                      <span
-                        v-else-if="item.status === 'error'"
-                        class="error-text"
-                        >回复失败，请重试</span
-                      >
-                      <span
-                        v-else-if="item.status === 'streaming'"
-                        class="streaming-text"
-                        >{{ item.displayContent
-                        }}<span class="typing-cursor">|</span></span
-                      >
-                      <span v-else class="done-text">{{
-                        item.content || ""
-                      }}</span>
+                      <span v-else-if="item.status === 'error'" class="error-text">回复失败，请重试</span>
+                      <span v-else-if="item.status === 'streaming'" class="streaming-text">
+                        {{ item.displayContent }}<span class="typing-cursor">|</span>
+                      </span>
+                      <span v-else class="done-text">{{ item.content || "" }}</span>
                     </div>
                     <div class="message-meta assistant-meta">
                       <span class="role-tag">面试官</span>
-                      <span class="time-tag">{{
-                        formatTime(item.createTime)
-                      }}</span>
+                      <span class="time-tag">{{ formatTime(item.createTime) }}</span>
                     </div>
                   </div>
                 </div>
 
-                <!-- 用户消息 - 右对齐 -->
-                <div v-else class="message-row user-row" :key="'user-' + (item.id || item.tempId || item.createTime)">
+                <div v-else class="message-row user-row">
                   <div class="message-avatar user-avatar">
-                    <img
-                      :src="userAvatar"
-                      alt="用户"
-                      @error="handleImageError"
-                    />
+                    <img :src="userAvatar" alt="用户" @error="handleImageError" />
                   </div>
                   <div class="message-content">
-                    <div class="message-bubble user-bubble">
-                      {{ item.content }}
-                    </div>
+                    <div class="message-bubble user-bubble">{{ item.content }}</div>
                     <div class="message-meta user-meta">
-                      <span class="time-tag">{{
-                        formatTime(item.createTime)
-                      }}</span>
+                      <span class="time-tag">{{ formatTime(item.createTime) }}</span>
                     </div>
                   </div>
                 </div>
               </template>
             </template>
 
-            <!-- 空对话状态 -->
             <div v-else class="empty-chat">
               <div class="empty-icon-wrapper">
                 <el-icon :size="56" color="#F3D8C7"><ChatDotSquare /></el-icon>
               </div>
               <p class="empty-title">等待开始</p>
-              <p class="empty-desc">在下方输入你的回答，AI 面试官将进行追问</p>
+              <p class="empty-desc">在下方输入你的回答，AI 面试官会继续追问。</p>
             </div>
           </div>
         </div>
       </div>
+    </div>
 
-      <!-- 底部输入区 -->
-      <div class="input-area" v-if="isInProgress">
-        <div class="input-container">
-          <el-input
-            v-model="inputMessage"
-            type="textarea"
-            :rows="3"
-            placeholder="输入你的回答，AI 面试官将进行追问..."
-            resize="none"
-            @keyup.enter.ctrl="sendMessage"
-          />
-          <div class="input-footer">
-            <span class="input-hint">
-              <kbd>Ctrl</kbd> + <kbd>Enter</kbd> 发送
-            </span>
-            <el-button
-              type="primary"
-              :loading="sending"
-              :disabled="!inputMessage.trim()"
-              @click="sendMessage"
-              class="send-btn"
-            >
-              发送回答
-            </el-button>
-          </div>
+    <div v-if="isInProgress" class="input-area">
+      <div class="input-container">
+        <el-input
+          v-model="inputMessage"
+          type="textarea"
+          :rows="3"
+          placeholder="输入你的回答，AI 面试官将继续追问..."
+          resize="none"
+          @keyup.enter.ctrl="sendMessage"
+        />
+        <div class="input-footer">
+          <span class="input-hint"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> 发送</span>
+          <el-button
+            type="primary"
+            :loading="sending"
+            :disabled="!inputMessage.trim()"
+            class="send-btn"
+            @click="sendMessage"
+          >
+            发送回答
+          </el-button>
         </div>
-      </div>
-
-      <!-- 面试结束提示 -->
-      <div v-if="isEnded" class="ended-notice">
-        <el-icon><CircleCheckFilled /></el-icon>
-        <span>面试已结束，你可以查看或返回</span>
       </div>
     </div>
 
-    <!-- 结束面试确认对话框 -->
+    <div v-if="isEnded" class="ended-notice">
+      <el-icon><CircleCheckFilled /></el-icon>
+      <span>面试已结束，你可以查看报告或返回历史记录。</span>
+    </div>
+
     <el-dialog v-model="showEndDialog" title="结束面试" width="400px">
-      <p>确定要结束本次面试吗？结束后将无法继续回答。</p>
+      <p>确认结束本次面试吗？结束后将无法继续回答。</p>
       <template #footer>
         <el-button @click="showEndDialog = false">取消</el-button>
-        <el-button
-          type="primary"
-          :loading="ending"
-          @click="confirmEndInterview"
-        >
+        <el-button type="primary" :loading="ending" @click="confirmEndInterview">
           确认结束
         </el-button>
       </template>
@@ -219,23 +162,20 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick } from "vue";
-import { useRouter, useRoute } from "vue-router";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import {
   ArrowLeft,
-  User,
-  Service,
   ChatDotSquare,
   Loading,
   CircleCheckFilled,
 } from "@element-plus/icons-vue";
 import {
-  getInterviewSession,
-  sendInterviewMessage,
   endInterview as apiEndInterview,
+  getInterviewSession,
   streamInterviewMessage,
 } from "@/api/interview";
-import { ElMessage, ElMessageBox } from "element-plus";
+import { ElMessage } from "element-plus";
 import { getToken } from "@/utils/auth";
 
 import assistantAvatarImg from "@/assets/assistant.png";
@@ -245,6 +185,7 @@ const router = useRouter();
 const route = useRoute();
 
 const sessionId = computed(() => route.params.sessionId);
+const chatContainer = ref(null);
 
 const loading = ref(true);
 const error = ref("");
@@ -253,14 +194,9 @@ const inputMessage = ref("");
 const sending = ref(false);
 const ending = ref(false);
 const showEndDialog = ref(false);
-const streamingContent = ref("");
-const isStreaming = ref(false);
-const pendingAssistantMsgId = ref(null);
 
 const assistantAvatar = assistantAvatarImg;
 const userAvatar = userAvatarImg;
-
-const modeFromQuery = computed(() => route.query.mode || "normal");
 
 const isInProgress = computed(() => sessionData.value?.status === 0);
 const isEnded = computed(() => sessionData.value?.status === 1);
@@ -270,37 +206,34 @@ const sessionStatusText = computed(() => {
   return sessionData.value.status === 0 ? "进行中" : "已结束";
 });
 
-const sessionStatusType = computed(() => {
-  if (!sessionData.value) return "info";
-  return sessionData.value.status === 0 ? "success" : "info";
-});
-
 const difficultyText = computed(() => {
   const map = { 1: "初级", 2: "中级", 3: "高级" };
   return map[sessionData.value?.difficulty] || "初级";
-});
-
-const difficultyType = computed(() => {
-  const map = { 1: "success", 2: "warning", 3: "danger" };
-  return map[sessionData.value?.difficulty] || "info";
 });
 
 const modeText = computed(() => {
   if (sessionData.value?.interviewModeDesc) {
     return sessionData.value.interviewModeDesc;
   }
-  if (sessionData.value?.interviewMode === "stress") {
-    return "压力面试";
-  }
-  if (sessionData.value?.interviewMode === "normal") {
-    return "普通面试";
-  }
-  return "普通面试";
+  return sessionData.value?.interviewMode === "stress" ? "压力面试" : "普通面试";
 });
 
-const chatLogs = computed(() => {
-  return sessionData.value?.chatLogs || [];
+const jobTargetSummary = computed(() => {
+  const context = sessionData.value?.jobTargetContext;
+  if (!context) {
+    return "系统会结合岗位要求生成更贴近目标岗位的问题与反馈建议。";
+  }
+  const sourceMap = {
+    manual_jd: "当前使用的是你手动输入的岗位 JD。",
+    manual_jd_with_job_match: "当前同时复用了手动 JD 和最近一次 JD 对比分析结果。",
+    latest_job_match: "当前复用了最近一次 JD 对比分析结果。",
+  };
+  const matchedCount = Array.isArray(context.matchedKeywords) ? context.matchedKeywords.length : 0;
+  const missingCount = Array.isArray(context.missingKeywords) ? context.missingKeywords.length : 0;
+  return `${sourceMap[context.sourceType] || "当前已开启岗位定向模拟。"} 已带入 ${matchedCount} 个已匹配关键词和 ${missingCount} 个待补强关键词。`;
 });
+
+const chatLogs = computed(() => sessionData.value?.chatLogs || []);
 
 const groupedChatLogs = computed(() => {
   const logs = chatLogs.value;
@@ -308,7 +241,6 @@ const groupedChatLogs = computed(() => {
 
   const result = [];
   let currentDate = "";
-
   logs.forEach((msg) => {
     const msgDate = new Date(msg.createTime).toDateString();
     if (msgDate !== currentDate) {
@@ -321,78 +253,125 @@ const groupedChatLogs = computed(() => {
     }
     result.push(msg);
   });
-
   return result;
 });
 
-const formatDateSeparator = (timeStr) => {
-  if (!timeStr) return "";
-  const date = new Date(timeStr);
-  if (isNaN(date.getTime())) return "";
-  const today = new Date().toDateString();
-  const yesterday = new Date(Date.now() - 86400000).toDateString();
-  if (date.toDateString() === today) return "今天";
-  if (date.toDateString() === yesterday) return "昨天";
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}年${pad(date.getMonth() + 1)}月${pad(
-    date.getDate()
-  )}日`;
-};
-
-const handleImageError = (e) => {
-  console.warn("头像加载失败:", e.target.src);
-  e.target.style.display = "none";
-  e.target.parentElement.classList.add("avatar-fallback");
+const normalizeChatLogs = (logs) => {
+  return (Array.isArray(logs) ? logs : []).map((msg) => ({
+    ...msg,
+    displayContent: msg.content || "",
+    pendingContent: "",
+    status: msg.status || "done",
+    rawContent: msg.content || "",
+    streamFinished: true,
+  }));
 };
 
 const fetchSessionDetail = async () => {
   if (!sessionId.value) {
-    error.value = "会话ID不存在";
+    error.value = "会话 ID 不存在";
     loading.value = false;
     return;
   }
 
   loading.value = true;
   error.value = "";
-
   try {
     const res = await getInterviewSession(sessionId.value);
-
-    if (res.data?.chatLogs && Array.isArray(res.data.chatLogs)) {
-      res.data.chatLogs = res.data.chatLogs.map((msg) => ({
-        ...msg,
-        displayContent: msg.content || "",
-        pendingContent: "",
-        status: msg.status || "done",
-        rawContent: msg.content || "",
-      }));
-    }
-
-    sessionData.value = res.data;
-    loading.value = false;
+    sessionData.value = {
+      ...(res.data || {}),
+      chatLogs: normalizeChatLogs(res.data?.chatLogs),
+    };
+    await nextTick();
+    scrollToBottom();
   } catch (err) {
-    console.error("获取会话详情失败:", err);
     error.value = err.message || "获取会话详情失败，请稍后重试";
+  } finally {
     loading.value = false;
   }
+};
+
+const formatDateSeparator = (timeStr) => {
+  if (!timeStr) return "";
+  const date = new Date(timeStr);
+  if (Number.isNaN(date.getTime())) return "";
+  const today = new Date().toDateString();
+  const yesterday = new Date(Date.now() - 86400000).toDateString();
+  if (date.toDateString() === today) return "今天";
+  if (date.toDateString() === yesterday) return "昨天";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}年${pad(date.getMonth() + 1)}月${pad(date.getDate())}日`;
+};
+
+const formatTime = (timeStr) => {
+  if (!timeStr) return "";
+  const date = new Date(timeStr);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+};
+
+const handleImageError = (event) => {
+  event.target.style.display = "none";
+};
+
+const scrollToBottom = () => {
+  nextTick(() => {
+    const container = chatContainer.value;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
+  });
 };
 
 let typingTimer = null;
 const TYPE_INTERVAL_MS = 35;
 
-const sendMessage = async () => {
-  const content = inputMessage.value.trim();
-  if (!content || !sessionId.value) return;
-
+const stopTypingMachine = () => {
   if (typingTimer) {
     clearInterval(typingTimer);
     typingTimer = null;
   }
+};
+
+const startTypingMachine = (tempMsgId) => {
+  stopTypingMachine();
+  typingTimer = setInterval(() => {
+    const logs = sessionData.value?.chatLogs || [];
+    const msgIndex = logs.findIndex((item) => item.id === tempMsgId);
+    if (msgIndex === -1) {
+      stopTypingMachine();
+      return;
+    }
+
+    const msg = logs[msgIndex];
+    if (msg.pendingContent.length > 0) {
+      msg.displayContent += msg.pendingContent[0];
+      msg.pendingContent = msg.pendingContent.substring(1);
+      msg.status = "streaming";
+      nextTick(() => scrollToBottom());
+      return;
+    }
+
+    if (msg.streamFinished) {
+      stopTypingMachine();
+      if (msg.status !== "error") {
+        msg.content = msg.rawContent;
+        msg.status = "done";
+      }
+    }
+  }, TYPE_INTERVAL_MS);
+};
+
+const sendMessage = async () => {
+  const content = inputMessage.value.trim();
+  if (!content || !sessionId.value || !sessionData.value) {
+    return;
+  }
 
   sending.value = true;
-  isStreaming.value = true;
-
   const tempMsgId = `temp-${Date.now()}`;
+  const now = new Date().toISOString();
   const assistantMsg = {
     id: tempMsgId,
     messageRole: "assistant",
@@ -402,52 +381,17 @@ const sendMessage = async () => {
     rawContent: "",
     status: "thinking",
     streamFinished: false,
-    createTime: new Date().toISOString(),
+    createTime: now,
   };
 
   sessionData.value.chatLogs = [
     ...(sessionData.value.chatLogs || []),
-    {
-      id: `user-${Date.now()}`,
-      messageRole: "user",
-      content: content,
-      createTime: new Date().toISOString(),
-    },
+    { id: `user-${Date.now()}`, messageRole: "user", content, createTime: now },
     assistantMsg,
   ];
-
   inputMessage.value = "";
   await nextTick();
   scrollToBottom();
-
-  const startTypingMachine = () => {
-    if (typingTimer) clearInterval(typingTimer);
-    typingTimer = setInterval(() => {
-      const logs = sessionData.value?.chatLogs || [];
-      const msgIndex = logs.findIndex((m) => m.id === tempMsgId);
-      if (msgIndex === -1) {
-        clearInterval(typingTimer);
-        typingTimer = null;
-        return;
-      }
-      const msg = logs[msgIndex];
-      if (msg.pendingContent.length > 0) {
-        msg.displayContent += msg.pendingContent[0];
-        msg.pendingContent = msg.pendingContent.substring(1);
-        msg.status = "streaming";
-        nextTick(() => scrollToBottom());
-      } else if (msg.streamFinished && msg.pendingContent.length === 0) {
-        clearInterval(typingTimer);
-        typingTimer = null;
-        if (msg.status !== "error") {
-          msg.content = msg.rawContent;
-          msg.status = "done";
-        } else {
-          msg.status = "error";
-        }
-      }
-    }, TYPE_INTERVAL_MS);
-  };
 
   let streamSucceeded = false;
   try {
@@ -463,116 +407,109 @@ const sendMessage = async () => {
       try {
         const errBody = await response.json();
         errMsg = errBody.message || errBody.msg || errMsg;
-      } catch {}
+      } catch {
+        // 保持最小兜底。
+      }
       throw new Error(errMsg);
+    }
+
+    if (!response.body) {
+      throw new Error("未获取到流式响应体");
     }
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
+    startTypingMachine(tempMsgId);
+
+    let sseBuffer = "";
+
+    const applyStreamPayload = (payload) => {
+      const msgIndex = sessionData.value.chatLogs.findIndex((item) => item.id === tempMsgId);
+      if (msgIndex === -1) {
+        return;
+      }
+      const msg = sessionData.value.chatLogs[msgIndex];
+
+      if (payload.type === "content") {
+        const normalizedData = (payload.content || "").replace(/\r/g, "");
+        if (normalizedData) {
+          msg.status = "streaming";
+          msg.rawContent += normalizedData;
+          msg.pendingContent += normalizedData;
+        }
+        return;
+      }
+
+      if (payload.type === "done") {
+        msg.streamFinished = true;
+        return;
+      }
+
+      if (payload.type === "error") {
+        throw new Error(payload.message || "AI 回复失败");
+      }
+    };
+
+    const consumeSseBuffer = () => {
+      while (true) {
+        const eventEndIndex = sseBuffer.indexOf("\n\n");
+        if (eventEndIndex === -1) {
+          break;
+        }
+
+        const eventBlock = sseBuffer.slice(0, eventEndIndex).replace(/\r/g, "");
+        sseBuffer = sseBuffer.slice(eventEndIndex + 2);
+        if (!eventBlock.trim()) {
+          continue;
+        }
+
+        const dataLines = eventBlock
+          .split("\n")
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice("data:".length).trim());
+
+        if (!dataLines.length) {
+          continue;
+        }
+
+        const jsonStr = dataLines.join("\n");
+        try {
+          applyStreamPayload(JSON.parse(jsonStr));
+        } catch (parseError) {
+          console.warn("[interview-stream] SSE parse failed:", jsonStr, parseError);
+        }
+      }
+    };
 
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
-
-      const text = decoder.decode(value, { stream: true });
-      const lines = text.split("\n");
-
-      for (const line of lines) {
-        if (line.startsWith("event:")) {
-          continue;
-        } else if (line.startsWith("data:")) {
-          const jsonStr = line.substring("data:".length).trim();
-          if (!jsonStr) continue;
-
-          let payload;
-          try {
-            payload = JSON.parse(jsonStr);
-          } catch (e) {
-            console.warn("[stream] JSON解析失败:", jsonStr, e);
-            continue;
-          }
-
-          if (payload.type === "content") {
-            const data = payload.content || "";
-            if (!data) continue;
-
-            const msgIndex = sessionData.value.chatLogs.findIndex(
-              (m) => m.id === tempMsgId
-            );
-            if (msgIndex !== -1) {
-              const msg = sessionData.value.chatLogs[msgIndex];
-              const normalizedData = data.replace(/\r/g, "");
-              const visibleContent = normalizedData.replace(/[\s\u00A0]/g, "");
-              if (visibleContent === "") {
-                console.debug(
-                  "[stream] 跳过纯空白chunk:",
-                  JSON.stringify(normalizedData)
-                );
-              } else {
-                if (msg.status === "thinking") {
-                  msg.status = "streaming";
-                  startTypingMachine();
-                }
-                msg.rawContent += normalizedData;
-                msg.pendingContent += normalizedData;
-              }
-            }
-            await nextTick();
-            scrollToBottom();
-          } else if (payload.type === "done") {
-            console.debug("[stream] 收到done事件");
-            const msgIndex = sessionData.value.chatLogs.findIndex(
-              (m) => m.id === tempMsgId
-            );
-            if (msgIndex !== -1) {
-              const msg = sessionData.value.chatLogs[msgIndex];
-              msg.streamFinished = true;
-            }
-            break;
-          } else if (payload.type === "error") {
-            throw new Error(payload.message || "AI 回复失败");
-          }
-        }
+      if (done) {
+        sseBuffer += decoder.decode();
+        consumeSseBuffer();
+        break;
       }
+
+      sseBuffer += decoder.decode(value, { stream: true });
+      consumeSseBuffer();
     }
 
     streamSucceeded = true;
-    const msgIndex = sessionData.value.chatLogs.findIndex(
-      (m) => m.id === tempMsgId
-    );
+    const msgIndex = sessionData.value.chatLogs.findIndex((item) => item.id === tempMsgId);
     if (msgIndex !== -1) {
-      const msg = sessionData.value.chatLogs[msgIndex];
-      msg.streamFinished = true;
+      sessionData.value.chatLogs[msgIndex].streamFinished = true;
     }
   } catch (err) {
-    console.error("流式消息失败:", err);
     ElMessage.error(err.message || "发送消息失败，请稍后重试");
-    if (!streamSucceeded) {
-      const msgIndex = sessionData.value.chatLogs.findIndex(
-        (m) => m.id === tempMsgId
-      );
-      if (msgIndex !== -1) {
-        const msg = sessionData.value.chatLogs[msgIndex];
-        msg.status = "error";
-        msg.streamFinished = true;
+    const msgIndex = sessionData.value.chatLogs.findIndex((item) => item.id === tempMsgId);
+    if (msgIndex !== -1) {
+      sessionData.value.chatLogs[msgIndex].streamFinished = true;
+      if (!streamSucceeded) {
+        sessionData.value.chatLogs[msgIndex].status = "error";
       }
-      await nextTick();
     }
   } finally {
     sending.value = false;
-    isStreaming.value = false;
-    pendingAssistantMsgId.value = null;
-    streamingContent.value = "";
   }
-};
-
-const scrollToBottom = () => {
-  nextTick(() => {
-    const container = document.querySelector(".chat-messages");
-    if (container) {
-      container.scrollTop = container.scrollHeight;
-    }
-  });
 };
 
 const endInterview = () => {
@@ -581,22 +518,13 @@ const endInterview = () => {
 
 const confirmEndInterview = async () => {
   if (!sessionId.value) return;
-
   ending.value = true;
-
   try {
     await apiEndInterview(sessionId.value);
     showEndDialog.value = false;
     ElMessage.success("面试已结束，报告生成中...");
-    // 访问会话详情以刷新状态
     await fetchSessionDetail();
-    // 提示用户报告会稍后生成
-    ElMessage.info({
-      message: "评价报告正在生成，请稍后在报告页查看",
-      duration: 3000
-    });
   } catch (err) {
-    console.error("结束面试失败:", err);
     ElMessage.error(err.message || "结束面试失败，请稍后重试");
   } finally {
     ending.value = false;
@@ -612,20 +540,12 @@ const goBack = () => {
   router.back();
 };
 
-const formatTime = (timeStr) => {
-  if (!timeStr) return "";
-  const date = new Date(timeStr);
-  if (isNaN(date.getTime())) return "";
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
-    date.getDate()
-  )} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(
-    date.getSeconds()
-  )}`;
-};
-
 onMounted(() => {
   fetchSessionDetail();
+});
+
+onBeforeUnmount(() => {
+  stopTypingMachine();
 });
 </script>
 
@@ -638,9 +558,6 @@ onMounted(() => {
   overflow: hidden;
 }
 
-/* ============================================
-   顶部面试状态栏
-   ============================================ */
 .session-status-bar {
   position: sticky;
   top: 0;
@@ -656,7 +573,8 @@ onMounted(() => {
   box-shadow: 0 2px 12px rgba(255, 140, 66, 0.06);
 }
 
-.status-bar-left {
+.status-bar-left,
+.status-bar-right {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -670,7 +588,6 @@ onMounted(() => {
 
 .status-divider {
   color: #f3d8c7;
-  font-weight: 300;
 }
 
 .difficulty-badge {
@@ -695,23 +612,16 @@ onMounted(() => {
   color: #f44336;
 }
 
-.mode-text {
+.mode-text,
+.status-indicator {
   font-size: 13px;
   color: #666666;
-}
-
-.status-bar-right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
 }
 
 .status-indicator {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
-  color: #666666;
 }
 
 .status-dot {
@@ -719,44 +629,40 @@ onMounted(() => {
   height: 8px;
   border-radius: 50%;
   background: #67c23a;
-  animation: pulse 2s ease-in-out infinite;
 }
 
 .status-indicator.ended .status-dot {
   background: #909399;
-  animation: none;
 }
 
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.6;
-    transform: scale(0.9);
-  }
+.job-target-banner {
+  position: sticky;
+  top: 0;
+  flex-shrink: 0;
+  padding: 12px 24px;
+  background: linear-gradient(135deg, #fff4ea 0%, #fffaf6 100%);
+  border-bottom: 1px solid rgba(243, 216, 199, 0.6);
 }
 
-.back-btn {
-  color: #666;
+.job-target-banner-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #b86127;
+  margin-bottom: 4px;
 }
 
-.end-btn {
-  border-radius: 8px;
+.job-target-banner-desc {
+  font-size: 13px;
+  line-height: 1.7;
+  color: #7b5b48;
 }
 
-/* ============================================
-   加载和错误状态
-   ============================================ */
 .loading-section,
 .error-section {
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 80px 0;
 }
 
 .loading-content {
@@ -785,9 +691,6 @@ onMounted(() => {
   color: #666;
 }
 
-/* ============================================
-   会话内容区
-   ============================================ */
 .session-content {
   flex: 1;
   display: flex;
@@ -796,9 +699,6 @@ onMounted(() => {
   overflow: hidden;
 }
 
-/* ============================================
-   对话主舞台
-   ============================================ */
 .chat-stage {
   flex: 1;
   display: flex;
@@ -808,7 +708,7 @@ onMounted(() => {
 
 .chat-container {
   flex: 1;
-  max-width: 800px;
+  max-width: 900px;
   width: 100%;
   margin: 0 auto;
   padding: 24px;
@@ -820,41 +720,32 @@ onMounted(() => {
 .chat-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 8px 0;
+  overflow-x: hidden;
+  padding: 8px 16px 8px 0;
   display: flex;
   flex-direction: column;
   gap: 24px;
   min-height: 0;
 }
 
-/* ============================================
-   消息行
-   ============================================ */
 .message-row {
   display: flex;
   gap: 14px;
   align-items: flex-start;
 }
 
-.assistant-row {
-  flex-direction: row;
-}
-
 .user-row {
   flex-direction: row-reverse;
 }
 
-/* ============================================
-   消息头像
-   ============================================ */
 .message-avatar {
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  flex-shrink: 0;
   overflow: hidden;
-  background: #fff;
+  background: #ffffff;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  flex-shrink: 0;
 }
 
 .message-avatar img {
@@ -863,9 +754,6 @@ onMounted(() => {
   object-fit: cover;
 }
 
-/* ============================================
-   消息内容
-   ============================================ */
 .message-content {
   max-width: 75%;
   display: flex;
@@ -880,79 +768,52 @@ onMounted(() => {
   align-items: flex-end;
 }
 
-/* ============================================
-   消息气泡
-   ============================================ */
 .message-bubble {
   padding: 14px 18px;
   border-radius: 16px;
   font-size: 14px;
   line-height: 1.7;
   word-break: break-word;
+  white-space: pre-line;
 }
 
 .assistant-bubble {
   background: #ffffff;
   border: 1px solid rgba(243, 216, 199, 0.6);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
   color: #2f2f2f;
   border-top-left-radius: 4px;
 }
 
 .user-bubble {
   background: linear-gradient(135deg, #ff8c42 0%, #ff7a30 100%);
-  box-shadow: 0 4px 16px rgba(255, 140, 66, 0.25);
-  color: #fff;
+  color: #ffffff;
   border-top-right-radius: 4px;
 }
 
-/* ============================================
-   消息元信息
-   ============================================ */
 .message-meta {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-top: 8px;
   font-size: 11px;
-  color: #999;
-}
-
-.assistant-meta {
-  margin-left: 4px;
-}
-
-.user-meta {
-  margin-right: 4px;
+  color: #999999;
 }
 
 .role-tag {
-  font-weight: 500;
   color: #ff8c42;
+  font-weight: 500;
 }
 
-.user-row .role-tag {
-  color: #999;
-}
-
-/* ============================================
-   思考中状态
-   ============================================ */
 .thinking-indicator {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  color: #999;
+  color: #999999;
   font-style: italic;
-}
-
-.thinking-text {
-  font-size: 13px;
 }
 
 .thinking-dots {
   animation: thinkingPulse 1.2s ease-in-out infinite;
-  font-size: 13px;
 }
 
 @keyframes thinkingPulse {
@@ -965,7 +826,6 @@ onMounted(() => {
   }
 }
 
-/* 打字机光标 */
 .typing-cursor {
   display: inline-block;
   color: #ff8c42;
@@ -984,70 +844,46 @@ onMounted(() => {
   }
 }
 
-/* 错误状态 */
 .error-text {
   color: #f56c6c;
-  font-size: 13px;
 }
 
-/* 流式输出正文样式 */
 .streaming-text,
 .done-text {
   display: inline;
-  margin: 0;
-  padding: 0;
-  font-size: inherit;
-  line-height: inherit;
-  color: inherit;
-  letter-spacing: normal;
-  word-spacing: normal;
   white-space: pre-line;
   word-break: break-word;
 }
 
-/* ============================================
-   日期分割线
-   ============================================ */
 .date-separator {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 16px;
-  padding: 16px 0;
+  padding: 8px 0;
 }
 
 .date-separator-line {
   flex: 1;
   height: 1px;
-  background: linear-gradient(
-    to right,
-    transparent,
-    rgba(243, 216, 199, 0.6) 20%,
-    rgba(243, 216, 199, 0.6) 80%,
-    transparent
-  );
+  background: linear-gradient(to right, transparent, rgba(243, 216, 199, 0.6), transparent);
 }
 
 .date-separator-text {
   font-size: 12px;
   color: #c0c4cc;
-  white-space: nowrap;
-  padding: 4px 12px;
   background: #f8f6f3;
+  padding: 4px 12px;
   border-radius: 12px;
 }
 
-/* ============================================
-   空对话状态
-   ============================================ */
 .empty-chat {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 100%;
   min-height: 360px;
-  color: #999;
+  color: #999999;
   text-align: center;
 }
 
@@ -1071,13 +907,10 @@ onMounted(() => {
 
 .empty-desc {
   font-size: 14px;
-  color: #999;
+  color: #999999;
   margin: 0;
 }
 
-/* ============================================
-   底部输入区
-   ============================================ */
 .input-area {
   flex-shrink: 0;
   padding: 16px 24px 24px;
@@ -1085,13 +918,12 @@ onMounted(() => {
 }
 
 .input-container {
-  max-width: 800px;
+  max-width: 900px;
   margin: 0 auto;
   background: #ffffff;
   border: 1px solid rgba(243, 216, 199, 0.6);
   border-radius: 16px;
-  box-shadow: 0 -4px 24px rgba(255, 140, 66, 0.1),
-    0 2px 12px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 -4px 24px rgba(255, 140, 66, 0.1), 0 2px 12px rgba(0, 0, 0, 0.04);
   padding: 16px;
 }
 
@@ -1102,15 +934,11 @@ onMounted(() => {
   line-height: 1.8;
   color: #2f2f2f;
   background: transparent;
-}
-
-.input-container :deep(.el-textarea__inner:focus) {
   box-shadow: none;
 }
 
 .input-container :deep(.el-textarea__inner::placeholder) {
   color: #c0c4cc;
-  line-height: 1.8;
 }
 
 .input-footer {
@@ -1124,7 +952,7 @@ onMounted(() => {
 
 .input-hint {
   font-size: 12px;
-  color: #999;
+  color: #999999;
 }
 
 .input-hint kbd {
@@ -1134,8 +962,6 @@ onMounted(() => {
   border: 1px solid #e4e7ed;
   border-radius: 4px;
   font-size: 11px;
-  font-family: inherit;
-  color: #666;
 }
 
 .send-btn {
@@ -1143,10 +969,8 @@ onMounted(() => {
   padding: 8px 20px;
 }
 
-/* ============================================
-   面试结束提示
-   ============================================ */
 .ended-notice {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1154,7 +978,7 @@ onMounted(() => {
   padding: 16px;
   font-size: 14px;
   color: #909399;
-  background: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.92);
   border-top: 1px solid rgba(243, 216, 199, 0.3);
 }
 
@@ -1162,9 +986,6 @@ onMounted(() => {
   color: #67c23a;
 }
 
-/* ============================================
-   响应式
-   ============================================ */
 @media (max-width: 1023px) {
   .session-status-bar {
     padding: 12px 16px;
@@ -1180,38 +1001,32 @@ onMounted(() => {
 }
 
 @media (max-width: 767px) {
-  .chat-container {
+  .session-status-bar {
     padding: 12px;
-  }
-
-  .chat-messages {
-    gap: 20px;
-  }
-
-  .message-avatar {
-    width: 36px;
-    height: 36px;
-  }
-
-  .message-bubble {
-    padding: 12px 14px;
-    font-size: 13px;
-  }
-
-  .status-bar-left {
-    gap: 8px;
-  }
-
-  .interview-title {
-    font-size: 14px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
   }
 
   .mode-text {
     display: none;
   }
 
-  .status-indicator {
-    font-size: 12px;
+  .message-content {
+    max-width: 84%;
+  }
+
+  .chat-container {
+    padding: 12px;
+    gap: 20px;
+  }
+
+  .input-area {
+    padding: 12px;
+  }
+
+  .ended-notice {
+    padding: 12px;
   }
 
   .input-container {
