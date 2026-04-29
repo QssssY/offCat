@@ -40,6 +40,7 @@ public class CreateSessionRequest {
 
     /**
      * 关联的简历诊断任务 ID。
+     * 普通模拟面试和岗位定向模拟面试都可以携带，后端也会兜底查找最近一次简历。
      */
     private String resumeTaskId;
 

@@ -3,6 +3,7 @@ package com.airesume.server;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 
 /**
  * AI Resume 项目启动类
@@ -30,6 +31,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * @author AI Resume Team
  */
 @SpringBootApplication
+@EnableConfigurationProperties
 @MapperScan("com.airesume.server.mapper")
 public class ServerApplication {
 

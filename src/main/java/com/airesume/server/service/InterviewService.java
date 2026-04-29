@@ -41,6 +41,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -63,10 +64,12 @@ public class InterviewService {
     private final TransactionTemplate transactionTemplate;
     private final UserQuotaService userQuotaService;
     private final MockInterviewJobTargetService mockInterviewJobTargetService;
+    private final Executor aiAsyncExecutor;
 
     /**
      * 创建面试会话。
      * 先解析岗位定向上下文，再统一复用同一条会话创建链路。
+     * 开场白异步生成，避免前端长时间等待。
      */
     @Transactional(rollbackFor = Exception.class)
     public InterviewSessionResponse createSession(Long userId, CreateSessionRequest request) {
@@ -76,17 +79,18 @@ public class InterviewService {
         }
 
         InterviewJobTargetContext jobTargetContext = mockInterviewJobTargetService.resolveContext(userId, request);
-        String interviewMode = resolveInterviewMode(request.getInterviewMode());
+        String interviewMode = resolveInterviewMode(request.getInterviewMode(), jobTargetContext);
 
         InterviewSession session = new InterviewSession();
         session.setId(IdWorker.getId());
-        session.setUserId(userId);
         session.setSessionId(UUID.randomUUID().toString().replace("-", ""));
+        session.setUserId(userId);
         session.setJobRole(request.getJobRole());
         session.setJobRoleCode(request.getJobRoleCode());
         session.setDifficulty(request.getDifficulty());
         session.setInterviewMode(interviewMode);
         session.setStatus(InterviewConstants.STATUS_IN_PROGRESS);
+        session.setOpeningGenerated(0);
         session.setCreateTime(LocalDateTime.now());
         session.setUpdateTime(LocalDateTime.now());
         interviewSessionRepository.saveAndFlush(session);
@@ -94,28 +98,92 @@ public class InterviewService {
         // 仅在会话成功创建后扣减次数，避免无效扣费。
         userQuotaService.deductInterviewQuota(userId);
 
-        String openingMessage = interviewAiService.generateOpening(
-                request.getJobRole(),
-                request.getJobRoleCode(),
-                request.getDifficulty(),
-                jobTargetContext
-        );
+        // 事务提交后异步生成开场白，避免前端长时间等待 AI 响应。
+        if (TransactionSynchronizationManager.isActualTransactionActive()
+                && TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    generateOpeningAsync(session.getSessionId(), userId, request, jobTargetContext);
+                }
+            });
+        } else {
+            generateOpeningAsync(session.getSessionId(), userId, request, jobTargetContext);
+        }
 
-        InterviewChatLog welcomeMessage = new InterviewChatLog();
-        welcomeMessage.setId(IdWorker.getId());
-        welcomeMessage.setSessionId(session.getSessionId());
-        welcomeMessage.setMessageRole(InterviewConstants.ROLE_ASSISTANT);
-        welcomeMessage.setContent(openingMessage);
-        welcomeMessage.setCreateTime(LocalDateTime.now());
-        welcomeMessage.setUpdateTime(LocalDateTime.now());
-        welcomeMessage.setIsDeleted(0);
-        interviewMessageRepository.save(welcomeMessage);
+        log.info("面试会话创建成功(开场白异步生成中), sessionId: {}, userId: {}", session.getSessionId(), userId);
+        InterviewSessionResponse response = convertToSessionResponse(session, jobTargetContext);
+        response.setOpeningPending(true);
+        return response;
+    }
 
-        // 仅在真正启用岗位定向时记录独立上下文，不影响普通面试表结构。
-        mockInterviewJobTargetService.saveSessionContext(userId, session.getSessionId(), jobTargetContext, openingMessage);
+    /**
+     * 异步生成开场白并保存。
+     * 开场白使用硬编码模板，不调用 AI，零 token 消耗。
+     */
+    private void generateOpeningAsync(
+            String sessionId,
+            Long userId,
+            CreateSessionRequest request,
+            InterviewJobTargetContext jobTargetContext
+    ) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                // 硬编码开场白模板，不调用 AI
+                String difficultyDesc = switch (request.getDifficulty() == null ? 2 : request.getDifficulty()) {
+                    case 1 -> "初级";
+                    case 3 -> "高级";
+                    default -> "中级";
+                };
+                boolean hasResume = jobTargetContext != null
+                        && jobTargetContext.getResumeText() != null
+                        && !jobTargetContext.getResumeText().isBlank();
+                String resumeHint = hasResume ? "我已经看过你的简历，" : "";
+                String openingMessage = String.format("你好，欢迎参加%s%s面试。我是今天的面试官，%s请你先介绍一下自己吧。",
+                        difficultyDesc,
+                        request.getJobRole() != null ? request.getJobRole() : "软件工程师",
+                        resumeHint);
 
-        log.info("面试会话创建成功, sessionId: {}, userId: {}", session.getSessionId(), userId);
-        return convertToSessionResponse(session, jobTargetContext);
+                // 使用事务模板确保所有数据库操作在事务中
+                transactionTemplate.executeWithoutResult(status -> {
+                    InterviewChatLog welcomeMessage = new InterviewChatLog();
+                    welcomeMessage.setId(IdWorker.getId());
+                    welcomeMessage.setSessionId(sessionId);
+                    welcomeMessage.setMessageRole(InterviewConstants.ROLE_ASSISTANT);
+                    welcomeMessage.setContent(openingMessage);
+                    welcomeMessage.setCreateTime(LocalDateTime.now());
+                    welcomeMessage.setUpdateTime(LocalDateTime.now());
+                    welcomeMessage.setIsDeleted(0);
+                    interviewMessageRepository.save(welcomeMessage);
+
+                    mockInterviewJobTargetService.saveSessionContext(userId, sessionId, jobTargetContext, welcomeMessage.getContent());
+
+                    interviewSessionRepository.updateOpeningGenerated(sessionId, 1, LocalDateTime.now());
+                });
+
+                log.info("开场白已生成(硬编码模板), sessionId: {}", sessionId);
+            } catch (Exception e) {
+                log.error("生成开场白失败, sessionId: {}, error: {}", sessionId, e.getMessage(), e);
+                // 生成失败时，插入一条错误提示消息，并更新 openingGenerated 避免前端无限轮询
+                try {
+                    transactionTemplate.executeWithoutResult(status -> {
+                        InterviewChatLog errorMessage = new InterviewChatLog();
+                        errorMessage.setId(IdWorker.getId());
+                        errorMessage.setSessionId(sessionId);
+                        errorMessage.setMessageRole(InterviewConstants.ROLE_ASSISTANT);
+                        errorMessage.setContent("抱歉，开场白生成失败，请刷新页面重试或直接开始提问。");
+                        errorMessage.setCreateTime(LocalDateTime.now());
+                        errorMessage.setUpdateTime(LocalDateTime.now());
+                        errorMessage.setIsDeleted(0);
+                        interviewMessageRepository.save(errorMessage);
+
+                        interviewSessionRepository.updateOpeningGenerated(sessionId, 1, LocalDateTime.now());
+                    });
+                } catch (Exception ex) {
+                    log.error("保存开场白失败消息时发生异常, sessionId: {}", sessionId, ex);
+                }
+            }
+        }, aiAsyncExecutor);
     }
 
     /**
@@ -125,13 +193,16 @@ public class InterviewService {
     public SendMessageResponse sendMessage(Long userId, String sessionId, SendMessageRequest request) {
         InterviewSession session = getSessionByOwnerOrThrow(sessionId, userId);
         assertSessionInProgress(session);
+        // 开场白尚未生成完成时，拒绝发送消息，避免上下文缺失
+        if (session.getOpeningGenerated() == null || session.getOpeningGenerated() == 0) {
+            throw new BusinessException("开场白正在生成中，请稍候再发送消息");
+        }
 
         List<InterviewChatLog> chatLogs = interviewMessageService.getMessageList(sessionId);
         List<InterviewAiService.ChatMessageItem> history = chatLogs.stream()
                 .map(log -> new InterviewAiService.ChatMessageItem(log.getMessageRole(), log.getContent()))
                 .toList();
-        InterviewJobTargetContext jobTargetContext =
-                mockInterviewJobTargetService.getSessionContext(userId, sessionId);
+        InterviewJobTargetContext jobTargetContext = resolveConversationContext(userId, sessionId);
 
         String reply = interviewAiService.generateReply(
                 sessionId,
@@ -205,7 +276,7 @@ public class InterviewService {
      * 异步触发面试评估报告生成。
      */
     private void triggerEvaluationReportAsync(String sessionId) {
-        CompletableFuture.runAsync(() -> generateAndPersistEvaluationReport(sessionId));
+        CompletableFuture.runAsync(() -> generateAndPersistEvaluationReport(sessionId), aiAsyncExecutor);
     }
 
     /**
@@ -323,6 +394,10 @@ public class InterviewService {
     public void saveUserMessage(String sessionId, Long userId, String content) {
         InterviewSession session = getSessionByOwnerOrThrow(sessionId, userId);
         assertSessionInProgress(session);
+        // 开场白尚未生成完成时，拒绝发送消息，避免上下文缺失
+        if (session.getOpeningGenerated() == null || session.getOpeningGenerated() == 0) {
+            throw new BusinessException("开场白正在生成中，请稍候再发送消息");
+        }
 
         InterviewChatLog userMessage = new InterviewChatLog();
         userMessage.setId(IdWorker.getId());
@@ -436,22 +511,56 @@ public class InterviewService {
     /**
      * 规范化面试模式。
      */
-    private String resolveInterviewMode(String interviewMode) {
+    private String resolveInterviewMode(String interviewMode, InterviewJobTargetContext jobTargetContext) {
+        if (jobTargetContext != null && Boolean.TRUE.equals(jobTargetContext.getJobTargeted())) {
+            return InterviewConstants.MODE_JOB_TARGETED;
+        }
         if (interviewMode == null || interviewMode.isBlank()) {
-            return "normal";
+            return InterviewConstants.MODE_NORMAL;
         }
         String lowerMode = interviewMode.toLowerCase().trim();
-        return "stress".equals(lowerMode) ? "stress" : "normal";
+        return InterviewConstants.MODE_STRESS.equals(lowerMode)
+                ? InterviewConstants.MODE_STRESS
+                : InterviewConstants.MODE_NORMAL;
     }
 
     /**
      * 获取面试模式文案。
      */
     private String getInterviewModeDescription(String interviewMode) {
-        if ("stress".equals(interviewMode)) {
+        if (InterviewConstants.MODE_JOB_TARGETED.equals(interviewMode)) {
+            return "岗位定向模拟";
+        }
+        if (InterviewConstants.MODE_STRESS.equals(interviewMode)) {
             return "压力面试";
         }
         return "普通面试";
+    }
+
+    /**
+     * 统一生成对前端返回的面试模式。
+     * 兼容历史数据中“岗位定向=true，但面试模式仍为 normal”的旧记录。
+     */
+    private String resolveResponseInterviewMode(String storedInterviewMode, InterviewJobTargetContext jobTargetContext) {
+        if (jobTargetContext != null && Boolean.TRUE.equals(jobTargetContext.getJobTargeted())) {
+            return InterviewConstants.MODE_JOB_TARGETED;
+        }
+        if (storedInterviewMode == null || storedInterviewMode.isBlank()) {
+            return InterviewConstants.MODE_NORMAL;
+        }
+        return storedInterviewMode;
+    }
+
+    /**
+     * 为问答阶段兜底补齐普通模拟面试的简历上下文。
+     * 说明：岗位定向会优先返回会话上下文；普通模拟面试则回退到最近一次简历诊断。
+     */
+    private InterviewJobTargetContext resolveConversationContext(Long userId, String sessionId) {
+        InterviewJobTargetContext sessionContext = mockInterviewJobTargetService.getSessionContext(userId, sessionId);
+        if (sessionContext != null) {
+            return sessionContext;
+        }
+        return mockInterviewJobTargetService.resolveLatestResumeContext(userId);
     }
 
     /**
@@ -461,6 +570,8 @@ public class InterviewService {
             InterviewSession session,
             InterviewJobTargetContext jobTargetContext
     ) {
+        String responseInterviewMode = resolveResponseInterviewMode(session.getInterviewMode(), jobTargetContext);
+        boolean openingPending = session.getOpeningGenerated() == null || session.getOpeningGenerated() == 0;
         return InterviewSessionResponse.builder()
                 .id(session.getId())
                 .sessionId(session.getSessionId())
@@ -469,13 +580,14 @@ public class InterviewService {
                 .jobRoleCode(session.getJobRoleCode())
                 .difficulty(session.getDifficulty())
                 .difficultyDesc(convertDifficultyToDesc(session.getDifficulty()))
-                .interviewMode(session.getInterviewMode())
-                .interviewModeDesc(getInterviewModeDescription(session.getInterviewMode()))
+                .interviewMode(responseInterviewMode)
+                .interviewModeDesc(getInterviewModeDescription(responseInterviewMode))
                 .status(session.getStatus())
                 .statusDesc(isSessionInProgress(session) ? "进行中" : "已结束")
                 .comprehensiveScore(session.getComprehensiveScore())
                 .jobTargeted(jobTargetContext != null && Boolean.TRUE.equals(jobTargetContext.getJobTargeted()))
                 .jobTargetContext(jobTargetContext)
+                .openingPending(openingPending)
                 .createTime(session.getCreateTime())
                 .updateTime(session.getUpdateTime())
                 .build();
@@ -489,6 +601,7 @@ public class InterviewService {
             List<InterviewChatLog> chatLogs,
             InterviewJobTargetContext jobTargetContext
     ) {
+        String responseInterviewMode = resolveResponseInterviewMode(session.getInterviewMode(), jobTargetContext);
         List<ChatMessageResponse> dtoLogs = (chatLogs == null ? Collections.<InterviewChatLog>emptyList() : chatLogs)
                 .stream()
                 .map(log -> ChatMessageResponse.builder()
@@ -507,8 +620,8 @@ public class InterviewService {
                 .jobRoleCode(session.getJobRoleCode())
                 .difficulty(session.getDifficulty())
                 .difficultyDesc(convertDifficultyToDesc(session.getDifficulty()))
-                .interviewMode(session.getInterviewMode())
-                .interviewModeDesc(getInterviewModeDescription(session.getInterviewMode()))
+                .interviewMode(responseInterviewMode)
+                .interviewModeDesc(getInterviewModeDescription(responseInterviewMode))
                 .status(session.getStatus())
                 .statusDesc(isSessionInProgress(session) ? "进行中" : "已结束")
                 .comprehensiveScore(session.getComprehensiveScore())
@@ -516,6 +629,7 @@ public class InterviewService {
                 .jobTargeted(jobTargetContext != null && Boolean.TRUE.equals(jobTargetContext.getJobTargeted()))
                 .jobTargetContext(jobTargetContext)
                 .chatLogs(dtoLogs)
+                .openingPending(session.getOpeningGenerated() == null || session.getOpeningGenerated() == 0)
                 .createTime(session.getCreateTime())
                 .updateTime(session.getUpdateTime())
                 .build();
@@ -528,10 +642,11 @@ public class InterviewService {
         Integer messageCount = interviewMessageService.getMessageCount(session.getSessionId());
         String interviewMode = session.getInterviewMode();
         if (interviewMode == null || interviewMode.isBlank()) {
-            interviewMode = "normal";
+            interviewMode = InterviewConstants.MODE_NORMAL;
         }
         InterviewJobTargetContext jobTargetContext =
                 mockInterviewJobTargetService.getSessionContext(session.getUserId(), session.getSessionId());
+        String responseInterviewMode = resolveResponseInterviewMode(interviewMode, jobTargetContext);
 
         return InterviewHistoryResponse.builder()
                 .id(session.getId())
@@ -539,8 +654,8 @@ public class InterviewService {
                 .jobRole(session.getJobRole())
                 .difficulty(session.getDifficulty())
                 .difficultyDesc(convertDifficultyToDesc(session.getDifficulty()))
-                .interviewMode(interviewMode)
-                .interviewModeDesc(getInterviewModeDescription(interviewMode))
+                .interviewMode(responseInterviewMode)
+                .interviewModeDesc(getInterviewModeDescription(responseInterviewMode))
                 .status(session.getStatus())
                 .statusDesc(isSessionInProgress(session) ? "进行中" : "已结束")
                 .comprehensiveScore(session.getComprehensiveScore())

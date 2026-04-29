@@ -6,6 +6,7 @@ import com.airesume.server.service.PdfTextExtractor;
 import com.airesume.server.service.ResumeAiService;
 import com.airesume.server.service.ResumeDiagnosisTaskService;
 import com.airesume.server.service.ResumeInfoExtractor;
+import com.airesume.server.service.UserQuotaService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -35,6 +36,7 @@ public class ResumeDiagnosisConsumer {
     private final ResumeAiService resumeAiService;
     private final ResumeInfoExtractor resumeInfoExtractor;
     private final ObjectMapper objectMapper;
+    private final UserQuotaService userQuotaService;
 
     @RabbitListener(queues = ResumeDiagnosisConstants.QUEUE_RESUME_DIAGNOSIS)
     public void handleResumeDiagnosisTask(ResumeDiagnosisMessage message) {
@@ -46,6 +48,13 @@ public class ResumeDiagnosisConsumer {
 
             String resumeText = pdfTextExtractor.extractText(message.getFileUrl());
             log.info("PDF 文本提取成功, taskId: {}, textLength: {}", taskId, resumeText.length());
+
+            // 缓存简历文本到数据库，避免后续查询重复解析
+            try {
+                resumeDiagnosisTaskService.updateTaskResumeText(taskId, resumeText);
+            } catch (Exception e) {
+                log.warn("缓存简历文本失败, taskId: {}, 不影响主流程", taskId, e);
+            }
 
             String diagnosisResult = resumeAiService.diagnose(resumeText);
 
@@ -61,14 +70,20 @@ public class ResumeDiagnosisConsumer {
 
         } catch (PdfTextExtractor.PdfExtractionException e) {
             log.error("PDF 解析失败, taskId: {}", taskId, e);
+            // 任务失败时退还已扣除的配额
+            refundQuotaIfNeeded(message.getUserId(), taskId);
             markTaskFailed(taskId, "PDF解析失败: " + e.getMessage());
 
         } catch (RuntimeException e) {
             log.error("简历诊断业务异常, taskId: {}", taskId, e);
+            // 任务失败时退还已扣除的配额
+            refundQuotaIfNeeded(message.getUserId(), taskId);
             markTaskFailed(taskId, e.getMessage());
 
         } catch (Exception e) {
             log.error("简历诊断未知异常, taskId: {}", taskId, e);
+            // 任务失败时退还已扣除的配额
+            refundQuotaIfNeeded(message.getUserId(), taskId);
             markTaskFailed(taskId, "系统异常: " + e.getMessage());
         }
     }
@@ -179,6 +194,22 @@ public class ResumeDiagnosisConsumer {
             log.info("任务已标记失败, taskId: {}, error: {}", taskId, errorMsg);
         } catch (Exception ex) {
             log.error("标记任务失败失败, taskId: {}", taskId, ex);
+        }
+    }
+
+    /**
+     * 任务失败时退还已扣除的配额
+     * 仅在任务处理失败时调用，避免重复退还
+     *
+     * @param userId 用户ID
+     * @param taskId 任务ID
+     */
+    private void refundQuotaIfNeeded(Long userId, Long taskId) {
+        try {
+            userQuotaService.refundResumeQuota(userId);
+            log.info("任务失败，已退还配额, userId: {}, taskId: {}", userId, taskId);
+        } catch (Exception e) {
+            log.error("退还配额失败, userId: {}, taskId: {}", userId, taskId, e);
         }
     }
 }

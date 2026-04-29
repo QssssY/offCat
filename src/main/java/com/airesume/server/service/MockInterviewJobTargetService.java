@@ -28,6 +28,12 @@ public interface MockInterviewJobTargetService extends IService<MockInterviewJob
     InterviewJobTargetContext getSessionContext(Long userId, String sessionId);
 
     /**
+     * 查询普通模拟面试可复用的最近简历上下文。
+     * 说明：该方法仅返回简历相关信息，不会把普通面试错误标记为岗位定向。
+     */
+    InterviewJobTargetContext resolveLatestResumeContext(Long userId);
+
+    /**
      * 根据结构化面试报告构建岗位定向反馈。
      */
     InterviewJobTargetedFeedback buildFeedback(InterviewEvaluationReport report, InterviewJobTargetContext context);

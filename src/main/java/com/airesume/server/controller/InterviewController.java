@@ -107,6 +107,10 @@ public class InterviewController {
                 // 流式问答也要补齐岗位定向上下文，保证与非流式链路一致。
                 InterviewJobTargetContext jobTargetContext =
                         mockInterviewJobTargetService.getSessionContext(userId, sessionId);
+                if (jobTargetContext == null) {
+                    // 普通模拟面试未单独落库上下文时，回退到最近一次简历诊断，避免 AI 忽略简历。
+                    jobTargetContext = mockInterviewJobTargetService.resolveLatestResumeContext(userId);
+                }
 
                 Publisher<String> publisher = interviewAiService.generateReplyStream(
                         sessionId,

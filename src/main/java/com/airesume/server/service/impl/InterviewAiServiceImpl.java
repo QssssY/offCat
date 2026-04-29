@@ -2,13 +2,25 @@ package com.airesume.server.service.impl;
 
 import com.airesume.server.common.constants.AiEngineConstants;
 import com.airesume.server.common.constants.PromptConstants;
+import com.airesume.server.config.AiTokenLimitConfig;
 import com.airesume.server.dto.interview.InterviewEvaluationReport;
 import com.airesume.server.dto.interview.InterviewJobTargetContext;
 import com.airesume.server.entity.SysAiEngineConfig;
 import com.airesume.server.entity.SysPrompt;
+import com.airesume.server.entity.MockInterviewJobTargetRecord;
+import com.airesume.server.entity.ResumeDiagnosisTask;
+import com.airesume.server.entity.InterviewSession;
+import com.airesume.server.mock.MockInterviewService;
+import com.airesume.server.mapper.MockInterviewJobTargetRecordMapper;
+import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
+import com.airesume.server.mapper.InterviewSessionMapper;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.airesume.server.service.InterviewAiService;
+import com.airesume.server.service.InterviewContextCompressor;
 import com.airesume.server.service.SysAiEngineConfigService;
 import com.airesume.server.service.SysPromptService;
+import com.airesume.server.util.AiInputCompressor;
+import com.airesume.server.util.TokenEstimator;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -23,6 +35,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.FluxSink;
 import reactor.core.scheduler.Schedulers;
 
 import java.util.ArrayList;
@@ -31,25 +44,6 @@ import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * 模拟面试 AI 服务实现类（真实 AI 模式）
- *
- * 所属模块：模拟面试模块 - AI 接入层
- * 职责：调用大模型 API 生成面试官回复、开场白、评价报告
- * 激活条件：当 app.interview.mode=real 时激活
- *
- * 【重要】baseUrl 配置说明：
- * - 优先使用配置文件中的 app.interview.base-url
- * - 仅当配置为空时才使用代码默认值
- * - 本类不会擅自修改用户配置的 baseUrl
- *
- * 【URL 拼接说明】
- * - baseUrl：用户配置的完整基础地址（如 https://ark.cn-beijing.volces.com/api/coding/v3）
- * - endpoint：/chat/completions
- * - 最终请求地址：baseUrl + endpoint
- *
- * @author AI Resume Team
- */
 @Service("interviewAiService")
 @Slf4j
 @ConditionalOnProperty(name = "app.interview.mode", havingValue = "real")
@@ -68,40 +62,16 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     private final String thinkingMode;
     private final SysAiEngineConfigService sysAiEngineConfigService;
     private final SysPromptService sysPromptService;
+    private final InterviewContextCompressor contextCompressor;
+    private final AiTokenLimitConfig tokenLimitConfig;
+    private final MockInterviewService mockInterviewService;
+    private final MockInterviewJobTargetRecordMapper mockInterviewJobTargetRecordMapper;
+    private final ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper;
+    private final InterviewSessionMapper interviewSessionMapper;
 
-    /**
-     * 是否开启流式调试日志（详细逐行日志）
-     * - true：输出逐行追踪日志（reasoning_content、◆发射、行汇总等）
-     * - false（默认）：只输出关键生命周期日志和异常日志
-     * 通过 application.yml 中 app.interview.stream-debug-log 配置
-     */
     @Value("${app.interview.stream-debug-log:false}")
     private boolean streamDebugLog;
 
-    /**
-     * 构造函数，初始化模拟面试 AI 服务
-     *
-     * 【配置读取优先级】
-     * 1. 直接读取 @Value 注解注入的配置值
-     * 2. 如果 baseUrl 不为空，优先使用配置值
-     * 3. 仅当 baseUrl 为空时才使用默认值
-     *
-     * 【启动日志打印】
-     * 会打印以下关键配置信息：
-     * - 配置的 baseUrl（用户原始配置）
-     * - 最终使用的 resolvedBaseUrl
-     * - endpoint
-     * - 完整请求地址（baseUrl + endpoint）
-     * - model
-     * - thinking-mode
-     *
-     * @param provider           AI 提供商（从配置 app.interview.provider 读取，默认 doubao）
-     * @param configuredBaseUrl  API 基础地址（从配置 app.interview.base-url 读取，用户原始配置）
-     * @param model             模型名称（从配置 app.interview.model 读取）
-     * @param thinkingMode      思考模式（从配置 app.interview.thinking-mode 读取，默认 none）
-     * @param restClientBuilder RestClient 构造器
-     * @param objectMapper      JSON 解析工具
-     */
     public InterviewAiServiceImpl(
             @Value("${app.interview.provider:doubao}") String provider,
             @Value("${app.interview.base-url:}") String configuredBaseUrl,
@@ -111,6 +81,12 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             RestClient.Builder restClientBuilder,
             SysAiEngineConfigService sysAiEngineConfigService,
             SysPromptService sysPromptService,
+            InterviewContextCompressor contextCompressor,
+            AiTokenLimitConfig tokenLimitConfig,
+            MockInterviewService mockInterviewService,
+            MockInterviewJobTargetRecordMapper mockInterviewJobTargetRecordMapper,
+            ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper,
+            InterviewSessionMapper interviewSessionMapper,
             ObjectMapper objectMapper) {
         this.provider = provider == null ? "doubao" : provider.toLowerCase();
         this.model = model;
@@ -121,27 +97,23 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         this.webClientBuilder = webClientBuilder;
         this.sysAiEngineConfigService = sysAiEngineConfigService;
         this.sysPromptService = sysPromptService;
-
-        // 【重要】优先使用用户配置的 baseUrl，仅当配置为空时才使用默认值
+        this.contextCompressor = contextCompressor;
+        this.tokenLimitConfig = tokenLimitConfig;
+        this.mockInterviewService = mockInterviewService;
+        this.mockInterviewJobTargetRecordMapper = mockInterviewJobTargetRecordMapper;
+        this.resumeDiagnosisTaskMapper = resumeDiagnosisTaskMapper;
+        this.interviewSessionMapper = interviewSessionMapper;
         this.resolvedBaseUrl = resolveBaseUrl(this.provider, configuredBaseUrl);
-
-        // 获取 endpoint
         this.endpoint = getEndpoint();
-
-        // 初始化 RestClient 和 WebClient，严格使用 resolvedBaseUrl
         this.restClient = restClientBuilder
                 .baseUrl(this.resolvedBaseUrl)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .build();
-
         this.webClient = WebClient.builder()
                 .baseUrl(this.resolvedBaseUrl)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .build();
-
         String tag = this.provider.toUpperCase();
-
-        // 【启动日志】详细打印所有配置信息
         log.info("============================================================");
         log.info("[{}] 模拟面试 AI 服务初始化", tag);
         log.info("============================================================");
@@ -154,75 +126,32 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         log.info("============================================================");
     }
 
-    /**
-     * 判断当前模型是否支持 thinking 参数
-     *
-     * 【支持的模型列表】
-     * - 豆包 Doubao-Seed-2.0 系列模型
-     *
-     * @param modelName 模型名称
-     * @return true 表示支持，false 表示不支持
-     */
     private boolean supportsThinking(String modelName) {
         if (modelName == null) return false;
         String lowerModel = modelName.toLowerCase();
-        // 豆包 Doubao-Seed-2.0 系列模型支持 thinking 参数
         return lowerModel.contains("doubao-seed-2.0");
     }
 
-    /**
-     * 根据配置和模型支持情况构建 thinking 配置
-     *
-     * 【配置含义】
-     * - enabled：显式开启思考模式；仅模型支持时传 thinking.type=enabled
-     * - disabled：显式关闭思考模式；仅模型支持时传 thinking.type=disabled
-     * - none：不传 thinking 参数
-     *
-     * @param modelName 模型名称
-     * @param thinkingModeConfig 配置的 thinking-mode
-     * @return Thinking 对象，或 null（表示不传该字段）
-     */
     private Thinking buildThinkingConfig(String modelName, String thinkingModeConfig) {
         boolean modelSupportsThinking = supportsThinking(modelName);
-
-        // 配置为 none，直接返回 null
         if ("none".equalsIgnoreCase(thinkingModeConfig)) {
             return null;
         }
-
-        // 模型不支持 thinking，但配置了 enabled 或 disabled
         if (!modelSupportsThinking) {
             log.warn("[{}] 当前模型 {} 不支持 thinking 参数，已忽略配置: {}",
                     provider.toUpperCase(), modelName, thinkingModeConfig);
             return null;
         }
-
-        // 模型支持，根据配置返回对应的 thinking 对象
         if ("enabled".equalsIgnoreCase(thinkingModeConfig)) {
             return new Thinking("enabled");
         } else if ("disabled".equalsIgnoreCase(thinkingModeConfig)) {
             return new Thinking("disabled");
         }
-
-        // 未知配置值，返回 null
         log.warn("[{}] 未知的 thinking-mode 配置: {}, 使用 none",
                 provider.toUpperCase(), thinkingModeConfig);
         return null;
     }
 
-    /**
-     * 解析 API 基础地址
-     *
-     * 【优先级说明】
-     * 1. 如果 configuredUrl 不为空且不为空白字符串 → 直接使用用户配置值
-     * 2. 否则根据 provider 选择默认值（仅当用户未配置时才使用）
-     *
-     * 【重要】本方法不会擅自修改用户配置
-     *
-     * @param provider        AI 提供商
-     * @param configuredUrl  用户配置的 URL（从配置文件读取）
-     * @return 解析后的基础 URL
-     */
     private String resolveBaseUrl(String provider, String configuredUrl) {
         if (configuredUrl != null && !configuredUrl.isBlank()) {
             log.debug("使用用户配置的 baseUrl: {}", configuredUrl);
@@ -231,21 +160,14 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         log.debug("用户未配置 baseUrl，使用默认值");
         return switch (provider) {
             case "doubao", "openai" -> "https://ark.cn-beijing.volces.com/api/v3";
-            case "qwen"     -> "https://dashscope.aliyuncs.com/compatible-mode/v3";
-            case "ernie"    -> "https://qianfan.baidubce.com/v2";
+            case "qwen" -> "https://dashscope.aliyuncs.com/compatible-mode/v3";
+            case "ernie" -> "https://qianfan.baidubce.com/v2";
             case "deepseek" -> "https://api.deepseek.com";
-            case "minimax"  -> "https://api.minimax.chat/v2";
+            case "minimax" -> "https://api.minimax.chat/v2";
             default -> "https://ark.cn-beijing.volces.com/api/v3";
         };
     }
 
-    /**
-     * 获取 API Key
-     *
-     * 优先级：DOUBAO_API_KEY > API_KEY > AI_API_KEY
-     *
-     * @return API Key，未设置时返回 null
-     */
     private String getApiKey() {
         String key = System.getenv("DOUBAO_API_KEY");
         if (key != null && !key.isBlank()) {
@@ -266,16 +188,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         return null;
     }
 
-    /**
-     * 获取 API endpoint
-     *
-     * 【URL 拼接说明】
-     * - baseUrl 由用户配置（如 https://ark.cn-beijing.volces.com/api/coding/v3）
-     * - endpoint 返回 /chat/completions
-     * - 最终完整 URL = baseUrl + endpoint
-     *
-     * @return API endpoint 路径
-     */
     private String getEndpoint() {
         return switch (provider) {
             case "ernie" -> "/chat/completions";
@@ -283,117 +195,116 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         };
     }
 
-    /**
-     * 生成面试开场白
-     * 根据岗位和难度级别生成定制化的欢迎语和第一个问题
-     *
-     * @param jobRole     面试岗位
-     * @param difficulty  难度级别（1初级/2中级/3高级）
-     * @return 开场白文本
-     */
     @Override
     public String generateOpening(String jobRole, String jobRoleCode, Integer difficulty,
                                   InterviewJobTargetContext jobTargetContext) {
-        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
-        String tag = runtimeConfig.provider().toUpperCase();
-        log.info("[{}] 生成面试开场白, jobRole: {}, jobRoleCode: {}, difficulty: {}",
-                tag, jobRole, jobRoleCode, difficulty);
-        String systemPrompt = buildSystemPrompt(jobRole, jobRoleCode, difficulty, jobTargetContext);
-        String userPrompt = buildOpeningUserPrompt(jobRole, difficulty, jobTargetContext);
-        return chat(systemPrompt, userPrompt);
+        log.info("生成面试开场白(硬编码模板), jobRole: {}, jobRoleCode: {}, difficulty: {}",
+                jobRole, jobRoleCode, difficulty);
+        String difficultyDesc = switch (difficulty == null ? 2 : difficulty) {
+            case 1 -> "初级";
+            case 3 -> "高级";
+            default -> "中级";
+        };
+        boolean hasResume = hasResumeContext(jobTargetContext);
+        String resumeHint = hasResume ? "我已经看过你的简历，" : "";
+        return String.format("你好，欢迎参加%s%s面试。我是今天的面试官，%s请你先介绍一下自己吧。",
+                difficultyDesc, jobRole != null ? jobRole : "软件工程师", resumeHint);
     }
 
-    /**
-     * 生成面试官回复（非流式）
-     * 根据对话历史和用户消息生成下一轮面试官回复
-     *
-     * @param sessionId   会话 ID
-     * @param history     历史消息列表
-     * @param userMessage 当前用户消息
-     * @return 面试官回复文本
-     * @throws RuntimeException AI 调用失败时抛出
-     */
     @Override
     public String generateReply(String sessionId, List<ChatMessageItem> history, String userMessage,
-                                String jobRoleCode, Integer difficulty,
-                                InterviewJobTargetContext jobTargetContext) {
+                                 String jobRoleCode, Integer difficulty,
+                                 InterviewJobTargetContext jobTargetContext) {
         RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
         String tag = runtimeConfig.provider().toUpperCase();
-        log.info("[{}] 生成面试官回复, sessionId: {}, historySize: {}, userMessageLength: {}, jobRoleCode: {}, difficulty: {}",
+
+        // 如果没有jobTargetContext，尝试获取最近的简历信息
+        if (jobTargetContext == null && sessionId != null && !sessionId.isBlank()) {
+            jobTargetContext = getLatestResumeContext(sessionId);
+            if (jobTargetContext != null) {
+                log.info("[{}] 普通面试自动携带简历信息, sessionId: {}, resumeTaskId: {}",
+                        tag, sessionId, jobTargetContext.getResumeTaskId());
+            }
+        }
+
+        List<ChatMessageItem> compressedHistory = compressHistoryIfEnabled(history, tag);
+
+        log.info("[{}] 生成面试官回复, sessionId: {}, historySize: {}, compressedSize: {}, userMessageLength: {}, jobRoleCode: {}, difficulty: {}",
                 tag, sessionId, history == null ? 0 : history.size(),
+                compressedHistory == null ? 0 : compressedHistory.size(),
                 userMessage == null ? 0 : userMessage.length(), jobRoleCode, difficulty);
 
-        List<Message> messages = buildConversationMessages(history, userMessage, null, jobRoleCode, difficulty, jobTargetContext);
+        String currentJobRole = resolveCurrentJobRole(sessionId, history, jobRoleCode);
+        List<Message> messages = buildConversationMessages(
+                compressedHistory,
+                userMessage,
+                currentJobRole,
+                jobRoleCode,
+                difficulty,
+                jobTargetContext
+        );
 
         try {
             return chatWithMessages(messages);
         } catch (Exception e) {
+            if (shouldFallbackToLocalMock(e)) {
+                return buildReplyFallback(tag, sessionId, userMessage, compressedHistory, jobTargetContext, e);
+            }
             log.error("[{}] 生成回复失败, sessionId: {}", tag, sessionId, e);
             throw new RuntimeException("AI 面试回复生成失败: " + e.getMessage(), e);
         }
     }
 
-    /**
-     * 生成面试官回复（流式）
-     *
-     * 【核心设计：逐条 JSON 解析，不累积事件块】
-     *
-     * 旧方案的问题：
-     * - 旧代码使用 accumulateSSEEvent() 按 '\n' 累积事件块后再统一解析
-     * - 当 bodyToFlux(String.class) 按 '\n' 分割时，单个 SSE 事件块（以 '\n\n' 分隔）
-     *   可能被切分成多行，导致累积逻辑混乱
-     *
-     * 新方案（逐条解析）：
-     * - bodyToFlux(String.class) 按 '\n' 分割，每行一个 String
-     * - 每行独立判断：是否为 data: 行？是否为 [DONE]？是否为注释行？
-     * - 每个有效 data: 行独立解析 JSON，提取 delta.content 和 delta.reasoning_content
-     * - 只将 delta.content 非空片段通过 sink.next() 发给下游
-     * - delta.reasoning_content 只写调试日志，不参与输出
-     *
-     * 【字段语义说明】
-     * - delta.content：普通模型的正式输出字段，发送给前端并落库
-     * - delta.reasoning_content：Reasoning/R1 模型的思维链，仅记录调试日志，不输出
-     *
-     * 【统计报告】
-     * 流结束时（sink.complete()）输出最终统计：
-     * - model、总 chunk 数、content 非空 chunk 数、reasoning 非空 chunk 数
-     * - 实际发给下游的 chunk 数、最终 content 长度
-     * - 是否成功（如果 content 非空 chunk 数 > 0 则成功，否则失败）
-     *
-     * @param sessionId   会话 ID
-     * @param history     历史消息列表
-     * @param userMessage 当前用户消息
-     * @return Publisher<String> 逐条输出的文本片段流
-     */
     @Override
     public Publisher<String> generateReplyStream(String sessionId, List<ChatMessageItem> history, String userMessage,
-                                                 String jobRoleCode, Integer difficulty,
-                                                 InterviewJobTargetContext jobTargetContext) {
+                                                   String jobRoleCode, Integer difficulty,
+                                                   InterviewJobTargetContext jobTargetContext) {
         RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
         String tag = runtimeConfig.provider().toUpperCase();
-        // 【版本指纹】全项目唯一字符串，用于确认运行时代码是否为最新版本
-        log.info("[{}] ═══════════════════════════════════════════════", tag);
-        log.info("[{}] ║  新版逐条JSON解析V3已生效  ║", tag);
-        log.info("[{}] ║  兼容: data:{...} 和純JSON  ║", tag);
-        log.info("[{}] ═══════════════════════════════════════════════", tag);
-        log.info("[{}] 流式生成面试官回复, sessionId: {}, historySize: {}, jobRoleCode: {}, difficulty: {}",
-                tag, sessionId, history == null ? 0 : history.size(), jobRoleCode, difficulty);
 
-        List<Message> messages = buildConversationMessages(history, userMessage, null, jobRoleCode, difficulty, jobTargetContext);
+        // 如果没有jobTargetContext，尝试获取最近的简历信息
+        if (jobTargetContext == null && sessionId != null && !sessionId.isBlank()) {
+            jobTargetContext = getLatestResumeContext(sessionId);
+            if (jobTargetContext != null) {
+                log.info("[{}] 普通面试流式自动携带简历信息, sessionId: {}, resumeTaskId: {}",
+                        tag, sessionId, jobTargetContext.getResumeTaskId());
+            }
+        }
+
+        List<ChatMessageItem> compressedHistory = compressHistoryIfEnabled(history, tag);
+
+        log.info("[{}] 流式生成面试官回复, sessionId: {}, historySize: {}, compressedSize: {}, jobRoleCode: {}, difficulty: {}",
+                tag, sessionId, history == null ? 0 : history.size(),
+                compressedHistory == null ? 0 : compressedHistory.size(), jobRoleCode, difficulty);
+
+        String currentJobRole = resolveCurrentJobRole(sessionId, history, jobRoleCode);
+        List<Message> messages = buildConversationMessages(
+                compressedHistory,
+                userMessage,
+                currentJobRole,
+                jobRoleCode,
+                difficulty,
+                jobTargetContext
+        );
 
         String apiKey = runtimeConfig.apiKey();
         if (apiKey == null || apiKey.isBlank()) {
-            throw new IllegalStateException("未找到可用的面试 AI 密钥，请检查管理端激活配置或环境变量");
+            return buildReplyFallbackStream(
+                    tag,
+                    sessionId,
+                    userMessage,
+                    compressedHistory,
+                    jobTargetContext,
+                    new IllegalStateException("未找到可用的面试 AI 密钥")
+            );
         }
 
         log.info("[{}] 流式请求地址: {}{}, model: {}, source: {}",
                 tag, runtimeConfig.baseUrl(), runtimeConfig.endpoint(), runtimeConfig.model(), runtimeConfig.source());
 
         StreamRequestBody reqBody = new StreamRequestBody(runtimeConfig.model(), messages, true);
-        // 根据配置和模型支持情况设置 thinking 参数
         reqBody.thinking = buildThinkingConfig(runtimeConfig.model(), thinkingMode);
 
-        // 打印完整请求体 JSON
         try {
             String requestJson = objectMapper.writeValueAsString(reqBody);
             log.info("[{}] 请求体JSON: {}", tag, requestJson);
@@ -401,7 +312,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             log.warn("[{}] 请求体序列化失败", tag, e);
         }
 
-        // 【关键日志】打印请求参数
         log.info("[{}] ═══════════════════════════════════════════════", tag);
         log.info("[{}] ║  流式请求参数验证  ║", tag);
         log.info("[{}] ═══════════════════════════════════════════════", tag);
@@ -415,8 +325,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         }
         log.info("[{}] ═══════════════════════════════════════════════", tag);
 
-        // 【第一层】WebClient 发起请求，返回原始 SSE 行流（按 '\n' 分割）
-        // 运行时按当前生效配置构造客户端，确保管理端切换后立即生效。
         WebClient runtimeWebClient = webClientBuilder
                 .baseUrl(runtimeConfig.baseUrl())
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
@@ -430,7 +338,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 .bodyToFlux(String.class)
                 .publishOn(Schedulers.boundedElastic());
 
-        // 【统计计数器】
         AtomicInteger totalLines = new AtomicInteger(0);
         AtomicInteger parsedJsonLines = new AtomicInteger(0);
         AtomicInteger contentChunkCount = new AtomicInteger(0);
@@ -438,11 +345,11 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         AtomicInteger emittedCount = new AtomicInteger(0);
         AtomicInteger parseErrorCount = new AtomicInteger(0);
         AtomicInteger skippedCount = new AtomicInteger(0);
-        // 记录首个 content chunk 到达时间（用于判断流是否正常开始）
         AtomicBoolean firstContentArrived = new AtomicBoolean(false);
 
-        // 【第三层】Flux.create() + 匿名 Subscriber 逐行处理
         final String logTag = tag;
+        final InterviewJobTargetContext finalJobTargetContext = jobTargetContext;
+        final List<ChatMessageItem> finalCompressedHistory = compressedHistory;
         return Flux.create(sink -> {
             rawLineFlux.subscribe(new Subscriber<String>() {
                 private Subscription upstream;
@@ -464,7 +371,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                         boolean isDataPrefix = false;
                         boolean isPureJson = false;
 
-                        // 步骤1：null / blank → 跳过
                         if (rawLine == null || rawLine.isBlank()) {
                             if (streamDebugLog) log.debug("[{}] 【跳过-空白行】lineNo={}", logTag, lineNo);
                             skippedCount.incrementAndGet();
@@ -472,7 +378,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                             return;
                         }
 
-                        // 步骤2：以 ":" 开头 → SSE 注释行（如 ": ping"）
                         if (rawLine.startsWith(":")) {
                             isComment = true;
                             if (streamDebugLog) log.debug("[{}] 【跳过-注释行】lineNo={}", logTag, lineNo);
@@ -481,7 +386,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                             return;
                         }
 
-                        // 步骤3：等于 "[DONE]" → SSE 结束标记
                         if ("[DONE]".equals(rawLine.trim())) {
                             isDone = true;
                             if (streamDebugLog) log.debug("[{}] 【收到DONE】lineNo={}", logTag, lineNo);
@@ -489,7 +393,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                             return;
                         }
 
-                        // 步骤4：以 "data:" 开头 → 标准 SSE 格式，去掉前缀取 JSON
                         if (rawLine.startsWith("data:")) {
                             isDataPrefix = true;
                             String json = rawLine.substring("data:".length()).trim();
@@ -500,14 +403,10 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                                 return;
                             }
                             normalizedJson = json;
-                        }
-                        // 步骤5：不以 "data:" 开头，但以 "{" 开头 → 纯 JSON 格式
-                        else if (rawLine.trim().startsWith("{")) {
+                        } else if (rawLine.trim().startsWith("{")) {
                             isPureJson = true;
                             normalizedJson = rawLine.trim();
-                        }
-                        // 步骤6：其余情况 → 未知格式，跳过
-                        else {
+                        } else {
                             if (streamDebugLog) log.debug("[{}] 【跳过-未知格式】lineNo={}, preview={}", logTag, lineNo,
                                         rawLine.length() > 80 ? rawLine.substring(0, 80) : rawLine);
                             skippedCount.incrementAndGet();
@@ -515,7 +414,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                             return;
                         }
 
-                        // 【JSON 解析步骤】
                         JsonNode root;
                         try {
                             root = objectMapper.readTree(normalizedJson);
@@ -528,7 +426,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                             return;
                         }
 
-                        // 提取 delta
                         JsonNode choices = root.path("choices");
                         if (choices.isMissingNode() || !choices.isArray() || choices.isEmpty()) {
                             if (streamDebugLog) log.debug("[{}] 【跳过-无choices】lineNo={}", logTag, lineNo);
@@ -545,7 +442,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                             return;
                         }
 
-                        // 【核心提取】分别检查 content 和 reasoning_content
                         JsonNode contentNode = delta.path("content");
                         JsonNode reasoningNode = delta.path("reasoning_content");
 
@@ -555,7 +451,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                         if (hasContent) contentChunkCount.incrementAndGet();
                         if (hasReasoning) reasoningChunkCount.incrementAndGet();
 
-                        // 【决策步骤】reasoning_content 只写调试日志（if streamDebugLog），content 才发给下游
                         if (hasReasoning && streamDebugLog) {
                             String reasoningText = reasoningNode.asText();
                             log.info("[{}] 【reasoning_content】lineNo={}, format={}, length={}, preview={}, 【不发给前端】",
@@ -568,11 +463,9 @@ public class InterviewAiServiceImpl implements InterviewAiService {
 
                         if (hasContent) {
                             String contentText = contentNode.asText();
-                            // 【关键日志】首个 content 到达时才打印 INFO（表示流正常开始）
                             if (firstContentArrived.compareAndSet(false, true)) {
                                 log.info("[{}] 【首个content到达】lineNo={}, preview={}", logTag, lineNo, contentText);
                             }
-                            // 详细逐行发射日志（仅在开启调试时打印）
                             if (streamDebugLog) {
                                 log.info("[{}] 【◆发射】lineNo={}, format={}, content={}, length={}",
                                         logTag,
@@ -585,7 +478,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                             emittedCount.incrementAndGet();
                         }
 
-                        // 【每行汇总日志】仅在开启调试时打印
                         if (streamDebugLog) {
                             log.info("[{}] 【行汇总】lineNo={}, format={}, hasContent={}, hasReasoning={}, emitted={}",
                                     logTag,
@@ -606,7 +498,19 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 public void onError(Throwable t) {
                     log.error("[{}] 【WebClient错误】type={}, message={}",
                             logTag, t.getClass().getSimpleName(), t.getMessage());
-                    sink.error(t);
+                    // 外部 AI 在 DNS / 网络层失败时，直接降级到本地 Mock，保证模拟面试不中断。
+                    if (emittedCount.get() == 0) {
+                        emitFallbackReplyToSink(
+                                sink,
+                                buildReplyFallback(logTag, sessionId, userMessage, finalCompressedHistory, finalJobTargetContext, t)
+                        );
+                        return;
+                    }
+                    // 如果已经输出了部分内容，追加中断标记后结束流，避免前端只收到半句话
+                    log.warn("[{}] 流式回复中途网络异常，已存在部分输出，追加中断标记后结束流, sessionId: {}",
+                            logTag, sessionId, t);
+                    sink.next("…[网络中断，请重试]");
+                    sink.complete();
                 }
 
                 @Override
@@ -644,15 +548,84 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     }
 
     /**
-     * 根据统计结果生成文字结论
-     *
-     * @param cNonEmpty   delta.content 非空 chunk 数
-     * @param rNonEmpty   delta.reasoning_content 非空 chunk 数
-     * @param parseErrors JSON 解析失败次数
-     * @param parsed      成功解析为 JSON 的行数
-     * @param total      总接收行数
-     * @return 结论描述
+     * 真实 AI 开场白生成失败时，降级到本地 Mock 开场问题，避免因为外部网络异常导致无法创建面试会话。
      */
+    private String buildOpeningFallback(String tag, String jobRole, Integer difficulty,
+                                        InterviewJobTargetContext jobTargetContext, Throwable cause) {
+        log.warn("[{}] 真实 AI 开场生成失败，改用本地 Mock 兜底, cause={}", tag, cause.getMessage(), cause);
+        return mockInterviewService.generateMockOpening(resolveFallbackJobRole(jobRole), difficulty, jobTargetContext);
+    }
+
+    /**
+     * 真实 AI 多轮问答失败时，复用本地 Mock 生成一个自然的单问题追问，保证面试对话可继续。
+     */
+    private String buildReplyFallback(String tag, String sessionId, String userMessage,
+                                      List<ChatMessageItem> history,
+                                      InterviewJobTargetContext jobTargetContext, Throwable cause) {
+        log.warn("[{}] 真实 AI 面试回复失败，改用本地 Mock 兜底, sessionId: {}, cause={}",
+                tag, sessionId, cause.getMessage(), cause);
+        int messageCount = history == null ? 0 : history.size();
+        return mockInterviewService.generateMockReply(sessionId, userMessage, messageCount, jobTargetContext);
+    }
+
+    /**
+     * 流式问答在请求发出前就发现配置缺失时，直接返回本地 Mock 字符流，避免 SSE 进入错误事件。
+     */
+    private Publisher<String> buildReplyFallbackStream(String tag, String sessionId, String userMessage,
+                                                       List<ChatMessageItem> history,
+                                                       InterviewJobTargetContext jobTargetContext, Throwable cause) {
+        String fallbackReply = buildReplyFallback(tag, sessionId, userMessage, history, jobTargetContext, cause);
+        return Flux.<String>create(sink -> emitFallbackReplyToSink(sink, fallbackReply))
+                .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /**
+     * 将本地兜底文案按字符流输出给 SSE 下游，保持与真实流式回复一致的消费方式。
+     */
+    private void emitFallbackReplyToSink(FluxSink<String> sink, String fallbackReply) {
+        if (fallbackReply == null || fallbackReply.isBlank()) {
+            sink.complete();
+            return;
+        }
+        for (int i = 0; i < fallbackReply.length(); i++) {
+            if (sink.isCancelled()) {
+                return;
+            }
+            sink.next(fallbackReply.substring(i, i + 1));
+        }
+        sink.complete();
+    }
+
+    /**
+     * 判断是否应降级到本地 Mock。
+     * 仅网络异常、超时、连接拒绝等基础设施问题才降级；业务异常（如参数错误）应直接抛出。
+     */
+    private boolean shouldFallbackToLocalMock(Throwable throwable) {
+        if (throwable == null) {
+            return false;
+        }
+        String name = throwable.getClass().getName();
+        // 网络/连接/超时类异常允许降级
+        return name.contains("ConnectException")
+                || name.contains("SocketTimeoutException")
+                || name.contains("ReadTimeoutException")
+                || name.contains("HttpHostConnectException")
+                || name.contains("WebClientRequestException")
+                || name.contains("IOException")
+                || name.contains("WebClientException")
+                || name.contains("IllegalStateException"); // 未配置 API Key 等启动期异常
+    }
+
+    /**
+     * 兜底岗位名称只用于本地 Mock 开场问题，避免真实岗位缺失时退化成空字符串。
+     */
+    private String resolveFallbackJobRole(String jobRole) {
+        if (jobRole == null || jobRole.isBlank()) {
+            return "软件工程师";
+        }
+        return jobRole;
+    }
+
     private String makeConclusion(int cNonEmpty, int rNonEmpty, int parseErrors, int parsed, int total) {
         if (parseErrors > 0 && cNonEmpty == 0 && rNonEmpty == 0) {
             return "FAIL - 大量解析失败，可能是响应格式不兼容或网络截断";
@@ -671,15 +644,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         return "UNKNOWN - 请检查日志";
     }
 
-    /**
-     * 生成面试评价报告（旧版兼容，返回字符串JSON）
-     * 【注意】已废弃，请使用 generateEvaluationReport 方法
-     *
-     * @param sessionId 会话 ID
-     * @param history   历史消息列表
-     * @return 评价结果（包含分数和报告）
-     * @deprecated 请使用 generateEvaluationReport 方法
-     */
     @Override
     @Deprecated
     public EvaluationResult generateEvaluation(String sessionId, List<ChatMessageItem> history) {
@@ -687,7 +651,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         String tag = runtimeConfig.provider().toUpperCase();
         log.info("[{}] 调用旧版评价接口, sessionId: {}, historySize: {}",
                 tag, sessionId, history == null ? 0 : history.size());
-        // 调用新版方法并转换为旧版格式
         InterviewEvaluationReport report = generateEvaluationReport(sessionId, history, "软件工程师", null, 2, "normal", null);
         try {
             String jsonReport = objectMapper.writeValueAsString(report);
@@ -698,22 +661,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         }
     }
 
-    /**
-     * 生成面试评价报告（新版，返回结构化对象）
-     *
-     * 【核心实现】
-     * 1. 构建严格的大厂标准评价提示词
-     * 2. 传入完整面试对话历史
-     * 3. 要求 AI 按指定 JSON 格式返回
-     * 4. 解析 AI 返回并构建结构化对象
-     *
-     * @param sessionId     会话 ID
-     * @param history       历史消息列表
-     * @param jobRole       面试岗位
-     * @param difficulty    难度级别
-     * @param interviewMode 面试模式
-     * @return 结构化评价报告
-     */
     @Override
     public InterviewEvaluationReport generateEvaluationReport(
             String sessionId,
@@ -733,21 +680,37 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 tag, sessionId, jobRole, jobRoleCode, difficulty, interviewMode,
                 history == null ? 0 : history.size());
 
-        // 1. 构建评价提示词（优先数据库，硬编码兜底）
-        String systemPrompt = buildEvaluationSystemPrompt(jobRole, jobRoleCode, difficulty, interviewMode, jobTargetContext);
-        String userPrompt = buildEvaluationUserPrompt(history, jobTargetContext);
+        List<ChatMessageItem> compressedHistory = contextCompressor.compressForEvaluation(history, null);
 
-        // 2. 调用 AI 生成评价
+        int originalTokens = estimateHistoryTokens(history);
+        int compressedTokens = estimateHistoryTokens(compressedHistory);
+        log.info("[{}] 评价报告历史对话已压缩: 原始{}token -> 压缩后{}token",
+                tag, originalTokens, compressedTokens);
+
+        String systemPrompt = buildEvaluationSystemPrompt(jobRole, jobRoleCode, difficulty, interviewMode, jobTargetContext);
+        String userPrompt = buildEvaluationUserPrompt(compressedHistory, jobTargetContext);
+
+        // 【Token 优化】预估评价报告的输入 token 数
+        int systemTokens = TokenEstimator.estimateTokens(systemPrompt);
+        int userTokens = TokenEstimator.estimateTokens(userPrompt);
+        int totalTokens = systemTokens + userTokens;
+        log.info("[{}] 评价报告预估token: {}(system:{}, user:{})", tag, totalTokens, systemTokens, userTokens);
+
+        // 【Token 优化】若超过评价报告专用限制，进行二次压缩（更激进的压缩策略）
+        if (tokenLimitConfig.isTokenLimitEnabled() && totalTokens > tokenLimitConfig.getInterviewEvaluationMax()) {
+            log.warn("[{}] 评价报告token预估({})超过限制({})，进一步截断历史对话", tag, totalTokens, tokenLimitConfig.getInterviewEvaluationMax());
+            compressedHistory = contextCompressor.compressForEvaluation(compressedHistory, "前期对话已大幅压缩");
+            userPrompt = buildEvaluationUserPrompt(compressedHistory, jobTargetContext);
+            userTokens = TokenEstimator.estimateTokens(userPrompt);
+            totalTokens = systemTokens + userTokens;
+            log.info("[{}] 二次压缩后预估token: {}(system:{}, user:{})", tag, totalTokens, systemTokens, userTokens);
+        }
+
         String aiResponse = chat(systemPrompt, userPrompt);
         log.info("[{}] AI 评价原始响应长度: {}", tag, aiResponse == null ? 0 : aiResponse.length());
 
-        // 3. 解析 AI 返回的 JSON
         InterviewEvaluationReport report = parseEvaluationResponse(aiResponse);
-
-        // 4. 计算综合分数（从各维度平均得出）
         calculateOverallScore(report);
-
-        // 5. 兼容旧版字段映射
         mapLegacyFields(report);
 
         log.info("[{}] 评价报告生成完成, overallScore: {}, hireRecommendation: {}",
@@ -756,19 +719,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         return report;
     }
 
-    /**
-     * 构建评价系统提示词
-     *
-     * 【优先级】
-     * 1. 如果数据库有该岗位+难度的 prompt → 使用数据库配置
-     * 2. 否则 → 使用硬编码兜底
-     *
-     * 【评价标准】
-     * - 严格按照大厂（字节/阿里/腾讯/美团）招聘标准
-     * - 不做鼓励式表扬，实事求是
-     * - 直接指出基础不扎实、答非所问、项目不清等问题
-     * - 评分宁可保守，不要虚高
-     */
     private String buildEvaluationSystemPrompt(String jobRole, String jobRoleCode, Integer difficulty,
                                                String interviewMode, InterviewJobTargetContext jobTargetContext) {
         log.debug("评价 Prompt 使用硬编码兜底, jobRole: {}, difficulty: {}", jobRole, difficulty);
@@ -776,9 +726,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 + buildJobTargetEvaluationPrompt(jobTargetContext);
     }
 
-    /**
-     * 硬编码的默认评价系统提示词（兜底）
-     */
     private String buildDefaultEvaluationSystemPrompt(String jobRole, Integer difficulty, String interviewMode) {
         String difficultyDesc = switch (difficulty == null ? 2 : difficulty) {
             case 1 -> "初级（1-3年经验）";
@@ -787,82 +734,27 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         };
         String modeDesc = "stress".equalsIgnoreCase(interviewMode) ? "压力面试" : "普通面试";
 
-        return """
-                你是一位经验丰富的大厂技术面试官，擅长严格评估候选人的真实水平。
-
-                【评估背景】
-                - 面试岗位：%s
-                - 难度级别：%s
-                - 面试模式：%s
-
-                【评价原则（必须严格遵守）】
-                1. 严格标准：按照字节/阿里/腾讯/美团等一线大厂的真实招聘标准评估
-                2. 实事求是：不做鼓励式表扬，不因为回答篇幅长而加分
-                3. 直接尖锐：若发现基础不扎实、答非所问、项目描述不清、逻辑混乱、缺乏深度，必须直接指出，不要含糊其辞
-                4. 保守评分：评分宁可偏低，不要虚高。60分以下表示未达到录用门槛
-                5. 录用决策：以真实招聘视角判断是否建议进入下一轮，不要放水
-
-                【评分标准（0-100分）】
-                - 90-100：S级，远超预期，可直接录用
-                - 80-89：A级，表现优秀，强烈推荐进入下一轮
-                - 70-79：B级，基本达标，可考虑进入下一轮
-                - 60-69：C级，勉强及格，需要综合考量
-                - 0-59：D级，未达到录用标准，建议淘汰
-
-                【输出要求】
-                请严格按照以下 JSON 格式输出，不要包含任何其他文本说明：
-                {
-                  "overallScore": 综合评分0-100,
-                  "level": "S/A/B/C/D",
-                  "finalVerdict": "最终结论一句话",
-                  "summary": "总体评价200字以内",
-                  "strengths": ["优势1", "优势2"],
-                  "weaknesses": ["短板1", "短板2"],
-                  "criticalIssues": ["严重问题1", "严重问题2"],
-                  "questionPerformance": [
-                    {
-                      "question": "面试官问题",
-                      "answer": "候选人回答",
-                      "score": 0-100,
-                      "comment": "评价",
-                      "knowledgeTags": ["知识点1", "知识点2"]
-                    }
-                  ],
-                  "technicalDepth": {"score": 0-100, "comment": "评价"},
-                  "communication": {"score": 0-100, "comment": "评价"},
-                  "problemSolving": {"score": 0-100, "comment": "评价"},
-                  "pressureResistance": {"score": 0-100, "comment": "评价"},
-                  "jobMatch": {"score": 0-100, "comment": "评价"},
-                  "hireRecommendation": "强烈推荐/推荐/待定/不推荐",
-                  "improvementSuggestions": ["建议1", "建议2"],
-                  "redFlags": ["红旗警示1", "红旗警示2"],
-                  "missingCompetencies": ["缺失能力1", "缺失能力2"],
-                  "inflationRisk": "低/中/高 - 说明",
-                  "answerAuthenticity": "可信/存疑/不可信 - 说明",
-                  "interviewPerformanceTags": ["标签1", "标签2"],
-                  "passProbability": 0-100,
-                  "rejectionReasons": ["拒录理由1", "拒录理由2"]
-                }
-
-                注意：
-                - 所有字段必须返回，无内容时返回空数组或空字符串
-                - level 根据 overallScore 自动判定：>=90为S，>=80为A，>=70为B，>=60为C，<60为D
-                - hireRecommendation：>=80强烈推荐，>=70推荐，>=60待定，<60不推荐
-                - passProbability：与overallScore保持一致
-                - questionPerformance 至少记录前3轮对话的表现
-                """.formatted(jobRole, difficultyDesc, modeDesc);
+        String prompt = """
+                角色：大厂技术面试官(10年经验)。任务：严格评估候选人真实水平。
+                背景：岗位=PLACEHOLDER1，难度=PLACEHOLDER2，模式=PLACEHOLDER3。
+                原则：1)按一线大厂标准 2)实事求是不鼓励 3)直接尖锐指出问题 4)保守评分(60以下不录用) 5)不放水。
+                评分：90-100=S(远超预期)，80-89=A(优秀)，70-79=B(达标)，60-69=C(勉强)，<60=D(淘汰)。
+                录用：>=80强烈推荐，>=70推荐，>=60待定，<60不推荐。
+                输出JSON(无额外文本)：{"overallScore":0-100,"level":"S/A/B/C/D","finalVerdict":"结论","summary":"总体评价","strengths":[""],"weaknesses":[""],"criticalIssues":[""],"questionPerformance":[{"question":"","answer":"","score":0,"comment":"","knowledgeTags":[""]}],"technicalDepth":{"score":0,"comment":""},"communication":{"score":0,"comment":""},"problemSolving":{"score":0,"comment":""},"pressureResistance":{"score":0,"comment":""},"jobMatch":{"score":0,"comment":""},"hireRecommendation":"","improvementSuggestions":[""],"redFlags":[""],"missingCompetencies":[""],"inflationRisk":"","answerAuthenticity":"","interviewPerformanceTags":[""],"passProbability":0,"rejectionReasons":[""]}
+                规则：所有字段必填；level按overallScore自动判定；passProbability与overallScore一致；questionPerformance至少记录前3轮。
+                """;
+        return prompt.replace("PLACEHOLDER1", jobRole)
+                     .replace("PLACEHOLDER2", difficultyDesc)
+                     .replace("PLACEHOLDER3", modeDesc);
     }
 
-    /**
-     * 构建评价用户提示词（包含完整对话历史）
-     */
     private String buildEvaluationUserPrompt(List<ChatMessageItem> history, InterviewJobTargetContext jobTargetContext) {
         StringBuilder sb = new StringBuilder();
         if (jobTargetContext != null && Boolean.TRUE.equals(jobTargetContext.getJobTargeted())) {
             sb.append("以下为岗位定向补充上下文，请将其纳入评价：\n");
             sb.append(buildJobTargetContextSummary(jobTargetContext)).append("\n\n");
         }
-        sb.append("以下是完整的面试对话记录，请根据上述标准进行严格评估：\n\n");
+        sb.append("以下是面试对话记录，请严格评估：\n\n");
 
         if (history != null && !history.isEmpty()) {
             int round = 1;
@@ -882,14 +774,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         return sb.toString();
     }
 
-    /**
-     * 解析 AI 返回的评价报告 JSON
-     *
-     * 【容错处理】
-     * - AI 可能在 JSON 前后添加额外文本
-     * - 尝试提取第一个 { 到最后一个 } 之间的内容
-     * - 解析失败时返回默认报告
-     */
     private InterviewEvaluationReport parseEvaluationResponse(String aiResponse) {
         String tag = provider.toUpperCase();
         if (aiResponse == null || aiResponse.isBlank()) {
@@ -897,7 +781,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             return buildDefaultEvaluationReport();
         }
 
-        // 尝试提取 JSON 部分（去除 AI 可能添加的额外文本）
         String jsonContent = extractJsonFromResponse(aiResponse);
         log.debug("[{}] 提取的 JSON 内容长度: {}", tag, jsonContent.length());
 
@@ -912,11 +795,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         }
     }
 
-    /**
-     * 从 AI 响应中提取 JSON 内容
-     */
     private String extractJsonFromResponse(String response) {
-        // 找到第一个 { 和最后一个 }
         int firstBrace = response.indexOf('{');
         int lastBrace = response.lastIndexOf('}');
         if (firstBrace >= 0 && lastBrace > firstBrace) {
@@ -925,9 +804,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         return response;
     }
 
-    /**
-     * 构建默认评价报告（当 AI 调用失败时使用）
-     */
     private InterviewEvaluationReport buildDefaultEvaluationReport() {
         return InterviewEvaluationReport.builder()
                 .overallScore(60)
@@ -955,16 +831,11 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 .build();
     }
 
-    /**
-     * 计算综合分数（从各维度平均得出）
-     */
     private void calculateOverallScore(InterviewEvaluationReport report) {
         if (report.getOverallScore() != null && report.getOverallScore() > 0) {
-            // AI 已返回总分，直接使用
             return;
         }
 
-        // 从各维度计算平均分
         int total = 0;
         int count = 0;
 
@@ -995,7 +866,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             report.setPassProbability(avgScore);
         }
 
-        // 确保 level 字段正确
         if (report.getLevel() == null || report.getLevel().isBlank()) {
             int score = report.getOverallScore() != null ? report.getOverallScore() : 60;
             if (score >= 90) report.setLevel("S");
@@ -1006,11 +876,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         }
     }
 
-    /**
-     * 映射旧版前端字段（兼容处理）
-     */
     private void mapLegacyFields(InterviewEvaluationReport report) {
-        // 旧版 dimensions 字段
         com.fasterxml.jackson.databind.node.ObjectNode dimensions = objectMapper.createObjectNode();
         if (report.getTechnicalDepth() != null) {
             dimensions.put("technicalDepth", report.getTechnicalDepth().getScore());
@@ -1024,22 +890,10 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         dimensions.put("systemDesign", report.getTechnicalDepth() != null ? report.getTechnicalDepth().getScore() : 60);
         report.setDimensions(dimensions);
 
-        // 旧版 suggestions 字段 = improvementSuggestions
         report.setSuggestions(new ArrayList<>(report.getImprovementSuggestions()));
-
-        // 旧版 improvements 字段 = weaknesses
         report.setImprovements(new ArrayList<>(report.getWeaknesses()));
     }
 
-    /**
-     * 单次非流式对话（用于开场白等简单场景）
-     *
-     * @param systemPrompt 系统提示词
-     * @param userPrompt   用户提示词
-     * @return AI 返回的文本
-     * @throws IllegalStateException API Key 未设置时抛出
-     * @throws RuntimeException AI 调用失败时抛出
-     */
     private String chat(String systemPrompt, String userPrompt) {
         RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
         String tag = runtimeConfig.provider().toUpperCase();
@@ -1054,11 +908,9 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 new Message("system", systemPrompt),
                 new Message("user", userPrompt)
         );
-        // 根据配置和模型支持情况设置 thinking 参数
         request.thinking = buildThinkingConfig(runtimeConfig.model(), thinkingMode);
 
         try {
-            // 【关键日志】打印请求参数
             log.info("[{}] ═══════════════════════════════════════════════", tag);
             log.info("[{}] ║  非流式请求参数验证  ║", tag);
             log.info("[{}] ═══════════════════════════════════════════════", tag);
@@ -1096,14 +948,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         }
     }
 
-    /**
-     * 多轮对话（用于上下文对话场景）
-     *
-     * @param messages 完整的消息列表（包含历史）
-     * @return AI 返回的文本
-     * @throws IllegalStateException API Key 未设置时抛出
-     * @throws RuntimeException AI 调用失败时抛出
-     */
     private String chatWithMessages(List<Message> messages) {
         RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
         String tag = runtimeConfig.provider().toUpperCase();
@@ -1115,11 +959,9 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         RequestBody request = new RequestBody();
         request.model = runtimeConfig.model();
         request.messages = messages;
-        // 根据配置和模型支持情况设置 thinking 参数
         request.thinking = buildThinkingConfig(runtimeConfig.model(), thinkingMode);
 
         try {
-            // 【关键日志】打印请求参数
             log.info("[{}] ═══════════════════════════════════════════════", tag);
             log.info("[{}] ║  多轮对话请求参数验证  ║", tag);
             log.info("[{}] ═══════════════════════════════════════════════", tag);
@@ -1157,32 +999,17 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         }
     }
 
-    /**
-     * 构建对话消息列表
-     * 将历史消息转换为 AI API 所需的格式
-     *
-     * 【修复说明】
-     * 旧实现：把所有历史拼接成一个大字符串放在单条 user 消息里 → AI 无法正确理解多轮对话
-     * 新实现：按时间顺序构建完整的多轮对话历史 → AI 具备完整上下文记忆
-     *
-     * @param history           历史消息列表
-     * @param currentUserMessage 当前用户消息
-     * @param jobRole           面试岗位（可选）
-     * @return 格式化后的消息列表
-     */
     private List<Message> buildConversationMessages(List<ChatMessageItem> history, String currentUserMessage, String jobRole,
                                                     String jobRoleCode, Integer difficulty,
                                                     InterviewJobTargetContext jobTargetContext) {
         java.util.List<Message> messages = new java.util.ArrayList<>();
 
-        // 1. 添加系统提示词（优先使用数据库配置，硬编码兜底）
-        String systemPrompt = buildSystemPromptFromJobRole(history, jobRoleCode, difficulty, jobTargetContext);
+        String systemPrompt = buildSystemPromptFromJobRole(history, jobRole, jobRoleCode, difficulty, jobTargetContext);
         messages.add(new Message("system", systemPrompt));
 
         int historyUserCount = 0;
         int historyAssistantCount = 0;
 
-        // 2. 添加历史对话消息（按时间顺序）
         if (history != null && !history.isEmpty()) {
             for (ChatMessageItem item : history) {
                 String role = item.role();
@@ -1190,7 +1017,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 if (content == null || content.isBlank()) {
                     continue;
                 }
-                // 角色映射：确保符合 OpenAI 格式要求
                 String mappedRole = "user".equalsIgnoreCase(role) ? "user" : "assistant";
                 messages.add(new Message(mappedRole, content));
                 if ("user".equalsIgnoreCase(mappedRole)) {
@@ -1201,12 +1027,10 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             }
         }
 
-        // 3. 添加当前用户消息
         if (currentUserMessage != null && !currentUserMessage.isBlank()) {
             messages.add(new Message("user", currentUserMessage));
         }
 
-        // 【关键调试日志】输出消息组装情况，确认上下文是否正确
         String tag = provider.toUpperCase();
         int totalMessages = messages.size();
         String firstRole = totalMessages > 0 ? messages.get(0).role : "none";
@@ -1225,40 +1049,79 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     }
 
     /**
-     * 从历史消息中推断岗位并构建系统提示词
-     *
-     * @param history      历史消息列表
-     * @param jobRoleCode  岗位编码（优先使用，可为空）
-     * @param difficulty  难度级别（用于查询数据库 prompt）
-     * @return 系统提示词
+     * 优先从当前会话读取真实岗位名称。
+     * 说明：多轮对话阶段如果只依赖历史消息推断岗位，容易退化成"软件工程师"这种泛化岗位。
      */
-    private String buildSystemPromptFromJobRole(List<ChatMessageItem> history, String jobRoleCode, Integer difficulty,
-                                                InterviewJobTargetContext jobTargetContext) {
-        String jobRole = "软件工程师";
-        if (history != null && !history.isEmpty()) {
-            String first = history.get(0).content();
-            int idx = first.indexOf("岗位");
-            if (idx >= 0) {
-                int start = idx;
-                int end = Math.min(start + 50, first.length());
-                jobRole = first.substring(Math.max(0, start - 10), end);
+    private String resolveCurrentJobRole(String sessionId, List<ChatMessageItem> history, String jobRoleCode) {
+        if (sessionId != null && !sessionId.isBlank()) {
+            try {
+                InterviewSession session = interviewSessionMapper.selectOne(
+                        new LambdaQueryWrapper<InterviewSession>()
+                                .eq(InterviewSession::getSessionId, sessionId)
+                                .last("limit 1")
+                );
+                if (session != null && session.getJobRole() != null && !session.getJobRole().isBlank()) {
+                    return session.getJobRole();
+                }
+            } catch (Exception e) {
+                log.warn("根据 sessionId 读取岗位名称失败, sessionId: {}", sessionId, e);
             }
         }
-        return buildSystemPrompt(jobRole, jobRoleCode, difficulty, jobTargetContext);
+        String mappedJobRole = mapJobRoleCodeToName(jobRoleCode);
+        if (!mappedJobRole.isBlank()) {
+            return mappedJobRole;
+        }
+        if (history != null && !history.isEmpty()) {
+            String first = history.get(0).content();
+            if (first != null && first.contains("前端")) {
+                return "前端开发工程师";
+            }
+        }
+        return "软件工程师";
     }
 
     /**
-     * 构建面试官系统提示词
-     *
-     * 【优先级】
-     * 1. 如果数据库有该岗位+难度的 prompt → 使用数据库配置
-     * 2. 否则 → 使用硬编码兜底
-     *
-     * @param jobRole    面试岗位
-     * @param jobRoleCode 岗位编码（可为空）
-     * @param difficulty 难度级别
-     * @return 完整的系统提示词
+     * 根据岗位编码做最小范围的名称映射。
+     * 用途：当数据库 Prompt 缺失时，至少保证系统 Prompt 仍然贴近用户选择的真实岗位。
      */
+    private String mapJobRoleCodeToName(String jobRoleCode) {
+        if (jobRoleCode == null || jobRoleCode.isBlank()) {
+            return "";
+        }
+        String normalized = jobRoleCode.trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "frontend", "frontend_engineer", "web_frontend" -> "前端开发工程师";
+            case "backend", "backend_engineer", "java_engineer" -> "后端开发工程师";
+            case "test_engineer", "qa_engineer", "software_test" -> "软件测试工程师";
+            case "product_manager" -> "产品经理";
+            case "algorithm_engineer" -> "算法工程师";
+            default -> "";
+        };
+    }
+
+    private String buildSystemPromptFromJobRole(List<ChatMessageItem> history, String jobRole, String jobRoleCode, Integer difficulty,
+                                                InterviewJobTargetContext jobTargetContext) {
+        String resolvedJobRole = jobRole;
+        if (resolvedJobRole == null || resolvedJobRole.isBlank()) {
+            resolvedJobRole = mapJobRoleCodeToName(jobRoleCode);
+        }
+        if ((resolvedJobRole == null || resolvedJobRole.isBlank()) && history != null && !history.isEmpty()) {
+            String first = history.get(0).content();
+            if (first != null) {
+                int idx = first.indexOf("岗位");
+                if (idx >= 0) {
+                    int start = idx;
+                    int end = Math.min(start + 50, first.length());
+                    resolvedJobRole = first.substring(Math.max(0, start - 10), end);
+                }
+            }
+        }
+        if (resolvedJobRole == null || resolvedJobRole.isBlank()) {
+            resolvedJobRole = "软件工程师";
+        }
+        return buildSystemPrompt(resolvedJobRole, jobRoleCode, difficulty, jobTargetContext);
+    }
+
     private String buildSystemPrompt(String jobRole, String jobRoleCode, Integer difficulty,
                                      InterviewJobTargetContext jobTargetContext) {
         SysPrompt dbPrompt = null;
@@ -1269,16 +1132,12 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         if (dbPrompt != null && dbPrompt.getPromptContent() != null && !dbPrompt.getPromptContent().isBlank()) {
             log.info("使用数据库配置的 Prompt, jobRoleCode: {}, difficulty: {}, promptId: {}",
                     jobRoleCode, difficulty, dbPrompt.getId());
-            return dbPrompt.getPromptContent() + buildJobTargetInstruction(jobTargetContext);
+            return dbPrompt.getPromptContent() + buildJobTargetInstruction(jobTargetContext, jobRole);
         }
         log.debug("使用硬编码兜底 Prompt, jobRole: {}, difficulty: {}", jobRole, difficulty);
-        return buildDefaultSystemPrompt(jobRole, difficulty) + buildJobTargetInstruction(jobTargetContext);
+        return buildDefaultSystemPrompt(jobRole, difficulty) + buildJobTargetInstruction(jobTargetContext, jobRole);
     }
 
-    /**
-     * 硬编码的默认系统提示词（兜底）
-     * 按大厂面试官视角，根据岗位类型灵活提问
-     */
     private String buildDefaultSystemPrompt(String jobRole, Integer difficulty) {
         String difficultyDesc = switch (difficulty == null ? 2 : difficulty) {
             case 1 -> "初级";
@@ -1286,60 +1145,72 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             default -> "中级";
         };
 
-        // 根据岗位类型调整提问重点
-        boolean isTechnicalRole = isTechnicalJobRole(jobRole);
+        String prompt = """
+                角色：大厂面试官(10年经验)。岗位：PLACEHOLDER_JOB。难度：PLACEHOLDER_DIFF。
 
-        return """
-你是一位大厂面试官，正在对候选人进行模拟面试。
+                【最高优先级 - 输出格式】
+                你的每一次输出只能是面试官对候选人说的话。绝对禁止输出以下内容：
+                - 括号内的思考过程或分析（如"（发现矛盾...）""（根据原则...）""（注意到...）"）
+                - 任何解释你行为逻辑的文字
+                - 任何内部推理、规则引用或策略说明
+                - 直接引用简历原文或摘要（如"林映⽂-前端开发⼯程师求职简历姓名：林映⽂|性别：男/..."这种原文照搬），简历只是你的参考信息，提问时必须用自己的话自然地提及（如"我注意到你简历里提到..."）
+                违反此规则等于严重错误。你的输出必须像真人面试官说话一样自然，不带任何元信息。
 
-角色设定：
-- 你有10年大厂招聘经验，精通各岗位招聘
-- 面试岗位：%s
-- 难度级别：%s（根据候选人背景调整问题深度）
+                【核心原则】
+                1.你是面试官，不是候选人。只负责提问，绝对不要回答问题、解释技术概念或给出示范答案。
+                2.每次只提一个主问题，可带一句很短的承接说明，禁止列清单。
+                3.候选人的任何回答（包括"好的""嗯""可以"等简短回应）都由你判断质量并追问，不要代替候选人作答。
+                4.每轮提问前必须回顾候选人上一轮的回答内容，基于其回答中的具体信息追问。严禁忽略候选人已提供的信息重复提问。
 
-岗位类型判断：
-- 技术岗（开发/测试/运维/算法等）：重点考察技术能力、解决问题思路、业务理解
-- 非技术岗（产品/运营/销售/老师/HR等）：重点考察岗位核心能力、沟通表达、行业理解
+                【面试节奏控制 - 分阶段策略】
+                面试分为三个阶段，严格按顺序推进：
 
-提问规则（必须严格遵守）：
-1. 紧扣%s岗位核心能力：
-   - 技术岗：只问该岗位必须掌握的技术、工具、思维方式
-   - 非技术岗：问该岗位的核心技能、工作方法、沟通协调能力
-2. 难度递进：
-   - 初级：基础概念、工作流程、简单任务处理
-   - 中级：独立负责项目、跨部门协作、复杂问题解决
-   - 高级：团队管理、业务规划、战略决策
-3. 业务关联：问题要与实际业务场景结合，不要问脱离业务的纯理论或空想
-4. 深度追问：根据候选人回答深入挖掘细节
-5. 避免跳脱：不要问与本岗位完全无关的内容
+                阶段一：技能热身（第 1-5 轮）
+                - 有简历：围绕简历中列出的专业技能逐项验证（如"简历中写熟练掌握 HTML5/CSS3/JS，能说说 Flex 布局和 Grid 布局的区别吗？"）。目的是确认技能掌握程度，避免"写了但不会"的情况。前 5 轮不问项目、不问实习。
+                - 无简历：围绕岗位要求的核心技术提问（如"后端开发岗位通常需要掌握 Java，你平时用哪些 Java 框架？"）。5 轮技术问题后必须在阶段二转为询问项目/实习经历。
 
-技术岗判断规则：
-- 含"开发"、"工程师"、"测试"、"运维"、"算法"、"技术"、"前端"、"后端"、"全栈"等关键词为技术岗
-- 含"产品"、"运营"、"销售"、"老师"、"教师"、" HR"、"人力"等为非技术岗
-- 不确定时优先按非技术岗提问，可简要提及数据分析等通用技能
+                阶段二：项目/实习深挖（第 6 轮起）
+                - 自然过渡：技能热身结束后，用一句话自然过渡（如"基础不错，我们聊聊你做过的项目。你有做过什么项目或者实习经历吗？可以详细说说。"）。
+                - 如果候选人有实习经历：优先问实习内容、工作职责、团队协作、技术选型。
+                - 如果候选人有项目经历：问项目背景、技术栈选型原因、遇到的难点、如何解决、个人负责的模块。
+                - 如果候选人既没有项目也没有实习：不要跳过此阶段，继续围绕岗位核心能力提问（如技术深度问题、需求分析能力、团队协作经验、抗压能力、学习能力等），并可以在后续轮次中再次询问是否有过相关实践（课程设计、个人练习、比赛等也算）。
+                - 深挖细节：追问具体实现（如"你说用了 Redis 缓存，具体缓存了什么数据？缓存失效策略是什么？"）。
 
-【重要】面试过程中的行为规范：
-1. 你只能以真实面试官在面试现场会说的话进行回复
-2. 每次回复只能提出一个问题，或简短承接候选人的回答后追问
-3. 不得输出任何评分、优点、不足、待改进、建议、回答分析等报告式内容
-4. 不得告诉候选人是否达标、是否通过、是否推荐录用
-5. 不要生成面试报告或阶段性总结
-6. 如果候选人回答较差，只能通过追问继续考察，不能直接点评缺点
-7. 保持专业、自然、口语化的面试官语气
+                阶段三：综合评估（最后 1-2 轮）
+                - 问职业规划、优劣势、期望薪资等收尾问题。
+                - 根据整体表现准备结束。
 
-当前面试模式：
-- 用户说一句，你回复一句
-- 直接开始提问第一个问题
-                """.formatted(jobRole, difficultyDesc, isTechnicalRole ? "该" : "该岗位的");
+                【特殊情况处理】
+                - 提前结束：如果候选人的回答明显不符合岗位要求（连续 3 轮以上答非所问或完全不会），可在至少 5 轮对话后提前结束面试，用自然的方式收尾（如"好的，今天的面试就到这里，感谢你的时间"）。
+                - 鼓励与安慰：候选人回答得好时，用一句话简短夸奖并紧跟下一个问题（如"掌握得很扎实，那我们看看你在实际项目中的应用"）。回答得不好时，用一句话安慰并换角度追问（如"这个知识点确实比较深，换个角度聊聊你熟悉的部分"）。夸奖和安慰各限一句，必须附带下一个问题。
+                - 简短回应：候选人回复"好的""嗯""可以"时，简短确认后追问具体细节（如"具体用了什么技术？""能举个例子吗？"），不跳过当前问题。
+
+                【岗位类型】
+                技术类岗位（开发/工程师/测试/运维/算法/前端/后端/全栈/Java/Python/Go/数据/安全）-> 技术栈和工程经验
+                综合类岗位（教师/设计/运营/销售/管理/电气/电工）-> 专业背景、从业经历和核心技能
+
+                【简历与岗位不匹配处理】
+                如果系统提供的简历明显与当前面试岗位不符（如简历是前端开发，但面试的是后端开发），你必须：
+                1.在开场时简要提及（如"我注意到你简历是前端方向，今天面试的是后端岗位，想了解下你的转型考虑"），不要假装简历和岗位一致。
+                2.后续所有问题必须围绕当前面试岗位的要求提问，不要问简历中与岗位无关的技能（如面试后端时不要问Vue3/CSS布局）。
+                3.可以适当询问简历与岗位的相通之处（如"你学过前端，对HTTP协议应该比较熟悉，能说说吗？"），但重点仍是岗位核心能力。
+                4.严禁根据简历内容编造候选人不具备的岗位相关技能。简历只是参考，候选人的实际能力以面试中的回答为准。
+
+                【禁止事项】
+                - 不输出评分/报告/建议/点评
+                - 不告诉候选人是否通过
+                - 不输出脚本式文字（如"等候选人回答后""追问：""[具体模块]"）
+                - 如果系统已提供简历或 JD，代表你已看过，严禁说"看不到简历""无法查看简历"
+                - 没有简历时严禁编造任何不存在的项目或经历
+                - 严禁输出任何内部推理、思考过程或规则引用（如括号内的"根据XX原则""根据XX规则"等元信息），这些内容绝不能展示给候选人。你的输出只能是面试官说的话，不能包含任何解释你行为逻辑的文字
+                """;
+        return prompt.replace("PLACEHOLDER_JOB", jobRole)
+                     .replace("PLACEHOLDER_DIFF", difficultyDesc);
     }
 
-    /**
-     * 判断是否为技术岗位
-     */
     private boolean isTechnicalJobRole(String jobRole) {
         if (jobRole == null) return false;
         String lower = jobRole.toLowerCase();
-        // 技术岗关键词
         return lower.contains("开发") || lower.contains("工程师") || lower.contains("测试") ||
                lower.contains("运维") || lower.contains("算法") || lower.contains("技术") ||
                lower.contains("前端") || lower.contains("后端") || lower.contains("全栈") ||
@@ -1347,83 +1218,102 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                lower.contains("数据") || lower.contains("安全") || lower.contains("运维");
     }
 
-    /**
-     * 构建开场白的用户提示词
-     *
-     * @param jobRole    面试岗位
-     * @param difficulty 难度级别
-     * @return 用户提示词
-     */
     private String buildOpeningUserPrompt(String jobRole, Integer difficulty, InterviewJobTargetContext jobTargetContext) {
         String diffText = switch (difficulty == null ? 2 : difficulty) {
             case 1 -> "初级";
             case 3 -> "高级";
             default -> "中级";
         };
-        boolean isTech = isTechnicalJobRole(jobRole);
-        String skillFocus = isTech ? "技术能力和业务理解" : "岗位核心能力和沟通协调";
+        boolean hasResume = hasResumeContext(jobTargetContext);
 
-        return """
-                请开始模拟面试。
-                岗位：%s
-                难度：%s
+        String prompt = String.format("""
+                面试开始。岗位：%s  难度：%s。
+                请根据对话历史中的开场白，向候选人提出第一个问题。
+                %s
+                只输出一个问题，不要多余内容。
+                """,
+                jobRole != null ? jobRole : "软件工程师",
+                diffText,
+                hasResume ? "你已看过候选人简历，请从简历中的专业技能开始验证。" : "当前没有简历，请从岗位要求的核心技术开始提问。"
+        );
 
-                请按以下流程进行：
-                1. 简短确认候选人的背景（工作年限、主要经验）
-                2. 从该岗位%s级别的核心%s开始提问
-                3. 根据候选人回答递进深入
-
-                注意事项：
-                - 刚开始可以问"请简单介绍一下你的工作经历"或"请介绍一下你的主要经验"
-                - 然后切入%s岗位的核心技能问题
-                - 问题要贴合实际业务场景
-                - 技术岗深入问技术实现，非技术岗深入问工作方法和成果
-                """.formatted(jobRole, diffText, diffText, skillFocus, jobRole)
-                + buildJobTargetUserPrompt(jobTargetContext);
+        return prompt + buildOpeningContextPrompt(jobTargetContext);
     }
 
-/**
-     * 解析面试业务运行时 AI 配置。
-     *
-     * 作用：
-     * 1. 优先读取管理端"当前激活"的 interview 配置，确保切换后立即生效；
-     * 2. 当数据库配置缺失字段时，回退到 application.yml/环境变量，保证服务可用。
-     *
-     * 【运行时配置读取优先级】（确保 403 问题不再复现）：
-     * 1. 优先读取数据库激活配置的 apiKey（可能是 SiliconFlow 等新 provider）
-     * 2. 兜底读取本地环境变量的 apiKey
-     * 3. 最后兜底到本地配置 model（避免空值导致请求失败）
-     *
-     * 【关键修复】对 runtimeApiKey 补充兜底处理：
-     * - 旧逻辑：仅当数据库返回非空时才覆盖，不为空时保持 null，导致后续请求带空 key
-     * - 新逻辑：始终确保 runtimeApiKey 不为 null，防止 403 Forbidden
-     */
-    /**
-     * 构建岗位定向问答提示补充。
-     * 该段提示会追加到系统 Prompt 中，让模型在提问时真正关联 JD 与简历经历。
-     */
-    private String buildJobTargetInstruction(InterviewJobTargetContext jobTargetContext) {
-        if (jobTargetContext == null || !Boolean.TRUE.equals(jobTargetContext.getJobTargeted())) {
+    private String buildJobTargetInstruction(InterviewJobTargetContext jobTargetContext, String jobRole) {
+        boolean hasResume = hasResumeContext(jobTargetContext);
+        boolean hasJd = jobTargetContext != null
+                && jobTargetContext.getJdText() != null
+                && !jobTargetContext.getJdText().isBlank();
+        boolean jobTargeted = jobTargetContext != null && Boolean.TRUE.equals(jobTargetContext.getJobTargeted());
+
+        StringBuilder instruction = new StringBuilder("""
+
+                【面试执行规则】
+                0.【最高优先级】你的输出只能是面试官说的话。绝对禁止输出括号内的思考过程（如"（发现矛盾...）""（根据原则...）""（注意到...）"）、内部推理、规则引用或任何解释你行为逻辑的文字。禁止直接引用简历原文（如"林映⽂-前端开发⼯程师求职简历姓名：..."），简历只是参考，提问时用自己的话自然提及。违反等于严重错误。
+                1. 你现在就是正在面试候选人的真实面试官，不要解释你的规则来源。
+                2. 每一轮只输出一个主问题，可带一句很短的承接说明，不要列清单。
+                3. 不要输出"等候选人回答后""继续深入""追问：""[具体模块]"之类脚本式文本或占位符。
+                4. 如果系统已提供简历或 JD，代表你已经看过资料，绝对不要说看不到简历、无法查看简历或没有简历内容。
+                5.【必须遵守】每次提问前必须回顾对话历史中候选人已提供的信息。候选人已明确回答过的内容不得重复提问。你的每一个问题都应建立在候选人已说过的内容之上。
+                """);
+
+        if (hasResume) {
+            instruction.append("""
+                    6. 已提供候选人简历，但简历方向可能与当前面试岗位不一致。如果简历明显是其他岗位（如前端简历面试后端岗位），必须在开场时简要提及，并将提问重心转到当前岗位要求上。不要问与当前岗位无关的简历技能。
+                    7.【阶段控制】严格遵守阶段策略：前 5 轮只做技能热身。简历与岗位匹配时，验证简历中与岗位相关的技能；简历与岗位不匹配时，围绕当前岗位要求的核心技术提问。第 6 轮起才进入项目或实习深挖。绝对不要在前 5 轮内问项目细节。
+                    8. 技能验证方式：从简历中选取与当前岗位相关的技能（或直接从岗位要求出发），提出具体的技术问题，确认真实掌握程度。简历中与岗位无关的技能（如前端简历中的CSS/Vue3在面试后端时不问）不作为验证重点。
+                    """);
+        } else {
+            instruction.append("""
+                    6. 当前没有可用简历，只能基于岗位要求和候选人当前回答追问。
+                    7. 严禁编造任何不存在的简历项目、公司经历或技术栈。
+                    8.【必须遵守】前 5 轮围绕岗位核心技术提问，第 6 轮起必须自然过渡到询问项目/实习经历（如"你有做过什么项目或者实习经历吗？可以详细说说"）。如果候选人有项目或实习则重点深挖；如果没有，继续围绕岗位能力提问（技术深度、团队协作、抗压能力、学习能力等），后续轮次可再次询问是否有相关实践（课程设计、个人练习、比赛等也算）。
+                    """);
+        }
+
+        if (jobTargeted && hasJd) {
+            instruction.append("""
+                    9. 当前是岗位定向模拟，必须以"简历 + JD"为共同依据，更偏向验证目标岗位能力。
+                    10. 如果简历与 JD 不完全匹配，先从简历里的真实经历切入，再映射到目标岗位的可迁移能力与能力缺口。
+                    11. 要围绕 JD 的职责、技能要求和能力模型提问，但不能因此忽略已有简历经历。
+                    """);
+        } else if (jobTargeted) {
+            instruction.append("""
+                    9. 当前岗位定向上下文里没有有效 JD，请回退为普通岗位面试逻辑，但仍遵守简历使用规则。
+                    """);
+        } else if (hasResume) {
+            instruction.append("""
+                    9. 当前是普通模拟面试，但你已拿到候选人简历，应更多围绕简历内容进行岗位相关追问。
+                    """);
+        } else {
+            instruction.append("""
+                    9. 当前既没有 JD 也没有简历，请按岗位核心能力进行正常面试。
+                    """);
+        }
+
+        String contextSummary = buildJobTargetContextSummary(jobTargetContext);
+        if (!contextSummary.isBlank()) {
+            instruction.append("\n【可用上下文】\n").append(contextSummary);
+        }
+        instruction.append("\n你正在面试的岗位是：").append(jobRole != null ? jobRole : "软件工程师");
+        return instruction.toString();
+    }
+
+    private String buildOpeningContextPrompt(InterviewJobTargetContext jobTargetContext) {
+        if (jobTargetContext == null) {
             return "";
         }
-        return "\n\n【岗位定向要求】\n"
-                + buildJobTargetContextSummary(jobTargetContext)
-                + "\n请优先围绕目标岗位真实要求提问，并把简历经历与岗位要求关联起来，避免泛泛而谈。";
-    }
-
-    /**
-     * 构建岗位定向开场提示补充。
-     */
-    private String buildJobTargetUserPrompt(InterviewJobTargetContext jobTargetContext) {
-        if (jobTargetContext == null || !Boolean.TRUE.equals(jobTargetContext.getJobTargeted())) {
+        String summary = buildJobTargetContextSummary(jobTargetContext);
+        if (summary.isBlank()) {
             return "";
         }
-        return "\n\n请优先围绕以下岗位定向上下文开始提问：\n" + buildJobTargetContextSummary(jobTargetContext);
+        String title = Boolean.TRUE.equals(jobTargetContext.getJobTargeted())
+                ? "请优先使用以下岗位定向上下文开始提问："
+                : "请使用以下简历上下文开始提问：";
+        return "\n\n" + title + "\n" + summary;
     }
 
-    /**
-     * 构建岗位定向评价提示补充。
-     */
     private String buildJobTargetEvaluationPrompt(InterviewJobTargetContext jobTargetContext) {
         if (jobTargetContext == null || !Boolean.TRUE.equals(jobTargetContext.getJobTargeted())) {
             return "";
@@ -1433,17 +1323,25 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 + "\n请在评价中明确体现岗位匹配表现、回答优势、暴露短板和针对目标岗位的改进建议。";
     }
 
-    /**
-     * 汇总岗位定向上下文，供提问与评价两条链路复用。
-     */
     private String buildJobTargetContextSummary(InterviewJobTargetContext jobTargetContext) {
+        if (jobTargetContext == null) {
+            return "";
+        }
         StringBuilder sb = new StringBuilder();
         if (jobTargetContext.getJdText() != null && !jobTargetContext.getJdText().isBlank()) {
-            sb.append("- 目标岗位 JD：").append(trimPromptText(jobTargetContext.getJdText(), 800)).append("\n");
+            // JD保留3000字符
+            sb.append("- 目标岗位 JD：").append(trimPromptText(jobTargetContext.getJdText(), 3000)).append("\n");
         }
-        if (jobTargetContext.getResumeText() != null && !jobTargetContext.getResumeText().isBlank()) {
-            sb.append("- 简历核心经历：").append(trimPromptText(jobTargetContext.getResumeText(), 800)).append("\n");
+
+        String resumeText = resolveResumeTextForPrompt(jobTargetContext);
+        if (resumeText != null && !resumeText.isBlank()) {
+            String structuredResume = AiInputCompressor.toStructuredFormat(
+                    resumeText,
+                    AiInputCompressor.ContentType.RESUME
+            );
+            sb.append("- 简历结构化摘要：").append(trimPromptText(structuredResume, 4500)).append("\n");
         }
+
         if (jobTargetContext.getMatchedKeywords() != null && !jobTargetContext.getMatchedKeywords().isEmpty()) {
             sb.append("- 已匹配关键词：").append(String.join("、", jobTargetContext.getMatchedKeywords())).append("\n");
         }
@@ -1457,8 +1355,45 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     }
 
     /**
-     * 截断过长文本，避免岗位 JD 或简历原文过长影响提示词稳定性。
+     * 解析当前上下文里的简历文本。
+     * 说明：部分旧会话只存了 resumeTaskId，没有把 resumeText 一并带入，因此这里要做一次数据库兜底。
      */
+    private String resolveResumeTextForPrompt(InterviewJobTargetContext jobTargetContext) {
+        if (jobTargetContext == null) {
+            return "";
+        }
+        String resumeText = jobTargetContext.getResumeText();
+        if ((resumeText == null || resumeText.isBlank()) && jobTargetContext.getResumeTaskId() != null) {
+            try {
+                ResumeDiagnosisTask resumeTask = resumeDiagnosisTaskMapper.selectById(
+                        Long.parseLong(jobTargetContext.getResumeTaskId()));
+                if (resumeTask != null && resumeTask.getResumeText() != null
+                        && !resumeTask.getResumeText().isBlank()) {
+                    resumeText = resumeTask.getResumeText();
+                    log.info("从数据库加载简历文本，resumeTaskId: {}", jobTargetContext.getResumeTaskId());
+                }
+            } catch (Exception e) {
+                log.warn("加载简历文本失败，resumeTaskId: {}", jobTargetContext.getResumeTaskId(), e);
+            }
+        }
+        if (resumeText == null || resumeText.isBlank()) {
+            return "";
+        }
+        String cleaned = resumeText.replaceAll("[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]", "")
+                .replace("\u0001", " ")
+                .trim();
+        jobTargetContext.setResumeText(cleaned);
+        return cleaned;
+    }
+
+    /**
+     * 判断本轮是否存在可用简历上下文。
+     * 这里必须走统一兜底逻辑，避免 resumeTaskId 已存在但 prompt 仍误判成"无简历模式"。
+     */
+    private boolean hasResumeContext(InterviewJobTargetContext jobTargetContext) {
+        return !resolveResumeTextForPrompt(jobTargetContext).isBlank();
+    }
+
     private String trimPromptText(String text, int maxLength) {
         if (text == null) {
             return "";
@@ -1470,8 +1405,63 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         return normalized.substring(0, maxLength) + "...";
     }
 
+    /**
+     * 根据配置决定是否压缩面试历史对话
+     *
+     * @param history 原始历史对话列表
+     * @param tag     日志标签（用于区分不同 AI 提供商）
+     * @return 压缩后的对话列表（若压缩未启用则返回原文）
+     *
+     * 【逻辑说明】
+     * 1. 若配置 compressionEnabled=false，直接返回原文（用于回滚或调试）
+     * 2. 统计当前用户轮次，调用 InterviewContextCompressor 进行分层压缩
+     * 3. 若发生压缩，记录压缩前后的 token 数差异，便于监控效果
+     */
+    private List<ChatMessageItem> compressHistoryIfEnabled(List<ChatMessageItem> history, String tag) {
+        if (!tokenLimitConfig.isCompressionEnabled() || history == null || history.isEmpty()) {
+            return history;
+        }
+
+        // 直接调用压缩，由compressHistory内部判断是否需要压缩
+        List<ChatMessageItem> compressed = contextCompressor.compressHistory(history, history.size());
+
+        // 若发生压缩（返回对象与原文不同），记录压缩效果
+        if (compressed != history) {
+            int originalTokens = estimateHistoryTokens(history);
+            int compressedTokens = estimateHistoryTokens(compressed);
+            log.info("[{}] 面试历史对话已压缩: 原始{}条/{}token -> 压缩后{}条/{}token",
+                    tag, history.size(), originalTokens, compressed.size(), compressedTokens);
+        } else {
+            // 未压缩时，输出调试信息
+            int totalTokens = estimateHistoryTokens(history);
+            log.debug("[{}] 面试历史对话未压缩: 当前{}条/{}token, 阈值{}条, maxTokens={}",
+                    tag, history.size(), totalTokens,
+                    tokenLimitConfig.getHistorySummaryThreshold(),
+                    tokenLimitConfig.getInterviewRoundMax());
+        }
+
+        return compressed;
+    }
+
+    /**
+     * 估算历史对话的 token 数量
+     *
+     * @param history 历史对话列表
+     * @return 预估总 token 数（角色 + 内容）
+     */
+    private int estimateHistoryTokens(List<ChatMessageItem> history) {
+        if (history == null || history.isEmpty()) {
+            return 0;
+        }
+        int total = 0;
+        for (ChatMessageItem item : history) {
+            total += TokenEstimator.estimateTokens(item.role());
+            total += TokenEstimator.estimateTokens(item.content());
+        }
+        return total;
+    }
+
     private RuntimeAiConfig resolveRuntimeConfig() {
-        // 先准备本地兜底配置，避免数据库不可用时影响核心链路。
         String fallbackProvider = normalizeConfigValue(provider);
         if (fallbackProvider == null) {
             fallbackProvider = "doubao";
@@ -1487,7 +1477,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         String runtimeApiKey = fallbackApiKey;
         String source = "application";
 
-        // 尝试读取 interview 业务的激活配置；读取失败时继续使用本地兜底。
         SysAiEngineConfig activeConfig = null;
         try {
             activeConfig = sysAiEngineConfigService.getActiveByBusinessType(AiEngineConstants.BUSINESS_TYPE_INTERVIEW);
@@ -1496,7 +1485,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         }
 
         if (activeConfig != null) {
-            // 使用管理端激活配置覆盖运行时参数，确保切换配置后立即生效。
             String dbProvider = normalizeConfigValue(activeConfig.getProviderType());
             if (dbProvider != null) {
                 runtimeProvider = dbProvider.toLowerCase(Locale.ROOT);
@@ -1508,40 +1496,31 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             String dbBaseUrl = normalizeConfigValue(activeConfig.getBaseUrl());
             runtimeBaseUrl = resolveBaseUrl(runtimeProvider, dbBaseUrl != null ? dbBaseUrl : configuredBaseUrl);
             String dbApiKey = normalizeConfigValue(activeConfig.getApiKey());
-            // 【关键修复】只要数据库返回的 apiKey 非空就使用，否则继续使用本地兜底
             if (dbApiKey != null) {
                 runtimeApiKey = dbApiKey;
-                // 【调试】打印数据库读取到的 apiKey 状态
                 log.info("[DEBUG] 从数据库读取到 apiKey, 长度: {}, 前5位: {}",
                         dbApiKey.length(), dbApiKey.substring(0, Math.min(5, dbApiKey.length())));
             } else {
-                // 数据库 apiKey 为空时，保持使用本地兜底，不要覆盖为 null
                 log.warn("数据库 apiKey 为空，使用本地兜底");
             }
             source = "db-active:" + activeConfig.getEngineCode();
         }
 
-        // 【关键修复】对关键字段做最后兜底，确保不传空值导致 403
-        // 1. model 最后兜底
         if (runtimeModel == null) {
             runtimeModel = fallbackModel;
         }
-        // 2. baseUrl 最后兜底
         if (runtimeBaseUrl == null) {
             runtimeBaseUrl = fallbackBaseUrl;
         }
-        // 3. apiKey 最后兜底（最重要，防止 403）
         if (runtimeApiKey == null || runtimeApiKey.isBlank()) {
             log.warn("[INTERVIEW] runtimeApiKey 仍为空，尝试从环境变量兜底获取");
             runtimeApiKey = getApiKey();
         }
-        // 4. 如果所有兜底都失败，当前 provider 不可用（抛出明确错误而非静默失败）
         if (runtimeApiKey == null || runtimeApiKey.isBlank()) {
             throw new IllegalStateException("面试 AI 密钥不可用：数据库和管理端均无有效配置。"
                     + "请在管理端激活 AI 引擎配置，或设置环境变量 DOUBAO_API_KEY");
         }
 
-        // 【调试】打印最终运行时配置状态（用于排查 403 问题）
         log.info("[DEBUG] runtimeApiKey 最终状态: 长度={}, 前5位={}",
                 runtimeApiKey.length(), runtimeApiKey.substring(0, Math.min(5, runtimeApiKey.length())));
         log.info("[DEBUG] Authorization 头将会是: Bearer {}****",
@@ -1557,12 +1536,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         );
     }
 
-    /**
-     * 按 provider 获取请求 endpoint。
-     *
-     * 说明：
-     * 当前已接入供应商都兼容 /chat/completions，保留分支是为了后续扩展差异化路径。
-     */
     private String getEndpointByProvider(String providerType) {
         return switch (providerType) {
             case "ernie" -> "/chat/completions";
@@ -1570,12 +1543,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         };
     }
 
-    /**
-     * 统一归一化配置字符串。
-     *
-     * 作用：
-     * 把 null、空串、纯空白统一处理为 null，降低配置分支判断复杂度。
-     */
     private String normalizeConfigValue(String value) {
         if (value == null) {
             return null;
@@ -1584,19 +1551,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
-    /**
-     * 非流式请求体
-     *
-     * 【thinking 参数说明】
-     * - 支持 thinking 参数的模型可通过 thinking.type 控制思考模式
-     * - type = "enabled": 开启深度思考
-     * - type = "disabled": 关闭深度思考
-     * - 该字段是否传递由配置和模型支持情况共同决定
-     */
-    /**
-     * 面试 AI 运行时配置快照。
-     * 用于把数据库激活配置与本地兜底配置统一封装后下发到单次请求。
-     */
     private record RuntimeAiConfig(
             String provider,
             String model,
@@ -1613,19 +1567,9 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         public Thinking thinking;
 
         public RequestBody() {
-            // thinking 字段由 buildThinkingConfig 方法动态设置，此处不初始化
         }
     }
 
-    /**
-     * 流式请求体（包含 stream 标志和 thinking 控制）
-     *
-     * 【thinking 参数说明】
-     * - 支持 thinking 参数的模型可通过 thinking.type 控制思考模式
-     * - type = "enabled": 开启深度思考
-     * - type = "disabled": 关闭深度思考
-     * - 该字段是否传递由配置和模型支持情况共同决定
-     */
     private static class StreamRequestBody {
         public String model;
         public List<Message> messages;
@@ -1636,14 +1580,9 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             this.model = model;
             this.messages = messages;
             this.stream = stream;
-            // thinking 字段由 buildThinkingConfig 方法动态设置，此处不初始化
         }
     }
 
-    /**
-     * thinking 配置对象
-     * 用于控制模型是否开启深度思考模式
-     */
     private static class Thinking {
         public String type;
 
@@ -1652,9 +1591,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         }
     }
 
-    /**
-     * 单个消息对象
-     */
     private static class Message {
         public String role;
         public String content;
@@ -1665,18 +1601,86 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         }
     }
 
-    /**
-     * 非流式响应体
-     */
     private static class ResponseBody {
         public List<Choice> choices;
 
-        public static class Choice {
+        private static class Choice {
             public MessageContent message;
 
-            public static class MessageContent {
+            private static class MessageContent {
                 public String content;
             }
+        }
+    }
+
+    /**
+     * 根据 sessionId 获取最近的简历信息，用于普通面试携带简历上下文
+     * 
+     * @param sessionId 面试会话ID
+     * @return InterviewJobTargetContext 包含简历文本等信息，如果未找到则返回null
+     */
+    private InterviewJobTargetContext getLatestResumeContext(String sessionId) {
+        try {
+            // 1. 先尝试通过 sessionId 查 mock_interview_job_target_record（岗位定向面试）
+            MockInterviewJobTargetRecord latestRecord = mockInterviewJobTargetRecordMapper.selectOne(
+                    new LambdaQueryWrapper<MockInterviewJobTargetRecord>()
+                            .eq(MockInterviewJobTargetRecord::getSessionId, sessionId)
+                            .orderByDesc(MockInterviewJobTargetRecord::getCreateTime)
+                            .last("limit 1")
+            );
+            
+            if (latestRecord != null && latestRecord.getResumeTaskId() != null) {
+                // 根据 jdText 是否存在判断是否为岗位定向面试
+                boolean isJobTargeted = latestRecord.getJdText() != null && !latestRecord.getJdText().isBlank();
+                ResumeDiagnosisTask resumeTask = resumeDiagnosisTaskMapper.selectById(latestRecord.getResumeTaskId());
+                if (resumeTask != null && resumeTask.getResumeText() != null && !resumeTask.getResumeText().isBlank()) {
+                    log.debug("通过岗位定向记录找到简历，sessionId: {}, resumeTaskId: {}, jobTargeted: {}",
+                            sessionId, resumeTask.getId(), isJobTargeted);
+                    return InterviewJobTargetContext.builder()
+                            .resumeTaskId(String.valueOf(resumeTask.getId()))
+                            .resumeText(resumeTask.getResumeText())
+                            .jobTargeted(isJobTargeted)
+                            .build();
+                }
+            }
+            
+            // 2. Fallback: 通过 sessionId 查 interview_session 获取 userId，然后查最近的 resume_diagnosis_task
+            InterviewSession session = interviewSessionMapper.selectOne(
+                    new LambdaQueryWrapper<InterviewSession>()
+                            .eq(InterviewSession::getSessionId, sessionId)
+                            .last("limit 1")
+            );
+            
+            if (session == null || session.getUserId() == null) {
+                log.debug("未找到面试会话或userId为空，sessionId: {}", sessionId);
+                return null;
+            }
+            
+            // 3. 通过 userId 查最近的 resume_diagnosis_task
+            ResumeDiagnosisTask resumeTask = resumeDiagnosisTaskMapper.selectOne(
+                    new LambdaQueryWrapper<ResumeDiagnosisTask>()
+                            .eq(ResumeDiagnosisTask::getUserId, session.getUserId())
+                            .orderByDesc(ResumeDiagnosisTask::getCreateTime)
+                            .last("limit 1")
+            );
+            
+            if (resumeTask == null || resumeTask.getResumeText() == null || resumeTask.getResumeText().isBlank()) {
+                log.debug("未找到简历任务或简历文本为空，userId: {}", session.getUserId());
+                return null;
+            }
+            
+            log.info("通过userId找到最近简历，sessionId: {}, userId: {}, resumeTaskId: {}", 
+                    sessionId, session.getUserId(), resumeTask.getId());
+            
+            // 构造InterviewJobTargetContext（普通面试只携带简历信息，不携带JD）
+            return InterviewJobTargetContext.builder()
+                    .resumeTaskId(String.valueOf(resumeTask.getId()))
+                    .resumeText(resumeTask.getResumeText())
+                    .jobTargeted(Boolean.FALSE)  // 普通面试不启用岗位定向
+                    .build();
+        } catch (Exception e) {
+            log.warn("获取最近简历信息失败，sessionId: {}", sessionId, e);
+            return null;
         }
     }
 }

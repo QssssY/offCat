@@ -18,6 +18,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -39,6 +40,19 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
     private final PdfTextExtractor pdfTextExtractor;
     private final ResumeJobMatchService resumeJobMatchService;
     private final ResumePolishService resumePolishService;
+
+    /**
+     * 上传目录配置
+     * 优先使用配置值，默认使用项目根目录下的uploads/resumes目录
+     */
+    @Value("${app.upload.resume-dir:}")
+    private String configuredUploadDir;
+
+    /**
+     * 最大文件大小（字节），默认10MB
+     */
+    @Value("${app.upload.max-file-size:10485760}")
+    private long maxFileSize;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -86,13 +100,28 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
             throw new BusinessException("仅支持 PDF 格式文件");
         }
 
+        // 校验文件大小（防止大文件上传耗尽磁盘空间）
+        if (file.getSize() > maxFileSize) {
+            throw new BusinessException("文件大小不能超过" + (maxFileSize / 1024 / 1024) + "MB");
+        }
+
         // 2. 保存文件到存储（这里使用本地存储，生产环境建议改为OSS）
         String fileName = System.currentTimeMillis() + "_" + originalFilename;
         String fileUrl;
 
         try {
-            // 获取项目根目录下的 uploads 目录
-            String uploadDir = System.getProperty("user.dir") + "/uploads/resumes/";
+            // 使用配置的上传目录，如果未配置则使用默认路径
+            String uploadDir;
+            if (configuredUploadDir != null && !configuredUploadDir.isBlank()) {
+                uploadDir = configuredUploadDir;
+            } else {
+                // 默认使用项目根目录下的 uploads 目录
+                uploadDir = System.getProperty("user.dir") + "/uploads/resumes/";
+            }
+            // 确保目录路径以分隔符结尾
+            if (!uploadDir.endsWith("/") && !uploadDir.endsWith("\\")) {
+                uploadDir = uploadDir + "/";
+            }
             java.io.File dir = new java.io.File(uploadDir);
             if (!dir.exists()) {
                 dir.mkdirs();
@@ -209,6 +238,20 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void updateTaskResumeText(Long taskId, String resumeText) {
+        ResumeDiagnosisTask task = getById(taskId);
+        if (task == null) {
+            log.warn("Task not found when updating resume text, taskId: {}", taskId);
+            return;
+        }
+
+        task.setResumeText(resumeText);
+        updateById(task);
+        log.info("Task resume text updated, taskId: {}", taskId);
+    }
+
+    @Override
     public String getStatusDescription(Integer status) {
         return switch (status) {
             case ResumeDiagnosisConstants.STATUS_PENDING -> "排队中";
@@ -227,10 +270,20 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
      */
     private ResumeDiagnosisTaskResponse buildTaskResponse(ResumeDiagnosisTask task) {
         String resumeText = null;
-        if (task.getFileUrl() != null && !task.getFileUrl().isBlank()) {
+        // 优先使用已缓存的简历文本，避免重复解析PDF
+        if (task.getResumeText() != null && !task.getResumeText().isBlank()) {
+            resumeText = task.getResumeText();
+            log.debug("Using cached resume text for taskId: {}", task.getId());
+        } else if (task.getFileUrl() != null && !task.getFileUrl().isBlank()) {
             try {
-                // 为 JD 对比功能提供简历原文，避免改动现有上传与诊断主链路。
+                // 缓存中没有，则解析PDF并缓存
                 resumeText = pdfTextExtractor.extractText(task.getFileUrl());
+                // 异步缓存到数据库（避免影响响应速度）
+                try {
+                    updateTaskResumeText(task.getId(), resumeText);
+                } catch (Exception e) {
+                    log.warn("Failed to cache resume text for taskId: {}", task.getId(), e);
+                }
             } catch (Exception e) {
                 log.warn("Extract resume text failed when building task response, taskId: {}", task.getId(), e);
             }

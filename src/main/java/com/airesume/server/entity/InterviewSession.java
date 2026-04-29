@@ -72,4 +72,10 @@ public class InterviewSession extends BaseEntity {
      */
     @TableField("evaluation_report")
     private String evaluationReport;
+
+    /**
+     * 开场白是否已生成：0-未生成，1-已生成
+     */
+    @TableField("opening_generated")
+    private Integer openingGenerated;
 }

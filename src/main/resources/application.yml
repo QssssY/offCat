@@ -17,7 +17,8 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/ai_resume?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
-    password: 123456
+    # 数据库密码：优先使用环境变量MYSQL_PASSWORD，默认值为123456（仅开发环境）
+    password: ${MYSQL_PASSWORD:123456}
 
   # ------------------------------------------
   # Redis 配置 - 缓存和会话管理
@@ -26,7 +27,8 @@ spring:
     redis:
       host: localhost
       port: 6379
-      password: 123456
+      # Redis密码：优先使用环境变量REDIS_PASSWORD，默认值为123456（仅开发环境）
+      password: ${REDIS_PASSWORD:123456}
       database: 0
       timeout: 3000ms
       lettuce:
@@ -44,7 +46,8 @@ spring:
     host: localhost
     port: 5672
     username: guest
-    password: guest
+    # RabbitMQ密码：优先使用环境变量RABBITMQ_PASSWORD，默认值为guest（仅开发环境）
+    password: ${RABBITMQ_PASSWORD:guest}
     virtual-host: /
 
 # ------------------------------------------
@@ -153,3 +156,27 @@ app:
     # - false（默认）：只打印关键日志（版本指纹、首个content到达、最终统计报告、异常）
     # - true：打印逐行追踪日志（reasoning_content、◆发射、行汇总等），用于排查问题时开启
     stream-debug-log: false
+
+  # ------------------------------------------
+  # AI Token 限制与压缩配置
+  # 用途：控制AI输入token消耗，降低API成本
+  # ------------------------------------------
+  token-limit:
+    resume-diagnosis-max: 6000
+    polish-resume-max: 6000
+    # 面试单轮对话最大输入token（设为1200，确保压缩能触发）
+    interview-round-max: 1200
+    # 面试评价报告最大输入token
+    interview-evaluation-max: 8000
+    # 上下文窗口使用率阈值（超过则触发截断）
+    context-window-ratio: 0.8
+    # 默认模型最大上下文token
+    default-max-context-tokens: 8192
+    # 是否启用输入压缩
+    compression-enabled: true
+    # 是否启用token限制保护
+    token-limit-enabled: true
+    # 历史对话摘要阈值（超过该轮次触发摘要）
+    history-summary-threshold: 6
+    # 保留最近N轮完整对话不被压缩
+    recent-messages-to-keep: 3

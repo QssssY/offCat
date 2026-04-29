@@ -54,7 +54,7 @@ public class InterviewSessionResponse {
     private String difficultyDesc;
 
     /**
-     * 面试模式：normal-普通面试，stress-压力面试
+     * 面试模式：normal-普通面试，stress-压力面试，job_targeted-岗位定向模拟
      */
     private String interviewMode;
 
@@ -97,6 +97,11 @@ public class InterviewSessionResponse {
      * 聊天记录列表
      */
     private List<ChatMessageResponse> chatLogs;
+
+    /**
+     * 开场白是否正在生成中（前端据此显示加载状态）
+     */
+    private Boolean openingPending;
 
     /**
      * 创建时间

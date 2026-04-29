@@ -17,6 +17,14 @@ public interface UserQuotaService extends IService<UserQuota> {
 
     void deductResumeQuota(Long userId);
 
+    /**
+     * 退还简历诊断配额
+     * 用于任务处理失败时回退已扣除的配额
+     *
+     * @param userId 用户ID
+     */
+    void refundResumeQuota(Long userId);
+
     void refreshDailyQuotaIfNeeded(Long userId, UserQuota userQuota);
 
     int getRemainingResumeQuota(Long userId);

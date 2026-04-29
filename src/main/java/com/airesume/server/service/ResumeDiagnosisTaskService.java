@@ -92,4 +92,13 @@ public interface ResumeDiagnosisTaskService extends IService<ResumeDiagnosisTask
      * @return 状态描述
      */
     String getStatusDescription(Integer status);
+
+    /**
+     * 更新任务的简历文本内容
+     * 用于缓存PDF解析结果，避免重复解析
+     *
+     * @param taskId 任务ID
+     * @param resumeText 提取的简历文本
+     */
+    void updateTaskResumeText(Long taskId, String resumeText);
 }

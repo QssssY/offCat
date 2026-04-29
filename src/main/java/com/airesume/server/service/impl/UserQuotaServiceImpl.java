@@ -113,6 +113,20 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    public void refundResumeQuota(Long userId) {
+        UserQuota userQuota = ensureUserQuota(userId);
+        // 退还总使用次数
+        userQuota.setTotalResumeUsed(Math.max(0, safeValue(userQuota.getTotalResumeUsed()) - 1));
+        // 退还每日使用次数
+        userQuota.setDailyResumeUsed(Math.max(0, safeValue(userQuota.getDailyResumeUsed()) - 1));
+        // 恢复可用配额
+        userQuota.setResumeQuota(safeValue(userQuota.getResumeQuota()) + 1);
+        updateById(userQuota);
+        log.info("Refunded resume quota for userId: {}", userId);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public void deductResumeQuota(Long userId) {
         UserQuota userQuota = ensureUserQuota(userId);
         refreshDailyQuotaIfNeeded(userId, userQuota);

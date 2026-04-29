@@ -121,9 +121,18 @@ public class InterviewSessionServiceImpl extends ServiceImpl<InterviewSessionMap
             return;
         }
 
+        // 获取对话记录并检查轮次
+        List<InterviewChatLog> chatLogs = getChatLogsBySessionId(sessionId);
+        long userMessageCount = chatLogs.stream()
+                .filter(log -> InterviewConstants.ROLE_USER.equals(log.getMessageRole()))
+                .count();
+        if (userMessageCount < 20) {
+            throw new BusinessException("面试至少需要进行20轮对话才能结束，当前轮次：" + userMessageCount);
+        }
+
         session.setStatus(InterviewConstants.STATUS_ENDED);
 
-        List<InterviewChatLog> chatLogs = getChatLogsBySessionId(sessionId);
+        // 使用已获取的chatLogs转换为history，避免重复查询
         List<InterviewAiService.ChatMessageItem> history = chatLogs.stream()
                 .map(log -> new InterviewAiService.ChatMessageItem(log.getMessageRole(), log.getContent()))
                 .collect(Collectors.toList());

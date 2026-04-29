@@ -42,7 +42,7 @@ public class InterviewHistoryResponse {
     private String difficultyDesc;
 
     /**
-     * 面试模式（normal=普通面试，pressure=压力面试）
+     * 面试模式（normal=普通面试，stress=压力面试，job_targeted=岗位定向模拟）
      */
     private String interviewMode;
 

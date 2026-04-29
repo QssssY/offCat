@@ -114,4 +114,15 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
             @Param("targetStatus") Integer targetStatus,
             @Param("updateTime") LocalDateTime updateTime
     );
+
+    /**
+     * 更新开场白生成状态。
+     */
+    @Modifying
+    @Query("UPDATE InterviewSession s SET s.openingGenerated = :openingGenerated, s.updateTime = :updateTime WHERE s.sessionId = :sessionId")
+    int updateOpeningGenerated(
+            @Param("sessionId") String sessionId,
+            @Param("openingGenerated") Integer openingGenerated,
+            @Param("updateTime") LocalDateTime updateTime
+    );
 }

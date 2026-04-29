@@ -48,4 +48,11 @@ public class ResumeDiagnosisTask extends BaseEntity {
      */
     @TableField("error_msg")
     private String errorMsg;
+
+    /**
+     * 简历提取的文本内容
+     * 用于缓存PDF解析结果，避免每次查询都重新解析
+     */
+    @TableField("resume_text")
+    private String resumeText;
 }

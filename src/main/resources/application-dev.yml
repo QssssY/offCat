@@ -141,6 +141,22 @@ app:
     thinking-mode: none
 
   # ------------------------------------------
+  # AI Token 限制与压缩配置（开发环境）
+  # ------------------------------------------
+  token-limit:
+    resume-diagnosis-max: 6000
+    polish-resume-max: 6000
+    # 面试单轮对话最大输入token（设为1200，确保压缩能触发）
+    interview-round-max: 1200
+    interview-evaluation-max: 8000
+    context-window-ratio: 0.8
+    default-max-context-tokens: 8192
+    compression-enabled: true
+    token-limit-enabled: true
+    history-summary-threshold: 6
+    recent-messages-to-keep: 3
+
+  # ------------------------------------------
   # 面试 AI 配置（开发环境）
   # ------------------------------------------
   interview:

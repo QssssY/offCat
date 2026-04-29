@@ -1,5 +1,6 @@
 package com.airesume.server.service.impl;
 
+import com.airesume.server.common.constants.ResumeDiagnosisConstants;
 import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.dto.interview.CreateSessionRequest;
 import com.airesume.server.dto.interview.InterviewEvaluationReport;
@@ -46,11 +47,16 @@ public class MockInterviewJobTargetServiceImpl
     @Override
     public InterviewJobTargetContext resolveContext(Long userId, CreateSessionRequest request) {
         InterviewJobTargetContext fallbackContext = InterviewJobTargetContext.builder().jobTargeted(false).build();
+        Long resumeTaskId = parseOptionalLong(request.getResumeTaskId(), "简历任务 ID");
         if (!Boolean.TRUE.equals(request.getJobTargeted())) {
-            return fallbackContext;
+            InterviewJobTargetContext generalContext = buildGeneralResumeContext(userId, resumeTaskId);
+            log.info("普通模拟面试上下文解析完成, userId: {}, hasResume: {}, resumeTaskId: {}",
+                    userId,
+                    generalContext != null && generalContext.getResumeText() != null && !generalContext.getResumeText().isBlank(),
+                    generalContext == null ? null : generalContext.getResumeTaskId());
+            return generalContext == null ? fallbackContext : generalContext;
         }
 
-        Long resumeTaskId = parseOptionalLong(request.getResumeTaskId(), "简历任务 ID");
         Long jobMatchRecordId = parseOptionalLong(request.getJobMatchRecordId(), "岗位对比记录 ID");
         String jdText = normalizeText(request.getJdText());
 
@@ -68,18 +74,33 @@ public class MockInterviewJobTargetServiceImpl
 
         // 没有可用 JD 时，自动回落到普通模拟面试，不强制报错。
         if (jdText.isBlank()) {
-            return fallbackContext;
+            InterviewJobTargetContext generalContext = buildGeneralResumeContext(
+                    userId,
+                    resolveResumeTaskIdValue(resumeTaskId, selectedRecord)
+            );
+            log.info("岗位定向缺少 JD，自动回退普通模拟面试, userId: {}, resumeTaskId: {}",
+                    userId,
+                    generalContext == null ? null : generalContext.getResumeTaskId());
+            return generalContext == null ? fallbackContext : generalContext;
         }
 
-        String resumeText = loadResumeText(userId, resumeTaskId);
+        Long resolvedResumeTaskId = resolveResumeTaskIdValue(resumeTaskId, selectedRecord);
+        String resumeText = loadResumeText(userId, resolvedResumeTaskId);
         if (resumeText.isBlank() && selectedRecord != null) {
             resumeText = normalizeText(selectedRecord.getResumeText());
+        }
+        if (resumeText.isBlank()) {
+            InterviewJobTargetContext latestResumeContext = buildGeneralResumeContext(userId, null);
+            if (latestResumeContext != null) {
+                resolvedResumeTaskId = parseOptionalLong(latestResumeContext.getResumeTaskId(), "简历任务 ID");
+                resumeText = normalizeText(latestResumeContext.getResumeText());
+            }
         }
 
         InterviewJobTargetContext context = InterviewJobTargetContext.builder()
                 .jobTargeted(true)
                 .sourceType(resolveSourceType(jdText, request, selectedRecord))
-                .resumeTaskId(resolveResumeTaskId(resumeTaskId, selectedRecord))
+                .resumeTaskId(resolvedResumeTaskId == null ? null : String.valueOf(resolvedResumeTaskId))
                 .jdText(jdText)
                 .jobMatchRecordId(selectedRecord == null ? null : String.valueOf(selectedRecord.getId()))
                 .resumeText(resumeText)
@@ -96,6 +117,12 @@ public class MockInterviewJobTargetServiceImpl
                 context.setSuggestions(defaultList(analysis.getSuggestions()));
             }
         }
+        log.info("岗位定向模拟上下文解析完成, userId: {}, resumeTaskId: {}, jobMatchRecordId: {}, hasResume: {}, hasJd: {}",
+                userId,
+                context.getResumeTaskId(),
+                context.getJobMatchRecordId(),
+                !context.getResumeText().isBlank(),
+                !context.getJdText().isBlank());
         return context;
     }
 
@@ -149,8 +176,18 @@ public class MockInterviewJobTargetServiceImpl
                 context.setSuggestions(defaultList(analysis.getSuggestions()));
             }
         }
+        String resumeText = loadResumeText(userId, record.getResumeTaskId());
+        if (resumeText.isBlank() && jobMatchRecord != null) {
+            resumeText = normalizeText(jobMatchRecord.getResumeText());
+        }
+        context.setResumeText(resumeText);
 
         return context;
+    }
+
+    @Override
+    public InterviewJobTargetContext resolveLatestResumeContext(Long userId) {
+        return buildGeneralResumeContext(userId, null);
     }
 
     @Override
@@ -238,6 +275,9 @@ public class MockInterviewJobTargetServiceImpl
         if (!Objects.equals(task.getUserId(), userId)) {
             throw new BusinessException("无权访问该简历诊断任务");
         }
+        if (task.getResumeText() != null && !task.getResumeText().isBlank()) {
+            return normalizeText(task.getResumeText());
+        }
         if (task.getFileUrl() == null || task.getFileUrl().isBlank()) {
             return "";
         }
@@ -282,6 +322,66 @@ public class MockInterviewJobTargetServiceImpl
             return String.valueOf(selectedRecord.getResumeTaskId());
         }
         return null;
+    }
+
+    /**
+     * 统一解析本轮应复用的简历任务 ID。
+     * 优先级：显式传入 > 岗位对比记录中的简历任务。
+     */
+    private Long resolveResumeTaskIdValue(Long resumeTaskId, ResumeJobMatchRecord selectedRecord) {
+        if (resumeTaskId != null) {
+            return resumeTaskId;
+        }
+        if (selectedRecord != null) {
+            return selectedRecord.getResumeTaskId();
+        }
+        return null;
+    }
+
+    /**
+     * 为普通模拟面试构造简历上下文。
+     * 如果用户显式传入了简历任务，则优先使用该任务；否则回退到最近一次已完成简历诊断。
+     */
+    private InterviewJobTargetContext buildGeneralResumeContext(Long userId, Long preferredResumeTaskId) {
+        Long resolvedResumeTaskId = preferredResumeTaskId;
+        String resumeText = loadResumeText(userId, preferredResumeTaskId);
+
+        // 【兜底说明】
+        // 普通模拟面试也允许面试官“看过候选人简历”。
+        // 如果本次请求没有显式传入 resumeTaskId，就回退到最近一次已完成的简历诊断任务。
+        if (resumeText.isBlank()) {
+            ResumeDiagnosisTask latestResumeTask = findLatestCompletedResumeTask(userId);
+            if (latestResumeTask != null) {
+                resolvedResumeTaskId = latestResumeTask.getId();
+                resumeText = loadResumeText(userId, latestResumeTask.getId());
+            }
+        }
+        if (resumeText.isBlank() || resolvedResumeTaskId == null) {
+            return null;
+        }
+        return InterviewJobTargetContext.builder()
+                .jobTargeted(false)
+                .sourceType(preferredResumeTaskId != null ? "specified_resume" : "latest_resume")
+                .resumeTaskId(String.valueOf(resolvedResumeTaskId))
+                .resumeText(resumeText)
+                .matchedKeywords(new ArrayList<>())
+                .missingKeywords(new ArrayList<>())
+                .suggestions(new ArrayList<>())
+                .build();
+    }
+
+    /**
+     * 查询用户最近一次已完成的简历诊断任务。
+     * 仅在普通模拟面试缺少显式简历上下文时作为兜底，不改变已存在的岗位定向链路。
+     */
+    private ResumeDiagnosisTask findLatestCompletedResumeTask(Long userId) {
+        LambdaQueryWrapper<ResumeDiagnosisTask> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(ResumeDiagnosisTask::getUserId, userId)
+                .eq(ResumeDiagnosisTask::getStatus, ResumeDiagnosisConstants.STATUS_COMPLETED)
+                .orderByDesc(ResumeDiagnosisTask::getUpdateTime)
+                .orderByDesc(ResumeDiagnosisTask::getCreateTime)
+                .last("limit 1");
+        return resumeDiagnosisTaskMapper.selectOne(wrapper);
     }
 
     private ResumeJobMatchAnalyzeResponse parseAnalysisResponse(ResumeJobMatchRecord record) {
