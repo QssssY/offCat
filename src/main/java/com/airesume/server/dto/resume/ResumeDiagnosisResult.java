@@ -119,6 +119,18 @@ public class ResumeDiagnosisResult {
         @JsonProperty("hasBlog")
         private Boolean hasBlog;
 
+        /**
+         * AI 分析的加分项
+         */
+        @JsonProperty("strengths")
+        private List<String> strengths;
+
+        /**
+         * AI 分析的扣分项
+         */
+        @JsonProperty("weaknesses")
+        private List<String> weaknesses;
+
         @JsonProperty("suggestions")
         private List<String> suggestions;
     }
@@ -228,6 +240,18 @@ public class ResumeDiagnosisResult {
         @JsonProperty("experiences")
         private List<Map<String, Object>> experiences;
 
+        /**
+         * AI 分析的加分项
+         */
+        @JsonProperty("strengths")
+        private List<String> strengths;
+
+        /**
+         * AI 分析的扣分项
+         */
+        @JsonProperty("weaknesses")
+        private List<String> weaknesses;
+
         @JsonProperty("suggestions")
         private List<String> suggestions;
     }
@@ -255,6 +279,18 @@ public class ResumeDiagnosisResult {
         @JsonProperty("projects")
         private List<Map<String, Object>> projects;
 
+        /**
+         * AI 分析的加分项
+         */
+        @JsonProperty("strengths")
+        private List<String> strengths;
+
+        /**
+         * AI 分析的扣分项
+         */
+        @JsonProperty("weaknesses")
+        private List<String> weaknesses;
+
         @JsonProperty("suggestions")
         private List<String> suggestions;
     }
@@ -281,6 +317,18 @@ public class ResumeDiagnosisResult {
 
         @JsonProperty("hasRelevantMajor")
         private Boolean hasRelevantMajor;
+
+        /**
+         * AI 分析的加分项
+         */
+        @JsonProperty("strengths")
+        private List<String> strengths;
+
+        /**
+         * AI 分析的扣分项
+         */
+        @JsonProperty("weaknesses")
+        private List<String> weaknesses;
 
         @JsonProperty("suggestions")
         private List<String> suggestions;

@@ -363,18 +363,19 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                         2.工作经历：有无业务成果数据？职业成长轨迹是否清晰？
                         3.与岗位无关的字段（如非技术岗的hasGithub/hasBlog）直接填false，不扣分。
                         4.简历结构：逻辑是否清晰，有无错别字/排版问题。
+                        5.每个维度的strengths列出该维度的加分项（做得好的地方），weaknesses列出扣分项（需要改进的地方），每项一句话，简洁具体。
 
                         summary要求：写一段200-350字的简历总结评价。必须包含：先肯定简历中具体的优势（如哪些项目写得好、哪些能力突出），再指出具体的问题（哪些描述空洞、哪些维度缺失、哪些地方需要改进）。语气专业客观，有理有据，不要泛泛而谈。
 
                         返回JSON格式(不要额外文本)：
                         {"overallEvaluation":{"totalScore":0-100,"level":"S/A/B/C/D","summary":"200-350字详细评价，先说优点再说问题"},
                         "highlights":["亮点1"],
-                        "basicInfoEvaluation":{"score":0-100,"hasName":true/false,"hasPhone":true/false,"hasEmail":true/false,"hasGithub":true/false,"hasBlog":true/false,"suggestions":["建议1"]},
+                        "basicInfoEvaluation":{"score":0-100,"hasName":true/false,"hasPhone":true/false,"hasEmail":true/false,"hasGithub":true/false,"hasBlog":true/false,"strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1"]},
                         "basicInfoDetails":{"name":"","email":"","phone":"","location":"","currentCompany":"","github":"","blog":""},
                         "skillEvaluation":{"score":0-100,"skillList":[""],"strengths":[""],"weaknesses":[""],"suggestions":[""]},
-                        "workExperienceEvaluation":{"score":0-100,"totalYears":0,"companyCount":0,"hasQuantifiableResults":true/false,"experiences":[{"company":"","position":"","duration":"","highlights":[""]}],"suggestions":[""]},
-                        "projectExperienceEvaluation":{"score":0-100,"projectCount":0,"hasTechStack":true/false,"hasResponsibilities":true/false,"projects":[{"name":"","role":"","techStack":"","highlights":[""]}],"suggestions":[""]},
-                        "educationEvaluation":{"score":0-100,"degree":"","school":"","major":"","hasRelevantMajor":true/false,"suggestions":[""]},
+                        "workExperienceEvaluation":{"score":0-100,"totalYears":0,"companyCount":0,"hasQuantifiableResults":true/false,"experiences":[{"company":"","position":"","duration":"","highlights":[""]}],"strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":[""]},
+                        "projectExperienceEvaluation":{"score":0-100,"projectCount":0,"hasTechStack":true/false,"hasResponsibilities":true/false,"projects":[{"name":"","role":"","techStack":"","highlights":[""]}],"strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":[""]},
+                        "educationEvaluation":{"score":0-100,"degree":"","school":"","major":"","hasRelevantMajor":true/false,"strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":[""]},
                         "optimizationSuggestions":["建议1"]}
                         """;
     }
@@ -453,56 +454,39 @@ public class ResumeAiServiceImpl implements ResumeAiService {
 
     private String buildResumePolishSystemPrompt() {
         return """
-                Role: senior resume editor and layout consultant. Task: rewrite the source resume into a clean Chinese resume draft that is suitable for printing or saving as PDF.
-                Rules:
-                1. Never invent experience, metrics, education, titles, projects, awards, or skills.
-                2. Keep the tone concise, restrained, and professional. Avoid filler, hype, and generic praise.
-                3. Allocate more space to the strongest and most role-relevant content instead of expanding every section evenly.
-                4. Education rule: if the school or academic background is genuinely strong, such as 985, 211, Double First-Class, top overseas schools, strong ranking, GPA, or awards, keep one extra highlight line; otherwise keep education brief and factual.
-                5. Ordering rule: decide section order by content strength and relevance. If internship content is stronger than project content, place internship before projects. If full-time work is strongest, place work or internship before projects. Compress weak or low-value projects.
-                6. Write each experience point with action, method, and result whenever possible. Keep quantifiable outcomes, scope, ownership, and business value.
-                7. The output must fit a single-column, black-and-white, easy-to-print, easy-to-edit resume layout.
-                8. polishedResumeText must follow a plain-text structure that is easy for frontend rendering and manual editing:
-                   - The first 1 to 3 lines only contain name, target role or short headline, and contact information
-                   - Section titles must stay in Chinese and only use necessary items from: \u57fa\u672c\u4fe1\u606f, \u6559\u80b2\u80cc\u666f, \u5de5\u4f5c\u7ecf\u5386, \u5b9e\u4e60\u7ecf\u5386, \u9879\u76ee\u7ecf\u5386, \u804c\u4e1a\u6280\u80fd, \u8363\u8a89\u5956\u9879, \u81ea\u6211\u8bc4\u4ef7
-                   - Main education or experience lines use: name | role/major/degree | date
-                   - Supporting lines use: \u6807\u7b7e\uff1a\u5185\u5bb9
-                   - Achievement bullets use: - content
-                9. Output JSON only. Do not output Markdown code fences or explanatory text.
-                Format: {"polishedResumeText":"final resume text","modificationNotes":["note1","note2","note3"]}
+                角色：简历优化顾问。任务：基于原始简历润色，输出更专业的版本。
+                规则：1)不编造任何信息 2)优化结构/措辞/成果呈现 3)优先突出JD相关能力 4)"动作+方法+结果"描述 5)不虚构数字 6)精炼无空话 7)只输出JSON。
+                格式：{"polishedResumeText":"润色后完整简历","modificationNotes":["改动说明1","改动说明2","改动说明3"]}
                 """;
     }
 
     private String buildResumePolishUserPrompt(String resumeText, String jdText,
             ResumeJobMatchAnalyzeResponse latestJobMatchAnalysis) {
         StringBuilder builder = new StringBuilder();
-        builder.append("Please polish the following resume into a concise Chinese resume draft.\n");
-        builder.append("[Original Resume]\n").append(resumeText).append("\n\n");
+        builder.append("请对以下简历进行润色优化。\n");
+        builder.append("【原始简历】\n").append(resumeText).append("\n\n");
         if (jdText != null && !jdText.isBlank()) {
-            builder.append("[Target JD]\n").append(jdText).append("\n\n");
+            builder.append("【目标岗位 JD】\n").append(jdText).append("\n\n");
         }
         if (latestJobMatchAnalysis != null) {
-            builder.append("[Latest Job Match Analysis]\n");
-            builder.append("Match score: ").append(latestJobMatchAnalysis.getMatchScore()).append("\n");
-            builder.append("Matched keywords: ").append(latestJobMatchAnalysis.getMatchedKeywords()).append("\n");
-            // Filter out useless generic keywords so they do not mislead the rewrite direction.
+            builder.append("【最近一次岗位匹配分析】\n");
+            builder.append("匹配度评分：").append(latestJobMatchAnalysis.getMatchScore()).append("\n");
+            builder.append("已匹配关键词：").append(latestJobMatchAnalysis.getMatchedKeywords()).append("\n");
+            // 过滤掉无效的泛化关键词（如"JD"），避免误导润色
             List<String> filteredMissing = latestJobMatchAnalysis.getMissingKeywords() == null
                     ? List.of()
                     : latestJobMatchAnalysis.getMissingKeywords().stream()
                             .filter(kw -> kw != null && !kw.isBlank() && !kw.equalsIgnoreCase("JD"))
                             .toList();
-            builder.append("Missing keywords: ").append(filteredMissing).append("\n");
-            builder.append("Optimization suggestions: ").append(latestJobMatchAnalysis.getSuggestions()).append("\n\n");
+            builder.append("缺失关键词：").append(filteredMissing).append("\n");
+            builder.append("优化建议：").append(latestJobMatchAnalysis.getSuggestions()).append("\n\n");
         }
         builder.append("""
-                Please generate a version that is better for job application delivery and PDF-style resume layout.
-                1. Allocate space by content strength instead of expanding every module evenly.
-                2. If education is a true advantage, keep one more highlight line. If education is ordinary, keep it short.
-                3. If internship content is stronger or more relevant than project content, place internship before projects. If projects are stronger, projects may come first, but the decision must be content-based.
-                4. If a JD is provided, make the resume more targeted without inventing experience.
-                5. The output should look like a real deliverable resume draft rather than a generic AI summary.
-                6. Use Chinese section titles and Chinese writing for the final polishedResumeText.
-                7. modificationNotes must contain at least 3 items and clearly explain changes in structure, ordering, and emphasis.
+                请输出更适合求职投递的版本，并满足以下要求：
+                1. 优先优化摘要、技能和项目表达的清晰度。
+                2. 尽量用"能力/动作/结果"方式重写经历描述。
+                3. 如果提供了 JD，请体现更强的岗位针对性。
+                4. modificationNotes 至少输出 3 条，必须能让用户理解改动原因。
                 """);
         return builder.toString();
     }
