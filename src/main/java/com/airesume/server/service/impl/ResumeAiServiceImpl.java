@@ -341,29 +341,33 @@ public class ResumeAiServiceImpl implements ResumeAiService {
 
     private String getDefaultSystemPrompt() {
         return """
-                角色：大厂HRBP(10年经验)。任务：严格诊断简历问题。
-                原则：1)按P6/P7标准评估 2)优点缺点都直说 3)项目必须有业务价值+技术难点+量化成果 4)学历放宽但项目要硬。
-                权重：基本信息10% 技术15% 工作25% 项目40% 教育10%。
+                角色：跨行业资深职业顾问。任务：严格诊断简历问题。
+                原则：1)根据简历实际岗位方向评价，不预设技术岗标准 2)优点缺点都直说 3)项目必须有业务价值+量化成果 4)学历放宽但项目要硬。
+                评分标准：S(90+)顶尖 A(75-89)优秀 B(60-74)合格 C(40-59)偏弱 D(<40)问题严重。多数简历应在B-C区间，仅真正出色者得A以上。
+                权重：基本信息10% 岗位核心能力15% 工作25% 项目40% 教育10%。
+                跨行业原则：按岗位方向评价核心能力，不默认技术标准。与岗位无关的字段不扣分。
                 规则：只返回JSON，无额外文本；JSON完整闭合；缺信息返回null/空数组；basicInfoDetails从原文提取真实值。
                 """;
     }
 
     private String buildUserPrompt(String resumeText) {
         return """
-                请对以下简历进行HR视角诊断，暴露所有问题。
+                请对以下简历进行诊断，暴露所有问题。严格按评分标准打分，不要偏高。
 
                 简历内容：
                 """ + resumeText
                 + """
 
-                        要求：
-                        1.项目评审重点：业务价值、技术难点、量化成果、个人贡献。空洞描述("负责XX开发")扣分。
-                        2.工作经历：业务贡献可量化？技术深度？成长性？
-                        3.技能：技术栈匹配度和深度。
-                        4.学历可放宽但Timeline清晰。
+                        诊断重点：
+                        1.项目经历：有无量化成果？个人贡献是否明确？"负责XX开发"等空洞描述直接扣分。
+                        2.工作经历：有无业务成果数据？职业成长轨迹是否清晰？
+                        3.与岗位无关的字段（如非技术岗的hasGithub/hasBlog）直接填false，不扣分。
+                        4.简历结构：逻辑是否清晰，有无错别字/排版问题。
+
+                        summary要求：写一段200-350字的简历总结评价。必须包含：先肯定简历中具体的优势（如哪些项目写得好、哪些能力突出），再指出具体的问题（哪些描述空洞、哪些维度缺失、哪些地方需要改进）。语气专业客观，有理有据，不要泛泛而谈。
 
                         返回JSON格式(不要额外文本)：
-                        {"overallEvaluation":{"totalScore":0-100,"level":"S/A/B/C/D","summary":"总体评价"},
+                        {"overallEvaluation":{"totalScore":0-100,"level":"S/A/B/C/D","summary":"200-350字详细评价，先说优点再说问题"},
                         "highlights":["亮点1"],
                         "basicInfoEvaluation":{"score":0-100,"hasName":true/false,"hasPhone":true/false,"hasEmail":true/false,"hasGithub":true/false,"hasBlog":true/false,"suggestions":["建议1"]},
                         "basicInfoDetails":{"name":"","email":"","phone":"","location":"","currentCompany":"","github":"","blog":""},
@@ -448,7 +452,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
 
     private String buildResumePolishSystemPrompt() {
         return """
-                角色：大厂简历优化顾问。任务：基于原始简历润色，输出适合大厂投递的版本。
+                角色：简历优化顾问。任务：基于原始简历润色，输出更专业的版本。
                 规则：1)不编造任何信息 2)优化结构/措辞/成果呈现 3)优先突出JD相关能力 4)"动作+方法+结果"描述 5)不虚构数字 6)精炼无空话 7)只输出JSON。
                 格式：{"polishedResumeText":"润色后完整简历","modificationNotes":["改动说明1","改动说明2","改动说明3"]}
                 """;
@@ -466,7 +470,13 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             builder.append("【最近一次岗位匹配分析】\n");
             builder.append("匹配度评分：").append(latestJobMatchAnalysis.getMatchScore()).append("\n");
             builder.append("已匹配关键词：").append(latestJobMatchAnalysis.getMatchedKeywords()).append("\n");
-            builder.append("缺失关键词：").append(latestJobMatchAnalysis.getMissingKeywords()).append("\n");
+            // 过滤掉无效的泛化关键词（如"JD"），避免误导润色
+            List<String> filteredMissing = latestJobMatchAnalysis.getMissingKeywords() == null
+                    ? List.of()
+                    : latestJobMatchAnalysis.getMissingKeywords().stream()
+                            .filter(kw -> kw != null && !kw.isBlank() && !kw.equalsIgnoreCase("JD"))
+                            .toList();
+            builder.append("缺失关键词：").append(filteredMissing).append("\n");
             builder.append("优化建议：").append(latestJobMatchAnalysis.getSuggestions()).append("\n\n");
         }
         builder.append("""

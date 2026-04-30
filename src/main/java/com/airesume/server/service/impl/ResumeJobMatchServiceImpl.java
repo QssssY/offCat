@@ -38,14 +38,24 @@ public class ResumeJobMatchServiceImpl extends ServiceImpl<ResumeJobMatchRecordM
         implements ResumeJobMatchService {
 
     /**
-     * 预置技术关键词，保证 V1.1 先提供稳定可解释的分析结果。
+     * 预置跨行业关键词，覆盖技术、教育、工程、设计、商业等方向。
      */
     private static final List<String> PRESET_KEYWORDS = Arrays.asList(
+            // 技术
             "Java", "Spring", "Spring Boot", "Spring Cloud", "MySQL", "Redis", "Kafka", "RabbitMQ",
             "Docker", "Kubernetes", "Linux", "SQL", "RESTful API", "Git", "Maven", "Vue", "React",
             "TypeScript", "JavaScript", "Python", "Go", "微服务", "分布式", "高并发", "系统设计",
-            "性能优化", "数据结构", "算法", "自动化测试", "CI/CD", "DevOps", "团队协作", "沟通能力",
-            "项目管理", "产品思维", "英文读写"
+            "性能优化", "数据结构", "算法", "自动化测试", "CI/CD", "DevOps",
+            // 教育
+            "教学", "课程设计", "教案", "班主任", "学科", "教研", "公开课", "教师资格证", "学生管理",
+            // 工程/制造
+            "PLC", "CAD", "电气", "机械", "焊接", "电工证", "安全", "质量管理", "生产管理",
+            // 设计/创意
+            "UI", "UX", "Photoshop", "Illustrator", "Figma", "Sketch", "品牌", "视觉设计", "交互设计",
+            // 商业/销售
+            "销售", "客户", "业绩", "KPI", "市场", "营销", "品牌推广", "渠道", "商务",
+            // 通用
+            "团队协作", "沟通能力", "项目管理", "产品思维", "英文读写", "数据分析", "PPT", "Excel"
     );
 
     private static final Pattern ENGLISH_TERM_PATTERN = Pattern.compile("\\b[A-Za-z][A-Za-z0-9+#./-]{1,30}\\b");
