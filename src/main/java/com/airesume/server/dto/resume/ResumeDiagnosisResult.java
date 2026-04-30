@@ -64,6 +64,12 @@ public class ResumeDiagnosisResult {
     private ProjectExperienceEvaluation projectExperienceEvaluation;
 
     /**
+     * 教育背景评价
+     */
+    @JsonProperty("educationEvaluation")
+    private EducationEvaluation educationEvaluation;
+
+    /**
      * 优化建议列表
      */
     @JsonProperty("optimizationSuggestions")
@@ -248,6 +254,33 @@ public class ResumeDiagnosisResult {
 
         @JsonProperty("projects")
         private List<Map<String, Object>> projects;
+
+        @JsonProperty("suggestions")
+        private List<String> suggestions;
+    }
+
+    /**
+     * 教育背景评价内部类
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class EducationEvaluation {
+        @JsonProperty("score")
+        private Integer score;
+
+        @JsonProperty("degree")
+        private String degree;
+
+        @JsonProperty("school")
+        private String school;
+
+        @JsonProperty("major")
+        private String major;
+
+        @JsonProperty("hasRelevantMajor")
+        private Boolean hasRelevantMajor;
 
         @JsonProperty("suggestions")
         private List<String> suggestions;
