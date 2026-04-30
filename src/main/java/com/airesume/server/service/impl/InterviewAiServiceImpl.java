@@ -1,6 +1,7 @@
 package com.airesume.server.service.impl;
 
 import com.airesume.server.common.constants.AiEngineConstants;
+import com.airesume.server.common.constants.InterviewConstants;
 import com.airesume.server.common.constants.PromptConstants;
 import com.airesume.server.config.AiTokenLimitConfig;
 import com.airesume.server.dto.interview.InterviewEvaluationReport;
@@ -207,7 +208,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         };
         boolean hasResume = hasResumeContext(jobTargetContext);
         String resumeHint = hasResume ? "我已经看过你的简历，" : "";
-        return String.format("你好，欢迎参加%s%s面试。我是今天的面试官，%s请你先介绍一下自己吧。",
+        return String.format(InterviewConstants.OPENING_TEMPLATE,
                 difficultyDesc, jobRole != null ? jobRole : "软件工程师", resumeHint);
     }
 

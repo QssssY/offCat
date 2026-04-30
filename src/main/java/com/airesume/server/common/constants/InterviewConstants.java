@@ -62,6 +62,12 @@ public class InterviewConstants {
      */
     public static final String MODE_JOB_TARGETED = "job_targeted";
 
+    /**
+     * 面试开场白模板。
+     * 参数：{0}=难度描述, {1}=岗位名称, {2}=简历提示
+     */
+    public static final String OPENING_TEMPLATE = "你好，欢迎参加%s%s面试。我是今天的面试官，%s请你先介绍一下自己吧。";
+
     private InterviewConstants() {
     }
 }

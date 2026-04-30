@@ -247,8 +247,7 @@ public class AiInputCompressor {
 
         String result = compressed.toString();
         if (result.isEmpty()) {
-            // 兜底：若过滤后为空，返回原文的前半部分
-            result = projectDesc.substring(0, Math.min(projectDesc.length(), maxTokens / 2));
+            result = TokenEstimator.safeTruncate(projectDesc, maxTokens);
         }
 
         return result;

@@ -139,7 +139,7 @@ public class InterviewService {
                         && jobTargetContext.getResumeText() != null
                         && !jobTargetContext.getResumeText().isBlank();
                 String resumeHint = hasResume ? "我已经看过你的简历，" : "";
-                String openingMessage = String.format("你好，欢迎参加%s%s面试。我是今天的面试官，%s请你先介绍一下自己吧。",
+                String openingMessage = String.format(InterviewConstants.OPENING_TEMPLATE,
                         difficultyDesc,
                         request.getJobRole() != null ? request.getJobRole() : "软件工程师",
                         resumeHint);

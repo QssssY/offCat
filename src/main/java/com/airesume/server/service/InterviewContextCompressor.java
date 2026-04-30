@@ -69,8 +69,8 @@ public class InterviewContextCompressor {
         int totalTokens = estimateHistoryTokens(history);
         int maxTokens = tokenLimitConfig.getInterviewRoundMax();
 
-        // token 未超限且总消息数未达阈值，不压缩
-        if (totalTokens <= maxTokens && history.size() < threshold) {
+        // token 未超限，不压缩
+        if (totalTokens <= maxTokens) {
             return history;
         }
 
