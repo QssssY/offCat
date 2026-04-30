@@ -489,10 +489,11 @@
                 <div class="polish-actions">
                   <el-button size="small" @click="copyPolishedResume">复制内容</el-button>
                   <el-button size="small" type="primary" :loading="pdfExporting" @click="exportResumePdf">导出 PDF</el-button>
+                  <el-button size="small" :loading="imageExporting" @click="exportResumeImage">导出图片</el-button>
                 </div>
               </div>
               <div class="polish-edit-hint">
-                当前模板支持直接修改文案，右上角已预留照片空位；导出时会按当前编辑状态打开打印保存 PDF。
+                当前模板支持直接修改文案，右上角已预留照片空位；可导出为 PDF 或图片格式。
               </div>
               <div v-if="polishResult?.polishedResumeText" class="polish-preview-shell">
                 <ResumeTemplate ref="resumeTemplateRef" :text="polishResult.polishedResumeText" mode="preview" />
@@ -570,6 +571,7 @@ const polishLoading = ref(false)
 const polishResult = ref(null)
 const polishSectionRef = ref(null)
 const pdfExporting = ref(false)
+const imageExporting = ref(false)
 const resumeTemplateRef = ref(null)
 
 const taskId = computed(() => route.params.taskId)
@@ -940,62 +942,150 @@ const copyPolishedResume = async () => {
   }
 }
 
-// 改为前端直接生成并下载 PDF，避免再弹出浏览器打印窗口，同时保留当前编辑内容和头像。
+// 获取简历导出文件名（从 DOM 中提取姓名）
+const getExportFilename = () => {
+  const name = resumeTemplateRef.value?.resumeRef
+    ?.querySelector?.('[data-role="profile-name"]')
+    ?.textContent
+    ?.trim()
+  return name || 'resume'
+}
+
+// 公共截图函数：将简历模板克隆到离屏容器，用 html2canvas 截图为高分辨率 canvas。
+// 使用 buildExportElement 获取已清理非导出元素的克隆节点，确保截图干净。
+const captureResumeCanvas = async () => {
+  const exportEl = resumeTemplateRef.value?.buildExportElement?.()
+  if (!exportEl) {
+    return null
+  }
+
+  // 挂载到离屏容器，宽度设为 190mm（与 print 模式一致），白色背景
+  const mountNode = document.createElement('div')
+  mountNode.style.position = 'fixed'
+  mountNode.style.left = '-10000px'
+  mountNode.style.top = '0'
+  mountNode.style.width = '190mm'
+  mountNode.style.background = '#ffffff'
+  mountNode.style.zIndex = '-1'
+  mountNode.appendChild(exportEl)
+  document.body.appendChild(mountNode)
+
+  try {
+    const html2canvas = (await import('html2canvas')).default
+    // scale=3 保证高分辨率输出，dpi 300 适合打印质量
+    const canvas = await html2canvas(exportEl, {
+      scale: 3,
+      useCORS: true,
+      backgroundColor: '#ffffff',
+      dpi: 300,
+      logging: false,
+    })
+    return canvas
+  } finally {
+    document.body.removeChild(mountNode)
+  }
+}
+
+// 导出 PDF：先用 html2canvas 截图为高分辨率图片，再嵌入 jsPDF。
+// 直接截图嵌入可避免 html2pdf.js 分页解析导致的布局变形问题。
 const exportResumePdf = async () => {
-  const pdfSource = resumeTemplateRef.value?.buildPdfSourceElement?.()
-  if (!pdfSource) {
+  if (!resumeTemplateRef.value?.buildExportElement) {
     ElMessage.warning('暂无可导出的润色内容')
     return
   }
 
   pdfExporting.value = true
-  const mountNode = document.createElement('div')
-  mountNode.style.position = 'fixed'
-  mountNode.style.left = '-10000px'
-  mountNode.style.top = '0'
-  mountNode.style.width = '210mm'
-  mountNode.style.background = '#ffffff'
-  mountNode.style.zIndex = '-1'
-  mountNode.appendChild(pdfSource)
-  document.body.appendChild(mountNode)
 
   try {
-    const { default: html2pdf } = await import('html2pdf.js')
-    const resumeName = resumeTemplateRef.value?.resumeRef
-      ?.querySelector?.('[data-role="profile-name"]')
-      ?.textContent
-      ?.trim()
-    const filename = `${resumeName || 'resume'}.pdf`
+    const canvas = await captureResumeCanvas()
+    if (!canvas) {
+      ElMessage.warning('暂无可导出的润色内容')
+      return
+    }
 
-    await html2pdf()
-      .set({
-        margin: [8, 8, 8, 8],
-        filename,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: {
-          scale: 2,
-          useCORS: true,
-          backgroundColor: '#ffffff',
-        },
-        jsPDF: {
-          unit: 'mm',
-          format: 'a4',
-          orientation: 'portrait',
-        },
-        pagebreak: {
-          mode: ['css', 'legacy'],
-        },
-      })
-      .from(pdfSource)
-      .save()
+    const { default: jsPDF } = await import('jspdf')
+    const filename = `${getExportFilename()}.pdf`
 
-    ElMessage.success('PDF 已提交到浏览器下载')
+    // A4 竖版尺寸（mm）
+    const pageW = 210
+    const pageH = 297
+    // PDF 不额外加边距，简历模板自身已有 10mm 内边距，避免双重边距导致空白过大
+    const margin = 0
+    const contentW = pageW - margin * 2
+    const contentH = pageH - margin * 2
+
+    // 将 canvas 转为 JPEG 数据，质量 0.95 平衡清晰度与文件大小
+    const imgData = canvas.toDataURL('image/jpeg', 0.95)
+    // 计算 canvas 的宽高比，按 A4 内容区宽度等比缩放
+    const imgRatio = canvas.width / canvas.height
+    let renderW = contentW
+    let renderH = renderW / imgRatio
+
+    // 若缩放后高度超出内容区，按高度适配
+    if (renderH > contentH) {
+      renderH = contentH
+      renderW = renderH * imgRatio
+    }
+
+    // 水平居中偏移
+    const offsetX = margin + (contentW - renderW) / 2
+
+    const pdf = new jsPDF({
+      unit: 'mm',
+      format: 'a4',
+      orientation: 'portrait',
+    })
+
+    pdf.addImage(imgData, 'JPEG', offsetX, margin, renderW, renderH)
+    pdf.save(filename)
+
+    ElMessage.success('PDF 已导出')
   } catch (err) {
     console.error('[PDF导出] 失败:', err)
     ElMessage.error('PDF 导出失败，请稍后重试')
   } finally {
-    document.body.removeChild(mountNode)
     pdfExporting.value = false
+  }
+}
+
+// 导出简历图片：复用截图 canvas，输出为 PNG 文件下载。
+const exportResumeImage = async () => {
+  if (!resumeTemplateRef.value?.buildExportElement) {
+    ElMessage.warning('暂无可导出的润色内容')
+    return
+  }
+
+  imageExporting.value = true
+
+  try {
+    const canvas = await captureResumeCanvas()
+    if (!canvas) {
+      ElMessage.warning('暂无可导出的润色内容')
+      return
+    }
+
+    const filename = `${getExportFilename()}.png`
+
+    // canvas.toBlob 触发 PNG 下载
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        ElMessage.error('图片生成失败')
+        return
+      }
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      link.click()
+      URL.revokeObjectURL(url)
+    }, 'image/png')
+
+    ElMessage.success('简历图片已导出')
+  } catch (err) {
+    console.error('[图片导出] 失败:', err)
+    ElMessage.error('图片导出失败，请稍后重试')
+  } finally {
+    imageExporting.value = false
   }
 }
 

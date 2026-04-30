@@ -187,6 +187,7 @@
 
 <script setup>
 import { computed, ref } from 'vue'
+import { ElMessage } from 'element-plus'
 
 const props = defineProps({
   text: {
@@ -607,6 +608,7 @@ const removeEditableAttributes = (rootNode) => {
 }
 
 // 直接下载 PDF 时复用一个脱离页面的克隆节点，避免把预览态输入控件和焦点态样式一起导出。
+// 同时移除占位提示文字（如"导出时将保留当前照片"），确保 PDF 干净。
 const buildPdfSourceElement = () => {
   if (!resumeRef.value) {
     return null
@@ -616,6 +618,32 @@ const buildPdfSourceElement = () => {
   clone.classList.remove('resume-template--preview')
   clone.classList.add('resume-template--print')
   removeEditableAttributes(clone)
+
+  // 移除头像提示文字，避免"导出时将保留当前照片"出现在 PDF 中
+  const photoTip = clone.querySelector('[data-role="photo-tip"]')
+  if (photoTip) {
+    photoTip.remove()
+  }
+
+  return clone
+}
+
+// 导出专用克隆节点：移除所有非导出元素（提示文字、上传按钮、操作区），确保截图干净。
+const buildExportElement = () => {
+  if (!resumeRef.value) {
+    return null
+  }
+
+  const clone = resumeRef.value.cloneNode(true)
+  clone.classList.remove('resume-template--preview')
+  clone.classList.add('resume-template--print')
+  removeEditableAttributes(clone)
+
+  // 移除所有不需要出现在导出结果中的元素
+  clone.querySelectorAll('[data-role="photo-tip"], .photo-input, .photo-actions').forEach((el) => {
+    el.remove()
+  })
+
   return clone
 }
 
@@ -627,6 +655,13 @@ const handlePhotoChange = (event) => {
   }
 
   if (!file.type.startsWith('image/')) {
+    event.target.value = ''
+    return
+  }
+
+  // 限制头像文件大小不超过 5MB
+  if (file.size > 5 * 1024 * 1024) {
+    ElMessage.warning('照片文件大小不能超过 5MB')
     event.target.value = ''
     return
   }
@@ -789,6 +824,7 @@ defineExpose({
   resumeRef,
   getResumePlainText,
   buildPdfSourceElement,
+  buildExportElement,
   buildPrintHtml,
 })
 </script>
@@ -828,9 +864,62 @@ defineExpose({
 }
 
 .resume-template--print .resume-paper {
-  padding: 12mm 12mm 11mm;
+  padding: 8mm 10mm 8mm;
   border: none;
   box-shadow: none;
+}
+
+/* 打印模式下收紧间距，优先保证内容在一页内 */
+.resume-template--print .resume-main {
+  margin-top: 10px;
+}
+
+.resume-template--print .resume-section + .resume-section {
+  margin-top: 12px;
+}
+
+.resume-template--print .resume-section-head {
+  margin-bottom: 8px;
+}
+
+.resume-template--print .profile-card {
+  padding: 4px 0 6px;
+  gap: 16px;
+}
+
+/* 打印模式下将 Grid 改为 table 布局，html2canvas 对 table 渲染更准确，
+   避免 fr 单位计算偏差导致列内文字意外换行。 */
+.resume-template--print .entry-row {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+  border-spacing: 0;
+  gap: 0;
+}
+
+.resume-template--print .entry-cell {
+  display: table-cell;
+  vertical-align: baseline;
+  padding-right: 16px;
+  word-break: normal;
+}
+
+.resume-template--print .entry-cell:last-child {
+  padding-right: 0;
+}
+
+/* 按原始 Grid 比例分配列宽：1.5fr : 1fr : 0.85fr */
+.resume-template--print .entry-cell--left {
+  width: 45%;
+}
+
+.resume-template--print .entry-cell--middle {
+  width: 30%;
+}
+
+.resume-template--print .entry-cell--right {
+  width: 25%;
+  text-align: right;
 }
 
 .resume-main {
@@ -1154,8 +1243,20 @@ defineExpose({
 }
 
 .resume-template--print .photo-input,
-.resume-template--print .photo-actions {
+.resume-template--print .photo-actions,
+.resume-template--print .photo-tip {
   display: none;
+}
+
+/* 打印/导出模式下移除头像描边，保持干净外观 */
+.resume-template--print .photo-frame {
+  border: none;
+  background: #f3f6f5;
+}
+
+/* 无照片时也用纯色背景，不显示斜纹占位 */
+.resume-template--print .photo-placeholder {
+  background: #f3f6f5;
 }
 
 @media (max-width: 767px) {
