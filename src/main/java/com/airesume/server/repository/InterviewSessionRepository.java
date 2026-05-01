@@ -125,4 +125,10 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
             @Param("openingGenerated") Integer openingGenerated,
             @Param("updateTime") LocalDateTime updateTime
     );
+
+    /**
+     * 查询用户已结束且有评分的面试会话（最近10条，按时间倒序）。
+     * 用于个人成长中心的面试评分趋势展示。
+     */
+    List<InterviewSession> findTop10ByUserIdAndStatusAndComprehensiveScoreIsNotNullOrderByCreateTimeDesc(Long userId, Integer status);
 }

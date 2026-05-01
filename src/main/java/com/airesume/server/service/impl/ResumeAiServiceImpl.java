@@ -452,45 +452,6 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         }
     }
 
-    private String buildResumePolishSystemPrompt() {
-        return """
-                角色：简历优化顾问。任务：基于原始简历润色，输出更专业的版本。
-                规则：1)不编造任何信息 2)优化结构/措辞/成果呈现 3)优先突出JD相关能力 4)"动作+方法+结果"描述 5)不虚构数字 6)精炼无空话 7)只输出JSON。
-                格式：{"polishedResumeText":"润色后完整简历","modificationNotes":["改动说明1","改动说明2","改动说明3"]}
-                """;
-    }
-
-    private String buildResumePolishUserPrompt(String resumeText, String jdText,
-            ResumeJobMatchAnalyzeResponse latestJobMatchAnalysis) {
-        StringBuilder builder = new StringBuilder();
-        builder.append("请对以下简历进行润色优化。\n");
-        builder.append("【原始简历】\n").append(resumeText).append("\n\n");
-        if (jdText != null && !jdText.isBlank()) {
-            builder.append("【目标岗位 JD】\n").append(jdText).append("\n\n");
-        }
-        if (latestJobMatchAnalysis != null) {
-            builder.append("【最近一次岗位匹配分析】\n");
-            builder.append("匹配度评分：").append(latestJobMatchAnalysis.getMatchScore()).append("\n");
-            builder.append("已匹配关键词：").append(latestJobMatchAnalysis.getMatchedKeywords()).append("\n");
-            // 过滤掉无效的泛化关键词（如"JD"），避免误导润色
-            List<String> filteredMissing = latestJobMatchAnalysis.getMissingKeywords() == null
-                    ? List.of()
-                    : latestJobMatchAnalysis.getMissingKeywords().stream()
-                            .filter(kw -> kw != null && !kw.isBlank() && !kw.equalsIgnoreCase("JD"))
-                            .toList();
-            builder.append("缺失关键词：").append(filteredMissing).append("\n");
-            builder.append("优化建议：").append(latestJobMatchAnalysis.getSuggestions()).append("\n\n");
-        }
-        builder.append("""
-                请输出更适合求职投递的版本，并满足以下要求：
-                1. 优先优化摘要、技能和项目表达的清晰度。
-                2. 尽量用"能力/动作/结果"方式重写经历描述。
-                3. 如果提供了 JD，请体现更强的岗位针对性。
-                4. modificationNotes 至少输出 3 条，必须能让用户理解改动原因。
-                """);
-        return builder.toString();
-    }
-
     /**
      * AI 润色提示词 V2：
      * 强制 AI 输出统一章节和稳定头部格式，避免不同岗位简历使用大量近义标题导致前端渲染失稳。

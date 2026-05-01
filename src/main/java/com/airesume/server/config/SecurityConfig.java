@@ -77,6 +77,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/interview/job-roles").permitAll()
                         .requestMatchers("/api/resume/**").authenticated()
                         .requestMatchers("/api/interview/**").authenticated()
+                        // 用户引导等个人功能需要登录
+                        .requestMatchers("/api/user/**").authenticated()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )
