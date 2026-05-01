@@ -1,0 +1,91 @@
+package com.airesume.server.controller;
+
+import com.airesume.server.common.result.Result;
+import com.airesume.server.dto.notification.NotificationListResponse;
+import com.airesume.server.service.NotificationService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
+
+/**
+ * 站内消息通知控制器
+ * 提供通知列表查询、未读数量、标记已读等接口
+ */
+@Slf4j
+@RestController
+@RequestMapping("/api/user/notifications")
+@RequiredArgsConstructor
+public class NotificationController {
+
+    private final NotificationService notificationService;
+
+    /**
+     * 查询当前用户通知列表（分页+筛选）
+     *
+     * @param authentication 当前登录用户身份
+     * @param pageNum        页码，默认1
+     * @param size           每页大小，默认20，最大100
+     * @param readStatus     已读状态筛选（可选）
+     * @param type           通知类型筛选（可选）
+     * @return 通知列表响应
+     */
+    @GetMapping
+    public Result<NotificationListResponse> listNotifications(
+            Authentication authentication,
+            @RequestParam(defaultValue = "1") Integer pageNum,
+            @RequestParam(defaultValue = "20") Integer size,
+            @RequestParam(required = false) Integer readStatus,
+            @RequestParam(required = false) String type) {
+        Long userId = (Long) authentication.getPrincipal();
+        // 限制每页大小上限，避免恶意大查询
+        int safeSize = Math.min(size, 100);
+        log.info("[通知] 查询通知列表, userId: {}, pageNum: {}, size: {}", userId, pageNum, safeSize);
+        NotificationListResponse response = notificationService.listNotifications(userId, pageNum, safeSize, readStatus, type);
+        return Result.success(response);
+    }
+
+    /**
+     * 获取当前用户未读通知数量
+     *
+     * @param authentication 当前登录用户身份
+     * @return 未读数量
+     */
+    @GetMapping("/unread-count")
+    public Result<Map<String, Long>> getUnreadCount(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        long unreadCount = notificationService.countUnread(userId);
+        return Result.success(Map.of("unreadCount", unreadCount));
+    }
+
+    /**
+     * 单条通知标记已读
+     *
+     * @param authentication 当前登录用户身份
+     * @param id             通知ID
+     * @return 操作结果
+     */
+    @PostMapping("/{id}/read")
+    public Result<Void> markAsRead(Authentication authentication, @PathVariable Long id) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("[通知] 标记已读, userId: {}, notificationId: {}", userId, id);
+        notificationService.markAsRead(userId, id);
+        return Result.success();
+    }
+
+    /**
+     * 全部通知标记已读
+     *
+     * @param authentication 当前登录用户身份
+     * @return 操作结果
+     */
+    @PostMapping("/read-all")
+    public Result<Void> markAllAsRead(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("[通知] 全部标记已读, userId: {}", userId);
+        notificationService.markAllAsRead(userId);
+        return Result.success();
+    }
+}

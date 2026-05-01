@@ -8,6 +8,7 @@ import com.airesume.server.dto.resume.ResumeDiagnosisTaskResponse;
 import com.airesume.server.entity.ResumeDiagnosisTask;
 import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
 import com.airesume.server.mq.ResumeDiagnosisProducer;
+import com.airesume.server.service.NotificationService;
 import com.airesume.server.service.PdfTextExtractor;
 import com.airesume.server.service.ResumeDiagnosisTaskService;
 import com.airesume.server.service.ResumeJobMatchService;
@@ -38,6 +39,7 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
     private final UserQuotaService userQuotaService;
     private final ResumeDiagnosisProducer resumeDiagnosisProducer;
     private final PdfTextExtractor pdfTextExtractor;
+    private final NotificationService notificationService;
     private final ResumeJobMatchService resumeJobMatchService;
     private final ResumePolishService resumePolishService;
 
@@ -62,6 +64,8 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
         // 1. 校验用户额度
         boolean hasQuota = userQuotaService.checkResumeQuota(userId);
         if (!hasQuota) {
+            // 额度不足时创建通知（带防重，独立事务不受回滚影响）
+            notificationService.createQuotaNotificationIfNeeded(userId);
             throw new BusinessException("简历诊断次数已用完");
         }
 

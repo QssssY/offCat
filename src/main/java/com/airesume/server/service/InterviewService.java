@@ -64,6 +64,7 @@ public class InterviewService {
     private final TransactionTemplate transactionTemplate;
     private final UserQuotaService userQuotaService;
     private final MockInterviewJobTargetService mockInterviewJobTargetService;
+    private final NotificationService notificationService;
     private final Executor aiAsyncExecutor;
 
     /**
@@ -75,6 +76,8 @@ public class InterviewService {
     public InterviewSessionResponse createSession(Long userId, CreateSessionRequest request) {
         validateCreateRequest(request);
         if (!userQuotaService.checkInterviewQuota(userId)) {
+            // 额度不足时创建通知（带防重，独立事务不受回滚影响）
+            notificationService.createQuotaNotificationIfNeeded(userId);
             throw new BusinessException("模拟面试次数已用完");
         }
 
@@ -345,6 +348,12 @@ public class InterviewService {
                 InterviewConstants.STATUS_ENDED,
                 LocalDateTime.now()
         ));
+
+        // 创建模拟面试完成通知
+        notificationService.createNotification(
+                session.getUserId(), "interview", "模拟面试完成",
+                "你的模拟面试反馈已生成，点击查看详情。",
+                "mock_interview", sessionId);
     }
 
     /**

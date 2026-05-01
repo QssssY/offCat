@@ -1,6 +1,7 @@
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
 
+DROP TABLE IF EXISTS `user_notification`;
 DROP TABLE IF EXISTS `user_onboarding_state`;
 DROP TABLE IF EXISTS `membership_order`;
 DROP TABLE IF EXISTS `membership_plan`;
@@ -332,6 +333,25 @@ CREATE TABLE `user_onboarding_state` (
   INDEX `idx_onboarding_status` (`status`),
   CONSTRAINT `fk_onboarding_user_id` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户新手引导状态表';
+
+CREATE TABLE `user_notification` (
+  `id` BIGINT NOT NULL COMMENT '主键',
+  `user_id` BIGINT NOT NULL COMMENT '所属用户ID',
+  `type` VARCHAR(32) NOT NULL COMMENT '通知类型: resume/polish/interview/quota/system',
+  `title` VARCHAR(200) NOT NULL COMMENT '通知标题',
+  `content` TEXT COMMENT '通知内容',
+  `biz_type` VARCHAR(64) COMMENT '关联业务类型: resume_diagnosis/resume_polish/mock_interview/quota',
+  `biz_id` VARCHAR(64) COMMENT '关联业务ID',
+  `read_status` TINYINT NOT NULL DEFAULT 0 COMMENT '已读状态: 0未读 1已读',
+  `read_time` DATETIME DEFAULT NULL COMMENT '已读时间',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除标志',
+  PRIMARY KEY (`id`),
+  INDEX `idx_notification_user_id` (`user_id`),
+  INDEX `idx_notification_user_read` (`user_id`, `read_status`),
+  INDEX `idx_notification_user_type` (`user_id`, `type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户站内通知表';
 
 INSERT INTO `membership_plan` (`id`, `plan_code`, `plan_name`, `description`, `price_amount`, `duration_days`, `resume_quota`, `interview_quota`, `status`, `sort`)
 VALUES

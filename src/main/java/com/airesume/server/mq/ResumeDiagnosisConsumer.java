@@ -6,6 +6,7 @@ import com.airesume.server.service.PdfTextExtractor;
 import com.airesume.server.service.ResumeAiService;
 import com.airesume.server.service.ResumeDiagnosisTaskService;
 import com.airesume.server.service.ResumeInfoExtractor;
+import com.airesume.server.service.NotificationService;
 import com.airesume.server.service.UserQuotaService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -37,6 +38,7 @@ public class ResumeDiagnosisConsumer {
     private final ResumeInfoExtractor resumeInfoExtractor;
     private final ObjectMapper objectMapper;
     private final UserQuotaService userQuotaService;
+    private final NotificationService notificationService;
 
     @RabbitListener(queues = ResumeDiagnosisConstants.QUEUE_RESUME_DIAGNOSIS)
     public void handleResumeDiagnosisTask(ResumeDiagnosisMessage message) {
@@ -67,6 +69,12 @@ public class ResumeDiagnosisConsumer {
 
             resumeDiagnosisTaskService.updateStatusToCompleted(taskId, enhancedResult);
             log.info("简历诊断任务完成, taskId: {}", taskId);
+
+            // 创建简历诊断完成通知
+            notificationService.createNotification(
+                    message.getUserId(), "resume", "简历诊断完成",
+                    "你的简历诊断报告已生成，点击查看结果。",
+                    "resume_diagnosis", String.valueOf(taskId));
 
         } catch (PdfTextExtractor.PdfExtractionException e) {
             log.error("PDF 解析失败, taskId: {}", taskId, e);

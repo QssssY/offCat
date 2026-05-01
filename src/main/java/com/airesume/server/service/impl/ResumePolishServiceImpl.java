@@ -11,6 +11,7 @@ import com.airesume.server.entity.ResumePolishRecord;
 import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
 import com.airesume.server.mapper.ResumeJobMatchRecordMapper;
 import com.airesume.server.mapper.ResumePolishRecordMapper;
+import com.airesume.server.service.NotificationService;
 import com.airesume.server.service.PdfTextExtractor;
 import com.airesume.server.service.ResumeJobMatchService;
 import com.airesume.server.service.ResumePolishService;
@@ -46,6 +47,7 @@ public class ResumePolishServiceImpl extends ServiceImpl<ResumePolishRecordMappe
     private final ResumeAiService resumeAiService;
     private final PdfTextExtractor pdfTextExtractor;
     private final ObjectMapper objectMapper;
+    private final NotificationService notificationService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -89,6 +91,12 @@ public class ResumePolishServiceImpl extends ServiceImpl<ResumePolishRecordMappe
         record.setModificationNotes(toJson(aiResult.getModificationNotes()));
         record.setSourceType(sourceType);
         save(record);
+
+        // 创建 AI 润色完成通知
+        notificationService.createNotification(
+                userId, "polish", "AI 简历润色完成",
+                "你的简历润色结果已生成，点击查看优化内容。",
+                "resume_polish", String.valueOf(record.getId()));
 
         return ResumePolishAnalyzeResponse.builder()
                 .polishRecordId(String.valueOf(record.getId()))
