@@ -397,8 +397,8 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         String compressedJd = (jdText != null && !jdText.isBlank())
                 ? AiInputCompressor.toStructuredFormat(jdText, AiInputCompressor.ContentType.JD)
                 : jdText;
-        String systemPrompt = buildResumePolishSystemPrompt();
-        String userPrompt = buildResumePolishUserPrompt(compressedResume, compressedJd, latestJobMatchAnalysis);
+        String systemPrompt = buildResumePolishSystemPromptV2();
+        String userPrompt = buildResumePolishUserPromptV2(compressedResume, compressedJd, latestJobMatchAnalysis);
 
         // 【Token 优化】步骤2：预估输入 token 数
         int systemTokens = TokenEstimator.estimateTokens(systemPrompt);
@@ -418,7 +418,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                 log.warn("[{}] 简历润色token预估({})超过限制({})，自动截断", tag, totalTokens, maxTokens);
                 int resumeMaxTokens = maxTokens - systemTokens - 500;
                 compressedResume = TokenEstimator.safeTruncate(compressedResume, Math.max(500, resumeMaxTokens));
-                userPrompt = buildResumePolishUserPrompt(compressedResume, compressedJd, latestJobMatchAnalysis);
+                userPrompt = buildResumePolishUserPromptV2(compressedResume, compressedJd, latestJobMatchAnalysis);
                 userTokens = TokenEstimator.estimateTokens(userPrompt);
                 totalTokens = systemTokens + userTokens;
                 log.info("[{}] 截断后预估token: {}(system:{}, user:{})", tag, totalTokens, systemTokens, userTokens);
@@ -487,6 +487,86 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                 2. 尽量用"能力/动作/结果"方式重写经历描述。
                 3. 如果提供了 JD，请体现更强的岗位针对性。
                 4. modificationNotes 至少输出 3 条，必须能让用户理解改动原因。
+                """);
+        return builder.toString();
+    }
+
+    /**
+     * AI 润色提示词 V2：
+     * 强制 AI 输出统一章节和稳定头部格式，避免不同岗位简历使用大量近义标题导致前端渲染失稳。
+     */
+    private String buildResumePolishSystemPromptV2() {
+        return """
+                角色：中文求职简历优化顾问。
+                任务：在不编造任何信息的前提下，把原始简历改写成更适合单页正式投递、且便于前端模板稳定渲染的纯文本简历。
+
+                强制规则：
+                1. 只能返回 JSON，禁止输出 JSON 之外的解释、Markdown、代码块。
+                2. JSON 结构固定为 {"polishedResumeText":"...","modificationNotes":["..."]}。
+                3. polishedResumeText 必须是纯文本简历，不要使用 Markdown 标题、表格、额外说明文字。
+                4. 章节标题只能从以下集合中选择，并按该顺序输出存在内容的章节：
+                   个人信息
+                   教育背景
+                   实习经历 或 工作经历（二选一）
+                   项目经历
+                   专业技能
+                   校园经历
+                   荣誉证书
+                   个人评价
+                5. 严禁额外发明近义标题，例如：基本信息、求职意向、专业能力、核心优势、教学实践、科研与实践经历、项目成果、技术资质、职业优势等；这些内容必须并入上述标准章节内部。
+                6. 个人信息区格式必须稳定：
+                   第一行只写姓名；
+                   第二行写求职方向/目标岗位，没有则省略；
+                   后续行只写联系方式与基础信息，每行 1-2 项，可使用“ | ”连接；
+                   不要写“AI润色简历”等字样，不要提及照片占位。
+                7. 如果原始简历中同时出现科研、教学实践、课程实践、校内实践、项目成果、技能证书等内容，必须按语义拆入标准章节：
+                   科研课题/建模/开发项目/产品项目 -> 项目经历
+                   实习/工作/任职/助教岗位职责 -> 实习经历或工作经历
+                   校内实践/课程实践/社团/学生工作/教学辅助 -> 校园经历
+                   奖项/证书/资质 -> 荣誉证书
+                8. 教育背景需根据内容自适应篇幅：
+                   985/211/双一流/重点院校/硕博/高匹配专业可以适当展开；
+                   学校普通或信息价值较低时，只保留关键信息，不堆砌描述。
+                9. 经历描述优先采用“动作 + 方法 + 结果”表达，突出岗位相关能力与成果，但绝对不能虚构经历、技术栈、数据或奖项。
+                10. 删除原文中的占位说明、可补充提示、AI 生成提示、排版备注等非正式投递内容。
+                11. modificationNotes 至少输出 3 条，说明本次结构归一、内容取舍和表达优化原因。
+                """;
+    }
+
+    /**
+     * 用户提示词 V2：
+     * 结合 JD 与最近一次匹配结果，要求 AI 主动完成章节归一和跨岗位内容拆分。
+     */
+    private String buildResumePolishUserPromptV2(String resumeText, String jdText,
+            ResumeJobMatchAnalyzeResponse latestJobMatchAnalysis) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("请对以下简历进行润色优化，并严格输出标准化章节。\n");
+        builder.append("【原始简历】\n").append(resumeText).append("\n\n");
+        if (jdText != null && !jdText.isBlank()) {
+            builder.append("【目标岗位 JD】\n").append(jdText).append("\n\n");
+        }
+        if (latestJobMatchAnalysis != null) {
+            builder.append("【最近一次岗位匹配分析】\n");
+            builder.append("匹配度评分：").append(latestJobMatchAnalysis.getMatchScore()).append("\n");
+            builder.append("已匹配关键词：").append(latestJobMatchAnalysis.getMatchedKeywords()).append("\n");
+            // 过滤无效的泛化关键词，避免误导简历润色方向。
+            List<String> filteredMissing = latestJobMatchAnalysis.getMissingKeywords() == null
+                    ? List.of()
+                    : latestJobMatchAnalysis.getMissingKeywords().stream()
+                            .filter(kw -> kw != null && !kw.isBlank() && !kw.equalsIgnoreCase("JD"))
+                            .toList();
+            builder.append("缺失关键词：").append(filteredMissing).append("\n");
+            builder.append("优化建议：").append(latestJobMatchAnalysis.getSuggestions()).append("\n\n");
+        }
+        builder.append("""
+                请输出更适合投递的版本，并满足以下要求：
+                1. 对标题体系做归一化，只保留标准章节标题，不得保留原文中的近义标题。
+                2. 如果原文出现“科研与实践”“教学实践”“课程实践”“项目成果”“技术资质”“职业优势”等表达，请按语义并入标准章节，而不是原样保留成大标题。
+                3. 如果教育背景竞争力强，可以适度展开院校与学术亮点；如果教育背景普通，则保持简洁，把篇幅优先给更有说服力的经历与成果。
+                4. 如果提供了 JD，请优先突出与 JD 最相关的能力、经历与成果，但不能杜撰。
+                5. 如果缺少实习/工作经历，不要硬编；可将校内实践、课程实践、科研项目分别整理到“校园经历”或“项目经历”。
+                6. 所有经历内容保持简洁专业，避免空泛套话，避免“负责开发”“参与项目”这类没有方法和结果支撑的弱表达。
+                7. modificationNotes 至少输出 3 条，且要让用户看懂你做了哪些结构和表达层面的调整。
                 """);
         return builder.toString();
     }
