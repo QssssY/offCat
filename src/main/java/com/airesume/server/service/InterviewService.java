@@ -142,10 +142,13 @@ public class InterviewService {
                         && jobTargetContext.getResumeText() != null
                         && !jobTargetContext.getResumeText().isBlank();
                 String resumeHint = hasResume ? "我已经看过你的简历，" : "";
+                String stressHint = "stress".equalsIgnoreCase(request.getInterviewMode())
+                        ? "需要提前说明，这是一场压力面试，我会对你的回答进行深入追问和质疑，请做好准备。"
+                        : "";
                 String openingMessage = String.format(InterviewConstants.OPENING_TEMPLATE,
                         difficultyDesc,
                         request.getJobRole() != null ? request.getJobRole() : "软件工程师",
-                        resumeHint);
+                        resumeHint) + stressHint;
 
                 // 使用事务模板确保所有数据库操作在事务中
                 transactionTemplate.executeWithoutResult(status -> {

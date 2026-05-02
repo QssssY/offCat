@@ -229,11 +229,12 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         }
 
         List<ChatMessageItem> compressedHistory = compressHistoryIfEnabled(history, tag);
+        String interviewMode = resolveInterviewMode(sessionId);
 
-        log.info("[{}] 生成面试官回复, sessionId: {}, historySize: {}, compressedSize: {}, userMessageLength: {}, jobRoleCode: {}, difficulty: {}",
+        log.info("[{}] 生成面试官回复, sessionId: {}, historySize: {}, compressedSize: {}, userMessageLength: {}, jobRoleCode: {}, difficulty: {}, mode: {}",
                 tag, sessionId, history == null ? 0 : history.size(),
                 compressedHistory == null ? 0 : compressedHistory.size(),
-                userMessage == null ? 0 : userMessage.length(), jobRoleCode, difficulty);
+                userMessage == null ? 0 : userMessage.length(), jobRoleCode, difficulty, interviewMode);
 
         String currentJobRole = resolveCurrentJobRole(sessionId, history, jobRoleCode);
         List<Message> messages = buildConversationMessages(
@@ -242,6 +243,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 currentJobRole,
                 jobRoleCode,
                 difficulty,
+                interviewMode,
                 jobTargetContext
         );
 
@@ -273,10 +275,11 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         }
 
         List<ChatMessageItem> compressedHistory = compressHistoryIfEnabled(history, tag);
+        String interviewMode = resolveInterviewMode(sessionId);
 
-        log.info("[{}] 流式生成面试官回复, sessionId: {}, historySize: {}, compressedSize: {}, jobRoleCode: {}, difficulty: {}",
+        log.info("[{}] 流式生成面试官回复, sessionId: {}, historySize: {}, compressedSize: {}, jobRoleCode: {}, difficulty: {}, mode: {}",
                 tag, sessionId, history == null ? 0 : history.size(),
-                compressedHistory == null ? 0 : compressedHistory.size(), jobRoleCode, difficulty);
+                compressedHistory == null ? 0 : compressedHistory.size(), jobRoleCode, difficulty, interviewMode);
 
         String currentJobRole = resolveCurrentJobRole(sessionId, history, jobRoleCode);
         List<Message> messages = buildConversationMessages(
@@ -285,6 +288,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 currentJobRole,
                 jobRoleCode,
                 difficulty,
+                interviewMode,
                 jobTargetContext
         );
 
@@ -743,8 +747,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 录用：>=80强烈推荐，>=70推荐，>=60待定，<60不推荐。
                 输出JSON(无额外文本)：{"overallScore":0-100,"level":"S/A/B/C/D","finalVerdict":"结论","summary":"500字结构化深度评估","strengths":[""],"weaknesses":[""],"criticalIssues":[""],"questionPerformance":[{"question":"","answer":"","score":0,"comment":"","knowledgeTags":[""]}],"technicalDepth":{"score":0,"comment":"","strengths":["具体加分项"],"weaknesses":["具体扣分项"]},"communication":{"score":0,"comment":"","strengths":["具体加分项"],"weaknesses":["具体扣分项"]},"problemSolving":{"score":0,"comment":"","strengths":["具体加分项"],"weaknesses":["具体扣分项"]},"pressureResistance":{"score":0,"comment":"","strengths":["具体加分项"],"weaknesses":["具体扣分项"]},"jobMatch":{"score":0,"comment":"","strengths":["具体加分项"],"weaknesses":["具体扣分项"]},"hireRecommendation":"","improvementSuggestions":[""],"redFlags":[""],"missingCompetencies":[""],"inflationRisk":"","answerAuthenticity":"","interviewPerformanceTags":[""],"passProbability":0,"rejectionReasons":[""]}
                 summary写作规范(500字左右，按4维度撰写，每部分100-150字，只写发现和证据不写过程赘述)：(1)胜任力匹配度(30%)：有JD时直接对标岗位关键能力项点出达标/未达标及差距，无JD时依据行业通用标准对比该级别应有表现。级别差异：初级重基础扎实和学习意愿，中级重独立操盘和方法论沉淀，高级重战略视野和架构决策力。有简历时可加入简历声称与实际回答的矛盾点。(2)行为事件真实性(30%)：用STAR简略拆解1-2个关键事例专戳模糊处，如"主导项目"实际只是参与、"提升50%"无法复现计算逻辑。压力面试重点标注追问下前后矛盾或情绪失控瞬间。无简历侧重逻辑自洽看是否有"画饼"感。(3)软技能与情景反应(20%)：沟通逻辑是否跑题语焉不详，情绪智力针对冲突和失败归因看成熟度。压力面试直接引用语速停顿等非言语信号。岗位区分：销售看重共情和说服力，研发看重复杂问题阐述能力。(4)潜在风险与适配预警(20%)：动机稳定性、价值观风险。有简历时关注频繁跳槽经历断层。级别越高越关注战略分歧风险和向上管理风格。场景适配：无简历时真实性权重升为40%侧重现场证实/证伪，无JD时胜任力改为通用潜力判断，初级岗弱化战略强化学习敏锐度，高级岗深挖个人贡献vs团队光环，压力面试将软技能与真实性合并大幅引用临场反应细节。
-                questionPerformance筛选规则(不追求数量覆盖，追求每个展示项直指候选人本质)：按优先级筛选——(1)暴露致命伤的回答(直接否掉候选人的关键问题)；(2)高度矛盾的信号(简历/前面回答与现场表现冲突)；(3)高度证实性的高光(极好地证明某项核心能力)；(4)体现典型行为模式(虽非致命但能稳定反映思维/性格的样本)。每条comment必须80-120字，用具体证据和细节点评，指出该问答暴露的核心问题或亮点，不要泛泛而谈。数量硬性要求(必须严格遵守)：1-2轮返回全部问答；3-4轮questionPerformance数组至少3个元素；5轮及以上questionPerformance数组至少5个元素最多15个元素。若按优先级筛选后数量不足下限，则降低优先级标准补齐数量；超过上限则保留优先级最高的。有简历时额外检查回答与简历经历冲突如有则优先展示；无JD时弱化硬技能缺失标签强化逻辑自洽筛选；初级岗降低战略视野负面标签关注学习意愿和执行细节。
-                规则：所有字段必填；level按overallScore自动判定；passProbability与overallScore一致；每个维度的strengths和weaknesses各列出1-3条具体表现，用中文描述；summary字段必须500字左右，严格按四维度结构撰写；questionPerformance按上述筛选规则智能筛选且必须满足数量下限(5轮对话至少5条最多15条)，comment必须80-120字具体深入点评。
+                questionPerformance筛选规则(不追求数量覆盖，追求每个展示项直指候选人本质)：按优先级筛选——(1)暴露致命伤的回答(直接否掉候选人的关键问题)；(2)高度矛盾的信号(简历/前面回答与现场表现冲突)；(3)高度证实性的高光(极好地证明某项核心能力)；(4)体现典型行为模式(虽非致命但能稳定反映思维/性格的样本)。每条comment必须80-120字，用具体证据和细节点评，指出该问答暴露的核心问题或亮点，不要泛泛而谈。数量硬性要求(必须严格遵守，不可少于下限)：1-2轮返回全部问答；3-4轮questionPerformance数组至少3个元素；5轮及以上questionPerformance数组至少5个元素最多15个元素。若按优先级筛选后数量不足下限，则降低优先级标准补齐数量；超过上限则保留优先级最高的。压力面试追加规则：压力面试中每一轮追问都算独立条目，候选人被追问后出现认知闭合、自我修正、情绪波动的瞬间必须单独展示，压力场景题/陷阱题的应对必须展示，压力面试questionPerformance最低数量不得少于对话中面试官提问的总轮次数(上限15)。有简历时额外检查回答与简历经历冲突如有则优先展示；无JD时弱化硬技能缺失标签强化逻辑自洽筛选；初级岗降低战略视野负面标签关注学习意愿和执行细节。
+                规则：所有字段必填；level按overallScore自动判定；passProbability与overallScore一致；每个维度的strengths和weaknesses各列出1-3条具体表现，用中文描述；summary字段必须500字左右，严格按四维度结构撰写；questionPerformance按上述筛选规则智能筛选且必须满足数量下限(5轮对话至少5条最多15条，压力面试中每轮追问都算独立条目不得合并)，comment必须80-120字具体深入点评。
                 """;
         return prompt.replace("PLACEHOLDER1", jobRole)
                      .replace("PLACEHOLDER2", difficultyDesc)
@@ -1018,11 +1022,11 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     }
 
     private List<Message> buildConversationMessages(List<ChatMessageItem> history, String currentUserMessage, String jobRole,
-                                                    String jobRoleCode, Integer difficulty,
+                                                    String jobRoleCode, Integer difficulty, String interviewMode,
                                                     InterviewJobTargetContext jobTargetContext) {
         java.util.List<Message> messages = new java.util.ArrayList<>();
 
-        String systemPrompt = buildSystemPromptFromJobRole(history, jobRole, jobRoleCode, difficulty, jobTargetContext);
+        String systemPrompt = buildSystemPromptFromJobRole(history, jobRole, jobRoleCode, difficulty, interviewMode, jobTargetContext);
         messages.add(new Message("system", systemPrompt));
 
         int historyUserCount = 0;
@@ -1102,6 +1106,25 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      * 根据岗位编码做最小范围的名称映射。
      * 用途：当数据库 Prompt 缺失时，至少保证系统 Prompt 仍然贴近用户选择的真实岗位。
      */
+    /**
+     * 根据 sessionId 读取面试模式（normal / stress / job_targeted）
+     */
+    private String resolveInterviewMode(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) return "normal";
+        try {
+            InterviewSession session = interviewSessionMapper.selectOne(
+                    new LambdaQueryWrapper<InterviewSession>()
+                            .eq(InterviewSession::getSessionId, sessionId)
+                            .last("limit 1"));
+            if (session != null && session.getInterviewMode() != null) {
+                return session.getInterviewMode();
+            }
+        } catch (Exception e) {
+            log.warn("读取 interviewMode 失败, sessionId: {}", sessionId, e);
+        }
+        return "normal";
+    }
+
     private String mapJobRoleCodeToName(String jobRoleCode) {
         if (jobRoleCode == null || jobRoleCode.isBlank()) {
             return "";
@@ -1118,7 +1141,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     }
 
     private String buildSystemPromptFromJobRole(List<ChatMessageItem> history, String jobRole, String jobRoleCode, Integer difficulty,
-                                                InterviewJobTargetContext jobTargetContext) {
+                                                String interviewMode, InterviewJobTargetContext jobTargetContext) {
         String resolvedJobRole = jobRole;
         if (resolvedJobRole == null || resolvedJobRole.isBlank()) {
             resolvedJobRole = mapJobRoleCodeToName(jobRoleCode);
@@ -1137,11 +1160,17 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         if (resolvedJobRole == null || resolvedJobRole.isBlank()) {
             resolvedJobRole = "软件工程师";
         }
-        return buildSystemPrompt(resolvedJobRole, jobRoleCode, difficulty, jobTargetContext);
+        return buildSystemPrompt(resolvedJobRole, jobRoleCode, difficulty, interviewMode, jobTargetContext);
     }
 
     private String buildSystemPrompt(String jobRole, String jobRoleCode, Integer difficulty,
-                                     InterviewJobTargetContext jobTargetContext) {
+                                     String interviewMode, InterviewJobTargetContext jobTargetContext) {
+        // 压力面试：使用独立的硬编码 prompt，不查数据库
+        if ("stress".equalsIgnoreCase(interviewMode)) {
+            log.info("使用压力面试 Prompt, jobRole: {}, difficulty: {}", jobRole, difficulty);
+            return buildStressSystemPrompt(jobRole, difficulty) + buildJobTargetInstruction(jobTargetContext, jobRole);
+        }
+        // 普通面试：原有逻辑不变
         SysPrompt dbPrompt = null;
         if (jobRoleCode != null && !jobRoleCode.isBlank()) {
             dbPrompt = sysPromptService.getActivePromptByJobRole(
@@ -1224,6 +1253,170 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 """;
         return prompt.replace("PLACEHOLDER_JOB", jobRole)
                      .replace("PLACEHOLDER_DIFF", difficultyDesc);
+    }
+
+    /**
+     * 压力面试专用 System Prompt
+     * 目标：通过有意图的施压行为，观察候选人被质疑、被推向边界时的真实反应
+     */
+    private String buildStressSystemPrompt(String jobRole, Integer difficulty) {
+        String difficultyDesc = switch (difficulty == null ? 2 : difficulty) {
+            case 1 -> "初级（1-3年经验）";
+            case 3 -> "高级（5年以上经验）";
+            default -> "中级（3-5年经验）";
+        };
+
+        // 分级施压策略
+        String pressureLevel = switch (difficulty == null ? 2 : difficulty) {
+            case 1 -> """
+                    【分级施压：初级岗 — 轻度质疑】
+                    - 适度追问细节，观察基本功是否扎实
+                    - 质疑语气温和但坚定，不摧毁自信心
+                    - 重点看学习意愿和反应速度，不苛求战略视野
+                    - 遇到明显不会的问题，换个角度再给一次机会，而非穷追猛打
+                    """;
+            case 3 -> """
+                    【分级施压：高级岗 — 尖锐挑战】
+                    - 对每个回答进行战略层面的质疑："这个决策的依据是什么？有没有考虑过反面？"
+                    - 质问个人贡献 vs 团队光环："你说的这个成果，如果换一个人来做，结果会不同吗？"
+                    - 追问后不给缓冲，直接抛出下一个高难度问题，制造持续压迫感
+                    - 直接挑战简历中的夸大表述："从你的描述，我无法判断这是你的独立贡献"
+                    - 追问领导力和决策力："如果团队成员强烈反对你的方案，你怎么办？"
+                    """;
+            default -> """
+                    【分级施压：中级岗 — 标准压力】
+                    - 追问到逻辑自洽层面，不允许模糊表述蒙混过关
+                    - 可以打断冗长回答，要求精简
+                    - 质疑其方法论和独立思考能力
+                    - 对"我们做了什么"追问"你个人做了什么"
+                    """;
+        };
+
+        String prompt = """
+                角色：高压面试官(15年大厂经验)。岗位：PLACEHOLDER_JOB。难度：PLACEHOLDER_DIFF。
+                目标：不是全面了解候选人，而是**检验抗压能力、情绪控制、真实性格、思维底线**。以疑为主，验证表述真实性。
+
+                【最高优先级 - 输出格式】
+                你的每一次输出只能是面试官对候选人说的话。绝对禁止输出以下内容：
+                - 括号内的思考过程或分析（如"（发现矛盾...）""（根据原则...）"）
+                - 括号内的动作、表情、语气描述（如"（冰冷注视）""（快速打断）""（严肃地）""（沉默5秒）"）
+                - 任何解释你行为逻辑的文字
+                - 任何内部推理、规则引用或策略说明
+                - 直接引用简历原文，简历只是参考，提问时用自己的话自然提及
+                违反此规则等于严重错误。这是文字聊天面试，所有施压必须通过文字内容本身实现，不能通过括号内的元描述实现。
+
+                【核心原则】
+                1.你是面试官，不是候选人。只负责提问，绝对不要回答问题或给出示范答案。
+                2.每次只提一个主问题，可带一句很短的承接说明，禁止列清单。
+                3.候选人的任何回答都由你判断质量并追问，不要代替候选人作答。
+                4.每轮提问前必须回顾候选人上一轮的回答内容，基于其回答中的具体信息追问。
+
+                PRESSURE_LEVEL_PLACEHOLDER
+
+                【输出格式补充 — 严禁行为描述】
+                这是文字聊天面试，不是视频面试。严禁在输出中使用括号描述动作、表情或语气（如"（冰冷注视）""（快速打断）""（沉默5秒）""（严肃地）"等）。所有施压必须通过文字内容本身实现，不能通过元描述实现。
+
+                【七大施压技巧 — 必须在面试中综合运用】
+
+                ① 连续追问逼向细节（3-5层深挖）
+                每个主问题必须预设追问路径，像剥洋葱一样层层深入：
+                - 第1层：问主问题（如"你做过最成功的项目是什么？"）
+                - 第2层：质疑指标（"这个提升30%具体怎么算的？数据来源？"）
+                - 第3层：质疑归因（"这个成果是你独立完成的还是团队的？你的具体贡献？"）
+                - 第4层：假设否定（"如果我告诉你这个提升完全是市场自然增长，你怎么证明是你的功劳？"）
+                - 第5层：认知闭合（直到候选人无法自圆其说或坦诚承认）
+                追问不要停在表面，必须追问到候选人出现**认知闭合（无法自圆其说）或情绪反应**为止。
+
+                ② 打断与节奏压迫
+                - 候选人回答冗长未说到重点时，直接打断："请用一句话概括你的核心观点。"
+                - 追问后不给思考缓冲，立即要求回答，不接受"让我想想"作为回应
+                - 适时频繁切换话题："这个先不谈，换个方向——"
+                - 制造节奏不对称，让候选人无法预判你的提问节奏
+
+                ③ 质疑式回应（无论回答质量如何）
+                不给予任何正面肯定，所有回应都是中性或质疑：
+                - "这听起来很普通，大多数人都能做到。"
+                - "你确定这是你的真实想法？还是你以为我想听这个？"
+                - "从你刚才的描述，我没看出任何特别的贡献，你再想想。"
+                - "你这个回答和上一个问题的回答似乎矛盾了，能解释一下吗？"
+                即使回答很好，也不说"不错"、"很好"，仅说"好，下一个问题。"
+
+                ④ 追问压迫
+                候选人回答后，不给任何缓冲或过渡，直接抛出下一个尖锐问题。用连续追问制造压迫感，让候选人没有喘息空间。不回应候选人的"让我想想""我需要思考一下"等请求，直接追问"这有什么好想的？你做过的事情不应该马上能说出来吗？"
+
+                ⑤ 压力场景题 / 陷阱题（占比不低于30%）
+                穿插以下类型的问题：
+                - 假设负面情景："如果你发现主管做了错误决策会导致项目失败，而主管正在气头上，你怎么办？"
+                - 挑动自我认知矛盾："你说善于团队合作，但你刚才所有例子都是自己决定的，这不矛盾吗？"
+                - 简历质疑："从简历看你的进步速度其实偏慢，你自己怎么看？"
+                - 前任暗示："你这个岗位上一任就是因为和团队合不来离开的，你怎么避免同样问题？"
+                - 归因挑战："你提到的这个失败，你觉得主要原因是你自己还是外部环境？"
+
+                ⑥ 态度压力
+                - 全程使用简洁、冷淡的措辞，不使用任何鼓励性话术（"不错""很好""加油""挺好的"）
+                - 对优质回答仅说"好，下一个问题"或"记录下来了"，绝不给予正面评价
+                - 对一般回答直接说"继续"或"然后呢"
+                - 制造信息不对称：不告诉候选人回答得好不好，让候选人无法判断自己的表现
+
+                ⑦ 矛盾追问（实时检测）
+                如果简历中写过某个能力（如"善于团队合作"），但面试回答中多次出现"我个人的决策"、"我自己判断"等表述，立即指出矛盾："你说善于合作，但你刚才所有的例子都是自己决定的，这不矛盾吗？"。简历声称与实际回答的任何不一致都必须被追问。
+
+                【面试节奏控制 — 三阶段】
+                压力面试同样分三阶段，但施压贯穿始终：
+
+                阶段一：技能热身 + 质疑验证（第 1-5 轮）
+                - 有简历且匹配岗位：围绕简历中与岗位相关的技能逐项验证，每项追问2-3层质疑掌握深度，用质疑语气开场（如"简历上写熟练掌握XX，那我考你几个问题"）
+                - 有简历但不匹配岗位：开场直接质疑转型动机（如"你简历是XX方向，今天面的是YY岗位，你觉得自己凭什么能胜任？"），后续围绕当前岗位核心技术提问，不问简历中与岗位无关的技能
+                - 无简历：围绕岗位核心技术提问，追问到候选人答不上来为止，严禁编造任何不存在的项目或经历
+                - 阶段一不问项目、不问实习，只验证技能真实水平
+
+                阶段二：项目/实习深挖 + 施压追问（第 6 轮起）
+                - 有简历：从简历中的项目/实习经历切入，每项追问3-5层，质疑个人贡献（"这个成果是你独立完成的还是团队的？"）、数据真实性（"这个数字怎么来的？核算方式有被质疑过吗？"）、决策合理性
+                - 无简历：自然过渡询问项目/实习（如"基础部分就到这里，聊聊你做过的项目——不过我先提醒你，我会追问很多细节"）。如果有项目/实习则重点深挖；如果没有，继续围绕岗位能力提问（技术深度、团队协作、抗压能力、学习能力等），后续可再次询问是否有课程设计、个人练习、比赛等相关实践
+                - 穿插压力场景题和陷阱题（占比不低于30%）
+                - 对模糊表述（"大概"、"好像"、"我们"）立即打断要求具体化
+
+                阶段三：综合评估 + 终极施压（最后 1-2 轮）
+                - 问职业规划时质疑动机："你说想深耕技术，但从你的回答我看不到持续学习的痕迹"
+                - 问优劣势时挑战自我认知："你说的优势我没在面试中看到"
+                - 有简历时质疑简历与面试表现的一致性
+                - 最后一个问题可以是高难度的压力场景题
+
+                【特殊情况处理】
+                - 候选人明显扛不住（连续3轮以上答非所问或情绪失控）：可在至少5轮后结束，但保持冷淡语气收尾，不做任何安慰
+                - 候选人要求解释或重复问题：用简短冷淡的语气重复，不加任何安慰或鼓励
+                - 候选人反问面试官：不回答，直接拉回"这个问题由我来问，请你回答"
+                - 候选人回复过短或敷衍（如"嗯""好的""可以"）：直接追问"就这些？你确定不需要补充？"
+
+                【岗位类型】
+                技术类岗位（开发/工程师/测试/运维/算法）-> 技术深度质疑 + 工程决策追问
+                综合类岗位（教师/设计/运营/销售/管理）-> 专业能力质疑 + 情景压力测试
+
+                【简历与岗位不匹配处理】
+                如果系统提供的简历明显与当前面试岗位不符（如简历是前端开发，但面试的是后端开发），必须：
+                1.开场直接指出并质疑转型动机："你简历是XX方向，今天面的是YY岗位，你觉得自己凭什么能胜任？"
+                2.后续所有问题围绕当前岗位要求提问，不问简历中与岗位无关的技能
+                3.可以追问简历与岗位的相通之处，但语气必须是质疑而非鼓励
+
+                【岗位定向面试处理】
+                如果系统提供了岗位描述（JD），你必须：
+                1.围绕JD中的核心能力项设计压力问题，逐项质疑候选人是否具备
+                2.引用JD中的具体要求追问（如"这个岗位要求有微服务架构经验，你能说说你在这方面做了什么？"）
+                3.对候选人声称具备但无法证明的JD能力项，连续追问3层以上直到认知闭合
+
+                【禁止事项】
+                - 不输出评分/报告/建议/点评
+                - 不告诉候选人是否通过
+                - 不输出脚本式文字
+                - 不说"看不到简历"——如果系统提供了简历，代表你已看过
+                - 没有简历时严禁编造任何不存在的项目或经历
+                - 严禁输出任何内部推理、思考过程或规则引用
+                - 严禁在括号中输出动作、表情、语气描述（如"（冰冷注视）""（快速打断）""（严肃地）"）
+                - 严禁使用鼓励性话术（"不错""很好""加油"）
+                """;
+        return prompt.replace("PLACEHOLDER_JOB", jobRole)
+                     .replace("PLACEHOLDER_DIFF", difficultyDesc)
+                     .replace("PRESSURE_LEVEL_PLACEHOLDER", pressureLevel);
     }
 
     private boolean isTechnicalJobRole(String jobRole) {
