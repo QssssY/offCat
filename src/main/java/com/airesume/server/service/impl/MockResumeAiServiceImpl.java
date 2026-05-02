@@ -66,4 +66,25 @@ public class MockResumeAiServiceImpl implements ResumeAiService {
         ));
         return result;
     }
+
+    @Override
+    public String diagnoseJobMatch(String resumeText, String jdText) {
+        log.info("[MOCK] JD 匹配分析调用(mock mode), resumeTextLength: {}, jdTextLength: {}",
+                resumeText == null ? 0 : resumeText.length(),
+                jdText == null ? 0 : jdText.length());
+        return """
+                {
+                  "matchScore": 72,
+                  "matchedKeywords": ["Java", "Spring Boot", "MySQL", "项目经验", "团队协作"],
+                  "missingKeywords": ["微服务架构", "Docker", "性能优化", "高并发经验"],
+                  "suggestions": [
+                    "建议补充微服务架构相关的项目经历，如Spring Cloud、服务拆分经验",
+                    "在项目描述中增加Docker容器化部署和CI/CD流水线相关经验",
+                    "针对高并发场景，补充性能优化的具体案例和量化数据",
+                    "将已有技术能力按岗位JD的优先级重新排序，突出最相关技能"
+                  ],
+                  "analysisSummary": "候选人具备扎实的Java基础和项目开发经验，与岗位基础要求匹配度较好。但在微服务架构、容器化部署和高并发场景经验方面存在提升空间，建议针对性补充相关经历。"
+                }
+                """;
+    }
 }

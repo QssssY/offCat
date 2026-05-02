@@ -216,6 +216,108 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         }
     }
 
+    @Override
+    public String diagnoseJobMatch(String resumeText, String jdText) {
+        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
+        String tag = runtimeConfig.provider().toUpperCase();
+        if (resumeText == null || resumeText.isBlank()) {
+            throw new IllegalArgumentException("简历文本不能为空");
+        }
+        if (jdText == null || jdText.isBlank()) {
+            throw new IllegalArgumentException("岗位 JD 文本不能为空");
+        }
+        String apiKey = runtimeConfig.apiKey();
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new IllegalStateException("请在管理端配置简历 AI 密钥，或设置环境变量 "
+                    + getEnvKeyName(runtimeConfig.provider()) + " / API_KEY");
+        }
+
+        String systemPrompt = buildJobMatchSystemPrompt();
+        String userPrompt = buildJobMatchUserPrompt(resumeText, jdText);
+
+        int systemTokens = TokenEstimator.estimateTokens(systemPrompt);
+        int userTokens = TokenEstimator.estimateTokens(userPrompt);
+        log.info("[{}] JD 匹配分析调用, 预估token: {}(system:{}, user:{})",
+                tag, systemTokens + userTokens, systemTokens, userTokens);
+
+        RequestBody request = new RequestBody();
+        request.model = runtimeConfig.model();
+        request.messages = List.of(
+                new Message("system", systemPrompt),
+                new Message("user", userPrompt));
+        request.thinking = buildThinkingConfig(runtimeConfig.model(), thinkingMode);
+        try {
+            log.info("[{}] JD 匹配分析请求, model: {}, 配置来源: {}",
+                    tag, runtimeConfig.model(), runtimeConfig.source());
+            RestClient runtimeRestClient = restClientBuilder
+                    .baseUrl(runtimeConfig.baseUrl())
+                    .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+                    .build();
+            ResponseBody response = runtimeRestClient.post()
+                    .uri(runtimeConfig.endpoint())
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                    .body(request)
+                    .retrieve()
+                    .body(ResponseBody.class);
+            if (response == null || response.choices == null || response.choices.isEmpty()) {
+                throw new RuntimeException("AI 返回内容为空");
+            }
+            String result = response.choices.get(0).message.content;
+            log.info("[{}] JD 匹配分析成功, responseLength: {}",
+                    tag, result == null ? 0 : result.length());
+            return extractJsonFromResponse(result);
+        } catch (Exception e) {
+            log.error("[{}] JD 匹配分析失败", tag, e);
+            throw new RuntimeException("AI JD 匹配分析失败: " + e.getMessage(), e);
+        }
+    }
+
+    private String buildJobMatchSystemPrompt() {
+        return """
+                你是一位资深HR和招聘专家，精通各行业岗位要求分析和人才评估。
+                请分析候选人简历与目标岗位JD的匹配程度，返回严格的JSON格式结果。
+
+                【返回格式】
+                {
+                  "matchScore": 85,
+                  "matchedKeywords": ["已匹配的能力点1", "已匹配的能力点2"],
+                  "missingKeywords": ["缺失的能力点1", "缺失的能力点2"],
+                  "suggestions": ["具体可执行的优化建议1", "具体可执行的优化建议2", "具体可执行的优化建议3"],
+                  "analysisSummary": "一段话总结匹配情况"
+                }
+
+                【评分标准】
+                matchScore 基于语义理解综合评分（0-100），不是简单的关键词计数：
+                - 90-100：高度匹配，简历完全覆盖JD核心要求，经验深度足够
+                - 75-89：较好匹配，覆盖大部分核心要求，部分能力有提升空间
+                - 60-74：基本匹配，覆盖部分核心要求，存在明显能力缺口
+                - 45-59：匹配度偏低，仅覆盖少量核心要求
+                - 0-44：匹配度低，简历与岗位要求差距较大
+
+                评分需综合考虑：技能匹配度、经验深度、行业相关性、项目复杂度、软技能匹配
+
+                【分析要求】
+                1. matchedKeywords：提取简历中真正体现的与岗位匹配的能力点，不是简单匹配字面关键词
+                2. missingKeywords：识别JD核心要求中简历未覆盖或体现不足的能力项
+                3. suggestions：针对具体缺失给出可操作的优化建议，每条建议需具体、可执行，避免泛泛而谈
+                4. analysisSummary：简洁总结匹配情况，包含核心优势和主要差距，2-3句话
+
+                【注意事项】
+                - 只返回JSON，不要返回其他内容
+                - matchedKeywords 和 missingKeywords 各不超过10项
+                - suggestions 至少3条，不超过6条
+                - 不要编造简历中没有的信息
+                """;
+    }
+
+    private String buildJobMatchUserPrompt(String resumeText, String jdText) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("【候选人简历】\n").append(resumeText).append("\n\n");
+        builder.append("【目标岗位 JD】\n").append(jdText).append("\n\n");
+        builder.append("请分析该简历与岗位JD的匹配程度，返回JSON格式结果。");
+        return builder.toString();
+    }
+
     private String getEnvKeyName(String providerType) {
         String normalizedProvider = normalizeConfigValue(providerType);
         if (normalizedProvider == null) {

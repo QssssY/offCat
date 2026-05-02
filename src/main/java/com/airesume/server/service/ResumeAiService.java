@@ -11,4 +11,9 @@ public interface ResumeAiService {
      * 基于简历原文和可选 JD 上下文生成润色结果。
      */
     ResumePolishAiResult polishResume(String resumeText, String jdText, ResumeJobMatchAnalyzeResponse latestJobMatchAnalysis);
+
+    /**
+     * AI 分析简历与目标岗位 JD 的匹配程度，返回结构化 JSON。
+     */
+    String diagnoseJobMatch(String resumeText, String jdText);
 }

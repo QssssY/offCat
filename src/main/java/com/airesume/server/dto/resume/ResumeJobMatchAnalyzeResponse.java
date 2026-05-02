@@ -48,6 +48,11 @@ public class ResumeJobMatchAnalyzeResponse {
     private List<String> suggestions;
 
     /**
+     * AI 生成的匹配情况总结。
+     */
+    private String analysisSummary;
+
+    /**
      * 创建时间。
      */
     private LocalDateTime createTime;
