@@ -741,8 +741,10 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 原则：1)按一线大厂标准 2)实事求是不鼓励 3)直接尖锐指出问题 4)保守评分(60以下不录用) 5)不放水。
                 评分：90-100=S(远超预期)，80-89=A(优秀)，70-79=B(达标)，60-69=C(勉强)，<60=D(淘汰)。
                 录用：>=80强烈推荐，>=70推荐，>=60待定，<60不推荐。
-                输出JSON(无额外文本)：{"overallScore":0-100,"level":"S/A/B/C/D","finalVerdict":"结论","summary":"总体评价","strengths":[""],"weaknesses":[""],"criticalIssues":[""],"questionPerformance":[{"question":"","answer":"","score":0,"comment":"","knowledgeTags":[""]}],"technicalDepth":{"score":0,"comment":""},"communication":{"score":0,"comment":""},"problemSolving":{"score":0,"comment":""},"pressureResistance":{"score":0,"comment":""},"jobMatch":{"score":0,"comment":""},"hireRecommendation":"","improvementSuggestions":[""],"redFlags":[""],"missingCompetencies":[""],"inflationRisk":"","answerAuthenticity":"","interviewPerformanceTags":[""],"passProbability":0,"rejectionReasons":[""]}
-                规则：所有字段必填；level按overallScore自动判定；passProbability与overallScore一致；questionPerformance至少记录前3轮。
+                输出JSON(无额外文本)：{"overallScore":0-100,"level":"S/A/B/C/D","finalVerdict":"结论","summary":"500字结构化深度评估","strengths":[""],"weaknesses":[""],"criticalIssues":[""],"questionPerformance":[{"question":"","answer":"","score":0,"comment":"","knowledgeTags":[""]}],"technicalDepth":{"score":0,"comment":"","strengths":["具体加分项"],"weaknesses":["具体扣分项"]},"communication":{"score":0,"comment":"","strengths":["具体加分项"],"weaknesses":["具体扣分项"]},"problemSolving":{"score":0,"comment":"","strengths":["具体加分项"],"weaknesses":["具体扣分项"]},"pressureResistance":{"score":0,"comment":"","strengths":["具体加分项"],"weaknesses":["具体扣分项"]},"jobMatch":{"score":0,"comment":"","strengths":["具体加分项"],"weaknesses":["具体扣分项"]},"hireRecommendation":"","improvementSuggestions":[""],"redFlags":[""],"missingCompetencies":[""],"inflationRisk":"","answerAuthenticity":"","interviewPerformanceTags":[""],"passProbability":0,"rejectionReasons":[""]}
+                summary写作规范(500字左右，按4维度撰写，每部分100-150字，只写发现和证据不写过程赘述)：(1)胜任力匹配度(30%)：有JD时直接对标岗位关键能力项点出达标/未达标及差距，无JD时依据行业通用标准对比该级别应有表现。级别差异：初级重基础扎实和学习意愿，中级重独立操盘和方法论沉淀，高级重战略视野和架构决策力。有简历时可加入简历声称与实际回答的矛盾点。(2)行为事件真实性(30%)：用STAR简略拆解1-2个关键事例专戳模糊处，如"主导项目"实际只是参与、"提升50%"无法复现计算逻辑。压力面试重点标注追问下前后矛盾或情绪失控瞬间。无简历侧重逻辑自洽看是否有"画饼"感。(3)软技能与情景反应(20%)：沟通逻辑是否跑题语焉不详，情绪智力针对冲突和失败归因看成熟度。压力面试直接引用语速停顿等非言语信号。岗位区分：销售看重共情和说服力，研发看重复杂问题阐述能力。(4)潜在风险与适配预警(20%)：动机稳定性、价值观风险。有简历时关注频繁跳槽经历断层。级别越高越关注战略分歧风险和向上管理风格。场景适配：无简历时真实性权重升为40%侧重现场证实/证伪，无JD时胜任力改为通用潜力判断，初级岗弱化战略强化学习敏锐度，高级岗深挖个人贡献vs团队光环，压力面试将软技能与真实性合并大幅引用临场反应细节。
+                questionPerformance筛选规则(不追求数量覆盖，追求每个展示项直指候选人本质)：按优先级筛选——(1)暴露致命伤的回答(直接否掉候选人的关键问题)；(2)高度矛盾的信号(简历/前面回答与现场表现冲突)；(3)高度证实性的高光(极好地证明某项核心能力)；(4)体现典型行为模式(虽非致命但能稳定反映思维/性格的样本)。每条comment必须80-120字，用具体证据和细节点评，指出该问答暴露的核心问题或亮点，不要泛泛而谈。数量硬性要求(必须严格遵守)：1-2轮返回全部问答；3-4轮questionPerformance数组至少3个元素；5轮及以上questionPerformance数组至少5个元素最多15个元素。若按优先级筛选后数量不足下限，则降低优先级标准补齐数量；超过上限则保留优先级最高的。有简历时额外检查回答与简历经历冲突如有则优先展示；无JD时弱化硬技能缺失标签强化逻辑自洽筛选；初级岗降低战略视野负面标签关注学习意愿和执行细节。
+                规则：所有字段必填；level按overallScore自动判定；passProbability与overallScore一致；每个维度的strengths和weaknesses各列出1-3条具体表现，用中文描述；summary字段必须500字左右，严格按四维度结构撰写；questionPerformance按上述筛选规则智能筛选且必须满足数量下限(5轮对话至少5条最多15条)，comment必须80-120字具体深入点评。
                 """;
         return prompt.replace("PLACEHOLDER1", jobRole)
                      .replace("PLACEHOLDER2", difficultyDesc)
@@ -787,6 +789,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
 
         try {
             InterviewEvaluationReport report = objectMapper.readValue(jsonContent, InterviewEvaluationReport.class);
+            normalizeDimensionScores(report);
             log.info("[{}] 评价报告 JSON 解析成功", tag);
             return report;
         } catch (Exception e) {
@@ -803,6 +806,20 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             return response.substring(firstBrace, lastBrace + 1);
         }
         return response;
+    }
+
+    private void normalizeDimensionScores(InterviewEvaluationReport report) {
+        normalizeDimensionScore(report.getTechnicalDepth());
+        normalizeDimensionScore(report.getCommunication());
+        normalizeDimensionScore(report.getProblemSolving());
+        normalizeDimensionScore(report.getPressureResistance());
+        normalizeDimensionScore(report.getJobMatch());
+    }
+
+    private void normalizeDimensionScore(InterviewEvaluationReport.DimensionScore ds) {
+        if (ds == null) return;
+        if (ds.getStrengths() == null) ds.setStrengths(new ArrayList<>());
+        if (ds.getWeaknesses() == null) ds.setWeaknesses(new ArrayList<>());
     }
 
     private InterviewEvaluationReport buildDefaultEvaluationReport() {

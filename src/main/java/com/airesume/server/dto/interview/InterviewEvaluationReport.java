@@ -206,5 +206,17 @@ public class InterviewEvaluationReport {
          * 评价说明
          */
         private String comment;
+
+        /**
+         * 加分项列表
+         */
+        @Builder.Default
+        private List<String> strengths = new ArrayList<>();
+
+        /**
+         * 扣分项列表
+         */
+        @Builder.Default
+        private List<String> weaknesses = new ArrayList<>();
     }
 }
