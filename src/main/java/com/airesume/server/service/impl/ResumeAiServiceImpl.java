@@ -449,6 +449,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                 权重：基本信息10% 岗位核心能力15% 工作25% 项目40% 教育10%。
                 跨行业原则：按岗位方向评价核心能力，不默认技术标准。与岗位无关的字段不扣分。
                 规则：只返回JSON，无额外文本；JSON完整闭合；缺信息返回null/空数组；basicInfoDetails从原文提取真实值。
+                得分明细规则：每个维度（basicInfoEvaluation、skillEvaluation、workExperienceEvaluation、projectExperienceEvaluation、educationEvaluation）必须包含strengths和weaknesses数组，strengths列出2-4条加分项（做得好的具体方面），weaknesses列出2-4条扣分项（需要改进的具体方面及扣分原因），每项一句话简洁具体，不得为空数组。
                 """;
     }
 
@@ -466,18 +467,19 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                         3.与岗位无关的字段（如非技术岗的hasGithub/hasBlog）直接填false，不扣分。
                         4.简历结构：逻辑是否清晰，有无错别字/排版问题。
                         5.每个维度的strengths列出该维度的加分项（做得好的地方），weaknesses列出扣分项（需要改进的地方），每项一句话，简洁具体。
+                        6.每个维度必须包含evaluation字段：一段80-150字的评价文本，结构为"先说明分数由来→列出主要加分项→列出主要扣分项→给出改进建议"，语气专业客观，不要泛泛而谈。
 
                         summary要求：写一段200-350字的简历总结评价。必须包含：先肯定简历中具体的优势（如哪些项目写得好、哪些能力突出），再指出具体的问题（哪些描述空洞、哪些维度缺失、哪些地方需要改进）。语气专业客观，有理有据，不要泛泛而谈。
 
                         返回JSON格式(不要额外文本)：
-                        {"overallEvaluation":{"totalScore":0-100,"level":"S/A/B/C/D","summary":"200-350字详细评价，先说优点再说问题"},
+                        {"overallEvaluation":{"totalScore":0-100,"level":"S/A/B/C/D","summary":"200-350字详细评价，先说优点再说问题","evaluation":"80-150字综合评价，说明分数由来、主要优缺点及改进建议","strengths":["整体优势1","整体优势2"],"weaknesses":["整体不足1","整体不足2"]},
                         "highlights":["亮点1"],
-                        "basicInfoEvaluation":{"score":0-100,"hasName":true/false,"hasPhone":true/false,"hasEmail":true/false,"hasGithub":true/false,"hasBlog":true/false,"strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1"]},
+                        "basicInfoEvaluation":{"score":0-100,"hasName":true/false,"hasPhone":true/false,"hasEmail":true/false,"hasGithub":true/false,"hasBlog":true/false,"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1"]},
                         "basicInfoDetails":{"name":"","email":"","phone":"","location":"","currentCompany":"","github":"","blog":""},
-                        "skillEvaluation":{"score":0-100,"skillList":[""],"strengths":[""],"weaknesses":[""],"suggestions":[""]},
-                        "workExperienceEvaluation":{"score":0-100,"totalYears":0,"companyCount":0,"hasQuantifiableResults":true/false,"experiences":[{"company":"","position":"","duration":"","highlights":[""]}],"strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":[""]},
-                        "projectExperienceEvaluation":{"score":0-100,"projectCount":0,"hasTechStack":true/false,"hasResponsibilities":true/false,"projects":[{"name":"","role":"","techStack":"","highlights":[""]}],"strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":[""]},
-                        "educationEvaluation":{"score":0-100,"degree":"","school":"","major":"","hasRelevantMajor":true/false,"strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":[""]},
+                        "skillEvaluation":{"score":0-100,"skillList":[""],"evaluation":"80-150字评价文本","strengths":[""],"weaknesses":[""],"suggestions":[""]},
+                        "workExperienceEvaluation":{"score":0-100,"totalYears":0,"companyCount":0,"hasQuantifiableResults":true/false,"experiences":[{"company":"","position":"","duration":"","highlights":[""]}],"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":[""]},
+                        "projectExperienceEvaluation":{"score":0-100,"projectCount":0,"hasTechStack":true/false,"hasResponsibilities":true/false,"projects":[{"name":"","role":"","techStack":"","highlights":[""]}],"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":[""]},
+                        "educationEvaluation":{"score":0-100,"degree":"","school":"","major":"","hasRelevantMajor":true/false,"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":[""]},
                         "optimizationSuggestions":["建议1"]}
                         """;
     }
