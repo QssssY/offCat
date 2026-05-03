@@ -139,6 +139,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
 
     @Override
     public String diagnose(String resumeText) {
+        long startTime = System.currentTimeMillis();
         RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
         String tag = runtimeConfig.provider().toUpperCase();
         if (resumeText == null || resumeText.isBlank()) {
@@ -152,7 +153,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         // 【Token 优化】步骤1：压缩简历文本（去除冗余空白、重复内容、章节优化）
         String compressedResume = compressResumeIfEnabled(resumeText, tag);
         String systemPrompt = resolveSystemPrompt(tag);
-        String userPrompt = buildUserPrompt(compressedResume);
+        String userPrompt = buildCompactDiagnosisUserPrompt(compressedResume);
 
         // 【Token 优化】步骤2：预估输入 token 数（系统 Prompt + 用户 Prompt）
         int systemTokens = TokenEstimator.estimateTokens(systemPrompt);
@@ -197,9 +198,9 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             RestClient.Builder builder = restClientBuilder
                     .baseUrl(runtimeConfig.baseUrl())
                     .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json");
-            int readTimeout = 300_000; // 默认 5 分钟，DeepSeek 大 prompt 生成耗时较长
+            int readTimeout = 600_000; // 默认 10 分钟，DeepSeek 大 prompt 生成耗时较长
             if (runtimeConfig.timeoutMs() != null && runtimeConfig.timeoutMs() > 0) {
-                readTimeout = Math.max(runtimeConfig.timeoutMs(), 300_000); // 至少 5 分钟
+                readTimeout = Math.max(runtimeConfig.timeoutMs(), 600_000); // 至少 10 分钟
             }
             SimpleClientHttpRequestFactory customFactory = new SimpleClientHttpRequestFactory();
             customFactory.setConnectTimeout(10000);
@@ -207,21 +208,29 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             builder = builder.requestFactory(customFactory);
             log.info("[{}] HTTP 超时: {}ms", tag, readTimeout);
             RestClient runtimeRestClient = builder.build();
+            long aiStartTime = System.currentTimeMillis();
+            log.info("[{}] 开始调用 AI API...", tag);
             ResponseBody response = runtimeRestClient.post()
                     .uri(runtimeConfig.endpoint())
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
                     .body(request)
                     .retrieve()
                     .body(ResponseBody.class);
+            long aiElapsed = System.currentTimeMillis() - aiStartTime;
+            log.info("[{}] AI API 调用完成, 耗时: {}ms ({}分{}秒)", tag, aiElapsed, aiElapsed / 60000, (aiElapsed / 1000) % 60);
             if (response == null || response.choices == null || response.choices.isEmpty()) {
                 throw new RuntimeException("AI 返回内容为空");
             }
             String result = response.choices.get(0).message.content;
-            log.info("[{}] 简历诊断成功, responseLength: {}",
-                    tag, result == null ? 0 : result.length());
+            long elapsed = System.currentTimeMillis() - startTime;
+            long elapsedSec = elapsed / 1000;
+            log.info("[{}] 简历诊断成功, responseLength: {}, 总耗时: {}ms ({}分{}秒)",
+                    tag, result == null ? 0 : result.length(), elapsed, elapsedSec / 60, elapsedSec % 60);
             return extractJsonFromResponse(result);
         } catch (Exception e) {
-            log.error("[{}] 简历诊断失败", tag, e);
+            long elapsed = System.currentTimeMillis() - startTime;
+            long elapsedSec = elapsed / 1000;
+            log.error("[{}] 简历诊断失败, 耗时: {}ms ({}分{}秒)", tag, elapsed, elapsedSec / 60, elapsedSec % 60, e);
             throw new RuntimeException("AI 简历诊断失败: " + e.getMessage(), e);
         }
     }
@@ -262,9 +271,9 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             RestClient.Builder builder = restClientBuilder
                     .baseUrl(runtimeConfig.baseUrl())
                     .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json");
-            int readTimeout = 300_000; // 默认 5 分钟，DeepSeek 大 prompt 生成耗时较长
+            int readTimeout = 600_000; // 默认 10 分钟，DeepSeek 大 prompt 生成耗时较长
             if (runtimeConfig.timeoutMs() != null && runtimeConfig.timeoutMs() > 0) {
-                readTimeout = Math.max(runtimeConfig.timeoutMs(), 300_000); // 至少 5 分钟
+                readTimeout = Math.max(runtimeConfig.timeoutMs(), 600_000); // 至少 10 分钟
             }
             SimpleClientHttpRequestFactory customFactory = new SimpleClientHttpRequestFactory();
             customFactory.setConnectTimeout(10000);
@@ -459,7 +468,62 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             return dbPrompt;
         }
         log.warn("[{}] 数据库中未找到启用的简历诊断Prompt，使用内置默认Prompt", tag);
-        return getDefaultSystemPrompt();
+        return getCompactDefaultSystemPrompt();
+    }
+
+    /**
+     * 诊断任务默认走紧凑版 Prompt，保留现有结果结构，但收紧篇幅要求，减少无效生成耗时。
+     */
+    private String getCompactDefaultSystemPrompt() {
+        return """
+                角色：跨行业资深职业顾问。任务：严格诊断简历问题。
+                原则：1)根据简历实际岗位方向评价，不预设技术岗标准 2)优点缺点都直说 3)项目必须有业务价值和量化成果 4)学历可以放宽，但经历必须真实可信。
+                评分标准：S(90+)顶尖 A(75-89)优秀 B(60-74)合格 C(40-59)偏弱 D(<40)问题严重。多数简历应落在B-C区间，仅真正出色者得A以上。
+                权重：基本信息10% 岗位核心能力15% 工作25% 项目40% 教育10%。
+                规则：只返回JSON，不要额外文本；JSON必须完整闭合；缺信息返回null或空数组；basicInfoDetails必须从原文提取真实值。
+                输出约束：
+                1. 每个维度的 strengths 和 weaknesses 各输出1-3条，必须简洁具体，不得为空数组。
+                2. 除 overallEvaluation 外，每个维度的 evaluation 控制在50-90字。
+                3. overallEvaluation.summary 控制在180-260字，使用1个自然段。
+                4. optimizationSuggestions 输出2-4条，优先写最关键的问题。
+                """;
+    }
+
+    /**
+     * 紧凑版用户 Prompt 继续沿用原有 JSON 结构，只压缩说明性文本篇幅。
+     */
+    private String buildCompactDiagnosisUserPrompt(String resumeText) {
+        return """
+                请对以下简历进行诊断，暴露所有问题。严格按评分标准打分，不要偏高。
+
+                简历内容：
+                """ + resumeText
+                + """
+
+                        诊断重点：
+                        1. 项目经历：是否有量化成果，个人贡献是否明确。
+                        2. 工作经历：是否有业务结果数据，职业成长轨迹是否清晰。
+                        3. 与岗位无关的字段直接填 false，不扣分。
+                        4. 简历结构：逻辑、错别字、排版问题都要指出。
+                        5. 每个维度的 strengths 和 weaknesses 各输出1-3条，每条一句话。
+                        6. 除 overallEvaluation 外，每个维度必须包含 evaluation，长度50-90字，结构为“分数由来 + 主要优点 + 主要问题 + 改进建议”。
+
+                        summary要求：
+                        1. 写一段180-260字的总体评价，不使用编号或小标题。
+                        2. 内容覆盖岗位匹配度、经历深度、技能可信度、最关键改进方向。
+                        3. 语气客观正式，使用“该简历”“候选人”“呈现”“缺乏”等表达。
+
+                        返回JSON格式(不要额外文本)：
+                        {"overallEvaluation":{"totalScore":0-100,"level":"S/A/B/C/D","summary":"180-260字总体评价","strengths":["整体优势1"],"weaknesses":["整体不足1"]},
+                        "highlights":["亮点1"],
+                        "basicInfoEvaluation":{"score":0-100,"hasName":true/false,"hasPhone":true/false,"hasEmail":true/false,"hasGithub":true/false,"hasBlog":true/false,"evaluation":"50-90字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1"]},
+                        "basicInfoDetails":{"name":"","email":"","phone":"","location":"","currentCompany":"","github":"","blog":""},
+                        "skillEvaluation":{"score":0-100,"skillList":[""],"evaluation":"50-90字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1"]},
+                        "workExperienceEvaluation":{"score":0-100,"totalYears":0,"companyCount":0,"hasQuantifiableResults":true/false,"experiences":[{"company":"","position":"","duration":"","highlights":[""]}],"evaluation":"50-90字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1"]},
+                        "projectExperienceEvaluation":{"score":0-100,"projectCount":0,"hasTechStack":true/false,"hasResponsibilities":true/false,"projects":[{"name":"","role":"","techStack":"","highlights":[""]}],"evaluation":"50-90字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1"]},
+                        "educationEvaluation":{"score":0-100,"degree":"","school":"","major":"","hasRelevantMajor":true/false,"evaluation":"50-90字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1"]},
+                        "optimizationSuggestions":["建议1","建议2"]}
+                        """;
     }
 
     private String getDefaultSystemPrompt() {
@@ -490,15 +554,14 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                         5.每个维度的strengths列出该维度的加分项（做得好的地方），weaknesses列出扣分项（需要改进的地方），每项一句话，简洁具体。
                         6.除overallEvaluation外，每个维度必须包含evaluation字段：一段80-150字的评价文本，结构为"先说明分数由来→列出主要加分项→列出主要扣分项→给出改进建议"，语气专业客观，不要泛泛而谈。
 
-                        summary要求：写一份600-800字的"评判官视角"段落式总体评价，采用连贯的自然段落叙述，不使用任何模块编号、小标题或星级评分。具体规则：
-                        1.内容维度（自然融入段落，不设小标题）：评语需覆盖以下5个分析维度，通过过渡句自然串联，形成2-4个自然段：岗位匹配度概要（一句话定位竞争力层级，点明核心优势或硬伤）→结构有效性（信息布局是否服务阅读目标，有无干扰项、关键信息是否前置）→经历深度与证明力（以STAR、量化成果、角色清晰度为标准，严格遵循"实习经历>项目经历"的评估优先级：有实习经历时重点分析实习含金量，项目经历仅作补充；无实习但有项目经历时自动提升项目权重；均无时重心转向教育学术背景、教学实践、课程作业、资格证书，不批评"缺少项目经历"）→技能与资质的可信度（技能描述是否具体到工具、使用场景、效果，证书与岗位的关联性）→整体改进方向（基于前述问题给出优先级明确的修改建议）。
-                        2.语气标准（评判官视角）：用词客观、准确、去情绪化，使用"该简历""候选人""呈现""缺乏""未体现"等正式表述，禁止出现"你""您的"等第二人称；句式以陈述判断为主，避免口语化过渡，如"值得注意的是……""整体而言……""具体来看……"；批评直指问题但不贬损，如"实习经历仅罗列任务，未提供可验证的成果数据"；建议使用"建议补充/删减/调整""应将……改为……""优先处理……"等不带个人情感的指令句式。
-                        3.篇幅控制：总字数600-800字，2-4个自然段，每段100-300字；实习经历分析占整体篇幅的40%以上（若存在实习），项目经历分析不超过15%。
-                        4.段落衔接：用过渡句连接各诊断点，形成"现状→问题→原因→行动"的因果推进式叙述，而非静态分点罗列。
-                        岗位类型动态规则：先判断简历目标岗位属于以下哪类，再调整诊断侧重——技术/研发/数据侧重技术栈规范性、项目技术细节、GitHub/作品链接；教师/教育/文科侧重教学实习细节（课时/学段/效果）、教师资格证、无项目经历属正常；市场/运营/产品侧重实习中的活动数据、拉新留存指标、策划复盘能力；设计/艺术侧重作品集链接、设计项目具体产出、软件技能版本标注；财务/行政/职能侧重流程处理、工具使用、证书资质。语气专业客观，引用简历原文作为证据，不要泛泛而谈。
+                        summary要求：写一份300-400字的"评判官视角"总体评价，采用连贯的自然段落叙述，不使用模块编号或小标题。具体规则：
+                        1.内容维度：覆盖岗位匹配度（一句话定位竞争力层级）→经历深度（实习>项目>教育优先级，无实习则提升项目权重，均无则转向教育背景）→技能可信度（是否具体到工具/场景/效果）→核心改进方向（优先级明确的2-3条建议）。
+                        2.语气：客观正式，使用"该简历""候选人""呈现""缺乏"等表述，禁止"你""您的"；批评直指问题不贬损，建议用指令句式。
+                        3.篇幅：总字数300-400字，1-2个自然段；实习经历分析占40%以上（若存在）。
+                        岗位类型动态规则：技术岗侧重技术栈规范性；教师/文科侧重教学实习细节；市场/运营侧重活动数据；设计侧重作品集；职能岗侧重流程处理。引用简历原文作为证据，不要泛泛而谈。
 
                         返回JSON格式(不要额外文本)：
-                        {"overallEvaluation":{"totalScore":0-100,"level":"S/A/B/C/D","summary":"600-800字评判官视角段落式总体评价，2-4个自然段，无模块编号/小标题，使用'该简历''候选人'等正式表述，覆盖岗位匹配度、结构有效性、经历深度、技能可信度、改进方向5个维度，用过渡句自然串联，实习经历分析占比40%以上","strengths":["整体优势1","整体优势2"],"weaknesses":["整体不足1","整体不足2"]},
+                        {"overallEvaluation":{"totalScore":0-100,"level":"S/A/B/C/D","summary":"按上方summary要求填写","strengths":["整体优势1","整体优势2"],"weaknesses":["整体不足1","整体不足2"]},
                         "highlights":["亮点1"],
                         "basicInfoEvaluation":{"score":0-100,"hasName":true/false,"hasPhone":true/false,"hasEmail":true/false,"hasGithub":true/false,"hasBlog":true/false,"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1"]},
                         "basicInfoDetails":{"name":"","email":"","phone":"","location":"","currentCompany":"","github":"","blog":""},
@@ -564,9 +627,9 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             RestClient.Builder builder = restClientBuilder
                     .baseUrl(runtimeConfig.baseUrl())
                     .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json");
-            int readTimeout = 300_000; // 默认 5 分钟，DeepSeek 大 prompt 生成耗时较长
+            int readTimeout = 600_000; // 默认 10 分钟，DeepSeek 大 prompt 生成耗时较长
             if (runtimeConfig.timeoutMs() != null && runtimeConfig.timeoutMs() > 0) {
-                readTimeout = Math.max(runtimeConfig.timeoutMs(), 300_000); // 至少 5 分钟
+                readTimeout = Math.max(runtimeConfig.timeoutMs(), 600_000); // 至少 10 分钟
             }
             SimpleClientHttpRequestFactory customFactory = new SimpleClientHttpRequestFactory();
             customFactory.setConnectTimeout(10000);

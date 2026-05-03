@@ -4,6 +4,8 @@ import com.airesume.server.common.constants.ResumeDiagnosisConstants;
 import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.PageResult;
 import com.airesume.server.dto.resume.ResumeDiagnosisHistoryResponse;
+import com.airesume.server.dto.resume.ResumeJobMatchAnalyzeResponse;
+import com.airesume.server.dto.resume.ResumePolishAnalyzeResponse;
 import com.airesume.server.dto.resume.ResumeDiagnosisTaskResponse;
 import com.airesume.server.entity.ResumeDiagnosisTask;
 import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
@@ -280,25 +282,9 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
      * @return 任务详情响应
      */
     private ResumeDiagnosisTaskResponse buildTaskResponse(ResumeDiagnosisTask task) {
-        String resumeText = null;
-        // 优先使用已缓存的简历文本，避免重复解析PDF
-        if (task.getResumeText() != null && !task.getResumeText().isBlank()) {
-            resumeText = task.getResumeText();
-            log.debug("Using cached resume text for taskId: {}", task.getId());
-        } else if (task.getFileUrl() != null && !task.getFileUrl().isBlank()) {
-            try {
-                // 缓存中没有，则解析PDF并缓存
-                resumeText = pdfTextExtractor.extractText(task.getFileUrl());
-                // 异步缓存到数据库（避免影响响应速度）
-                try {
-                    updateTaskResumeText(task.getId(), resumeText);
-                } catch (Exception e) {
-                    log.warn("Failed to cache resume text for taskId: {}", task.getId(), e);
-                }
-            } catch (Exception e) {
-                log.warn("Extract resume text failed when building task response, taskId: {}", task.getId(), e);
-            }
-        }
+        boolean isCompletedTask = task.getStatus() != null
+                && task.getStatus() == ResumeDiagnosisConstants.STATUS_COMPLETED;
+        String resumeText = resolveResumeTextForResponse(task, isCompletedTask);
 
         return ResumeDiagnosisTaskResponse.builder()
                 .taskId(String.valueOf(task.getId()))
@@ -309,11 +295,61 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
                 .diagnosisResult(task.getDiagnosisResult())
                 .errorMsg(task.getErrorMsg())
                 .resumeText(resumeText)
-                .latestJobMatchAnalysis(resumeJobMatchService.getLatestAnalysis(task.getUserId(), task.getId()))
-                .latestPolishResult(resumePolishService.getLatestPolishResult(task.getUserId(), task.getId()))
+                .latestJobMatchAnalysis(resolveLatestJobMatchAnalysis(task, isCompletedTask))
+                .latestPolishResult(resolveLatestPolishResult(task, isCompletedTask))
                 .createTime(task.getCreateTime())
                 .updateTime(task.getUpdateTime())
                 .build();
+    }
+
+    /**
+     * 任务详情响应中的简历文本采用“轮询态轻响应、完成态完整响应”策略：
+     * 1. 排队中/处理中：只返回数据库中已经缓存的文本，绝不在轮询接口里兜底解析 PDF。
+     * 2. 已完成：优先返回缓存文本；只有缓存缺失时才允许做一次兜底解析并回写。
+     */
+    private String resolveResumeTextForResponse(ResumeDiagnosisTask task, boolean allowPdfFallback) {
+        if (task.getResumeText() != null && !task.getResumeText().isBlank()) {
+            log.debug("Using cached resume text for taskId: {}", task.getId());
+            return task.getResumeText();
+        }
+        if (!allowPdfFallback || task.getFileUrl() == null || task.getFileUrl().isBlank()) {
+            return null;
+        }
+
+        try {
+            String resumeText = pdfTextExtractor.extractText(task.getFileUrl());
+            try {
+                updateTaskResumeText(task.getId(), resumeText);
+            } catch (Exception e) {
+                log.warn("Failed to cache resume text for completed task, taskId: {}", task.getId(), e);
+            }
+            return resumeText;
+        } catch (Exception e) {
+            log.warn("Extract resume text fallback failed for completed task, taskId: {}", task.getId(), e);
+            return null;
+        }
+    }
+
+    /**
+     * 岗位匹配与润色结果只在诊断完成后才回填，避免结果页轮询时持续查询附属记录。
+     */
+    private ResumeJobMatchAnalyzeResponse resolveLatestJobMatchAnalysis(ResumeDiagnosisTask task,
+                                                                       boolean includeExtendedData) {
+        if (!includeExtendedData) {
+            return null;
+        }
+        return resumeJobMatchService.getLatestAnalysis(task.getUserId(), task.getId());
+    }
+
+    /**
+     * 润色结果同样只在诊断完成态回填，减少等待阶段的接口负担。
+     */
+    private ResumePolishAnalyzeResponse resolveLatestPolishResult(ResumeDiagnosisTask task,
+                                                                  boolean includeExtendedData) {
+        if (!includeExtendedData) {
+            return null;
+        }
+        return resumePolishService.getLatestPolishResult(task.getUserId(), task.getId());
     }
 
     /**
