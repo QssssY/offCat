@@ -197,13 +197,15 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             RestClient.Builder builder = restClientBuilder
                     .baseUrl(runtimeConfig.baseUrl())
                     .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json");
+            int readTimeout = 300_000; // 默认 5 分钟，DeepSeek 大 prompt 生成耗时较长
             if (runtimeConfig.timeoutMs() != null && runtimeConfig.timeoutMs() > 0) {
-                SimpleClientHttpRequestFactory customFactory = new SimpleClientHttpRequestFactory();
-                customFactory.setConnectTimeout(10000);
-                customFactory.setReadTimeout(runtimeConfig.timeoutMs());
-                builder = builder.requestFactory(customFactory);
-                log.info("[{}] 使用数据库配置的超时: {}ms", tag, runtimeConfig.timeoutMs());
+                readTimeout = Math.max(runtimeConfig.timeoutMs(), 300_000); // 至少 5 分钟
             }
+            SimpleClientHttpRequestFactory customFactory = new SimpleClientHttpRequestFactory();
+            customFactory.setConnectTimeout(10000);
+            customFactory.setReadTimeout(readTimeout);
+            builder = builder.requestFactory(customFactory);
+            log.info("[{}] HTTP 超时: {}ms", tag, readTimeout);
             RestClient runtimeRestClient = builder.build();
             ResponseBody response = runtimeRestClient.post()
                     .uri(runtimeConfig.endpoint())
@@ -260,12 +262,14 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             RestClient.Builder builder = restClientBuilder
                     .baseUrl(runtimeConfig.baseUrl())
                     .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json");
+            int readTimeout = 300_000; // 默认 5 分钟，DeepSeek 大 prompt 生成耗时较长
             if (runtimeConfig.timeoutMs() != null && runtimeConfig.timeoutMs() > 0) {
-                SimpleClientHttpRequestFactory customFactory = new SimpleClientHttpRequestFactory();
-                customFactory.setConnectTimeout(10000);
-                customFactory.setReadTimeout(runtimeConfig.timeoutMs());
-                builder = builder.requestFactory(customFactory);
+                readTimeout = Math.max(runtimeConfig.timeoutMs(), 300_000); // 至少 5 分钟
             }
+            SimpleClientHttpRequestFactory customFactory = new SimpleClientHttpRequestFactory();
+            customFactory.setConnectTimeout(10000);
+            customFactory.setReadTimeout(readTimeout);
+            builder = builder.requestFactory(customFactory);
             RestClient runtimeRestClient = builder.build();
             ResponseBody response = runtimeRestClient.post()
                     .uri(runtimeConfig.endpoint())
@@ -560,12 +564,14 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             RestClient.Builder builder = restClientBuilder
                     .baseUrl(runtimeConfig.baseUrl())
                     .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json");
+            int readTimeout = 300_000; // 默认 5 分钟，DeepSeek 大 prompt 生成耗时较长
             if (runtimeConfig.timeoutMs() != null && runtimeConfig.timeoutMs() > 0) {
-                SimpleClientHttpRequestFactory customFactory = new SimpleClientHttpRequestFactory();
-                customFactory.setConnectTimeout(10000);
-                customFactory.setReadTimeout(runtimeConfig.timeoutMs());
-                builder = builder.requestFactory(customFactory);
+                readTimeout = Math.max(runtimeConfig.timeoutMs(), 300_000); // 至少 5 分钟
             }
+            SimpleClientHttpRequestFactory customFactory = new SimpleClientHttpRequestFactory();
+            customFactory.setConnectTimeout(10000);
+            customFactory.setReadTimeout(readTimeout);
+            builder = builder.requestFactory(customFactory);
             RestClient runtimeRestClient = builder.build();
             ResponseBody response = runtimeRestClient.post()
                     .uri(runtimeConfig.endpoint())
