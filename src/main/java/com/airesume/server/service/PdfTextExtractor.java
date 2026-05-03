@@ -19,6 +19,12 @@ public class PdfTextExtractor {
     private static final Pattern MULTI_SPACE = Pattern.compile("\\s{2,}");
     private static final Pattern ZERO_WIDTH = Pattern.compile("[\\u200B-\\u200F\\uFEFF]");
 
+    /**
+     * 最小有效文本长度阈值
+     * 低于此长度的 PDF 大概率是图片型（扫描件），无法提取有效文本
+     */
+    private static final int MIN_TEXT_LENGTH = 50;
+
     public String extractText(String fileUrl) {
         String absolutePath = resolveAbsolutePath(fileUrl);
 
@@ -29,7 +35,14 @@ public class PdfTextExtractor {
         String cleaned = cleanText(rawText);
 
         if (cleaned.isBlank()) {
-            throw new PdfExtractionException("PDF 文本提取结果为空: " + fileUrl);
+            throw new PdfExtractionException("PDF 文本提取结果为空，请确认上传的是文本型 PDF（非扫描件/图片型）");
+        }
+
+        // 检测是否为图片型PDF：提取的文本过少，大概率是扫描件
+        if (cleaned.length() < MIN_TEXT_LENGTH) {
+            log.warn("PDF 文本过少(length={})，疑似图片型/扫描件 PDF: {}", cleaned.length(), fileUrl);
+            throw new PdfExtractionException(
+                    "当前 PDF 似乎是图片型/扫描件，无法提取文本。请上传由 Word、WPS 等软件直接导出的文本型 PDF，或使用 Chrome 浏览器「打印 → 另存为 PDF」生成的文件");
         }
 
         log.info("PDF 文本提取成功, fileUrl: {}, charCount: {}", fileUrl, cleaned.length());
