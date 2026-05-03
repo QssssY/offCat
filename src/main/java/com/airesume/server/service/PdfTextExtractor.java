@@ -67,7 +67,9 @@ public class PdfTextExtractor {
     private String cleanText(String raw) {
         if (raw == null) return "";
 
-        String result = ZERO_WIDTH.matcher(raw).replaceAll("");
+        // 移除C0控制字符（保留\n和\t），防止存入MySQL JSON列时报Invalid encoding
+        String result = raw.replaceAll("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]", "");
+        result = ZERO_WIDTH.matcher(result).replaceAll("");
         result = MULTI_SPACE.matcher(result).replaceAll(" ");
         result = result.replaceAll("\\r\\n|\\r", "\n");
         result = result.replaceAll("\t", " ");

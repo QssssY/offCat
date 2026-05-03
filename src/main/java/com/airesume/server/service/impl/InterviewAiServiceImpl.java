@@ -32,6 +32,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -944,10 +945,17 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 log.info("[{}] thinking: 未设置", tag);
             }
             log.info("[{}] ═══════════════════════════════════════════════", tag);
-            RestClient runtimeRestClient = restClientBuilder
+            RestClient.Builder builder = restClientBuilder
                     .baseUrl(runtimeConfig.baseUrl())
-                    .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-                    .build();
+                    .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
+            if (runtimeConfig.timeoutMs() != null && runtimeConfig.timeoutMs() > 0) {
+                SimpleClientHttpRequestFactory customFactory = new SimpleClientHttpRequestFactory();
+                customFactory.setConnectTimeout(10000);
+                customFactory.setReadTimeout(runtimeConfig.timeoutMs());
+                builder = builder.requestFactory(customFactory);
+                log.info("[{}] 使用数据库配置的超时: {}ms", tag, runtimeConfig.timeoutMs());
+            }
+            RestClient runtimeRestClient = builder.build();
 
             ResponseBody response = runtimeRestClient.post()
                     .uri(runtimeConfig.endpoint())
@@ -995,10 +1003,17 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 log.info("[{}] thinking: 未设置", tag);
             }
             log.info("[{}] ═══════════════════════════════════════════════", tag);
-            RestClient runtimeRestClient = restClientBuilder
+            RestClient.Builder builder = restClientBuilder
                     .baseUrl(runtimeConfig.baseUrl())
-                    .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-                    .build();
+                    .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
+            if (runtimeConfig.timeoutMs() != null && runtimeConfig.timeoutMs() > 0) {
+                SimpleClientHttpRequestFactory customFactory = new SimpleClientHttpRequestFactory();
+                customFactory.setConnectTimeout(10000);
+                customFactory.setReadTimeout(runtimeConfig.timeoutMs());
+                builder = builder.requestFactory(customFactory);
+                log.info("[{}] 使用数据库配置的超时: {}ms", tag, runtimeConfig.timeoutMs());
+            }
+            RestClient runtimeRestClient = builder.build();
 
             ResponseBody response = runtimeRestClient.post()
                     .uri(runtimeConfig.endpoint())
@@ -1687,6 +1702,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         String runtimeBaseUrl = fallbackBaseUrl;
         String runtimeApiKey = fallbackApiKey;
         String source = "application";
+        Integer runtimeTimeoutMs = null;
 
         SysAiEngineConfig activeConfig = null;
         try {
@@ -1714,6 +1730,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             } else {
                 log.warn("数据库 apiKey 为空，使用本地兜底");
             }
+            runtimeTimeoutMs = activeConfig.getTimeoutMs();
             source = "db-active:" + activeConfig.getEngineCode();
         }
 
@@ -1743,7 +1760,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 runtimeBaseUrl,
                 getEndpointByProvider(runtimeProvider),
                 runtimeApiKey,
-                source
+                source,
+                runtimeTimeoutMs
         );
     }
 
@@ -1768,7 +1786,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             String baseUrl,
             String endpoint,
             String apiKey,
-            String source
+            String source,
+            Integer timeoutMs
     ) {
     }
 

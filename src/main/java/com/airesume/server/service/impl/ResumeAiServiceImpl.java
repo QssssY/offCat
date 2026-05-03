@@ -19,6 +19,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
@@ -193,10 +194,17 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                 log.info("[{}] thinking: 未设置", tag);
             }
             log.info("[{}] ═══════════════════════════════════════════════", tag);
-            RestClient runtimeRestClient = restClientBuilder
+            RestClient.Builder builder = restClientBuilder
                     .baseUrl(runtimeConfig.baseUrl())
-                    .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-                    .build();
+                    .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json");
+            if (runtimeConfig.timeoutMs() != null && runtimeConfig.timeoutMs() > 0) {
+                SimpleClientHttpRequestFactory customFactory = new SimpleClientHttpRequestFactory();
+                customFactory.setConnectTimeout(10000);
+                customFactory.setReadTimeout(runtimeConfig.timeoutMs());
+                builder = builder.requestFactory(customFactory);
+                log.info("[{}] 使用数据库配置的超时: {}ms", tag, runtimeConfig.timeoutMs());
+            }
+            RestClient runtimeRestClient = builder.build();
             ResponseBody response = runtimeRestClient.post()
                     .uri(runtimeConfig.endpoint())
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
@@ -249,10 +257,16 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         try {
             log.info("[{}] JD 匹配分析请求, model: {}, 配置来源: {}",
                     tag, runtimeConfig.model(), runtimeConfig.source());
-            RestClient runtimeRestClient = restClientBuilder
+            RestClient.Builder builder = restClientBuilder
                     .baseUrl(runtimeConfig.baseUrl())
-                    .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-                    .build();
+                    .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json");
+            if (runtimeConfig.timeoutMs() != null && runtimeConfig.timeoutMs() > 0) {
+                SimpleClientHttpRequestFactory customFactory = new SimpleClientHttpRequestFactory();
+                customFactory.setConnectTimeout(10000);
+                customFactory.setReadTimeout(runtimeConfig.timeoutMs());
+                builder = builder.requestFactory(customFactory);
+            }
+            RestClient runtimeRestClient = builder.build();
             ResponseBody response = runtimeRestClient.post()
                     .uri(runtimeConfig.endpoint())
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
@@ -368,6 +382,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         String runtimeBaseUrl = fallbackBaseUrl;
         String runtimeApiKey = fallbackApiKey;
         String source = "application";
+        Integer runtimeTimeoutMs = null;
         SysAiEngineConfig activeConfig = null;
         try {
             activeConfig = sysAiEngineConfigService.getActiveByBusinessType(AiEngineConstants.BUSINESS_TYPE_RESUME);
@@ -391,6 +406,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             } else {
                 log.debug("数据库 apiKey 为空，使用本地兜底");
             }
+            runtimeTimeoutMs = activeConfig.getTimeoutMs();
             source = "db-active:" + activeConfig.getEngineCode();
         }
         if (runtimeModel == null) {
@@ -413,7 +429,8 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                 runtimeBaseUrl,
                 getEndpointByProvider(runtimeProvider),
                 runtimeApiKey,
-                source);
+                source,
+                runtimeTimeoutMs);
     }
 
     private String getEndpointByProvider(String providerType) {
@@ -467,12 +484,17 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                         3.与岗位无关的字段（如非技术岗的hasGithub/hasBlog）直接填false，不扣分。
                         4.简历结构：逻辑是否清晰，有无错别字/排版问题。
                         5.每个维度的strengths列出该维度的加分项（做得好的地方），weaknesses列出扣分项（需要改进的地方），每项一句话，简洁具体。
-                        6.每个维度必须包含evaluation字段：一段80-150字的评价文本，结构为"先说明分数由来→列出主要加分项→列出主要扣分项→给出改进建议"，语气专业客观，不要泛泛而谈。
+                        6.除overallEvaluation外，每个维度必须包含evaluation字段：一段80-150字的评价文本，结构为"先说明分数由来→列出主要加分项→列出主要扣分项→给出改进建议"，语气专业客观，不要泛泛而谈。
 
-                        summary要求：写一段200-350字的简历总结评价。必须包含：先肯定简历中具体的优势（如哪些项目写得好、哪些能力突出），再指出具体的问题（哪些描述空洞、哪些维度缺失、哪些地方需要改进）。语气专业客观，有理有据，不要泛泛而谈。
+                        summary要求：写一份600-800字的"评判官视角"段落式总体评价，采用连贯的自然段落叙述，不使用任何模块编号、小标题或星级评分。具体规则：
+                        1.内容维度（自然融入段落，不设小标题）：评语需覆盖以下5个分析维度，通过过渡句自然串联，形成2-4个自然段：岗位匹配度概要（一句话定位竞争力层级，点明核心优势或硬伤）→结构有效性（信息布局是否服务阅读目标，有无干扰项、关键信息是否前置）→经历深度与证明力（以STAR、量化成果、角色清晰度为标准，严格遵循"实习经历>项目经历"的评估优先级：有实习经历时重点分析实习含金量，项目经历仅作补充；无实习但有项目经历时自动提升项目权重；均无时重心转向教育学术背景、教学实践、课程作业、资格证书，不批评"缺少项目经历"）→技能与资质的可信度（技能描述是否具体到工具、使用场景、效果，证书与岗位的关联性）→整体改进方向（基于前述问题给出优先级明确的修改建议）。
+                        2.语气标准（评判官视角）：用词客观、准确、去情绪化，使用"该简历""候选人""呈现""缺乏""未体现"等正式表述，禁止出现"你""您的"等第二人称；句式以陈述判断为主，避免口语化过渡，如"值得注意的是……""整体而言……""具体来看……"；批评直指问题但不贬损，如"实习经历仅罗列任务，未提供可验证的成果数据"；建议使用"建议补充/删减/调整""应将……改为……""优先处理……"等不带个人情感的指令句式。
+                        3.篇幅控制：总字数600-800字，2-4个自然段，每段100-300字；实习经历分析占整体篇幅的40%以上（若存在实习），项目经历分析不超过15%。
+                        4.段落衔接：用过渡句连接各诊断点，形成"现状→问题→原因→行动"的因果推进式叙述，而非静态分点罗列。
+                        岗位类型动态规则：先判断简历目标岗位属于以下哪类，再调整诊断侧重——技术/研发/数据侧重技术栈规范性、项目技术细节、GitHub/作品链接；教师/教育/文科侧重教学实习细节（课时/学段/效果）、教师资格证、无项目经历属正常；市场/运营/产品侧重实习中的活动数据、拉新留存指标、策划复盘能力；设计/艺术侧重作品集链接、设计项目具体产出、软件技能版本标注；财务/行政/职能侧重流程处理、工具使用、证书资质。语气专业客观，引用简历原文作为证据，不要泛泛而谈。
 
                         返回JSON格式(不要额外文本)：
-                        {"overallEvaluation":{"totalScore":0-100,"level":"S/A/B/C/D","summary":"200-350字详细评价，先说优点再说问题","evaluation":"80-150字综合评价，说明分数由来、主要优缺点及改进建议","strengths":["整体优势1","整体优势2"],"weaknesses":["整体不足1","整体不足2"]},
+                        {"overallEvaluation":{"totalScore":0-100,"level":"S/A/B/C/D","summary":"600-800字评判官视角段落式总体评价，2-4个自然段，无模块编号/小标题，使用'该简历''候选人'等正式表述，覆盖岗位匹配度、结构有效性、经历深度、技能可信度、改进方向5个维度，用过渡句自然串联，实习经历分析占比40%以上","strengths":["整体优势1","整体优势2"],"weaknesses":["整体不足1","整体不足2"]},
                         "highlights":["亮点1"],
                         "basicInfoEvaluation":{"score":0-100,"hasName":true/false,"hasPhone":true/false,"hasEmail":true/false,"hasGithub":true/false,"hasBlog":true/false,"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1"]},
                         "basicInfoDetails":{"name":"","email":"","phone":"","location":"","currentCompany":"","github":"","blog":""},
@@ -535,10 +557,16 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                 new Message("user", userPrompt));
         request.thinking = buildThinkingConfig(runtimeConfig.model(), thinkingMode);
         try {
-            RestClient runtimeRestClient = restClientBuilder
+            RestClient.Builder builder = restClientBuilder
                     .baseUrl(runtimeConfig.baseUrl())
-                    .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-                    .build();
+                    .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json");
+            if (runtimeConfig.timeoutMs() != null && runtimeConfig.timeoutMs() > 0) {
+                SimpleClientHttpRequestFactory customFactory = new SimpleClientHttpRequestFactory();
+                customFactory.setConnectTimeout(10000);
+                customFactory.setReadTimeout(runtimeConfig.timeoutMs());
+                builder = builder.requestFactory(customFactory);
+            }
+            RestClient runtimeRestClient = builder.build();
             ResponseBody response = runtimeRestClient.post()
                     .uri(runtimeConfig.endpoint())
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
@@ -886,7 +914,8 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             String baseUrl,
             String endpoint,
             String apiKey,
-            String source) {
+            String source,
+            Integer timeoutMs) {
     }
 
     private static class RequestBody {

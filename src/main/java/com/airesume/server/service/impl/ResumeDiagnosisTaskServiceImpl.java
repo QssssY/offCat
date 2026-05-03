@@ -256,6 +256,13 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
     }
 
     @Override
+    public Integer getTaskStatus(Long taskId) {
+        ResumeDiagnosisTask task = getById(taskId);
+        if (task == null) return null;
+        return task.getStatus();
+    }
+
+    @Override
     public String getStatusDescription(Integer status) {
         return switch (status) {
             case ResumeDiagnosisConstants.STATUS_PENDING -> "排队中";

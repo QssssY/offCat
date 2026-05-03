@@ -101,4 +101,12 @@ public interface ResumeDiagnosisTaskService extends IService<ResumeDiagnosisTask
      * @param resumeText 提取的简历文本
      */
     void updateTaskResumeText(Long taskId, String resumeText);
+
+    /**
+     * 获取任务当前状态
+     *
+     * @param taskId 任务ID
+     * @return 状态码，任务不存在时返回null
+     */
+    Integer getTaskStatus(Long taskId);
 }

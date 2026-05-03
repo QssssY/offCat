@@ -2,6 +2,7 @@ package com.airesume.server.config;
 
 import com.airesume.server.common.constants.ResumeDiagnosisConstants;
 import org.springframework.amqp.core.*;
+import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
@@ -26,6 +27,21 @@ public class RabbitMQConfig {
         RabbitTemplate rabbitTemplate = new RabbitTemplate(connectionFactory);
         rabbitTemplate.setMessageConverter(messageConverter);
         return rabbitTemplate;
+    }
+
+    @Bean
+    public SimpleRabbitListenerContainerFactory rabbitListenerContainerFactory(
+            ConnectionFactory connectionFactory, MessageConverter messageConverter) {
+        SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
+        factory.setConnectionFactory(connectionFactory);
+        factory.setMessageConverter(messageConverter);
+        factory.setPrefetchCount(1);
+        // 并发消费者数量：最小1个，最大3个，避免单个任务卡住导致整个队列阻塞
+        factory.setConcurrentConsumers(1);
+        factory.setMaxConcurrentConsumers(3);
+        // 消费者异常时不重启整个容器，只拒绝单条消息
+        factory.setDefaultRequeueRejected(false);
+        return factory;
     }
 
     // ==================== 简历诊断队列配置 ====================
