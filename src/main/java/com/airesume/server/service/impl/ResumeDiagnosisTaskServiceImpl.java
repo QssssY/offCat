@@ -9,6 +9,7 @@ import com.airesume.server.dto.resume.ResumePolishAnalyzeResponse;
 import com.airesume.server.dto.resume.ResumeDiagnosisTaskResponse;
 import com.airesume.server.entity.ResumeDiagnosisTask;
 import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
+import com.airesume.server.mq.DirectProcessRouter;
 import com.airesume.server.mq.ResumeDiagnosisProducer;
 import com.airesume.server.service.NotificationService;
 import com.airesume.server.service.PdfTextExtractor;
@@ -16,16 +17,19 @@ import com.airesume.server.service.ResumeDiagnosisTaskService;
 import com.airesume.server.service.ResumeJobMatchService;
 import com.airesume.server.service.ResumePolishService;
 import com.airesume.server.service.UserQuotaService;
+import org.springframework.context.annotation.Lazy;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -35,15 +39,35 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisTaskMapper, ResumeDiagnosisTask> implements ResumeDiagnosisTaskService {
 
     private final UserQuotaService userQuotaService;
     private final ResumeDiagnosisProducer resumeDiagnosisProducer;
+    private final DirectProcessRouter directProcessRouter;
     private final PdfTextExtractor pdfTextExtractor;
     private final NotificationService notificationService;
     private final ResumeJobMatchService resumeJobMatchService;
     private final ResumePolishService resumePolishService;
+
+    /**
+     * 手动构造器注入，@Lazy 打破 TaskServiceImpl ↔ DirectProcessRouter ↔ Processor ↔ TaskService 循环依赖
+     */
+    public ResumeDiagnosisTaskServiceImpl(
+            UserQuotaService userQuotaService,
+            ResumeDiagnosisProducer resumeDiagnosisProducer,
+            @Lazy DirectProcessRouter directProcessRouter,
+            PdfTextExtractor pdfTextExtractor,
+            NotificationService notificationService,
+            ResumeJobMatchService resumeJobMatchService,
+            ResumePolishService resumePolishService) {
+        this.userQuotaService = userQuotaService;
+        this.resumeDiagnosisProducer = resumeDiagnosisProducer;
+        this.directProcessRouter = directProcessRouter;
+        this.pdfTextExtractor = pdfTextExtractor;
+        this.notificationService = notificationService;
+        this.resumeJobMatchService = resumeJobMatchService;
+        this.resumePolishService = resumePolishService;
+    }
 
     /**
      * 上传目录配置
@@ -85,10 +109,26 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
         // 3. 扣减用户额度
         userQuotaService.deductResumeQuota(userId);
 
-        // 4. 发送消息到RabbitMQ
-        resumeDiagnosisProducer.sendResumeDiagnosisTask(task.getId(), userId, fileUrl);
-
-        log.info("Resume diagnosis task submitted to queue, taskId: {}", task.getId());
+        // 4. 事务提交后智能路由：系统空闲时直连异步处理，繁忙时走 MQ 排队
+        Long taskId = task.getId();
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                if (directProcessRouter.canProcessDirectly()) {
+                    try {
+                        directProcessRouter.submitDirect(taskId, userId, fileUrl);
+                        log.info("任务路由到直连异步处理, taskId: {}", taskId);
+                    } catch (Exception e) {
+                        // 线程池满或拒绝时，回退到 MQ 保证任务不丢失
+                        log.warn("直连线程池拒绝, 回退到MQ, taskId: {}", taskId, e);
+                        resumeDiagnosisProducer.sendResumeDiagnosisTask(taskId, userId, fileUrl);
+                    }
+                } else {
+                    resumeDiagnosisProducer.sendResumeDiagnosisTask(taskId, userId, fileUrl);
+                    log.info("任务路由到RabbitMQ（系统繁忙）, taskId: {}", taskId);
+                }
+            }
+        });
 
         return task.getId();
     }
@@ -367,5 +407,31 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
                 .createTime(task.getCreateTime())
                 .updateTime(task.getUpdateTime())
                 .build();
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int recoverOrphanedTasks(int timeoutMinutes) {
+        // 查询超时的处理中任务：状态为PROCESSING且updateTime早于阈值时间
+        LocalDateTime timeoutThreshold = LocalDateTime.now().minusMinutes(timeoutMinutes);
+        LambdaQueryWrapper<ResumeDiagnosisTask> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(ResumeDiagnosisTask::getStatus, ResumeDiagnosisConstants.STATUS_PROCESSING)
+                .lt(ResumeDiagnosisTask::getUpdateTime, timeoutThreshold);
+
+        List<ResumeDiagnosisTask> orphans = list(wrapper);
+        if (orphans.isEmpty()) {
+            return 0;
+        }
+
+        log.warn("发现 {} 个超时孤儿任务，开始回收...", orphans.size());
+        for (ResumeDiagnosisTask task : orphans) {
+            task.setStatus(ResumeDiagnosisConstants.STATUS_FAILED);
+            task.setErrorMsg("任务处理超时，系统自动回收。可能原因：服务重启或消费者异常");
+            updateById(task);
+            log.warn("已回收孤儿任务, taskId: {}, userId: {}, 原updateTime: {}",
+                    task.getId(), task.getUserId(), task.getUpdateTime());
+        }
+        log.warn("孤儿任务回收完成, 共处理 {} 个任务", orphans.size());
+        return orphans.size();
     }
 }

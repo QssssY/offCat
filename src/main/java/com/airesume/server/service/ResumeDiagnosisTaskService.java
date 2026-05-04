@@ -109,4 +109,13 @@ public interface ResumeDiagnosisTaskService extends IService<ResumeDiagnosisTask
      * @return 状态码，任务不存在时返回null
      */
     Integer getTaskStatus(Long taskId);
+
+    /**
+     * 回收超时的孤儿任务：将卡在处理中状态超过指定分钟数的任务标记为失败
+     * 由定时任务调度，防止消费者崩溃或重启后任务永久卡死
+     *
+     * @param timeoutMinutes 超时阈值（分钟）
+     * @return 回收的任务数量
+     */
+    int recoverOrphanedTasks(int timeoutMinutes);
 }
