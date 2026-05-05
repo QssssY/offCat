@@ -948,9 +948,9 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             RestClient.Builder builder = restClientBuilder
                     .baseUrl(runtimeConfig.baseUrl())
                     .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
-            int readTimeout = 300_000; // 默认 5 分钟，DeepSeek 大 prompt 生成耗时较长
+            int readTimeout = 180_000; // 默认 3 分钟
             if (runtimeConfig.timeoutMs() != null && runtimeConfig.timeoutMs() > 0) {
-                readTimeout = Math.max(runtimeConfig.timeoutMs(), 300_000); // 至少 5 分钟
+                readTimeout = Math.min(runtimeConfig.timeoutMs(), 300_000); // 上限 5 分钟
             }
             SimpleClientHttpRequestFactory customFactory = new SimpleClientHttpRequestFactory();
             customFactory.setConnectTimeout(10000);
@@ -1008,9 +1008,9 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             RestClient.Builder builder = restClientBuilder
                     .baseUrl(runtimeConfig.baseUrl())
                     .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
-            int readTimeout = 300_000; // 默认 5 分钟，DeepSeek 大 prompt 生成耗时较长
+            int readTimeout = 180_000; // 默认 3 分钟
             if (runtimeConfig.timeoutMs() != null && runtimeConfig.timeoutMs() > 0) {
-                readTimeout = Math.max(runtimeConfig.timeoutMs(), 300_000); // 至少 5 分钟
+                readTimeout = Math.min(runtimeConfig.timeoutMs(), 300_000); // 上限 5 分钟
             }
             SimpleClientHttpRequestFactory customFactory = new SimpleClientHttpRequestFactory();
             customFactory.setConnectTimeout(10000);

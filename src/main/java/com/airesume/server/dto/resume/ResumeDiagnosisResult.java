@@ -1,5 +1,6 @@
 package com.airesume.server.dto.resume;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -19,6 +20,7 @@ import java.util.Map;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class ResumeDiagnosisResult {
 
     /**
@@ -82,6 +84,7 @@ public class ResumeDiagnosisResult {
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class OverallEvaluation {
         @JsonProperty("totalScore")
         private Integer totalScore;
@@ -90,7 +93,16 @@ public class ResumeDiagnosisResult {
         private String level;
 
         @JsonProperty("summary")
-        private String summary;
+        @Builder.Default
+        private String summary = "";
+
+        @JsonProperty("strengths")
+        @Builder.Default
+        private List<String> strengths = List.of();
+
+        @JsonProperty("weaknesses")
+        @Builder.Default
+        private List<String> weaknesses = List.of();
     }
 
     /**
@@ -100,6 +112,7 @@ public class ResumeDiagnosisResult {
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class BasicInfoEvaluation {
         @JsonProperty("score")
         private Integer score;
@@ -119,20 +132,27 @@ public class ResumeDiagnosisResult {
         @JsonProperty("hasBlog")
         private Boolean hasBlog;
 
+        @JsonProperty("evaluation")
+        @Builder.Default
+        private String evaluation = "";
+
         /**
          * AI 分析的加分项
          */
         @JsonProperty("strengths")
-        private List<String> strengths;
+        @Builder.Default
+        private List<String> strengths = List.of();
 
         /**
          * AI 分析的扣分项
          */
         @JsonProperty("weaknesses")
-        private List<String> weaknesses;
+        @Builder.Default
+        private List<String> weaknesses = List.of();
 
         @JsonProperty("suggestions")
-        private List<String> suggestions;
+        @Builder.Default
+        private List<String> suggestions = List.of();
     }
 
     /**
@@ -142,6 +162,7 @@ public class ResumeDiagnosisResult {
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class BasicInfoDetails {
         /**
          * 姓名
@@ -200,21 +221,30 @@ public class ResumeDiagnosisResult {
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class SkillEvaluation {
         @JsonProperty("score")
         private Integer score;
 
         @JsonProperty("skillList")
-        private List<String> skillList;
+        @Builder.Default
+        private List<String> skillList = List.of();
+
+        @JsonProperty("evaluation")
+        @Builder.Default
+        private String evaluation = "";
 
         @JsonProperty("strengths")
-        private List<String> strengths;
+        @Builder.Default
+        private List<String> strengths = List.of();
 
         @JsonProperty("weaknesses")
-        private List<String> weaknesses;
+        @Builder.Default
+        private List<String> weaknesses = List.of();
 
         @JsonProperty("suggestions")
-        private List<String> suggestions;
+        @Builder.Default
+        private List<String> suggestions = List.of();
     }
 
     /**
@@ -224,6 +254,7 @@ public class ResumeDiagnosisResult {
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class WorkExperienceEvaluation {
         @JsonProperty("score")
         private Integer score;
@@ -238,22 +269,30 @@ public class ResumeDiagnosisResult {
         private Boolean hasQuantifiableResults;
 
         @JsonProperty("experiences")
-        private List<Map<String, Object>> experiences;
+        @Builder.Default
+        private List<Map<String, Object>> experiences = List.of();
+
+        @JsonProperty("evaluation")
+        @Builder.Default
+        private String evaluation = "";
 
         /**
          * AI 分析的加分项
          */
         @JsonProperty("strengths")
-        private List<String> strengths;
+        @Builder.Default
+        private List<String> strengths = List.of();
 
         /**
          * AI 分析的扣分项
          */
         @JsonProperty("weaknesses")
-        private List<String> weaknesses;
+        @Builder.Default
+        private List<String> weaknesses = List.of();
 
         @JsonProperty("suggestions")
-        private List<String> suggestions;
+        @Builder.Default
+        private List<String> suggestions = List.of();
     }
 
     /**
@@ -263,6 +302,7 @@ public class ResumeDiagnosisResult {
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class ProjectExperienceEvaluation {
         @JsonProperty("score")
         private Integer score;
@@ -277,22 +317,30 @@ public class ResumeDiagnosisResult {
         private Boolean hasResponsibilities;
 
         @JsonProperty("projects")
-        private List<Map<String, Object>> projects;
+        @Builder.Default
+        private List<Map<String, Object>> projects = List.of();
+
+        @JsonProperty("evaluation")
+        @Builder.Default
+        private String evaluation = "";
 
         /**
          * AI 分析的加分项
          */
         @JsonProperty("strengths")
-        private List<String> strengths;
+        @Builder.Default
+        private List<String> strengths = List.of();
 
         /**
          * AI 分析的扣分项
          */
         @JsonProperty("weaknesses")
-        private List<String> weaknesses;
+        @Builder.Default
+        private List<String> weaknesses = List.of();
 
         @JsonProperty("suggestions")
-        private List<String> suggestions;
+        @Builder.Default
+        private List<String> suggestions = List.of();
     }
 
     /**
@@ -302,6 +350,7 @@ public class ResumeDiagnosisResult {
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class EducationEvaluation {
         @JsonProperty("score")
         private Integer score;
@@ -318,19 +367,26 @@ public class ResumeDiagnosisResult {
         @JsonProperty("hasRelevantMajor")
         private Boolean hasRelevantMajor;
 
+        @JsonProperty("evaluation")
+        @Builder.Default
+        private String evaluation = "";
+
         /**
          * AI 分析的加分项
          */
         @JsonProperty("strengths")
-        private List<String> strengths;
+        @Builder.Default
+        private List<String> strengths = List.of();
 
         /**
          * AI 分析的扣分项
          */
         @JsonProperty("weaknesses")
-        private List<String> weaknesses;
+        @Builder.Default
+        private List<String> weaknesses = List.of();
 
         @JsonProperty("suggestions")
-        private List<String> suggestions;
+        @Builder.Default
+        private List<String> suggestions = List.of();
     }
 }

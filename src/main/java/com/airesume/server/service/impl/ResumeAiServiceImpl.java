@@ -19,10 +19,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Flux;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -43,6 +47,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
     private final SysPromptService sysPromptService;
     private final String thinkingMode;
     private final RestClient.Builder restClientBuilder;
+    private final WebClient.Builder webClientBuilder;
     private final SysAiEngineConfigService sysAiEngineConfigService;
     private final ObjectMapper objectMapper;
     private final AiTokenLimitConfig tokenLimitConfig;
@@ -65,7 +70,8 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             SysAiEngineConfigService sysAiEngineConfigService,
             ObjectMapper objectMapper,
             AiTokenLimitConfig tokenLimitConfig,
-            RestClient.Builder restClientBuilder) {
+            RestClient.Builder restClientBuilder,
+            WebClient.Builder webClientBuilder) {
         this.provider = provider == null ? "doubao" : provider.toLowerCase();
         this.model = model;
         this.configuredBaseUrl = configuredBaseUrl;
@@ -75,6 +81,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         this.objectMapper = objectMapper;
         this.tokenLimitConfig = tokenLimitConfig;
         this.restClientBuilder = restClientBuilder;
+        this.webClientBuilder = webClientBuilder;
         this.resolvedBaseUrl = resolveBaseUrl(this.provider, configuredBaseUrl);
         this.endpoint = getEndpoint();
         this.restClient = restClientBuilder
@@ -150,6 +157,42 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             throw new IllegalStateException("请在管理端配置简历 AI 密钥，或设置环境变量 "
                     + getEnvKeyName(runtimeConfig.provider()) + " / API_KEY");
         }
+
+        String compressedResume = compressResumeIfEnabled(resumeText, tag);
+        try {
+            DiagnosisPrompt primaryPrompt = buildDiagnosisPrompt(compressedResume, tag, false);
+            String result = executeDiagnosisAttempt(runtimeConfig, apiKey, primaryPrompt, tag, 0);
+            logDiagnosisSuccess(tag, startTime, primaryPrompt.version(), 0, result);
+            return result;
+        } catch (Exception primaryEx) {
+            if (shouldRetryWithLeanPrompt(primaryEx)) {
+                try {
+                    DiagnosisPrompt retryPrompt = buildDiagnosisPrompt(compressedResume, tag, true);
+                    String retryResult = executeDiagnosisAttempt(runtimeConfig, apiKey, retryPrompt, tag, 1);
+                    logDiagnosisSuccess(tag, startTime, retryPrompt.version(), 1, retryResult);
+                    return retryResult;
+                } catch (Exception retryEx) {
+                    logDiagnosisFailure(tag, startTime, "primary+retry", retryEx);
+                    throw new RuntimeException("AI 简历诊断失败: " + retryEx.getMessage(), retryEx);
+                }
+            }
+            logDiagnosisFailure(tag, startTime, "primary", primaryEx);
+            throw new RuntimeException("AI 简历诊断失败: " + primaryEx.getMessage(), primaryEx);
+        }
+    }
+
+    private String diagnoseLegacy(String resumeText) {
+        long startTime = System.currentTimeMillis();
+        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
+        String tag = runtimeConfig.provider().toUpperCase();
+        if (resumeText == null || resumeText.isBlank()) {
+            throw new IllegalArgumentException("简历文本不能为空");
+        }
+        String apiKey = runtimeConfig.apiKey();
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new IllegalStateException("请在管理端配置简历 AI 密钥，或设置环境变量 "
+                    + getEnvKeyName(runtimeConfig.provider()) + " / API_KEY");
+        }
         // 【Token 优化】步骤1：压缩简历文本（去除冗余空白、重复内容、章节优化）
         String compressedResume = compressResumeIfEnabled(resumeText, tag);
         String systemPrompt = resolveSystemPrompt(tag);
@@ -198,18 +241,23 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             RestClient.Builder builder = restClientBuilder
                     .baseUrl(runtimeConfig.baseUrl())
                     .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json");
-            int readTimeout = 600_000; // 默认 10 分钟，DeepSeek 大 prompt 生成耗时较长
+            // 默认 3 分钟，SiliconFlow DeepSeek-V3 对短文本通常 30-90 秒内返回
+            int readTimeout = 180_000;
             if (runtimeConfig.timeoutMs() != null && runtimeConfig.timeoutMs() > 0) {
-                readTimeout = Math.max(runtimeConfig.timeoutMs(), 600_000); // 至少 10 分钟
+                // 使用管理员配置值，但设上限 5 分钟避免极端等待
+                readTimeout = runtimeConfig.timeoutMs();
             }
             SimpleClientHttpRequestFactory customFactory = new SimpleClientHttpRequestFactory();
             customFactory.setConnectTimeout(10000);
             customFactory.setReadTimeout(readTimeout);
             builder = builder.requestFactory(customFactory);
-            log.info("[{}] HTTP 超时: {}ms", tag, readTimeout);
+            log.info("[{}] HTTP 超时配置: connectTimeout=10000ms, readTimeout={}ms ({}秒)",
+                    tag, readTimeout, readTimeout / 1000);
             RestClient runtimeRestClient = builder.build();
             long aiStartTime = System.currentTimeMillis();
-            log.info("[{}] 开始调用 AI API...", tag);
+            log.info("[{}] >>> HTTP POST {}{}, 发出时间: {}",
+                    tag, runtimeConfig.baseUrl(), runtimeConfig.endpoint(),
+                    java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss.SSS")));
             ResponseBody response = runtimeRestClient.post()
                     .uri(runtimeConfig.endpoint())
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
@@ -217,7 +265,9 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                     .retrieve()
                     .body(ResponseBody.class);
             long aiElapsed = System.currentTimeMillis() - aiStartTime;
-            log.info("[{}] AI API 调用完成, 耗时: {}ms ({}分{}秒)", tag, aiElapsed, aiElapsed / 60000, (aiElapsed / 1000) % 60);
+            log.info("[{}] <<< 响应到达, 耗时: {}ms ({}分{}秒), choices: {}",
+                    tag, aiElapsed, aiElapsed / 60000, (aiElapsed / 1000) % 60,
+                    response == null ? "null" : (response.choices == null ? "null" : response.choices.size()));
             if (response == null || response.choices == null || response.choices.isEmpty()) {
                 throw new RuntimeException("AI 返回内容为空");
             }
@@ -271,9 +321,9 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             RestClient.Builder builder = restClientBuilder
                     .baseUrl(runtimeConfig.baseUrl())
                     .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json");
-            int readTimeout = 600_000; // 默认 10 分钟，DeepSeek 大 prompt 生成耗时较长
+            int readTimeout = 180_000; // 默认 3 分钟
             if (runtimeConfig.timeoutMs() != null && runtimeConfig.timeoutMs() > 0) {
-                readTimeout = Math.max(runtimeConfig.timeoutMs(), 600_000); // 至少 10 分钟
+                readTimeout = runtimeConfig.timeoutMs();
             }
             SimpleClientHttpRequestFactory customFactory = new SimpleClientHttpRequestFactory();
             customFactory.setConnectTimeout(10000);
@@ -297,6 +347,333 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             log.error("[{}] JD 匹配分析失败", tag, e);
             throw new RuntimeException("AI JD 匹配分析失败: " + e.getMessage(), e);
         }
+    }
+
+    private DiagnosisPrompt buildDiagnosisPrompt(String resumeText, String tag, boolean leanRetry) {
+        String promptVersion = leanRetry ? "lean-retry-v1" : "primary-v3";
+        String systemPrompt = leanRetry ? getLeanDiagnosisSystemPrompt() : resolvePrimaryDiagnosisSystemPrompt(tag);
+        String finalResumeText = resumeText;
+        String userPrompt = leanRetry
+                ? buildLeanDiagnosisUserPrompt(finalResumeText)
+                : buildPrimaryDiagnosisUserPrompt(finalResumeText);
+
+        int systemTokens = TokenEstimator.estimateTokens(systemPrompt);
+        int userTokens = TokenEstimator.estimateTokens(userPrompt);
+        int totalTokens = systemTokens + userTokens;
+        log.info("[{}] 简历诊断请求, promptVersion: {}, resumeLength: {}, estimatedTokens: {}(system:{}, user:{})",
+                tag, promptVersion, finalResumeText.length(), totalTokens, systemTokens, userTokens);
+
+        if (tokenLimitConfig.isTokenLimitEnabled()) {
+            int maxTokens = tokenLimitConfig.getResumeDiagnosisMax();
+            if (totalTokens > maxTokens) {
+                int resumeMaxTokens = maxTokens - systemTokens - 500;
+                finalResumeText = TokenEstimator.safeTruncate(finalResumeText, Math.max(500, resumeMaxTokens));
+                userPrompt = leanRetry
+                        ? buildLeanDiagnosisUserPrompt(finalResumeText)
+                        : buildPrimaryDiagnosisUserPrompt(finalResumeText);
+                userTokens = TokenEstimator.estimateTokens(userPrompt);
+                totalTokens = systemTokens + userTokens;
+                log.warn("[{}] 简历诊断 prompt 超出 token 限制，已截断简历文本, promptVersion: {}, maxTokens: {}, estimatedAfterTrim: {}",
+                        tag, promptVersion, maxTokens, totalTokens);
+            }
+        }
+
+        return new DiagnosisPrompt(promptVersion, systemPrompt, userPrompt, totalTokens);
+    }
+
+    private String executeDiagnosisAttempt(RuntimeAiConfig runtimeConfig, String apiKey, DiagnosisPrompt prompt,
+            String tag, int retryCount) {
+        try {
+            return callDiagnosisStream(runtimeConfig, apiKey, prompt, tag, retryCount);
+        } catch (Exception streamEx) {
+            if (shouldFallbackToNonStream(streamEx)) {
+                log.warn("[{}] 简历诊断流式调用失败，回退非流式, promptVersion: {}, retryCount: {}, error: {}",
+                        tag, prompt.version(), retryCount, streamEx.getMessage());
+                return callDiagnosisNonStream(runtimeConfig, apiKey, prompt, tag, retryCount);
+            }
+            throw streamEx;
+        }
+    }
+
+    private String callDiagnosisStream(RuntimeAiConfig runtimeConfig, String apiKey, DiagnosisPrompt prompt,
+            String tag, int retryCount) {
+        int readTimeout = resolveReadTimeoutMs(runtimeConfig.timeoutMs(), 180_000);
+        StreamRequestBody request = new StreamRequestBody(runtimeConfig.model(), List.of(
+                new Message("system", prompt.systemPrompt()),
+                new Message("user", prompt.userPrompt())), true);
+        request.thinking = buildThinkingConfig(runtimeConfig.model(), thinkingMode);
+        logDiagnosisRequest(tag, runtimeConfig, prompt.version(), retryCount, true, readTimeout, prompt.totalTokens());
+
+        WebClient runtimeWebClient = webClientBuilder
+                .baseUrl(runtimeConfig.baseUrl())
+                .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .build();
+
+        Flux<String> rawLineFlux = runtimeWebClient.post()
+                .uri(runtimeConfig.endpoint())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                .bodyValue(request)
+                .retrieve()
+                .bodyToFlux(String.class)
+                .timeout(Duration.ofMillis(readTimeout));
+
+        StringBuilder content = new StringBuilder();
+        int lineNo = 0;
+        long callStartTime = System.currentTimeMillis();
+        boolean firstContentLogged = false;
+
+        for (String rawLine : rawLineFlux.toIterable()) {
+            lineNo++;
+            if (rawLine == null || rawLine.isBlank() || rawLine.startsWith(":")) {
+                continue;
+            }
+
+            String payload = rawLine.trim();
+            if (payload.startsWith("data:")) {
+                payload = payload.substring("data:".length()).trim();
+            }
+            if ("[DONE]".equals(payload)) {
+                break;
+            }
+            if (!payload.startsWith("{")) {
+                continue;
+            }
+
+            try {
+                JsonNode root = objectMapper.readTree(payload);
+                String chunk = extractDiagnosisStreamContent(root);
+                if (chunk == null || chunk.isBlank()) {
+                    continue;
+                }
+                if (!firstContentLogged) {
+                    firstContentLogged = true;
+                    log.info("[{}] 简历诊断流式首包到达, promptVersion: {}, retryCount: {}, lineNo: {}, elapsedMs: {}",
+                            tag, prompt.version(), retryCount, lineNo, System.currentTimeMillis() - callStartTime);
+                }
+                content.append(chunk);
+            } catch (Exception parseEx) {
+                throw new DiagnosisStreamException("Stream payload parse failed", parseEx);
+            }
+        }
+
+        String result = extractJsonFromResponse(content.toString());
+        if (result == null || result.isBlank()) {
+            throw new EmptyAiResponseException("AI 流式返回内容为空");
+        }
+        return result;
+    }
+
+    private String callDiagnosisNonStream(RuntimeAiConfig runtimeConfig, String apiKey, DiagnosisPrompt prompt,
+            String tag, int retryCount) {
+        int readTimeout = resolveReadTimeoutMs(runtimeConfig.timeoutMs(), 180_000);
+        RequestBody request = new RequestBody();
+        request.model = runtimeConfig.model();
+        request.messages = List.of(
+                new Message("system", prompt.systemPrompt()),
+                new Message("user", prompt.userPrompt()));
+        request.thinking = buildThinkingConfig(runtimeConfig.model(), thinkingMode);
+        logDiagnosisRequest(tag, runtimeConfig, prompt.version(), retryCount, false, readTimeout, prompt.totalTokens());
+
+        RestClient runtimeRestClient = restClientBuilder
+                .baseUrl(runtimeConfig.baseUrl())
+                .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .requestFactory(buildRequestFactory(readTimeout))
+                .build();
+
+        ResponseBody response = runtimeRestClient.post()
+                .uri(runtimeConfig.endpoint())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                .body(request)
+                .retrieve()
+                .body(ResponseBody.class);
+
+        if (response == null || response.choices == null || response.choices.isEmpty()) {
+            throw new EmptyAiResponseException("AI 非流式返回内容为空");
+        }
+        String result = extractJsonFromResponse(response.choices.get(0).message.content);
+        if (result == null || result.isBlank()) {
+            throw new EmptyAiResponseException("AI 非流式返回内容为空");
+        }
+        return result;
+    }
+
+    private String extractDiagnosisStreamContent(JsonNode root) {
+        JsonNode choices = root.path("choices");
+        if (!choices.isArray() || choices.isEmpty()) {
+            return "";
+        }
+        JsonNode firstChoice = choices.get(0);
+        JsonNode deltaContent = firstChoice.path("delta").path("content");
+        if (deltaContent.isTextual()) {
+            return deltaContent.asText("");
+        }
+        JsonNode messageContent = firstChoice.path("message").path("content");
+        if (messageContent.isTextual()) {
+            return messageContent.asText("");
+        }
+        return "";
+    }
+
+    private void logDiagnosisRequest(String tag, RuntimeAiConfig runtimeConfig, String promptVersion, int retryCount,
+            boolean stream, int readTimeout, int estimatedTokens) {
+        log.info("[{}] 简历诊断请求准备完成, promptVersion: {}, retryCount: {}, stream: {}, source: {}, model: {}, estimatedTokens: {}",
+                tag, promptVersion, retryCount, stream, runtimeConfig.source(), runtimeConfig.model(), estimatedTokens);
+        log.info("[{}] HTTP 超时配置: configuredTimeoutMs={}, effectiveReadTimeoutMs={}, connectTimeoutMs=10000, endpoint: {}{}",
+                tag, runtimeConfig.timeoutMs(), readTimeout, runtimeConfig.baseUrl(), runtimeConfig.endpoint());
+    }
+
+    private void logDiagnosisSuccess(String tag, long startTime, String promptVersion, int retryCount, String result) {
+        long elapsed = System.currentTimeMillis() - startTime;
+        long elapsedSec = elapsed / 1000;
+        log.info("[{}] 简历诊断成功, promptVersion: {}, retryCount: {}, responseLength: {}, totalMs: {} ({}m {}s)",
+                tag, promptVersion, retryCount, result == null ? 0 : result.length(), elapsed, elapsedSec / 60, elapsedSec % 60);
+    }
+
+    private void logDiagnosisFailure(String tag, long startTime, String stage, Exception exception) {
+        long elapsed = System.currentTimeMillis() - startTime;
+        long elapsedSec = elapsed / 1000;
+        log.error("[{}] 简历诊断失败, stage: {}, totalMs: {} ({}m {}s)",
+                tag, stage, elapsed, elapsedSec / 60, elapsedSec % 60, exception);
+    }
+
+    private boolean shouldFallbackToNonStream(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof DiagnosisStreamException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private boolean shouldRetryWithLeanPrompt(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof EmptyAiResponseException) {
+                return true;
+            }
+            if (current instanceof java.net.SocketTimeoutException) {
+                return true;
+            }
+            String simpleName = current.getClass().getSimpleName();
+            if ("WebClientRequestException".equals(simpleName)
+                    || "ReadTimeoutException".equals(simpleName)
+                    || "ConnectException".equals(simpleName)) {
+                return true;
+            }
+            String message = current.getMessage();
+            if (message != null) {
+                String lowerMessage = message.toLowerCase(Locale.ROOT);
+                if (lowerMessage.contains("timeout")
+                        || lowerMessage.contains("connection reset")
+                        || lowerMessage.contains("connection refused")
+                        || lowerMessage.contains("premature close")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    static int resolveReadTimeoutMs(Integer configuredTimeoutMs, int defaultTimeoutMs) {
+        return configuredTimeoutMs != null && configuredTimeoutMs > 0 ? configuredTimeoutMs : defaultTimeoutMs;
+    }
+
+    private SimpleClientHttpRequestFactory buildRequestFactory(int readTimeout) {
+        SimpleClientHttpRequestFactory customFactory = new SimpleClientHttpRequestFactory();
+        customFactory.setConnectTimeout(10000);
+        customFactory.setReadTimeout(readTimeout);
+        return customFactory;
+    }
+
+    private String getLeanDiagnosisSystemPrompt() {
+        return """
+                你是一位严格、直接的中文简历诊断顾问。
+                只返回合法 JSON，不要解释，不要 Markdown，不要代码块。
+                仅输出这些顶层字段：overallEvaluation、highlights、basicInfoEvaluation、skillEvaluation、workExperienceEvaluation、projectExperienceEvaluation、educationEvaluation、optimizationSuggestions。
+                不要输出 basicInfoDetails。
+                每个维度只保留 score、evaluation、strengths、weaknesses、suggestions 等核心字段。
+                strengths 最多 2 条，weaknesses 最多 2 条，suggestions 最多 2 条。
+                workExperienceEvaluation.experiences 和 projectExperienceEvaluation.projects 可以为空数组。
+                overallEvaluation.summary 控制在 90-180 字，每个 evaluation 控制在 30-70 字。
+                如果缺少信息，返回空字符串、null 或空数组，不要编造。
+                """;
+    }
+
+    private String resolvePrimaryDiagnosisSystemPrompt(String tag) {
+        String dbPrompt = sysPromptService.getActivePromptContent(ResumeDiagnosisConstants.SCENARIO_TYPE_RESUME);
+        if (dbPrompt != null && !dbPrompt.isBlank()) {
+            log.info("[{}] 使用数据库中的简历诊断 Prompt, length: {}", tag, dbPrompt.length());
+            return dbPrompt;
+        }
+        return """
+                角色：跨行业资深职业顾问。任务：严格诊断简历问题。
+                原则：1)根据简历实际岗位方向评价，不预设技术岗标准 2)优点缺点都直说 3)项目必须有业务价值+量化成果 4)学历放宽但项目要硬。
+                评分标准：S(90+)顶尖 A(75-89)优秀 B(60-74)合格 C(40-59)偏弱 D(<40)问题严重。多数简历应在B-C区间，仅真正出色者得A以上。
+                权重：基本信息10% 岗位核心能力15% 工作25% 项目40% 教育10%。
+                跨行业原则：按岗位方向评价核心能力，不默认技术标准。与岗位无关的字段不扣分。
+                规则：只返回JSON，无额外文本；JSON完整闭合；缺信息返回null/空数组；basicInfoDetails从原文提取真实值。
+                得分明细规则：每个维度（basicInfoEvaluation、skillEvaluation、workExperienceEvaluation、projectExperienceEvaluation、educationEvaluation）必须包含strengths和weaknesses数组，strengths列出2-4条加分项（做得好的具体方面），weaknesses列出2-4条扣分项（需要改进的具体方面及扣分原因），每项一句话简洁具体，不得为空数组。
+                """;
+    }
+
+    private String buildPrimaryDiagnosisUserPrompt(String resumeText) {
+        return """
+                请对以下简历进行诊断，暴露所有问题。严格按评分标准打分，不要偏高。
+
+                简历内容：
+                """ + resumeText
+                + """
+
+                        诊断重点：
+                        1.项目经历：有无量化成果？个人贡献是否明确？"负责XX开发"等空洞描述直接扣分。
+                        2.工作经历：有无业务成果数据？职业成长轨迹是否清晰？
+                        3.与岗位无关的字段（如非技术岗的hasGithub/hasBlog）直接填false，不扣分。
+                        4.简历结构：逻辑是否清晰，有无错别字/排版问题。
+                        5.每个维度的strengths列出该维度的加分项（做得好的地方），weaknesses列出扣分项（需要改进的地方），每项一句话，简洁具体。
+                        6.除overallEvaluation外，每个维度必须包含evaluation字段：一段80-150字的评价文本，结构为"先说明分数由来→列出主要加分项→列出主要扣分项→给出改进建议"，语气专业客观，不要泛泛而谈。
+
+                        summary要求：写一份300-400字的"评判官视角"总体评价，采用连贯的自然段落叙述，不使用模块编号或小标题。具体规则：
+                        1.内容维度：覆盖岗位匹配度（一句话定位竞争力层级）→经历深度（实习>项目>教育优先级，无实习则提升项目权重，均无则转向教育背景）→技能可信度（是否具体到工具/场景/效果）→核心改进方向（优先级明确的2-3条建议）。
+                        2.语气：客观正式，使用"该简历""候选人""呈现""缺乏"等表述，禁止"你""您的"；批评直指问题不贬损，建议用指令句式。
+                        3.篇幅：总字数300-400字，1-2个自然段；实习经历分析占40%以上（若存在）。
+                        岗位类型动态规则：技术岗侧重技术栈规范性；教师/文科侧重教学实习细节；市场/运营侧重活动数据；设计侧重作品集；职能岗侧重流程处理。引用简历原文作为证据，不要泛泛而谈。
+
+                        返回JSON格式(不要额外文本)：
+                        {"overallEvaluation":{"totalScore":0-100,"level":"S/A/B/C/D","summary":"按上方summary要求填写","strengths":["整体优势1","整体优势2"],"weaknesses":["整体不足1","整体不足2"]},
+                        "highlights":["亮点1"],
+                        "basicInfoEvaluation":{"score":0-100,"hasName":true/false,"hasPhone":true/false,"hasEmail":true/false,"hasGithub":true/false,"hasBlog":true/false,"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1"]},
+                        "basicInfoDetails":{"name":"","email":"","phone":"","location":"","currentCompany":"","github":"","blog":""},
+                        "skillEvaluation":{"score":0-100,"skillList":[""],"evaluation":"80-150字评价文本","strengths":[""],"weaknesses":[""],"suggestions":[""]},
+                        "workExperienceEvaluation":{"score":0-100,"totalYears":0,"companyCount":0,"hasQuantifiableResults":true/false,"experiences":[{"company":"","position":"","duration":"","highlights":[""]}],"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":[""]},
+                        "projectExperienceEvaluation":{"score":0-100,"projectCount":0,"hasTechStack":true/false,"hasResponsibilities":true/false,"projects":[{"name":"","role":"","techStack":"","highlights":[""]}],"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":[""]},
+                        "educationEvaluation":{"score":0-100,"degree":"","school":"","major":"","hasRelevantMajor":true/false,"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":[""]},
+                        "optimizationSuggestions":["建议1"]}
+                        """;
+    }
+
+    private String buildLeanDiagnosisUserPrompt(String resumeText) {
+        return """
+                请诊断以下简历，返回精简 JSON，优先指出最关键的问题和最有价值的建议。
+
+                简历内容：
+                """ + resumeText
+                + """
+
+                        返回格式：
+                        {
+                          "overallEvaluation":{"totalScore":0,"level":"B","summary":"","strengths":[],"weaknesses":[]},
+                          "highlights":[],
+                          "basicInfoEvaluation":{"score":0,"hasName":false,"hasPhone":false,"hasEmail":false,"hasGithub":false,"hasBlog":false,"evaluation":"","strengths":[],"weaknesses":[],"suggestions":[]},
+                          "skillEvaluation":{"score":0,"skillList":[],"evaluation":"","strengths":[],"weaknesses":[],"suggestions":[]},
+                          "workExperienceEvaluation":{"score":0,"totalYears":0,"companyCount":0,"hasQuantifiableResults":false,"experiences":[],"evaluation":"","strengths":[],"weaknesses":[],"suggestions":[]},
+                          "projectExperienceEvaluation":{"score":0,"projectCount":0,"hasTechStack":false,"hasResponsibilities":false,"projects":[],"evaluation":"","strengths":[],"weaknesses":[],"suggestions":[]},
+                          "educationEvaluation":{"score":0,"degree":"","school":"","major":"","hasRelevantMajor":false,"evaluation":"","strengths":[],"weaknesses":[],"suggestions":[]},
+                          "optimizationSuggestions":[]
+                        }
+                        """;
     }
 
     private String buildJobMatchSystemPrompt() {
@@ -627,9 +1004,9 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             RestClient.Builder builder = restClientBuilder
                     .baseUrl(runtimeConfig.baseUrl())
                     .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json");
-            int readTimeout = 600_000; // 默认 10 分钟，DeepSeek 大 prompt 生成耗时较长
+            int readTimeout = 180_000; // 默认 3 分钟
             if (runtimeConfig.timeoutMs() != null && runtimeConfig.timeoutMs() > 0) {
-                readTimeout = Math.max(runtimeConfig.timeoutMs(), 600_000); // 至少 10 分钟
+                readTimeout = runtimeConfig.timeoutMs();
             }
             SimpleClientHttpRequestFactory customFactory = new SimpleClientHttpRequestFactory();
             customFactory.setConnectTimeout(10000);
@@ -996,6 +1373,16 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         }
     }
 
+    private static class StreamRequestBody extends RequestBody {
+        public boolean stream;
+
+        public StreamRequestBody(String model, List<Message> messages, boolean stream) {
+            this.model = model;
+            this.messages = messages;
+            this.stream = stream;
+        }
+    }
+
     private static class Thinking {
         public String type;
 
@@ -1023,6 +1410,25 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             public static class MessageContent {
                 public String content;
             }
+        }
+    }
+
+    private record DiagnosisPrompt(
+            String version,
+            String systemPrompt,
+            String userPrompt,
+            int totalTokens) {
+    }
+
+    private static class DiagnosisStreamException extends RuntimeException {
+        public DiagnosisStreamException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    private static class EmptyAiResponseException extends RuntimeException {
+        public EmptyAiResponseException(String message) {
+            super(message);
         }
     }
 }
