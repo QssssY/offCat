@@ -18,7 +18,7 @@ spring:
     url: jdbc:mysql://localhost:3306/ai_resume?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
     # 数据库密码：优先使用环境变量MYSQL_PASSWORD，默认值为123456（仅开发环境）
-    password: ${MYSQL_PASSWORD:123456}
+    password: ${MYSQL_PASSWORD:root}
 
   # ------------------------------------------
   # Redis 配置 - 缓存和会话管理
@@ -180,3 +180,13 @@ app:
     history-summary-threshold: 6
     # 保留最近N轮完整对话不被压缩
     recent-messages-to-keep: 3
+
+  # ------------------------------------------
+  # PDF 导出配置 - 简历PDF生成
+  # 用途：使用 Headless Chrome 将 HTML 转换为文字型 PDF
+  # ------------------------------------------
+  pdf:
+    # Chrome/Chromium 可执行文件路径，留空则自动查找
+    chrome-path: C:\Users\luoshengr\AppData\Local\Google\Chrome\Application\chrome.exe
+    # PDF 生成超时时间（毫秒）
+    timeout-ms: 30000

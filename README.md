@@ -4,10 +4,6 @@
 
 智能模拟面试与简历诊断系统后端服务，为求职者提供AI驱动的模拟面试和简历诊断能力。
 
-## 项目状态
-
-✅ **所有核心模块已完成，最终交付版本 v1.0.0**
-
 ## 技术栈
 
 | 类别 | 技术 |
@@ -16,95 +12,178 @@
 | JDK版本 | 21 |
 | ORM | MyBatis-Plus 3.5.7 |
 | 数据库 | MySQL 8.0+ |
-| 缓存 | Redis 6.0+ |
+| 缓存 | Redis 6.0+ (Lettuce) |
 | 消息队列 | RabbitMQ |
-| 认证 | JWT + Spring Security |
-| AI接入 | 支持多Provider (豆包/DeepSeek/通义千问/OpenAI) |
+| 认证 | JWT (jjwt 0.12.3) + Spring Security |
+| HTTP客户端 | RestClient (非流式) + WebClient/SSE (流式) |
+| PDF解析 | Apache PDFBox 3.0.1 |
+| PDF导出 | Headless Chrome (`app.pdf.chrome-path`) |
+| AI接入 | 多Provider支持 (豆包/DeepSeek/通义千问/OpenAI/Kimi/MiniMax/文心) |
 
 ## 环境要求
 
 - JDK 21+
 - Maven 3.6+
-- MySQL 8.0+
-- Redis 6.0+
-- RabbitMQ 3.8+
+- MySQL 8.0+ (端口 3306)
+- Redis 6.0+ (端口 6379)
+- RabbitMQ 3.8+ (端口 5672)
+- Chrome (仅PDF导出需要，配置 `app.pdf.chrome-path`)
+
+## 快速开始
+
+### 1. 配置数据库
+
+导入数据库结构和种子数据：
+```bash
+mysql -u root -p ai_resume < db/schema.sql
+```
+
+### 2. 修改配置
+
+编辑 `src/main/resources/application-dev.yml`，配置数据库、Redis、RabbitMQ 连接信息。
+
+### 3. 配置AI Provider（可选）
+
+在管理端 `AI引擎配置` 页面添加，或设置环境变量（如 `DEEPSEEK_API_KEY`）。
+
+### 4. 启动服务
+
+```bash
+mvn spring-boot:run
+```
+
+服务启动后访问 `GET /api/auth/health` 验证。
+
+## 构建命令
+
+```bash
+mvn spring-boot:run              # 启动开发服务器 (端口 8080)
+mvn compile                      # 快速编译检查
+mvn clean install                # 完整构建
+mvn package -DskipTests          # 打包为JAR
+mvn test                         # 运行所有测试
+mvn test -Dtest=ClassName        # 运行单个测试类
+```
+
+## 配置说明
+
+| 配置文件 | 用途 |
+|----------|------|
+| `src/main/resources/application.yml` | 主配置 (DB、Redis、RabbitMQ、JWT、AI Provider、Token限制) |
+| `src/main/resources/application-dev.yml` | 开发环境覆盖 |
+| `db/schema.sql` | 数据库结构 + 种子数据 |
+
+AI运行模式通过以下配置切换：
+- `app.ai.mode` — 简历诊断AI模式 (`mock` / `real`)
+- `app.interview.mode` — 模拟面试AI模式 (`mock` / `real`)
 
 ## 项目结构
 
 ```
-server/src/main/java/com/airesume/server/
-├── controller/          # 控制器层
-│   ├── AuthController.java           # 认证接口
-│   ├── ResumeDiagnosisController.java # 简历诊断接口
-│   ├── InterviewController.java     # 模拟面试接口
-│   ├── AdminController.java         # 管理端接口
-│   ├── MembershipController.java    # 会员接口
-│   ├── NetworkDiagnosticController.java # 网络诊断
-│   └── AiConfigDebugController.java # AI配置调试
-├── service/             # 业务逻辑层
-│   ├── impl/            # 服务实现
-│   │   ├── InterviewAiServiceImpl.java    # 真实AI面试服务
-│   │   ├── MockInterviewAiServiceImpl.java # Mock面试服务
-│   │   ├── ResumeAiServiceImpl.java       # 真实AI简历服务
-│   │   └── MockResumeAiServiceImpl.java    # Mock简历服务
-│   └── *Service.java    # 服务接口
-├── entity/              # 实体类
-├── mapper/              # 数据访问层
-├── dto/                 # 数据传输对象
-├── common/              # 公共组件
-│   ├── constants/       # 常量定义
-│   │   └── AiEngineConstants.java  # AI引擎常量
-│   ├── result/          # 统一响应
-│   ├── exception/       # 异常处理
-│   └── util/            # 工具类
-├── config/              # 配置类
-├── infrastructure/       # 基础设施
-│   └── security/         # 安全组件
-└── mock/                # Mock实现(备用)
+src/main/java/com/airesume/server/
+├── controller/          # REST接口 (10个控制器)
+├── service/             # 业务接口
+│   └── impl/            # 服务实现
+├── entity/              # MyBatis-Plus实体 (继承BaseEntity: snowflake ID, createTime, updateTime, isDeleted)
+├── mapper/              # MyBatis-Plus数据访问
+├── dto/                 # 请求/响应DTO (按领域: admin/, auth/, interview/, membership/, resume/ 等)
+├── common/              # 公共组件 (常量、Result<T>统一响应、ResultCode枚举、BusinessException、工具类)
+├── config/              # Spring配置类
+├── infrastructure/      # 安全组件 (JwtAuthenticationFilter, JwtUtil, JwtProperties)
+├── mock/                # Mock实现 (MockDiagnosisResultGenerator, MockInterviewService)
+├── mq/                  # RabbitMQ (ResumeDiagnosisProducer, ResumeDiagnosisConsumer)
+├── repository/          # JPA仓库 (与MyBatis-Plus并用)
+└── util/                # 工具类 (TokenEstimator, AiInputCompressor)
 ```
+
+## 核心架构设计
+
+### 双AI服务模式
+
+每个AI功能（简历诊断、面试）提供两种实现，通过接口统一调用：
+- `InterviewAiServiceImpl` / `MockInterviewAiServiceImpl` → `InterviewAiService`
+- `ResumeAiServiceImpl` / `MockResumeAiServiceImpl` → `ResumeAiService`
+
+通过 `@ConditionalOnProperty` 根据 `app.interview.mode` / `app.ai.mode` 选择加载。
+
+### 运行时AI配置解析
+
+AI服务实现中的 `resolveRuntimeConfig()` 按三级优先级解析配置：
+1. 数据库 `sys_ai_engine_config` 中的启用配置（最高优先级）
+2. `application.yml` 中的属性配置
+3. 环境变量
+
+### 简历诊断异步流程
+
+上传 → RabbitMQ消息 → `ResumeDiagnosisConsumer` 异步处理：
+1. PDF文本提取 (PDFBox)
+2. 文本缓存到数据库
+3. AI诊断调用
+4. 结果增强（后端提取基本信息：姓名、邮箱、电话等）
+5. 存储结果 + 发送通知
+
+失败时自动退还配额，任务标记为失败并返回用户友好错误信息。
+
+### 面试SSE流式响应
+
+`InterviewController` 使用 `ResponseBodyEmitter` + 专用线程实现Server-Sent Events。通过 `WebClient` (WebFlux) 获取AI流式响应（Reactor `Flux`），逐块转发为SSE事件。
+
+### Token预算管理
+
+`TokenEstimator`（按字符类型估算） → `AiInputCompressor`（文本压缩） → `InterviewContextCompressor`（对话历史摘要）。限制阈值在 `AiTokenLimitConfig` 中配置：
+- 简历诊断最大Token: 6000
+- 面试单轮最大Token: 1200
+- 面试评估最大Token: 8000
+
+### 优雅降级
+
+`InterviewAiServiceImpl.shouldFallbackToLocalMock()` 在基础设施错误（网络异常、超时、缺少API Key）时自动降级到 `MockInterviewService`，业务逻辑错误不触发降级。
 
 ## AI接入说明
 
 ### 支持的AI Provider
 
-| Provider | 环境变量Key | API地址 | 说明 |
-|----------|-------------|---------|------|
-| 豆包(Doubao) | DOUBAO_API_KEY | https://ark.cn-beijing.volces.com/api/v3 | 字节跳动的豆包模型 |
-| 通义千问(Qwen) | QWEN_API_KEY | https://dashscope.aliyuncs.com/compatible-mode/v3 | 阿里云的通义千问 |
-| OpenAI | OPENAI_API_KEY | https://api.openai.com/v1 | OpenAI官方API |
-| Kimi | KIMI_API_KEY | https://api.moonshot.cn/v1 | 月之暗面Kimi |
-| DeepSeek | DEEPSEEK_API_KEY | https://api.deepseek.com/v1 | DeepSeek模型 |
+| Provider | 环境变量Key | API地址 |
+|----------|-------------|---------|
+| 豆包(Doubao) | `DOUBAO_API_KEY` | `https://ark.cn-beijing.volces.com/api/v3` |
+| 通义千问(Qwen) | `QWEN_API_KEY` | `https://dashscope.aliyuncs.com/compatible-mode/v3` |
+| OpenAI | `OPENAI_API_KEY` | `https://api.openai.com/v1` |
+| Kimi | `KIMI_API_KEY` | `https://api.moonshot.cn/v1` |
+| DeepSeek | `DEEPSEEK_API_KEY` | `https://api.deepseek.com/v1` |
+| MiniMax | `MINIMAX_API_KEY` | — |
+| 文心(ERNIE) | `ERNIE_API_KEY` | — |
 
 ### 配置方式
 
-1. **管理端配置** (推荐)
-   - 访问管理端 `AI引擎配置` 页面
-   - 添加AI引擎配置，填写Provider、模型名、API Key等
-   - 支持多引擎配置，可以在不同业务线使用不同AI
+1. **管理端配置（推荐）** — 访问管理端 `AI引擎配置` 页面添加，支持多引擎
+2. **环境变量配置（备用）** — `export DEEPSEEK_API_KEY="your-key"`
 
-2. **环境变量配置** (备用)
-   - 在系统环境变量中设置对应的API Key
-   - 例如：`export DOUBAO_API_KEY="your-api-key"`
-
-### 运行模式
-
-| 模式 | 配置 | 说明 |
-|------|------|------|
-| Mock | `app.interview.mode=mock` | 使用本地Mock回复，不调用AI |
-| Real | `app.interview.mode=real` | 调用配置的AI Provider生成回复 |
-
-- **默认模式**：Mock模式（当未配置时）
-- **切换方式**：通过配置文件或环境变量修改模式
-
-### AI调用流程
-
-```
-请求 → 检查配置 → 获取API Key → 调��对应Provider → 解析响应 → 返回结果
-         ↓
-    配置优先 → 环境变量备用 → Mock兜底
-```
+AI配置三级优先级：数据库启用配置 > application.yml > 环境变量
 
 ## API接口文档
+
+### 统一响应格式
+
+所有接口返回 `Result<T>`：
+```json
+{"code": 200, "message": "success", "data": {...}}
+```
+
+分页使用 `PageResult<T>`，参数为 `pageNum` / `pageSize`。
+
+### 认证方式
+
+JWT Bearer Token，`JwtAuthenticationFilter` 每次请求校验。
+
+### 接口权限
+
+| 路径 | 权限 |
+|------|------|
+| `/api/auth/**` | 公开 |
+| `/api/admin/**` | 需要 `ROLE_ADMIN` |
+| `/api/resume/**`, `/api/interview/**`, `/api/user/**` | 需要登录 |
+| `/api/diagnostic/**`, `/actuator/**` | 公开 |
+| `GET /api/interview/job-roles` | 公开 |
 
 ### 1. 认证模块 (/api/auth)
 
@@ -113,27 +192,30 @@ server/src/main/java/com/airesume/server/
 | POST | /register | 用户注册 |
 | POST | /login | 用户登录 |
 | GET | /me | 获取当前用户信息 |
+| PUT | /nickname | 更新昵称 |
 
 ### 2. 简历诊断模块 (/api/resume)
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | /upload | 上传简历文件 |
-| POST | /diagnose | 创建诊断任务 |
+| POST | /upload | 上传简历文件 (multipart) |
+| GET | /task/{taskId} | 诊断任务详情 |
 | GET | /history | 诊断历史 |
-| GET | /result/{taskId} | 诊断结果 |
+| POST | /job-match/analyze | 岗位匹配分析 |
+| POST | /polish/analyze | 简历润色分析 |
+| POST | /export-pdf | 导出PDF (需要Chrome) |
 
 ### 3. 模拟面试模块 (/api/interview)
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | /sessions | 创建面试会话 |
-| POST | /sessions/{sessionId}/message | 发送消息 |
-| GET | /sessions/{sessionId} | 获取会话详情 |
-| GET | /sessions/{sessionId}/history | 对话历史 |
-| POST | /sessions/{sessionId}/end | 结束面试 |
+| POST | /session | 创建面试会话 |
+| POST | /session/{id}/message | 发送消息 (同步) |
+| POST | /session/{id}/message/stream | 发送消息 (SSE流式) |
+| GET | /session/{id} | 获取会话详情 |
+| POST | /session/{id}/end | 结束面试，生成评估报告 |
+| GET | /history | 面试历史 |
 | GET | /job-roles | 获取岗位列表 |
-| GET | /sessions | 我的面试列表 |
 
 ### 4. 管理端 (/api/admin)
 
@@ -161,8 +243,6 @@ server/src/main/java/com/airesume/server/
 | DELETE | /prompts/batch | 批量删除 |
 | PUT | /prompts/batch/active | 批量启用/禁用 |
 
-**规则**：同岗位 + 同难度 只能有一个启用
-
 #### 4.3 AI引擎配置 (ai-engines)
 
 | 方法 | 路径 | 说明 |
@@ -174,8 +254,6 @@ server/src/main/java/com/airesume/server/
 | DELETE | /ai-engines/{id} | 删除AI引擎 |
 | DELETE | /ai-engines/batch | 批量删除 |
 | PUT | /ai-engines/batch/active | 批量启用/禁用 |
-
-**规则**：同业务类型(interview/resume)只能有一个启用
 
 #### 4.4 用户管理 (users)
 
@@ -230,6 +308,14 @@ server/src/main/java/com/airesume/server/
 - 会话创建时需要扣除额度
 - 结束时生成评价报告
 
+### 5. 管理端删除策略
+- 管理端CRUD（Prompts、岗位、AI引擎）使用物理删除
+- 业务实体使用MyBatis-Plus逻辑删除（`isDeleted`字段）
+
+### 6. API Key安全
+- 管理端返回的API Key已脱敏（如 `sk-****abcd`）
+- 后端校验脱敏值不会被写回数据库
+
 ## 数据库表
 
 | 表名 | 说明 |
@@ -244,25 +330,6 @@ server/src/main/java/com/airesume/server/
 | resume_diagnosis_task | 简历诊断任务表 |
 | interview_session | 面试会话表 |
 | interview_chat_log | 面试对话记录表 |
-
-## 快速开始
-
-### 1. 配置数据库连接
-修改 `application.yml` 中的数据库、Redis、RabbitMQ配置
-
-### 2. 配置AI Provider（可选）
-在管理端添加AI引擎配置，或设置环境变量
-
-### 3. 启动服务
-```bash
-cd server
-mvn spring-boot:run
-```
-
-### 4. 访问健康检查
-```
-GET /api/auth/health
-```
 
 ## 管理端功能
 
@@ -291,7 +358,3 @@ GET /api/admin/ai-config/debug
 - 已配置的Provider
 - API Key配置状态
 - 是否可以使用真实AI
-
-## 许可证
-
-Copyright © 2024
