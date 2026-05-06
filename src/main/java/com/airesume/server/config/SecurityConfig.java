@@ -1,12 +1,17 @@
 package com.airesume.server.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.airesume.server.common.result.Result;
+import com.airesume.server.common.result.ResultCode;
 import com.airesume.server.infrastructure.security.JwtAuthenticationFilter;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -82,7 +87,19 @@ public class SecurityConfig {
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                .exceptionHandling(exceptions -> exceptions
+                        // 未认证：返回 401 JSON 而非默认重定向
+                        .authenticationEntryPoint((request, response, authException) -> {
+                            writeJsonResponse(response, HttpServletResponse.SC_UNAUTHORIZED,
+                                    ResultCode.UNAUTHORIZED.getCode(), "登录已过期，请重新登录");
+                        })
+                        // 已认证但权限不足：返回 403 JSON
+                        .accessDeniedHandler((request, response, accessDeniedException) -> {
+                            writeJsonResponse(response, HttpServletResponse.SC_FORBIDDEN,
+                                    ResultCode.FORBIDDEN.getCode(), "无权限访问");
+                        })
+                );
 
         return http.build();
     }
@@ -90,6 +107,17 @@ public class SecurityConfig {
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
+    }
+
+    /**
+     * 写入标准 JSON 错误响应（供 Security 异常处理使用）
+     */
+    private void writeJsonResponse(HttpServletResponse response, int httpStatus, int code, String message) throws java.io.IOException {
+        response.setStatus(httpStatus);
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        response.setCharacterEncoding("UTF-8");
+        ObjectMapper mapper = new ObjectMapper();
+        response.getWriter().write(mapper.writeValueAsString(Result.error(code, message)));
     }
 
 }
