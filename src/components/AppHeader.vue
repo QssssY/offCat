@@ -290,6 +290,19 @@
                 </svg>
                 修改昵称
               </el-dropdown-item>
+              <el-dropdown-item command="password">
+                <svg
+                  class="dropdown-icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                </svg>
+                修改密码
+              </el-dropdown-item>
               <!-- 退出登录 -->
               <!-- 会员中心入口：
                    页面已经存在，这里只是在头像下拉菜单中补入口。
@@ -485,6 +498,64 @@
         </div>
       </template>
     </el-dialog>
+
+    <!-- 修改密码弹窗 -->
+    <el-dialog
+      v-model="passwordDialogVisible"
+      title="修改密码"
+      width="440px"
+      :close-on-click-modal="false"
+      :show-close="true"
+      :append-to-body="true"
+      @closed="resetPasswordForm"
+    >
+      <el-form
+        ref="passwordFormRef"
+        :model="passwordForm"
+        :rules="passwordRules"
+        label-position="top"
+        size="large"
+      >
+        <el-form-item label="原密码" prop="oldPassword">
+          <el-input
+            v-model="passwordForm.oldPassword"
+            type="password"
+            show-password
+            placeholder="请输入原密码"
+          />
+        </el-form-item>
+        <el-form-item label="新密码" prop="newPassword">
+          <el-input
+            v-model="passwordForm.newPassword"
+            type="password"
+            show-password
+            placeholder="请输入新密码（6-100位）"
+          />
+        </el-form-item>
+        <el-form-item label="确认新密码" prop="confirmPassword">
+          <el-input
+            v-model="passwordForm.confirmPassword"
+            type="password"
+            show-password
+            placeholder="请再次输入新密码"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button size="large" @click="passwordDialogVisible = false">取消</el-button>
+          <el-button
+            size="large"
+            type="primary"
+            @click="handlePasswordSave"
+            :loading="passwordSaving"
+            class="save-btn"
+          >
+            确认修改
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
   </header>
 </template>
 
@@ -495,7 +566,7 @@ import { useUserStore } from "@/stores/user";
 import { useThemeStore } from "@/stores/theme";
 import { ElMessage } from "element-plus";
 import { removeToken } from "@/utils/auth";
-import { updateNickname } from "@/api/auth";
+import { updateNickname, updatePassword } from "@/api/auth";
 import { getNotifications, getUnreadCount, markAsRead, markAllAsRead } from "@/api/notification";
 
 const router = useRouter();
@@ -513,6 +584,33 @@ const nicknameDialogVisible = ref(false);
  */
 const nicknameForm = ref({ nickname: "" });
 const isLoggedIn = computed(() => userStore.isLoggedIn());
+
+// ===== 修改密码相关状态 =====
+const passwordDialogVisible = ref(false);
+const passwordFormRef = ref(null);
+const passwordSaving = ref(false);
+const passwordForm = ref({ oldPassword: '', newPassword: '', confirmPassword: '' });
+
+/** 确认密码校验器 */
+const validateConfirmPassword = (rule, value, callback) => {
+  if (value !== passwordForm.value.newPassword) {
+    callback(new Error('两次输入的密码不一致'));
+  } else {
+    callback();
+  }
+};
+
+const passwordRules = {
+  oldPassword: [{ required: true, message: '请输入原密码', trigger: 'blur' }],
+  newPassword: [
+    { required: true, message: '请输入新密码', trigger: 'blur' },
+    { min: 6, max: 100, message: '密码长度应为6-100个字符', trigger: 'blur' }
+  ],
+  confirmPassword: [
+    { required: true, message: '请再次输入新密码', trigger: 'blur' },
+    { validator: validateConfirmPassword, trigger: 'blur' }
+  ]
+};
 
 // ===== 消息通知相关状态 =====
 /** 未读通知数量 */
@@ -718,6 +816,8 @@ const handleCommand = (command) => {
     // 打开弹窗时填充当前昵称
     nicknameForm.value.nickname = userStore.userInfo?.nickname || "";
     nicknameDialogVisible.value = true;
+  } else if (command === "password") {
+    passwordDialogVisible.value = true;
 } else if (command === "logout") {
     // 原有退出登录逻辑不能被破坏：
     // 这里仍然保持"清 token -> 清 Pinia 用户信息 -> 返回首页"的顺序，
@@ -749,6 +849,47 @@ const saveNickname = async () => {
     userStore.fetchUserInfo();
   } catch (e) {
     ElMessage.error(e.message || "修改失败");
+  }
+};
+
+/**
+ * 重置密码表单
+ */
+const resetPasswordForm = () => {
+  passwordForm.value = { oldPassword: '', newPassword: '', confirmPassword: '' };
+  passwordFormRef.value?.resetFields();
+};
+
+/**
+ * 保存密码修改
+ * 1. 表单校验
+ * 2. 调用后端接口修改密码
+ * 3. 成功后清除登录态，跳转登录页
+ */
+const handlePasswordSave = async () => {
+  if (!passwordFormRef.value) return;
+  try {
+    await passwordFormRef.value.validate();
+  } catch {
+    return;
+  }
+  passwordSaving.value = true;
+  try {
+    await updatePassword({
+      oldPassword: passwordForm.value.oldPassword,
+      newPassword: passwordForm.value.newPassword
+    });
+    ElMessage.success("密码修改成功，请重新登录");
+    passwordDialogVisible.value = false;
+    // 清除登录态，跳转登录页
+    localStorage.removeItem("token");
+    removeToken();
+    userStore.clearUserInfo();
+    router.push("/login");
+  } catch {
+    // 拦截器已弹出错误提示，此处不再重复
+  } finally {
+    passwordSaving.value = false;
   }
 };
 

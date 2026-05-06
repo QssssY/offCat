@@ -54,3 +54,18 @@ export function updateNickname(data) {
     data
   })
 }
+
+/**
+ * 修改密码
+ * @param {Object} data - 修改参数
+ * @param {string} data.oldPassword - 原密码
+ * @param {string} data.newPassword - 新密码
+ * @returns {Promise}
+ */
+export function updatePassword(data) {
+  return request({
+    url: '/api/auth/password',
+    method: 'put',
+    data
+  })
+}
