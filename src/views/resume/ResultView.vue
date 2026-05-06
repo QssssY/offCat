@@ -2,10 +2,13 @@
   <div class="resume-result-view">
     <!-- 加载状态 -->
     <div v-if="loading" class="loading-section">
-      <div class="loading-content">
-        <div class="loading-ring"></div>
-        <div class="loading-text">AI 正在分析你的简历...</div>
-      </div>
+      <AiLoadingState
+        title="AI 正在分析你的简历..."
+        :stages="resumeStages"
+        :currentStageIndex="0"
+        :showElapsedTime="true"
+        noCard
+      />
     </div>
 
     <!-- 错误状态 -->
@@ -29,8 +32,27 @@
 
     <!-- 任务内容 -->
     <div v-else-if="task" class="result-content">
-      <!-- Hero 诊断总览区 -->
-      <div class="hero-section" :class="`hero-${task.status}`">
+      <!-- 等待/处理中状态：使用 AiLoadingState 组件 -->
+      <div v-if="isPending || isProcessing" class="loading-section">
+        <AiLoadingState
+          :title="isPending ? '任务排队中...' : 'AI 正在分析你的简历...'"
+          :stages="resumeStages"
+          :currentStageIndex="currentStageIndex"
+          :messages="resumeLoadingMessages"
+          :showElapsedTime="true"
+          :showRefreshButton="true"
+          :refreshLoading="refreshing"
+          noCard
+          @refresh="fetchTaskDetail"
+        />
+        <div class="loading-nav-actions">
+          <el-button size="small" @click="goToHome">返回首页</el-button>
+          <el-button size="small" @click="goToUpload">继续上传</el-button>
+        </div>
+      </div>
+
+      <!-- Hero 诊断总览区（仅完成/失败时显示） -->
+      <div v-if="isCompleted || isFailed" class="hero-section" :class="`hero-${task.status}`">
         <div class="hero-left">
           <div class="score-display">
             <template v-if="isCompleted && parsedResult?.overallEvaluation">
@@ -48,14 +70,6 @@
                   />
                 </svg>
                 <span class="ring-score">{{ parsedResult.overallEvaluation.totalScore || 0 }}</span>
-              </div>
-            </template>
-            <template v-else-if="isProcessing">
-              <div class="ring-wrapper">
-                <svg width="80" height="80" viewBox="0 0 80 80" class="ring-svg">
-                  <circle cx="40" cy="40" r="34" fill="none" stroke="#f3d8c7" stroke-width="6"/>
-                </svg>
-                <span class="ring-score muted">--</span>
               </div>
             </template>
             <template v-else>
@@ -82,9 +96,6 @@
             </div>
             <p class="summary-text">{{ parsedResult.overallEvaluation.summary }}</p>
           </div>
-          <div class="ai-summary" v-else-if="isPending || isProcessing">
-            <p class="summary-text processing">{{ processingSummaryText }}</p>
-          </div>
           <div class="status-row">
             <span class="status-badge" :class="`status-${task.status}`">
               <span class="status-dot"></span>
@@ -93,11 +104,6 @@
             <span class="update-time" v-if="task.updateTime">
               {{ formatTime(task.updateTime) }}
             </span>
-          </div>
-          <div v-if="isPending || isProcessing" class="refresh-hint">
-            <el-button size="small" :loading="refreshing" @click="fetchTaskDetail">
-              {{ refreshing ? '刷新中...' : '刷新状态' }}
-            </el-button>
           </div>
         </div>
       </div>
@@ -535,8 +541,8 @@
 
       <div class="action-section">
         <div class="action-group">
-          <el-button @click="goToHome" class="action-btn secondary">返回首页</el-button>
-          <el-button @click="goToUpload" class="action-btn secondary">继续上传</el-button>
+          <el-button v-if="!isPending && !isProcessing" @click="goToHome" class="action-btn secondary">返回首页</el-button>
+          <el-button v-if="!isPending && !isProcessing" @click="goToUpload" class="action-btn secondary">继续上传</el-button>
           <el-button
             v-if="isCompleted"
             type="primary"
@@ -558,6 +564,7 @@ import { analyzeResumeJobMatch, analyzeResumePolish, getResumeTask } from '@/api
 import { useUserStore } from '@/stores/user'
 import { ElMessage } from 'element-plus'
 
+import AiLoadingState from '@/components/common/AiLoadingState.vue'
 import OverallEvaluation from '@/components/resume/OverallEvaluation.vue'
 import HighlightsSection from '@/components/resume/HighlightsSection.vue'
 import SkillsSection from '@/components/resume/SkillsSection.vue'
@@ -619,6 +626,29 @@ const processingSummaryText = computed(() => {
   }
   return ''
 })
+
+// ---- AiLoadingState 相关 ----
+/** 简历诊断阶段定义 */
+const resumeStages = [
+  { key: 'parsing', label: '提取简历文本' },
+  { key: 'analyzing', label: 'AI 深度分析' },
+  { key: 'generating', label: '生成诊断报告' }
+]
+
+/** 当前阶段索引：排队中=0，分析中=1 */
+const currentStageIndex = computed(() => {
+  if (isPending.value) return 0
+  return 1
+})
+
+/** 轮播鼓励文案 */
+const resumeLoadingMessages = [
+  '正在逐行解析你的简历内容...',
+  'AI 正在评估你的技能匹配度...',
+  '正在分析工作经历的含金量...',
+  '正在对比行业基准数据...',
+  '快要完成了，再坚持一下...'
+]
 
 const levelClass = computed(() => {
   const score = parsedResult.value?.overallEvaluation?.totalScore || 0
@@ -974,6 +1004,9 @@ onMounted(() => {
 
 onUnmounted(() => {
   stopPolling()
+  // 恢复页面滚动
+  document.body.style.overflow = ''
+  document.documentElement.style.overflow = ''
 })
 
 const unwatch = watch(() => task.value?.status, (newStatus) => {
@@ -982,6 +1015,13 @@ const unwatch = watch(() => task.value?.status, (newStatus) => {
   } else {
     stopPolling()
   }
+}, { immediate: true })
+
+// 加载/处理中时锁定页面滚动，结果出来后恢复
+watch([loading, isPending, isProcessing], ([l, p, pr]) => {
+  const locked = l || p || pr
+  document.body.style.overflow = locked ? 'hidden' : ''
+  document.documentElement.style.overflow = locked ? 'hidden' : ''
 }, { immediate: true })
 
 watch(task, (newTask) => {
@@ -1186,34 +1226,16 @@ onUnmounted(() => {
    ============================================ */
 .loading-section {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 400px;
-}
-
-.loading-content {
-  display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 24px;
+  justify-content: center;
+  min-height: calc(100vh - 48px);
+  gap: 20px;
 }
 
-.loading-ring {
-  width: 64px;
-  height: 64px;
-  border: 4px solid var(--border-card);
-  border-top-color: var(--orange-main);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-.loading-text {
-  font-size: 15px;
-  color: var(--text-body);
+.loading-nav-actions {
+  display: flex;
+  gap: 12px;
 }
 
 /* ============================================
@@ -1364,11 +1386,6 @@ onUnmounted(() => {
   white-space: pre-wrap;
 }
 
-.summary-text.processing {
-  color: var(--text-muted);
-  font-style: italic;
-}
-
 .status-row {
   display: flex;
   align-items: center;
@@ -1436,10 +1453,6 @@ onUnmounted(() => {
 .update-time {
   font-size: 13px;
   color: var(--text-muted);
-}
-
-.refresh-hint {
-  margin-top: 8px;
 }
 
 /* ============================================

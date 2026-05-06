@@ -8,10 +8,12 @@
     </div>
 
     <div v-if="loading" class="loading-section">
-      <div class="loading-content">
-        <div class="loading-ring"></div>
-        <div class="loading-text">正在加载评估报告...</div>
-      </div>
+      <AiLoadingState
+        title="正在加载评估报告..."
+        :stages="interviewStages"
+        :currentStageIndex="0"
+        :showElapsedTime="true"
+      />
     </div>
 
     <div v-else-if="error" class="error-section">
@@ -37,21 +39,20 @@
     </div>
 
     <div v-else-if="isReportGenerating" class="generating-section">
-      <div class="generating-card">
-        <div class="generating-spinner"></div>
-        <div class="generating-title">报告生成中</div>
-        <div class="generating-desc">{{ generatingDesc }}</div>
-        <div class="progress-bar">
-          <div class="progress-fill" :style="{ width: `${progressPercent}%` }"></div>
-        </div>
-        <div class="progress-text">页面会自动刷新，也可以手动刷新</div>
-        <div class="generating-actions">
-          <el-button type="primary" size="small" :loading="refreshingReport" @click="refreshReportNow">
-            立即刷新
-          </el-button>
+      <AiLoadingState
+        title="报告生成中"
+        :stages="interviewStages"
+        :currentStageIndex="reportStageIndex"
+        :messages="interviewLoadingMessages"
+        :showElapsedTime="true"
+        :showRefreshButton="true"
+        :refreshLoading="refreshingReport"
+        @refresh="refreshReportNow"
+      >
+        <template #actions>
           <el-button size="small" @click="goToSession">查看会话</el-button>
-        </div>
-      </div>
+        </template>
+      </AiLoadingState>
     </div>
 
     <div v-else-if="hasReport" class="report-content">
@@ -228,6 +229,7 @@ import { ElMessage } from "element-plus";
 import { getInterviewSession } from "@/api/interview";
 import RadarChart from "@/components/resume/RadarChart.vue";
 import RadarScorePanel from "@/components/resume/RadarScorePanel.vue";
+import AiLoadingState from "@/components/common/AiLoadingState.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -269,17 +271,29 @@ const hasReport = computed(() => parsedReport.value !== null);
 const shouldPollReport = computed(() => isEnded.value && !hasReport.value);
 const isReportGenerating = computed(() => isEnded.value && !hasReport.value && reportPolling.value);
 
-const generatingDesc = computed(() => {
-  if (reportPollRounds.value <= 3) {
-    return "AI 正在整理你的面试表现与岗位匹配反馈。";
-  }
-  if (reportPollRounds.value <= 10) {
-    return "报告仍在生成中，请再等待几秒。";
-  }
-  return "报告生成时间稍长，页面会继续自动刷新。";
-});
+// ---- AiLoadingState 相关 ----
+/** 面试报告阶段定义 */
+const interviewStages = [
+  { key: 'organizing', label: '整理面试记录' },
+  { key: 'evaluating', label: 'AI 评估中' },
+  { key: 'generating', label: '生成评估报告' }
+]
 
-const progressPercent = computed(() => Math.min(Math.round((reportPollRounds.value / REPORT_POLL_MAX_ROUNDS) * 100), 95));
+/** 当前阶段索引：基于轮询轮次 */
+const reportStageIndex = computed(() => {
+  if (reportPollRounds.value <= 3) return 0
+  if (reportPollRounds.value <= 10) return 1
+  return 2
+})
+
+/** 轮播鼓励文案 */
+const interviewLoadingMessages = [
+  '正在整理你的面试问答记录...',
+  'AI 正在评估你的回答质量...',
+  '正在生成各维度评分...',
+  '正在撰写个性化反馈建议...',
+  '报告马上就绪...'
+]
 
 const displayScoreValue = computed(() => {
   const score = sessionData.value?.comprehensiveScore;
@@ -478,15 +492,14 @@ onUnmounted(() => {
 .empty-section,
 .generating-section {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   min-height: 420px;
 }
 
-.loading-content,
 .error-card,
-.empty-card,
-.generating-card {
+.empty-card {
   background: var(--bg-card, #ffffff);
   border-radius: 20px;
   padding: 40px;
@@ -495,34 +508,15 @@ onUnmounted(() => {
   border: 1px solid var(--border-card, rgba(243, 216, 199, 0.5));
 }
 
-.loading-ring,
-.generating-spinner {
-  width: 56px;
-  height: 56px;
-  margin: 0 auto 20px;
-  border: 4px solid var(--orange-border, #f3d8c7);
-  border-top-color: var(--orange-main, #ff8c42);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-.loading-text,
 .error-desc,
-.empty-desc,
-.generating-desc,
-.progress-text {
+.empty-desc {
   font-size: 14px;
   line-height: 1.7;
   color: var(--text-body, #666666);
 }
 
 .error-title,
-.empty-title,
-.generating-title {
+.empty-title {
   font-size: 20px;
   font-weight: 600;
   color: var(--text-title, #2f2f2f);
@@ -531,25 +525,11 @@ onUnmounted(() => {
 
 .error-actions,
 .empty-actions,
-.generating-actions,
 .action-group {
   display: flex;
   justify-content: center;
   gap: 12px;
   margin-top: 20px;
-}
-
-.progress-bar {
-  height: 6px;
-  background: var(--orange-border, #f3d8c7);
-  border-radius: 3px;
-  overflow: hidden;
-  margin: 20px 0 8px;
-}
-
-.progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #ff8c42 0%, #ffb380 100%);
 }
 
 .report-content {
