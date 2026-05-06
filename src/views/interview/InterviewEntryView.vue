@@ -306,9 +306,9 @@ const fetchJobOptions = async () => {
       tagType: item.tagType || "normal",
       tagClassName: resolveTagClassName(item.tagType),
     }));
-  } catch (err) {
+  } catch {
     jobOptions.value = [];
-    ElMessage.error(err.message || "获取岗位选项失败");
+    // 拦截器已弹出错误提示
   }
 };
 

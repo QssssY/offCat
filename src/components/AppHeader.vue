@@ -704,8 +704,8 @@ const handleMarkAllRead = async () => {
       item.readTime = new Date().toISOString();
     });
     ElMessage.success("已全部标记为已读");
-  } catch (e) {
-    ElMessage.error("操作失败");
+  } catch {
+    // 拦截器已弹出错误提示
   } finally {
     markAllReadLoading.value = false;
   }
@@ -847,8 +847,8 @@ const saveNickname = async () => {
     ElMessage.success("昵称修改成功");
     nicknameDialogVisible.value = false;
     userStore.fetchUserInfo();
-  } catch (e) {
-    ElMessage.error(e.message || "修改失败");
+  } catch {
+    // 拦截器已弹出错误提示
   }
 };
 

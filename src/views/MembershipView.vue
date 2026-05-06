@@ -366,9 +366,9 @@ const fetchPlans = async () => {
   try {
     const res = await getMembershipPlans();
     plans.value = Array.isArray(res.data) ? res.data : [];
-  } catch (err) {
+  } catch {
     plans.value = [];
-    ElMessage.error(err.message || "获取套餐失败");
+    // 拦截器已弹出错误提示
   } finally {
     plansLoading.value = false;
   }
@@ -381,8 +381,8 @@ const ensureUserInfo = async () => {
   if (userStore.userInfo) return;
   try {
     await userStore.fetchUserInfo();
-  } catch (err) {
-    ElMessage.error(err.message || "获取用户信息失败");
+  } catch {
+    // 拦截器已弹出错误提示
   }
 };
 
@@ -410,8 +410,8 @@ const handleUpgrade = async (plan) => {
     ElMessage.success(
       `${getPlanNameCn(plan.planName)}${isRenewal ? "续费" : "升级"}成功`
     );
-  } catch (err) {
-    ElMessage.error(err.message || `${isRenewal ? "续费" : "升级"}失败`);
+  } catch {
+    // 拦截器已弹出错误提示
   } finally {
     upgradingPlanCode.value = "";
   }

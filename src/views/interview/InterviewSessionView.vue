@@ -591,8 +591,8 @@ const confirmEndInterview = async () => {
     showEndDialog.value = false;
     ElMessage.success("面试已结束，报告生成中...");
     await fetchSessionDetail();
-  } catch (err) {
-    ElMessage.error(err.message || "结束面试失败，请稍后重试");
+  } catch {
+    // 拦截器已弹出错误提示
   } finally {
     ending.value = false;
   }
