@@ -27,6 +27,8 @@ CREATE TABLE `sys_user` (
   `status` TINYINT NOT NULL DEFAULT 1 COMMENT '1-active, 0-disabled',
   `membership_plan_code` VARCHAR(32) NULL DEFAULT NULL COMMENT 'Current membership plan code',
   `vip_expire_time` DATETIME NULL DEFAULT NULL COMMENT 'VIP expire time',
+  `security_question` VARCHAR(200) NULL DEFAULT NULL COMMENT 'Security question for password recovery',
+  `security_answer` VARCHAR(255) NULL DEFAULT NULL COMMENT 'Security answer (BCrypt encrypted)',
   `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Create time',
   `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Update time',
   `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT 'Logical delete flag',

@@ -6,6 +6,8 @@ import com.airesume.server.dto.auth.LoginResponse;
 import com.airesume.server.dto.auth.NicknameUpdateRequest;
 import com.airesume.server.dto.auth.PasswordUpdateRequest;
 import com.airesume.server.dto.auth.RegisterRequest;
+import com.airesume.server.dto.auth.ResetPasswordRequest;
+import com.airesume.server.dto.auth.SecurityQuestionResponse;
 import com.airesume.server.dto.auth.UserInfoResponse;
 import com.airesume.server.service.AuthService;
 import jakarta.validation.Valid;
@@ -17,6 +19,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -102,6 +105,31 @@ public class AuthController {
         Long userId = (Long) authentication.getPrincipal();
         log.info("Update password request, userId: {}", userId);
         authService.updatePassword(userId, request);
+        return Result.success();
+    }
+
+    /**
+     * 获取用户的安全问题（忘记密码流程第一步）
+     *
+     * @param username 用户名
+     * @return 安全问题文本
+     */
+    @GetMapping("/security-question")
+    public Result<SecurityQuestionResponse> getSecurityQuestion(@RequestParam String username) {
+        log.info("Get security question request, username: {}", username);
+        return Result.success(authService.getSecurityQuestion(username));
+    }
+
+    /**
+     * 通过安全问题验证重置密码（忘记密码流程第二步）
+     *
+     * @param request 重置密码请求参数，包含用户名、安全问题答案和新密码
+     * @return 重置成功返回空结果
+     */
+    @PostMapping("/reset-password")
+    public Result<Void> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        log.info("Reset password by security question request, username: {}", request.getUsername());
+        authService.resetPasswordBySecurityQuestion(request);
         return Result.success();
     }
 

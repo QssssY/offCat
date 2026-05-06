@@ -15,4 +15,12 @@ public class RegisterRequest {
     @Size(min = 6, max = 100, message = "密码长度需要在6-100之间")
     private String password;
 
+    /** 安全问题文本（前端必填，后端不强制校验以保持向后兼容） */
+    @Size(max = 50, message = "安全问题长度不能超过50个字符")
+    private String securityQuestion;
+
+    /** 安全问题答案 */
+    @Size(max = 100, message = "安全问题答案长度不能超过100个字符")
+    private String securityAnswer;
+
 }

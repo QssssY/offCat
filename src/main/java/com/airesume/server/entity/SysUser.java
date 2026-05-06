@@ -28,4 +28,10 @@ public class SysUser extends BaseEntity {
 
     private LocalDateTime vipExpireTime;
 
+    /** 安全问题（忘记密码用） */
+    private String securityQuestion;
+
+    /** 安全问题答案（BCrypt加密存储） */
+    private String securityAnswer;
+
 }

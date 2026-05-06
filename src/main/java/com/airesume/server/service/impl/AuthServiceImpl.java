@@ -7,6 +7,8 @@ import com.airesume.server.dto.auth.LoginRequest;
 import com.airesume.server.dto.auth.LoginResponse;
 import com.airesume.server.dto.auth.PasswordUpdateRequest;
 import com.airesume.server.dto.auth.RegisterRequest;
+import com.airesume.server.dto.auth.ResetPasswordRequest;
+import com.airesume.server.dto.auth.SecurityQuestionResponse;
 import com.airesume.server.dto.auth.UserInfoResponse;
 import com.airesume.server.entity.SysUser;
 import com.airesume.server.entity.UserQuota;
@@ -52,6 +54,14 @@ public class AuthServiceImpl implements AuthService {
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setRole(0);
         user.setStatus(1);
+
+        // 保存安全问题（忘记密码用），答案加密存储
+        if (request.getSecurityQuestion() != null && !request.getSecurityQuestion().isBlank()
+                && request.getSecurityAnswer() != null && !request.getSecurityAnswer().isBlank()) {
+            user.setSecurityQuestion(request.getSecurityQuestion().trim());
+            user.setSecurityAnswer(passwordEncoder.encode(request.getSecurityAnswer().trim()));
+        }
+
         sysUserService.save(user);
         log.info("User created, userId: {}", user.getId());
 
@@ -161,6 +171,56 @@ public class AuthServiceImpl implements AuthService {
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
         sysUserService.updateById(user);
         log.info("Password updated successfully, userId: {}", userId);
+    }
+
+    @Override
+    public SecurityQuestionResponse getSecurityQuestion(String username) {
+        log.info("Getting security question for username: {}", username);
+        SysUser user = sysUserService.getByUsername(username);
+        if (user == null) {
+            log.warn("Get security question failed, user not found: {}", username);
+            throw new BusinessException("用户不存在");
+        }
+        if (user.getSecurityQuestion() == null || user.getSecurityQuestion().isBlank()) {
+            log.warn("Get security question failed, user has no security question set: {}", username);
+            throw new BusinessException("该用户未设置安全问题，无法找回密码");
+        }
+        SecurityQuestionResponse response = new SecurityQuestionResponse();
+        response.setSecurityQuestion(user.getSecurityQuestion());
+        return response;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void resetPasswordBySecurityQuestion(ResetPasswordRequest request) {
+        String username = request.getUsername();
+        log.info("Resetting password by security question, username: {}", username);
+
+        SysUser user = sysUserService.getByUsername(username);
+        if (user == null) {
+            log.warn("Reset password failed, user not found: {}", username);
+            throw new BusinessException("用户不存在");
+        }
+        if (user.getSecurityQuestion() == null || user.getSecurityAnswer() == null) {
+            log.warn("Reset password failed, user has no security question set: {}", username);
+            throw new BusinessException("该用户未设置安全问题，无法找回密码");
+        }
+
+        // 验证安全问题答案
+        if (!passwordEncoder.matches(request.getSecurityAnswer(), user.getSecurityAnswer())) {
+            log.warn("Reset password failed, security answer incorrect, username: {}", username);
+            throw new BusinessException("安全问题答案不正确");
+        }
+
+        // 新密码不能与旧密码相同
+        if (passwordEncoder.matches(request.getNewPassword(), user.getPassword())) {
+            log.warn("Reset password failed, new password same as old, username: {}", username);
+            throw new BusinessException("新密码不能与原密码相同");
+        }
+
+        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        sysUserService.updateById(user);
+        log.info("Password reset successfully by security question, username: {}", username);
     }
 
     /**

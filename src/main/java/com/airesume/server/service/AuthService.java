@@ -4,6 +4,8 @@ import com.airesume.server.dto.auth.LoginRequest;
 import com.airesume.server.dto.auth.LoginResponse;
 import com.airesume.server.dto.auth.PasswordUpdateRequest;
 import com.airesume.server.dto.auth.RegisterRequest;
+import com.airesume.server.dto.auth.ResetPasswordRequest;
+import com.airesume.server.dto.auth.SecurityQuestionResponse;
 import com.airesume.server.dto.auth.UserInfoResponse;
 
 /**
@@ -53,5 +55,20 @@ public interface AuthService {
      * @param request 密码修改请求参数，包含原密码和新密码
      */
     void updatePassword(Long userId, PasswordUpdateRequest request);
+
+    /**
+     * 获取用户的安全问题（忘记密码流程第一步）
+     *
+     * @param username 用户名
+     * @return 安全问题响应
+     */
+    SecurityQuestionResponse getSecurityQuestion(String username);
+
+    /**
+     * 通过安全问题验证重置密码（忘记密码流程第二步）
+     *
+     * @param request 重置密码请求参数
+     */
+    void resetPasswordBySecurityQuestion(ResetPasswordRequest request);
 
 }
