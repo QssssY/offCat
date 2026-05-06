@@ -5,6 +5,7 @@ import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.ResultCode;
 import com.airesume.server.dto.auth.LoginRequest;
 import com.airesume.server.dto.auth.LoginResponse;
+import com.airesume.server.dto.auth.PasswordUpdateRequest;
 import com.airesume.server.dto.auth.RegisterRequest;
 import com.airesume.server.dto.auth.UserInfoResponse;
 import com.airesume.server.entity.SysUser;
@@ -134,6 +135,32 @@ public class AuthServiceImpl implements AuthService {
         user.setNickname(nickname);
         sysUserService.updateById(user);
         log.info("Nickname updated successfully, userId: {}", userId);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void updatePassword(Long userId, PasswordUpdateRequest request) {
+        log.info("Updating password, userId: {}", userId);
+        SysUser user = sysUserService.getById(userId);
+        if (user == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND);
+        }
+
+        // 验证原密码是否正确
+        if (!passwordEncoder.matches(request.getOldPassword(), user.getPassword())) {
+            log.warn("Password update failed, old password incorrect, userId: {}", userId);
+            throw new BusinessException("原密码不正确");
+        }
+
+        // 新密码不能与原密码相同
+        if (passwordEncoder.matches(request.getNewPassword(), user.getPassword())) {
+            log.warn("Password update failed, new password same as old, userId: {}", userId);
+            throw new BusinessException("新密码不能与原密码相同");
+        }
+
+        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        sysUserService.updateById(user);
+        log.info("Password updated successfully, userId: {}", userId);
     }
 
     /**

@@ -4,6 +4,7 @@ import com.airesume.server.common.result.Result;
 import com.airesume.server.dto.auth.LoginRequest;
 import com.airesume.server.dto.auth.LoginResponse;
 import com.airesume.server.dto.auth.NicknameUpdateRequest;
+import com.airesume.server.dto.auth.PasswordUpdateRequest;
 import com.airesume.server.dto.auth.RegisterRequest;
 import com.airesume.server.dto.auth.UserInfoResponse;
 import com.airesume.server.service.AuthService;
@@ -84,6 +85,23 @@ public class AuthController {
         Long userId = (Long) authentication.getPrincipal();
         log.info("Update nickname request, userId: {}, nickname: {}", userId, request.getNickname());
         authService.updateNickname(userId, request.getNickname());
+        return Result.success();
+    }
+
+    /**
+     * 修改密码接口
+     *
+     * @param request 密码修改请求参数，包含原密码和新密码
+     * @param authentication Spring Security 认证对象，包含当前用户ID
+     * @return 修改成功返回空结果
+     */
+    @PutMapping("/password")
+    public Result<Void> updatePassword(
+            @Valid @RequestBody PasswordUpdateRequest request,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("Update password request, userId: {}", userId);
+        authService.updatePassword(userId, request);
         return Result.success();
     }
 

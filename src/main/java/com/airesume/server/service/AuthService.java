@@ -2,6 +2,7 @@ package com.airesume.server.service;
 
 import com.airesume.server.dto.auth.LoginRequest;
 import com.airesume.server.dto.auth.LoginResponse;
+import com.airesume.server.dto.auth.PasswordUpdateRequest;
 import com.airesume.server.dto.auth.RegisterRequest;
 import com.airesume.server.dto.auth.UserInfoResponse;
 
@@ -43,5 +44,14 @@ public interface AuthService {
      * @param nickname 新昵称
      */
     void updateNickname(Long userId, String nickname);
+
+    /**
+     * 修改用户密码
+     * 验证原密码后更新为新密码
+     *
+     * @param userId 用户ID
+     * @param request 密码修改请求参数，包含原密码和新密码
+     */
+    void updatePassword(Long userId, PasswordUpdateRequest request);
 
 }
