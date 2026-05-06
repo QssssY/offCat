@@ -4,7 +4,7 @@
  *          细线分隔、圆形标签、清新风格
  * ============================================ */
 
-.resume-tpl-medical-soft {
+.resume-tpl-medical-soft.resume-tpl-medical-soft {
   --tpl-accent: #06B6D4;
   --tpl-accent-soft: #ECFEFF;
   --tpl-text: #0F172A;
@@ -61,3 +61,29 @@
 .resume-tpl-medical-soft .exp-highlights { list-style: none; padding: 0; margin: 0; }
 .resume-tpl-medical-soft .exp-highlights li { font-size: 13px; color: #475569; padding-left: 14px; position: relative; margin-bottom: 3px; }
 .resume-tpl-medical-soft .exp-highlights li::before { content: '–'; position: absolute; left: 0; color: var(--tpl-accent); }
+
+/* ===== 照片区域 ===== */
+.resume-tpl-medical-soft .header-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+.resume-tpl-medical-soft .header-text { flex: 1; }
+.resume-tpl-medical-soft .header-photo {
+  display: block;
+  width: 100px;
+  height: 130px;
+  border: 2px dashed #D1D5DB;
+  border-radius: 6px;
+  background: #F9FAFB;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.resume-tpl-medical-soft .photo-placeholder {
+  font-size: 11px;
+  color: #9CA3AF;
+  text-align: center;
+}

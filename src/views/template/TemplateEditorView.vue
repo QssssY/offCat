@@ -12,6 +12,7 @@
         <ExportToolbar
           :target-ref="previewRef"
           :file-name="currentTemplate?.name || '简历'"
+          :template-css="templateStyle"
         />
       </div>
     </div>

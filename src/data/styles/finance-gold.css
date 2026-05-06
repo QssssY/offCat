@@ -4,7 +4,7 @@
  *          圆角标签、圆形要点、优雅间距
  * ============================================ */
 
-.resume-tpl-finance-gold {
+.resume-tpl-finance-gold.resume-tpl-finance-gold {
   --tpl-accent: #B8860B;
   --tpl-gold: #D4AF37;
   --tpl-text: #1F2937;
@@ -220,4 +220,30 @@
   color: var(--tpl-gold);
   font-size: 8px;
   top: 5px;
+}
+
+/* ===== 照片区域 ===== */
+.resume-tpl-finance-gold .header-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+.resume-tpl-finance-gold .header-text { flex: 1; }
+.resume-tpl-finance-gold .header-photo {
+  display: block;
+  width: 100px;
+  height: 130px;
+  border: 2px dashed rgba(255,255,255,0.4);
+  border-radius: 6px;
+  background: rgba(255,255,255,0.15);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.resume-tpl-finance-gold .photo-placeholder {
+  font-size: 11px;
+  color: rgba(255,255,255,0.7);
+  text-align: center;
 }

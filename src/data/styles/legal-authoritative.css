@@ -4,7 +4,7 @@
  *          粗竖条section、方块要点、正式权威
  * ============================================ */
 
-.resume-tpl-legal-authoritative {
+.resume-tpl-legal-authoritative.resume-tpl-legal-authoritative {
   --tpl-accent: #111827;
   --tpl-text: #111827;
   --tpl-muted: #6B7280;
@@ -94,3 +94,29 @@
 .resume-tpl-legal-authoritative .exp-highlights { list-style: none; padding: 0; margin: 0; }
 .resume-tpl-legal-authoritative .exp-highlights li { font-size: 13px; color: #4B5563; padding-left: 16px; position: relative; margin-bottom: 4px; }
 .resume-tpl-legal-authoritative .exp-highlights li::before { content: '■'; position: absolute; left: 0; color: var(--tpl-accent); font-size: 6px; top: 6px; }
+
+/* ===== 照片区域 ===== */
+.resume-tpl-legal-authoritative .header-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+.resume-tpl-legal-authoritative .header-text { flex: 1; }
+.resume-tpl-legal-authoritative .header-photo {
+  display: block;
+  width: 100px;
+  height: 130px;
+  border: 2px dashed rgba(255,255,255,0.4);
+  border-radius: 6px;
+  background: rgba(255,255,255,0.15);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.resume-tpl-legal-authoritative .photo-placeholder {
+  font-size: 11px;
+  color: rgba(255,255,255,0.7);
+  text-align: center;
+}

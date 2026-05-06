@@ -4,7 +4,7 @@
  *          圆润标签、箭头要点、创意排版
  * ============================================ */
 
-.resume-tpl-marketing-vibrant {
+.resume-tpl-marketing-vibrant.resume-tpl-marketing-vibrant {
   --tpl-accent: #F59E0B;
   --tpl-accent-dark: #D97706;
   --tpl-accent-soft: #FFFBEB;
@@ -102,3 +102,29 @@
 .resume-tpl-marketing-vibrant .exp-highlights { list-style: none; padding: 0; margin: 0; }
 .resume-tpl-marketing-vibrant .exp-highlights li { font-size: 13px; color: #4B5563; padding-left: 16px; position: relative; margin-bottom: 4px; }
 .resume-tpl-marketing-vibrant .exp-highlights li::before { content: '▸'; position: absolute; left: 0; color: var(--tpl-accent); }
+
+/* ===== 照片区域 ===== */
+.resume-tpl-marketing-vibrant .header-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+.resume-tpl-marketing-vibrant .header-text { flex: 1; }
+.resume-tpl-marketing-vibrant .header-photo {
+  display: block;
+  width: 100px;
+  height: 130px;
+  border: 2px dashed rgba(255,255,255,0.4);
+  border-radius: 6px;
+  background: rgba(255,255,255,0.15);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.resume-tpl-marketing-vibrant .photo-placeholder {
+  font-size: 11px;
+  color: rgba(255,255,255,0.7);
+  text-align: center;
+}
