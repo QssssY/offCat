@@ -5,7 +5,7 @@
  * ============================================ */
 
 /* CSS变量定义 */
-.resume-tpl-tech-modern {
+.resume-tpl-tech-modern.resume-tpl-tech-modern {
   --tpl-accent: #3B82F6;
   --tpl-accent-dark: #1D4ED8;
   --tpl-accent-soft: #EFF6FF;
@@ -247,4 +247,30 @@
   left: 0;
   color: var(--tpl-accent);
   font-size: 12px;
+}
+
+/* ===== 照片区域 ===== */
+.resume-tpl-tech-modern .header-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+.resume-tpl-tech-modern .header-text { flex: 1; }
+.resume-tpl-tech-modern .header-photo {
+  display: block;
+  width: 100px;
+  height: 130px;
+  border: 2px dashed rgba(255,255,255,0.4);
+  border-radius: 6px;
+  background: rgba(255,255,255,0.15);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.resume-tpl-tech-modern .photo-placeholder {
+  font-size: 11px;
+  color: rgba(255,255,255,0.7);
+  text-align: center;
 }

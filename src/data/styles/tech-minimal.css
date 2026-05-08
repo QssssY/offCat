@@ -1,168 +1,272 @@
 /* ============================================
- * 极简技术 - 互联网/IT
- * 设计特点：无header背景、极简线条分隔、
- *          细边框标签、下划线section标题、无装饰
+ * 极简技术 - 极简清新版
+ * 设计特点：绿色清新配色、圆角标签标题、
+ *          渐变装饰条、简约专业、适合技术岗位
  * ============================================ */
 
-.resume-tpl-tech-minimal {
-  --tpl-accent: #0EA5E9;
-  --tpl-accent-soft: #F0F9FF;
-  --tpl-text: #0F172A;
-  --tpl-muted: #64748B;
-  --tpl-line: #E2E8F0;
-  font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+/* 根元素：双类名提升特异性，覆盖scoped默认 */
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal {
+  --tpl-accent: #5B7A2E;
+  --tpl-accent-light: #8CB450;
+  --tpl-accent-bg: #E8F0D8;
+  --tpl-text: #1F2937;
+  --tpl-muted: #4B5563;
+  --tpl-line: #D4DCC4;
+  --tpl-bg: #F4F7EE;
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', sans-serif;
   color: var(--tpl-text);
-  line-height: 1.6;
-  padding: 32px;
+  line-height: 1.7;
+  padding: 36px 40px;
+  background: var(--tpl-bg);
 }
 
-/* Header：无背景，底部粗线分隔 */
-.resume-tpl-tech-minimal .resume-header {
-  padding-bottom: 20px;
-  border-bottom: 4px solid var(--tpl-text);
-  margin-bottom: 24px;
+/* ===== Header ===== */
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .resume-header {
+  margin-bottom: 8px;
 }
 
-.resume-tpl-tech-minimal .name {
-  font-size: 30px;
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .header-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .header-text {
+  flex: 1;
+}
+
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .name {
+  font-size: 34px;
   font-weight: 800;
   color: var(--tpl-text);
-  margin-bottom: 4px;
-  letter-spacing: -0.5px;
+  margin-bottom: 10px;
+  letter-spacing: 1px;
+  line-height: 1.2;
 }
 
-/* 职位：小字号、大写、间距 */
-.resume-tpl-tech-minimal .profile-badge {
-  display: inline-block;
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 3px;
-  color: var(--tpl-accent);
-  margin-bottom: 12px;
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .profile-badge {
+  display: none;
 }
 
-.resume-tpl-tech-minimal .meta-list {
+/* 名字下方的绿色渐变装饰条 */
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .name::after {
+  content: '';
+  display: block;
+  height: 8px;
+  margin-top: 8px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--tpl-accent) 0%, var(--tpl-accent-light) 60%, transparent 100%);
+  width: 100%;
+  max-width: 500px;
+}
+
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .meta-list {
   display: flex;
   flex-wrap: wrap;
   gap: 20px;
   font-size: 13px;
   color: var(--tpl-muted);
+  margin-top: 14px;
 }
 
-.resume-tpl-tech-minimal .meta-item {
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .meta-item {
   display: flex;
   align-items: center;
   gap: 4px;
 }
 
-.resume-tpl-tech-minimal .meta-icon {
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .meta-icon {
   display: none;
 }
 
-/* Section：隐藏tab装饰，用简单的下划线 */
-.resume-tpl-tech-minimal .section-tab {
+/* ===== 照片区域 ===== */
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .header-photo {
+  display: flex;
+  width: 120px;
+  height: 150px;
+  border-radius: 8px;
+  background: var(--tpl-accent-bg);
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .photo-placeholder {
+  font-size: 12px;
+  color: var(--tpl-muted);
+  text-align: center;
+  line-height: 1.4;
+}
+
+/* ===== Section标题：绿色圆角标签 + 横线 ===== */
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .section-tab {
   display: flex;
   align-items: center;
+  gap: 0;
+  margin-bottom: 0;
+  padding: 0;
+  border-bottom: none;
 }
 
-.resume-tpl-tech-minimal .section-tab-dot {
-  display: none;
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .section-tab-dot {
+  display: block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--tpl-accent);
+  flex-shrink: 0;
+  margin-right: 0;
 }
 
-.resume-tpl-tech-minimal .section-line {
-  display: none;
-}
-
-.resume-tpl-tech-minimal .section-title {
-  font-size: 13px;
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .section-title {
+  font-size: 16px;
   font-weight: 700;
-  color: var(--tpl-text);
-  text-transform: uppercase;
-  letter-spacing: 2px;
-  border-bottom: 2px solid var(--tpl-text);
-  padding-bottom: 4px;
-  margin-bottom: 14px;
+  color: var(--tpl-accent);
+  background: var(--tpl-accent-bg);
+  padding: 4px 16px;
+  border-radius: 20px;
+  letter-spacing: 0.5px;
+  text-transform: none;
+  line-height: 1.4;
 }
 
-.resume-tpl-tech-minimal .summary-text {
+/* section标题后的横线 */
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .section-line {
+  display: block;
+  height: 1px;
+  background: var(--tpl-line);
+  margin-top: 8px;
+  margin-bottom: 16px;
+}
+
+/* ===== 个人简介 ===== */
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .summary-text {
   font-size: 14px;
-  color: #475569;
+  color: var(--tpl-text);
   line-height: 1.8;
+  margin-bottom: 8px;
 }
 
-/* 技能：简约文字列 */
-.resume-tpl-tech-minimal .skills-list {
+/* ===== 技能：简约文字列 + 圆点 ===== */
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .skills-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
-.resume-tpl-tech-minimal .skill-tag {
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .skill-tag {
   background: none;
   border: none;
   padding: 0;
-  font-size: 13px;
-  color: #475569;
+  font-size: 14px;
+  color: var(--tpl-text);
   line-height: 1.7;
+  position: relative;
+  padding-left: 16px;
 }
 
-/* 经历条目：简洁无分隔线 */
-.resume-tpl-tech-minimal .experience-item {
-  margin-bottom: 14px;
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .skill-tag::before {
+  content: '·';
+  position: absolute;
+  left: 2px;
+  color: var(--tpl-accent);
+  font-weight: 700;
+  font-size: 18px;
+  line-height: 1.5;
 }
 
-.resume-tpl-tech-minimal .exp-header {
+/* ===== 经历条目 ===== */
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .experience-item {
+  margin-bottom: 18px;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .experience-item:last-child {
+  margin-bottom: 0;
+}
+
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .exp-header {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
   margin-bottom: 2px;
 }
 
-.resume-tpl-tech-minimal .exp-company {
-  font-size: 14px;
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .exp-company {
+  font-size: 15px;
   font-weight: 700;
   color: var(--tpl-text);
 }
 
-.resume-tpl-tech-minimal .exp-date {
-  font-size: 12px;
-  color: #64748B;
-  background: #F1F5F9;
-  padding: 2px 8px;
-  border-radius: 4px;
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .exp-date {
+  font-size: 13px;
+  color: var(--tpl-muted);
+  background: transparent;
+  padding: 0;
+  font-weight: 400;
+  white-space: nowrap;
 }
 
-.resume-tpl-tech-minimal .exp-position {
-  font-size: 13px;
-  color: var(--tpl-accent);
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .exp-position {
+  font-size: 14px;
+  color: var(--tpl-muted);
   margin-bottom: 4px;
+  font-weight: 400;
 }
 
-.resume-tpl-tech-minimal .exp-desc {
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .exp-desc {
   font-size: 13px;
-  color: #64748B;
-  margin-top: 4px;
+  color: var(--tpl-muted);
+  margin-top: 2px;
+  line-height: 1.7;
 }
 
-/* 要点：短横线 */
-.resume-tpl-tech-minimal .exp-highlights {
+/* ===== 要点：圆点列表 ===== */
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .exp-highlights {
   list-style: none;
   padding: 0;
-  margin: 0;
+  margin: 6px 0 0 0;
 }
 
-.resume-tpl-tech-minimal .exp-highlights li {
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .exp-highlights li {
   font-size: 13px;
-  color: #475569;
-  padding-left: 14px;
+  color: var(--tpl-text);
+  padding-left: 16px;
   position: relative;
-  margin-bottom: 3px;
+  margin-bottom: 4px;
+  line-height: 1.65;
 }
 
-.resume-tpl-tech-minimal .exp-highlights li::before {
-  content: '–';
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .exp-highlights li::before {
+  content: '·';
   position: absolute;
-  left: 0;
+  left: 2px;
   color: var(--tpl-accent);
+  font-weight: 700;
+  font-size: 18px;
+  line-height: 1.4;
+}
+
+/* ===== 证书/获奖：两列网格 ===== */
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .section-certifications .experience-item,
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .section-awards .experience-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 4px 0;
+  margin-bottom: 0;
+}
+
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .section-certifications .exp-header,
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .section-awards .exp-header {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .section-certifications .exp-desc,
+.resume-tpl-tech-minimal.resume-tpl-tech-minimal .section-awards .exp-desc {
+  display: none;
 }

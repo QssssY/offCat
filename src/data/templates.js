@@ -52,11 +52,11 @@ export const templates = [
   },
   {
     id: 'education-clean',
-    name: '清新教育',
+    name: '专业教育',
     industry: 'education',
-    description: '清新简洁，条理清晰',
-    colorAccent: '#10B981',
-    tags: ['清新', '条理']
+    description: '左右分栏，深蓝侧栏，专业简洁',
+    colorAccent: '#1B3A5C',
+    tags: ['分栏', '专业']
   },
   // 医疗/健康
   {

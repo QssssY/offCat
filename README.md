@@ -194,6 +194,7 @@ src/
 - 段落自由增删排序、双击重命名、自定义段落类型
 - 9 种段落类型：个人简介、技能清单、经历条目、证书资质、获奖荣誉、语言能力、兴趣爱好、自定义文本段、自定义经历
 - 导出为 PDF 或 PNG 图片
+- **CSS 特异性**：模板 CSS 通过 `import(... ?raw)` 加载并注入为非 scoped `<style>`，基线默认样式应写在 `TemplateRenderer.vue` 的 scoped styles 中，模板 CSS 仅做 `.resume-tpl-{id}` 下的覆盖
 
 ### 主题系统
 
@@ -201,6 +202,20 @@ src/
 - `index.html` 内联脚本防止主题闪烁
 - CSS 自定义属性（40+ 设计令牌）+ Element Plus 深色变量桥接
 - 响应式断点：1280px / 1024px / 768px / 480px
+
+### 布局切换
+
+`App.vue` 根据 `route.meta.useLayout` 动态渲染 `MainLayout` 或裸 `<div>`。面试会话、模板编辑器等全屏页面跳过主布局。
+
+### 简历数据模型
+
+`stores/templateEditor.js` 中 `resumeData` 的结构：
+
+```
+{ basic: { name, phone, email, ... }, summary: string, skills: string[], education: [...], work: [...], projects: [...] }
+```
+
+编辑器新增的自定义段落使用动态 key（如 `text-{timestamp}`、`experience-{timestamp}`）存储在内置字段旁边。
 
 ## 构建优化
 
@@ -219,3 +234,4 @@ Vite 配置了手动代码分割：
 - **管理端**：独立 Token（key: `ai_resume_admin_token`），管理员角色需 role=9
 - 401 响应自动跳转登录页，管理端使用互斥锁防止并发重定向循环
 - 管理端请求拦截器预处理 JSON，防止 JavaScript 长整数精度丢失
+- 个别请求可在 config 中设置 `skipDefaultErrorHandler = true` 跳过全局错误弹窗，适用于需要自行处理错误的长时间请求（如简历诊断轮询）

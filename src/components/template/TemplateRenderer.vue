@@ -3,25 +3,33 @@
   <div class="template-renderer" :class="`resume-tpl-${templateId}`">
     <!-- 个人信息头部区域 -->
     <div class="resume-header">
-      <div class="header-main">
+      <div class="header-left">
+        <!-- 姓名单独一行 -->
         <div class="name">{{ resumeData.basic.name }}</div>
-        <!-- 职位徽章 -->
-        <div class="title profile-badge">{{ resumeData.basic.title }}</div>
-        <!-- 联系方式列表 -->
-        <div class="meta-list">
-          <span v-if="resumeData.basic.phone" class="meta-item">
-            <span class="meta-icon">📞</span>{{ resumeData.basic.phone }}
-          </span>
-          <span v-if="resumeData.basic.email" class="meta-item">
-            <span class="meta-icon">✉</span>{{ resumeData.basic.email }}
-          </span>
-          <span v-if="resumeData.basic.location" class="meta-item">
-            <span class="meta-icon">📍</span>{{ resumeData.basic.location }}
-          </span>
-          <span v-if="resumeData.basic.website" class="meta-item">
-            <span class="meta-icon">🔗</span>{{ resumeData.basic.website }}
-          </span>
+        <div class="header-main">
+          <!-- 职位徽章 -->
+          <div class="title profile-badge">{{ resumeData.basic.title }}</div>
+          <!-- 联系方式列表 -->
+          <div class="meta-list">
+            <span v-if="resumeData.basic.phone" class="meta-item">
+              <span class="meta-icon">📞</span>{{ resumeData.basic.phone }}
+            </span>
+            <span v-if="resumeData.basic.email" class="meta-item">
+              <span class="meta-icon">✉</span>{{ resumeData.basic.email }}
+            </span>
+            <span v-if="resumeData.basic.location" class="meta-item">
+              <span class="meta-icon">📍</span>{{ resumeData.basic.location }}
+            </span>
+            <span v-if="resumeData.basic.website" class="meta-item">
+              <span class="meta-icon">🔗</span>{{ resumeData.basic.website }}
+            </span>
+          </div>
         </div>
+      </div>
+      <!-- 证件照预留位置（始终显示，无照片时显示占位图标） -->
+      <div class="header-photo">
+        <img v-if="resumeData.basic.photo" :src="resumeData.basic.photo" alt="证件照" />
+        <div v-else class="photo-placeholder">📷</div>
       </div>
     </div>
 
@@ -155,6 +163,48 @@ function getSectionData(sec) {
   font-size: 14px;
   line-height: 1.6;
   padding: 0;
+}
+
+/* 头部区域：flex 布局，左侧信息 + 右侧预留照片位 */
+.resume-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.header-left {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 姓名：全宽独占一行 */
+.name {
+  width: 100%;
+}
+
+/* 证件照预留位置：始终占据空间 */
+.header-photo {
+  flex-shrink: 0;
+  width: 90px;
+  height: 112px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #f0f0f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.header-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.photo-placeholder {
+  font-size: 28px;
+  opacity: 0.3;
 }
 
 /* section-tab 默认隐藏（仅作为CSS钩子，各模板可启用） */

@@ -4,7 +4,7 @@
  *          暗色section标签、边框标签、暗色圆点
  * ============================================ */
 
-.resume-tpl-tech-dark {
+.resume-tpl-tech-dark.resume-tpl-tech-dark {
   --tpl-accent: #818CF8;
   --tpl-accent-dark: #6366F1;
   --tpl-accent-soft: #1E1B4B;
@@ -212,4 +212,30 @@
   position: absolute;
   left: 0;
   color: var(--tpl-accent);
+}
+
+/* ===== 照片区域 ===== */
+.resume-tpl-tech-dark .header-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+.resume-tpl-tech-dark .header-text { flex: 1; }
+.resume-tpl-tech-dark .header-photo {
+  display: block;
+  width: 100px;
+  height: 130px;
+  border: 2px dashed rgba(255,255,255,0.4);
+  border-radius: 6px;
+  background: rgba(255,255,255,0.15);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.resume-tpl-tech-dark .photo-placeholder {
+  font-size: 11px;
+  color: rgba(255,255,255,0.7);
+  text-align: center;
 }

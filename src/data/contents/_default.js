@@ -6,7 +6,8 @@ export const defaultResumeData = {
     phone: '138-0000-0000',
     email: 'zhangsan@example.com',
     location: '北京市',
-    website: 'https://zhangsan.dev'
+    website: 'https://zhangsan.dev',
+    photo: ''
   },
   summary: '5年前端开发经验，精通 Vue.js 和 React 生态。具备大型项目架构设计能力，注重代码质量和团队协作。曾主导多个核心产品的前端重构，性能优化成果显著。',
   skills: [
