@@ -105,6 +105,12 @@
               {{ formatTime(task.updateTime) }}
             </span>
           </div>
+          <div v-if="parseModeLabel || task.parseMessage" class="parse-meta">
+            <el-tag v-if="parseModeLabel" size="small" effect="plain" class="parse-tag">
+              解析来源：{{ parseModeLabel }}
+            </el-tag>
+            <span v-if="task.parseMessage" class="parse-message">{{ task.parseMessage }}</span>
+          </div>
         </div>
       </div>
 
@@ -614,6 +620,24 @@ const statusText = computed(() => {
     case 2: return '已完成'
     case 3: return '已失败'
     default: return '未知'
+  }
+})
+
+/**
+ * 结果页将后端解析模式转为更适合展示的中文标签。
+ */
+const parseModeLabel = computed(() => {
+  switch (task.value?.parseMode) {
+    case 'TEXT':
+      return '文本直提'
+    case 'MULTIMODAL':
+      return '多模态识别'
+    case 'OCR':
+      return 'OCR 识别'
+    case 'MIXED':
+      return '混合解析'
+    default:
+      return ''
   }
 })
 
@@ -1391,6 +1415,24 @@ onUnmounted(() => {
   align-items: center;
   gap: 16px;
   flex-wrap: wrap;
+}
+
+.parse-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.parse-tag {
+  border-color: rgba(255, 140, 66, 0.35);
+  color: var(--orange-main);
+}
+
+.parse-message {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-body);
 }
 
 .status-badge {

@@ -1,32 +1,23 @@
 <template>
   <div class="resume-upload-view">
-    <!-- 未登录提示 -->
     <div v-if="needLogin" class="login-prompt">
-      <el-alert
-        title="请先登录"
-        type="warning"
-        :closable="false"
-        show-icon
-      >
+      <el-alert title="请先登录" type="warning" :closable="false" show-icon>
         <template #default>
-          <span>使用简历诊断功能需要先登录</span>
-          <el-button type="primary" size="small" @click="goToLogin" style="margin-left: 12px">
+          <span>使用简历诊断功能前需要先登录账号。</span>
+          <el-button type="primary" size="small" style="margin-left: 12px" @click="goToLogin">
             去登录
           </el-button>
         </template>
       </el-alert>
     </div>
 
-    <!-- 页面标题区 -->
     <div class="page-header">
       <h1 class="page-title">简历诊断</h1>
-      <p class="page-desc">上传简历后，系统将进行诊断分析并生成结果</p>
+      <p class="page-desc">上传 PDF 简历后，系统会自动提取内容并生成诊断结果。</p>
     </div>
 
-    <!-- 入口操作区 -->
     <div class="upload-section">
       <div class="upload-card">
-        <!-- 上传区域 -->
         <el-upload
           class="upload-area"
           drag
@@ -40,8 +31,10 @@
               <el-icon :size="48"><Upload /></el-icon>
             </div>
             <div class="upload-text">
-              <div class="upload-title">点击或拖拽文件至此处上传</div>
-              <div class="upload-hint">支持文本型 PDF 格式，文件大小不超过 10MB</div>
+              <div class="upload-title">点击或拖拽文件到此处上传</div>
+              <div class="upload-hint">
+                支持文本型 PDF 与图片型/扫描型 PDF，文件大小不超过 10MB
+              </div>
             </div>
           </div>
           <div v-else class="upload-selected">
@@ -52,31 +45,28 @@
                 <div class="file-size">{{ formatFileSize(selectedFile.size) }}</div>
               </div>
             </div>
-            <el-button link type="danger" @click="clearFile">更换文件</el-button>
+            <el-button link type="danger" @click.stop="clearFile">更换文件</el-button>
           </div>
         </el-upload>
 
-        <!-- 文件校验提示 -->
         <div v-if="fileError" class="file-error">
           <el-icon><WarningFilled /></el-icon>
           <span>{{ fileError }}</span>
         </div>
 
-        <!-- 文件要求说明 -->
         <div class="file-requirements">
           <div class="req-title">文件要求</div>
           <ul class="req-list">
-            <li>文件格式：仅支持 <strong>文本型 PDF</strong></li>
+            <li>文件格式：仅支持 <strong>PDF</strong></li>
             <li>文件大小：不超过 10MB</li>
-            <li>推荐使用 Word/WPS 导出的 PDF，或 Chrome「打印 → 另存为 PDF」</li>
+            <li>支持文本型 PDF，也支持图片型/扫描型 PDF</li>
           </ul>
           <div class="req-warning">
             <el-icon><WarningFilled /></el-icon>
-            <span>不支持扫描件/图片型 PDF（需包含可选择的文字）</span>
+            <span>图片型/扫描型 PDF 需要额外识别步骤，处理时间可能更长。</span>
           </div>
         </div>
 
-        <!-- 提交按钮 -->
         <div class="submit-section">
           <el-button
             type="primary"
@@ -91,7 +81,6 @@
           </el-button>
         </div>
 
-        <!-- 失败反馈 -->
         <div v-if="submitError" class="submit-error">
           <div class="error-icon">
             <el-icon :size="32" color="#f56c6c"><CircleClose /></el-icon>
@@ -105,14 +94,13 @@
       </div>
     </div>
 
-    <!-- 结果说明区 -->
     <div class="info-section">
       <div class="info-card">
         <h3 class="info-title">诊断完成后你将看到</h3>
         <div class="info-list">
           <div class="info-item">
             <div class="info-dot"></div>
-            <div class="info-text">简历基本信息完整性分析</div>
+            <div class="info-text">简历基础信息完整度分析</div>
           </div>
           <div class="info-item">
             <div class="info-dot"></div>
@@ -133,58 +121,43 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Upload, Document, WarningFilled, CircleClose } from '@element-plus/icons-vue'
-import { uploadResume } from '@/api/resume'
+import { CircleClose, Document, Upload, WarningFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { uploadResume } from '@/api/resume'
 import { isLoggedIn } from '@/utils/auth'
-import * as pdfjsLib from 'pdfjs-dist'
-
-// 设置 PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.mjs',
-  import.meta.url
-).href
 
 const router = useRouter()
 
-// 检查是否登录
-const needLogin = computed(() => !isLoggedIn())
-
-// 配置
 const acceptedFormats = '.pdf'
-const maxFileSize = 10 * 1024 * 1024 // 10MB
+const maxFileSize = 10 * 1024 * 1024
 
-// 状态
+const needLogin = computed(() => !isLoggedIn())
 const selectedFile = ref(null)
 const fileError = ref('')
 const submitting = ref(false)
 const submitError = ref('')
 
-// 按钮文本
-const buttonText = computed(() => {
-  if (submitting.value) {
-    return '提交中...'
-  }
-  return '开始诊断'
-})
+const buttonText = computed(() => (submitting.value ? '提交中...' : '开始诊断'))
 
-// 文件大小格式化
 const formatFileSize = (bytes) => {
-  if (bytes < 1024) return bytes + ' B'
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
-  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-// 校验文件
+/**
+ * 上传页仅保留基础文件校验。
+ * 文本型还是图片型 PDF 统一交给后端混合解析链路处理。
+ */
 const validateFile = (file) => {
   if (!file) {
     fileError.value = '请选择文件'
     return false
   }
 
-  const extension = file.name.split('.').pop().toLowerCase()
+  const extension = String(file.name || '').split('.').pop()?.toLowerCase()
   if (extension !== 'pdf') {
     fileError.value = '仅支持 PDF 格式文件'
     return false
@@ -199,21 +172,19 @@ const validateFile = (file) => {
   return true
 }
 
-// 处理文件选择
 const handleFileChange = (file) => {
-  const rawFile = file.raw
+  const rawFile = file?.raw
   if (validateFile(rawFile)) {
     selectedFile.value = rawFile
+    submitError.value = ''
   }
 }
 
-// 清除文件
 const clearFile = () => {
   selectedFile.value = null
   fileError.value = ''
 }
 
-// 跳转到登录页
 const goToLogin = () => {
   router.push({
     path: '/login',
@@ -221,37 +192,11 @@ const goToLogin = () => {
   })
 }
 
-// 检测PDF是否为图片型（扫描件）
-const checkPdfHasText = async (file) => {
-  try {
-    const arrayBuffer = await file.arrayBuffer()
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
-
-    let totalTextLength = 0
-    // 检查前5页
-    const pagesToCheck = Math.min(pdf.numPages, 5)
-
-    for (let i = 1; i <= pagesToCheck; i++) {
-      const page = await pdf.getPage(i)
-      const textContent = await page.getTextContent()
-      totalTextLength += textContent.items.map(item => item.str).join('').length
-    }
-
-    // 如果前5页文本少于50个字符，认为是图片型PDF
-    return totalTextLength >= 50
-  } catch (err) {
-    console.warn('PDF检测失败，允许上传:', err)
-    return true // 检测失败时允许上传，让后端处理
-  }
-}
-
-// 提交
 const handleSubmit = async () => {
-  // 未登录时提示先登录
   if (!isLoggedIn()) {
     try {
       await ElMessageBox.confirm(
-        '使用简历诊断功能需要先登录，是否前往登录页？',
+        '使用简历诊断功能前需要先登录，是否前往登录页？',
         '提示',
         {
           confirmButtonText: '去登录',
@@ -261,7 +206,7 @@ const handleSubmit = async () => {
       )
       goToLogin()
     } catch {
-      // 用户取消
+      // 用户主动取消时不再额外提示。
     }
     return
   }
@@ -273,39 +218,31 @@ const handleSubmit = async () => {
   submitting.value = true
   submitError.value = ''
 
-  // 前置检测：检查是否为图片型PDF
-  const hasText = await checkPdfHasText(selectedFile.value)
-  if (!hasText) {
-    submitting.value = false
-    submitError.value = '当前 PDF 似乎是图片型/扫描件，无法提取文本。请上传由 Word、WPS 等软件直接导出的文本型 PDF，或使用 Chrome 浏览器「打印 → 另存为 PDF」生成的文件'
-    return
-  }
-
   try {
     const res = await uploadResume(selectedFile.value)
-    const taskId = String(res.data)
+    const taskId = String(res.data || '')
 
     ElMessage({
-      message: '简历已提交，正在诊断...',
+      message: '简历已提交，正在诊断中...',
       type: 'success',
       duration: 2000,
       showClose: true
     })
 
-    if (taskId) {
-      await router.push(`/resume/result/${taskId}`)
-    } else {
-      submitError.value = '任务创建成功，但未获取到任务ID'
+    if (!taskId) {
+      submitError.value = '任务创建成功，但未获取到任务 ID'
+      return
     }
+
+    await router.push(`/resume/result/${taskId}`)
   } catch (err) {
     console.error('上传失败:', err)
-    submitError.value = err.message || '提交失败，请稍后重试'
+    submitError.value = err?.message || '提交失败，请稍后重试'
   } finally {
     submitting.value = false
   }
 }
 
-// 重试提交
 const retrySubmit = () => {
   submitError.value = ''
   handleSubmit()
@@ -317,12 +254,10 @@ const retrySubmit = () => {
   min-height: 100%;
 }
 
-/* 未登录提示 */
 .login-prompt {
   margin-bottom: 24px;
 }
 
-/* 页面标题区 */
 .page-header {
   margin-bottom: 24px;
 }
@@ -340,7 +275,6 @@ const retrySubmit = () => {
   color: var(--text-muted);
 }
 
-/* 入口操作区 */
 .upload-section {
   margin-bottom: 24px;
 }
@@ -353,7 +287,6 @@ const retrySubmit = () => {
   box-shadow: 0 2px 12px rgba(255, 140, 66, 0.06);
 }
 
-/* 上传区域 - 橙色主题 */
 .upload-area {
   margin-bottom: 20px;
 }
@@ -424,13 +357,12 @@ const retrySubmit = () => {
   color: var(--text-muted);
 }
 
-/* 文件错误提示 */
 .file-error {
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 10px 12px;
-  background-color: #FEF0F0;
+  background-color: #fef0f0;
   border: 1px solid var(--orange-border);
   border-radius: 8px;
   margin-bottom: 16px;
@@ -438,7 +370,6 @@ const retrySubmit = () => {
   color: var(--color-danger);
 }
 
-/* 文件要求说明 */
 .file-requirements {
   margin-bottom: 24px;
 }
@@ -479,14 +410,13 @@ const retrySubmit = () => {
   gap: 6px;
   margin-top: 12px;
   padding: 8px 12px;
-  background-color: #FEF0F0;
+  background-color: #fef0f0;
   border: 1px solid #fde2e2;
   border-radius: 6px;
   font-size: 13px;
   color: var(--color-danger);
 }
 
-/* 提交按钮区 */
 .submit-section {
   margin-bottom: 20px;
 }
@@ -508,17 +438,21 @@ const retrySubmit = () => {
 }
 
 @keyframes loading-bar {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(100%);
+  }
 }
 
-/* 失败反馈 */
 .submit-error {
   display: flex;
   align-items: flex-start;
   gap: 16px;
   padding: 20px;
-  background-color: #FEF0F0;
+  background-color: #fef0f0;
   border: 1px solid var(--orange-border);
   border-radius: 8px;
 }
@@ -540,7 +474,6 @@ const retrySubmit = () => {
   margin-bottom: 12px;
 }
 
-/* 结果说明区 */
 .info-section {
   margin-bottom: 24px;
 }
@@ -585,14 +518,15 @@ const retrySubmit = () => {
   color: var(--text-body);
 }
 
-/* 移动端适配 */
 @media (max-width: 768px) {
   .page-title {
     font-size: 20px;
   }
+
   .upload-card {
     padding: 24px 20px;
   }
+
   .info-list {
     grid-template-columns: 1fr;
   }
@@ -602,15 +536,19 @@ const retrySubmit = () => {
   .page-title {
     font-size: 18px;
   }
+
   .page-desc {
     font-size: 13px;
   }
+
   .upload-card {
     padding: 20px 16px;
   }
+
   .upload-area :deep(.el-upload-dragger) {
     padding: 24px 16px;
   }
+
   .upload-title {
     font-size: 14px;
   }
