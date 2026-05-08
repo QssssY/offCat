@@ -205,8 +205,8 @@ const upgradingPlanCode = ref("");
    ======================== */
 const userInfo = computed(() => userStore.userInfo);
 const userName = computed(() => userInfo.value?.nickname || userInfo.value?.username || "用户");
-const resumeQuotaText = computed(() => userInfo.value?.resumeQuota ?? 0);
-const interviewQuotaText = computed(() => userInfo.value?.interviewQuota ?? 0);
+const resumeQuotaText = computed(() => Number(userInfo.value?.resumeQuota ?? 0));
+const interviewQuotaText = computed(() => Number(userInfo.value?.interviewQuota ?? 0));
 
 /* ========================
    剩余次数标签
@@ -365,7 +365,13 @@ const fetchPlans = async () => {
   plansLoading.value = true;
   try {
     const res = await getMembershipPlans();
-    plans.value = Array.isArray(res.data) ? res.data : [];
+    plans.value = (Array.isArray(res.data) ? res.data : []).map(p => ({
+      ...p,
+      priceAmount: Number(p.priceAmount ?? 0),
+      durationDays: Number(p.durationDays ?? 0),
+      resumeQuota: Number(p.resumeQuota ?? 0),
+      interviewQuota: Number(p.interviewQuota ?? 0),
+    }));
   } catch {
     plans.value = [];
     // 拦截器已弹出错误提示

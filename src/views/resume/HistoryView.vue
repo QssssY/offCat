@@ -189,13 +189,13 @@ const fetchHistory = async () => {
     if (res.data) {
       if (Array.isArray(res.data)) {
         historyList.value = res.data;
-        total.value = res.data.length;
+        total.value = Number(res.data.length) || 0;
       } else if (res.data.list && Array.isArray(res.data.list)) {
         historyList.value = res.data.list;
-        total.value = res.data.total || 0;
-        pageNum.value = res.data.pageNum || 1;
-        pageSize.value = res.data.pageSize || 10;
-        totalPages.value = res.data.totalPages || 0;
+        total.value = Number(res.data.total) || 0;
+        pageNum.value = Number(res.data.pageNum) || 1;
+        pageSize.value = Number(res.data.pageSize) || 10;
+        totalPages.value = Number(res.data.totalPages) || 0;
         hasNextPage.value = res.data.hasNextPage || false;
         hasPreviousPage.value = res.data.hasPreviousPage || false;
       } else {

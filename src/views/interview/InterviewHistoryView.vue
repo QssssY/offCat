@@ -127,6 +127,7 @@
 
     <div v-if="total > 0" class="pagination-section">
       <el-pagination
+        :current-page="pageNum"
         :page-size="pageSize"
         :total="total"
         layout="total, prev, pager, next"
@@ -213,13 +214,13 @@ const fetchHistory = async () => {
     const data = res.data;
     if (Array.isArray(data)) {
       historyList.value = normalizeHistoryList(data);
-      total.value = data.length;
+      total.value = Number(data.length) || 0;
       return;
     }
     historyList.value = normalizeHistoryList(data?.list || []);
-    total.value = data?.total || 0;
-    pageNum.value = data?.pageNum || 1;
-    pageSize.value = data?.pageSize || 5;
+    total.value = Number(data?.total) || 0;
+    pageNum.value = Number(data?.pageNum) || 1;
+    pageSize.value = Number(data?.pageSize) || 5;
   } catch (err) {
     error.value = err.message || "获取历史记录失败，请稍后重试";
   } finally {

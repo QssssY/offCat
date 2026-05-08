@@ -51,75 +51,120 @@
       <p class="empty-desc">当有新的诊断结果、润色报告或面试反馈时，会在这里通知你</p>
     </div>
 
-    <!-- 通知列表 -->
-    <div v-else class="notification-list">
-      <div
-        v-for="item in notifications"
-        :key="item.id"
-        class="notification-item"
-        :class="{ unread: item.readStatus === 0 }"
-        @click="handleItemClick(item)"
-      >
-        <!-- 类型图标 -->
-        <div class="item-icon" :class="`type-${item.type}`">
-          <svg v-if="item.type === 'resume'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-            <polyline points="14 2 14 8 20 8" />
-          </svg>
-          <svg v-else-if="item.type === 'polish'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 20h9" />
-            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-          </svg>
-          <svg v-else-if="item.type === 'interview'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-            <circle cx="9" cy="7" r="4" />
-          </svg>
-          <svg v-else-if="item.type === 'quota'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10" />
-            <line x1="12" y1="8" x2="12" y2="12" />
-            <line x1="12" y1="16" x2="12.01" y2="16" />
-          </svg>
-          <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-            <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-          </svg>
-        </div>
-
-        <!-- 内容区 -->
-        <div class="item-content">
-          <div class="item-header">
-            <span class="item-title">{{ item.title }}</span>
-            <el-tag :type="getTypeTagType(item.type)" size="small" effect="plain">
-              {{ getTypeLabel(item.type) }}
-            </el-tag>
-          </div>
-          <p class="item-text">{{ item.content }}</p>
-          <span class="item-time">{{ formatTime(item.createTime) }}</span>
-        </div>
-
-        <!-- 未读标记 -->
-        <div v-if="item.readStatus === 0" class="unread-dot"></div>
+    <!-- 有通知时的内容区 -->
+    <template v-else>
+      <!-- 批量操作栏 -->
+      <div class="batch-bar">
+        <el-checkbox
+          :model-value="isAllSelected"
+          :indeterminate="isIndeterminate"
+          @change="handleToggleSelectAll"
+        >
+          全选
+        </el-checkbox>
+        <el-button
+          v-if="selectedIds.length > 0"
+          type="danger"
+          size="small"
+          :loading="deleteLoading"
+          @click="handleBatchDelete"
+        >
+          批量删除 ({{ selectedIds.length }})
+        </el-button>
       </div>
-    </div>
 
-    <!-- 分页 -->
-    <div v-if="total > pageSize" class="pagination-wrapper">
-      <el-pagination
-        :current-page="currentPage"
-        :page-size="pageSize"
-        :total="total"
-        layout="prev, pager, next"
-        @current-change="handlePageChange"
-      />
-    </div>
+      <!-- 通知列表 -->
+      <div class="notification-list">
+        <div
+          v-for="item in notifications"
+          :key="item.id"
+          class="notification-item"
+          :class="{ unread: item.readStatus === 0, selected: selectedIds.includes(item.id) }"
+          @click="handleItemClick(item)"
+        >
+          <!-- 复选框 -->
+          <el-checkbox
+            :model-value="selectedIds.includes(item.id)"
+            @click.stop
+            @change="handleToggleSelect(item.id)"
+            class="item-checkbox"
+          />
+
+          <!-- 类型图标 -->
+          <div class="item-icon" :class="`type-${item.type}`">
+            <svg v-if="item.type === 'resume'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+            </svg>
+            <svg v-else-if="item.type === 'polish'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 20h9" />
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+            </svg>
+            <svg v-else-if="item.type === 'interview'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+            </svg>
+            <svg v-else-if="item.type === 'quota'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+              <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+            </svg>
+          </div>
+
+          <!-- 内容区 -->
+          <div class="item-content">
+            <div class="item-header">
+              <span class="item-title">{{ item.title }}</span>
+              <el-tag :type="getTypeTagType(item.type)" size="small" effect="plain">
+                {{ getTypeLabel(item.type) }}
+              </el-tag>
+            </div>
+            <p class="item-text">{{ item.content }}</p>
+            <span class="item-time">{{ formatTime(item.createTime) }}</span>
+          </div>
+
+          <!-- 未读标记 -->
+          <div v-if="item.readStatus === 0" class="unread-dot"></div>
+
+          <!-- 删除按钮 -->
+          <el-button
+            class="item-delete-btn"
+            type="danger"
+            :icon="Delete"
+            size="small"
+            circle
+            plain
+            @click.stop="handleDelete(item.id)"
+          />
+        </div>
+      </div>
+
+      <!-- 分页 -->
+      <div class="pagination-wrapper">
+        <el-pagination
+          :current-page="currentPage"
+          :page-size="pageSize"
+          :total="total"
+          :page-sizes="[5, 10, 20]"
+          layout="total, sizes, prev, pager, next"
+          @current-change="handlePageChange"
+          @size-change="handleSizeChange"
+        />
+      </div>
+    </template>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { getNotifications, getUnreadCount, markAsRead, markAllAsRead } from '@/api/notification'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Delete } from '@element-plus/icons-vue'
+import { getNotifications, getUnreadCount, markAsRead, markAllAsRead, deleteNotification, batchDeleteNotifications } from '@/api/notification'
 
 const router = useRouter()
 
@@ -127,7 +172,7 @@ const router = useRouter()
 const notifications = ref([])
 const loading = ref(false)
 const currentPage = ref(1)
-const pageSize = ref(20)
+const pageSize = ref(5)
 const total = ref(0)
 const unreadCount = ref(0)
 
@@ -138,6 +183,21 @@ const filterReadStatus = ref('')
 // 全部已读按钮加载状态
 const markAllLoading = ref(false)
 
+// 多选与批量删除
+const selectedIds = ref([])
+const deleteLoading = ref(false)
+
+/** 全选状态：当前页所有项均被选中 */
+const isAllSelected = computed(() =>
+  notifications.value.length > 0 && notifications.value.every(item => selectedIds.value.includes(item.id))
+)
+
+/** 半选状态：当前页部分选中但非全选 */
+const isIndeterminate = computed(() => {
+  const count = notifications.value.filter(item => selectedIds.value.includes(item.id)).length
+  return count > 0 && count < notifications.value.length
+})
+
 /**
  * 获取通知列表
  */
@@ -145,7 +205,7 @@ const fetchNotifications = async () => {
   loading.value = true
   try {
     const params = {
-      page: currentPage.value,
+      pageNum: currentPage.value,
       size: pageSize.value
     }
     if (filterType.value) params.type = filterType.value
@@ -154,8 +214,9 @@ const fetchNotifications = async () => {
     const res = await getNotifications(params)
     if (res.code === 200) {
       notifications.value = res.data.records || []
-      total.value = res.data.total || 0
+      total.value = Number(res.data.total) || 0
       unreadCount.value = Number(res.data.unreadCount) || 0
+      selectedIds.value = []
     }
   } catch (e) {
     console.error('获取通知列表失败', e)
@@ -182,6 +243,96 @@ const fetchUnreadCount = async () => {
  * 筛选条件变化
  */
 const handleFilterChange = () => {
+  currentPage.value = 1
+  selectedIds.value = []
+  fetchNotifications()  // 无需 await，loading 状态已阻止重复操作
+}
+
+/**
+ * 切换单条选中状态
+ */
+const handleToggleSelect = (id) => {
+  const index = selectedIds.value.indexOf(id)
+  if (index === -1) {
+    selectedIds.value.push(id)
+  } else {
+    selectedIds.value.splice(index, 1)
+  }
+}
+
+/**
+ * 全选/取消全选当前页
+ */
+const handleToggleSelectAll = (checked) => {
+  if (checked) {
+    selectedIds.value = notifications.value.map(item => item.id)
+  } else {
+    selectedIds.value = []
+  }
+}
+
+/**
+ * 删除单条通知
+ */
+const handleDelete = async (id) => {
+  try {
+    await ElMessageBox.confirm('确定删除这条通知吗？', '删除确认', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    await deleteNotification(id)
+    ElMessage.success('已删除')
+    // 如果当前页删完了且不在第一页，回到上一页
+    if (notifications.value.length === 1 && currentPage.value > 1) {
+      currentPage.value--
+    }
+    await fetchNotifications()
+    fetchUnreadCount()
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close') {
+      console.error('删除通知失败', e)
+    }
+  }
+}
+
+/**
+ * 批量删除选中的通知
+ */
+const handleBatchDelete = async () => {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除选中的 ${selectedIds.value.length} 条通知吗？`,
+      '批量删除确认',
+      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
+    )
+    deleteLoading.value = true
+    const deleteCount = selectedIds.value.length
+    // 在清空前判断：当前页是否会被全部删完
+    const willEmptyPage = notifications.value.length === deleteCount
+    await batchDeleteNotifications(selectedIds.value)
+    ElMessage.success(`已删除 ${deleteCount} 条通知`)
+    selectedIds.value = []
+    // 如果当前页删完了且不在第一页，回到上一页
+    if (willEmptyPage && currentPage.value > 1) {
+      currentPage.value--
+    }
+    await fetchNotifications()
+    fetchUnreadCount()
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close') {
+      console.error('批量删除失败', e)
+    }
+  } finally {
+    deleteLoading.value = false
+  }
+}
+
+/**
+ * 分页大小切换
+ */
+const handleSizeChange = (size) => {
+  pageSize.value = size
   currentPage.value = 1
   fetchNotifications()
 }
@@ -397,6 +548,18 @@ onMounted(() => {
   gap: 8px;
 }
 
+/* 批量操作栏 */
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: var(--bg-card, #fff);
+  border: 1px solid var(--border-card, #f0f0f0);
+  border-radius: 10px;
+}
+
 .notification-item {
   display: flex;
   align-items: flex-start;
@@ -418,6 +581,26 @@ onMounted(() => {
 .notification-item.unread {
   background: var(--bg-page, #fffbf8);
   border-color: var(--orange-border, #ffe0c4);
+}
+
+.notification-item.selected {
+  border-color: var(--orange-main);
+  background: rgba(255, 140, 66, 0.04);
+}
+
+.item-checkbox {
+  flex-shrink: 0;
+}
+
+/* 删除按钮：默认隐藏，hover 显示 */
+.item-delete-btn {
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.notification-item:hover .item-delete-btn {
+  opacity: 1;
 }
 
 /* 类型图标 */

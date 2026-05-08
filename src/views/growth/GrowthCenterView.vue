@@ -267,8 +267,18 @@ const loadError = ref(false)
 /** 成长中心概览数据 */
 const overviewData = ref(null)
 
-/** 成长概览摘要 */
-const summary = computed(() => overviewData.value?.summary || {})
+/** 成长概览摘要（数值字段统一 Number 转换，避免 JacksonConfig 字符串序列化问题） */
+const summary = computed(() => {
+  const s = overviewData.value?.summary
+  if (!s) return {}
+  return {
+    ...s,
+    latestResumeScore: Number(s.latestResumeScore ?? 0),
+    latestInterviewScore: Number(s.latestInterviewScore ?? 0),
+    resumeDiagnosisCount: Number(s.resumeDiagnosisCount ?? 0),
+    mockInterviewCount: Number(s.mockInterviewCount ?? 0)
+  }
+})
 /** 简历分数趋势 */
 const resumeScoreTrend = computed(() => overviewData.value?.resumeScoreTrend || [])
 /** 面试评分趋势 */
@@ -285,7 +295,7 @@ const weaknessSummary = computed(() => overviewData.value?.weaknessSummary || {}
 /** 是否全量无数据 */
 const isEmpty = computed(() => {
   if (!overviewData.value) return true
-  const s = overviewData.value.summary
+  const s = summary.value
   return (s?.resumeDiagnosisCount ?? 0) === 0 && (s?.mockInterviewCount ?? 0) === 0
 })
 

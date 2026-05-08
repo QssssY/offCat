@@ -45,6 +45,29 @@ export function markAllAsRead() {
 }
 
 /**
+ * 删除单条通知（逻辑删除）
+ * @param {string|number} id - 通知ID
+ */
+export function deleteNotification(id) {
+  return request({
+    url: `/api/user/notifications/${id}`,
+    method: 'delete'
+  })
+}
+
+/**
+ * 批量删除通知（逻辑删除）
+ * @param {Array<string|number>} ids - 通知ID数组
+ */
+export function batchDeleteNotifications(ids) {
+  return request({
+    url: '/api/user/notifications/batch-delete',
+    method: 'post',
+    data: ids
+  })
+}
+
+/**
  * 建立 SSE 通知推送连接（基于 fetch + ReadableStream）
  * 使用 fetch 代替 EventSource 以支持 Authorization header
  *
@@ -55,8 +78,6 @@ export function markAllAsRead() {
  * @returns {Object} 控制器 { abort() } 用于断开连接
  */
 export function connectNotificationStream({ onNotification, onUnreadCount, onError }) {
-  const token = getToken();
-  const tokenType = getTokenType() || 'Bearer';
   const controller = new AbortController();
   let reconnectTimer = null;
   /** 当前重连延迟（指数退避：5s → 10s → 20s → 40s → 60s 封顶） */
@@ -68,9 +89,12 @@ export function connectNotificationStream({ onNotification, onUnreadCount, onErr
 
   const connect = async () => {
     try {
+      // 每次连接/重连时重新获取 token，避免 token 刷新后使用旧值
+      const currentToken = getToken();
+      const currentTokenType = getTokenType() || 'Bearer';
       const response = await fetch('/api/user/notifications/stream', {
         headers: {
-          'Authorization': `${tokenType} ${token}`,
+          'Authorization': `${currentTokenType} ${currentToken}`,
           'Accept': 'text/event-stream'
         },
         signal: controller.signal
@@ -108,16 +132,11 @@ export function connectNotificationStream({ onNotification, onUnreadCount, onErr
           } else if (line.startsWith('data:')) {
             eventData = line.slice(5).trim();
           } else if (line === '' && eventData) {
-            // 空行表示事件结束，处理数据
-            try {
-              const data = JSON.parse(eventData);
-              if (eventType === 'notification' && onNotification) {
-                onNotification(data);
-              } else if (eventType === 'unread-count' && onUnreadCount) {
-                onUnreadCount(data);
-              }
-            } catch (e) {
-              console.error('[SSE] 解析数据失败:', e);
+            // 空行表示事件结束，处理数据（仅对 JSON 格式事件解析）
+            if (eventType === 'notification' && onNotification) {
+              try { onNotification(JSON.parse(eventData)); } catch (e) { console.error('[SSE] 解析 notification 失败:', e); }
+            } else if (eventType === 'unread-count' && onUnreadCount) {
+              try { onUnreadCount(JSON.parse(eventData)); } catch (e) { console.error('[SSE] 解析 unread-count 失败:', e); }
             }
             eventType = '';
             eventData = '';

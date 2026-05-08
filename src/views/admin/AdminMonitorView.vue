@@ -146,7 +146,13 @@ const loadMonitorOverview = async () => {
 
   try {
     const res = await getAdminMonitorOverview();
-    Object.assign(monitorOverview, res?.data || {});
+    const d = res?.data || {};
+    monitorOverview.pendingResumeTaskCount = Number(d.pendingResumeTaskCount ?? 0);
+    monitorOverview.processingResumeTaskCount = Number(d.processingResumeTaskCount ?? 0);
+    monitorOverview.failedResumeTaskCount = Number(d.failedResumeTaskCount ?? 0);
+    monitorOverview.activeInterviewSessionCount = Number(d.activeInterviewSessionCount ?? 0);
+    monitorOverview.todayInterviewSessionCount = Number(d.todayInterviewSessionCount ?? 0);
+    monitorOverview.todayResumeDiagnosisCount = Number(d.todayResumeDiagnosisCount ?? 0);
   } catch (error) {
     errorMessage.value = error?.message || "加载监控总览失败";
   } finally {

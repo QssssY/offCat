@@ -200,7 +200,7 @@ const getDefaultDateRange = () => {
 // 看板筛选状态
 const filters = reactive({
   quickRange: "last7",
-  dateRange: [],
+  dateRange: getDefaultDateRange(),
   hotLimit: 10,
 });
 
@@ -498,7 +498,14 @@ const loadDashboardData = async () => {
         getAdminDashboardBusinessDistribution(commonParams),
       ]);
 
-    Object.assign(overview, overviewRes?.data || {});
+    const od = overviewRes?.data || {};
+    overview.totalUserCount = Number(od.totalUserCount ?? 0);
+    overview.vipUserCount = Number(od.vipUserCount ?? 0);
+    overview.activePromptCount = Number(od.activePromptCount ?? 0);
+    overview.activeJobRoleCount = Number(od.activeJobRoleCount ?? 0);
+    overview.activeAiEngineCount = Number(od.activeAiEngineCount ?? 0);
+    overview.todayInterviewSessionCount = Number(od.todayInterviewSessionCount ?? 0);
+    overview.todayResumeDiagnosisCount = Number(od.todayResumeDiagnosisCount ?? 0);
     trends.value = Array.isArray(trendsRes?.data) ? trendsRes.data : [];
     hotJobRoles.value = Array.isArray(hotRolesRes?.data)
       ? hotRolesRes.data

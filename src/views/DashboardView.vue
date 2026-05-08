@@ -401,19 +401,19 @@ const userStore = useUserStore();
 
 // 从 store 获取额度数据
 const resumeQuotaLeft = computed(() => {
-  return userStore.userInfo?.resumeQuota ?? 0;
+  return Number(userStore.userInfo?.resumeQuota ?? 0);
 });
 
 const interviewQuotaLeft = computed(() => {
-  return userStore.userInfo?.interviewQuota ?? 0;
+  return Number(userStore.userInfo?.interviewQuota ?? 0);
 });
 
 const vipDailyResumeQuotaLeft = computed(() => {
-  return userStore.userInfo?.vipDailyResumeQuota ?? 0;
+  return Number(userStore.userInfo?.vipDailyResumeQuota ?? 0);
 });
 
 const vipDailyInterviewQuotaLeft = computed(() => {
-  return userStore.userInfo?.vipDailyInterviewQuota ?? 0;
+  return Number(userStore.userInfo?.vipDailyInterviewQuota ?? 0);
 });
 
 // 用户角色判定
