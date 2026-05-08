@@ -391,7 +391,6 @@
 <script setup>
 import { computed, ref, onMounted } from "vue";
 import { useRouter } from "vue-router";
-import { UserFilled, Document, ChatDotRound } from "@element-plus/icons-vue";
 import { useUserStore } from "@/stores/user";
 import { getResumeHistory, extractFileName } from "@/api/resume";
 import { getInterviewHistory } from "@/api/interview";
