@@ -24,6 +24,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -150,6 +151,9 @@ public class AdminController {
         Long userId = (Long) authentication.getPrincipal();
         checkAdminPermission(userId);
         log.info("Admin toggle job role active, id: {}, isActive: {}", id, isActive);
+        if (isActive != 0 && isActive != 1) {
+            throw new BusinessException("isActive 只能为 0 或 1");
+        }
 
         SysJobRole jobRole = sysJobRoleService.getById(id);
         if (jobRole == null) {
@@ -212,8 +216,9 @@ public class AdminController {
      * 作用：
      * 管理员可以批量启用或禁用岗位配置。
      */
+    @Transactional(rollbackFor = Exception.class)
     @PutMapping("/job-roles/batch/active")
-    public Result<Void> toggleJobRolesBatchActive(@RequestBody BatchActiveRequest request,
+    public Result<Void> toggleJobRolesBatchActive(@Valid @RequestBody BatchActiveRequest request,
                                            Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         checkAdminPermission(userId);
@@ -446,8 +451,9 @@ public class AdminController {
      * 管理员可以批量启用或禁用 AI 引擎配置。
      * 启用时会自动禁用同业务类型的其他配置，保证最多只有一个启用。
      */
+    @Transactional(rollbackFor = Exception.class)
     @PutMapping("/ai-engines/batch/active")
-    public Result<Void> toggleAiEnginesBatchActive(@RequestBody BatchActiveRequest request,
+    public Result<Void> toggleAiEnginesBatchActive(@Valid @RequestBody BatchActiveRequest request,
                                                Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         checkAdminPermission(userId);
@@ -564,6 +570,7 @@ public class AdminController {
      * @param authentication 认证对象
      * @return 新增的提示词模板 ID
      */
+    @Transactional(rollbackFor = Exception.class)
     @PostMapping("/prompts")
     public Result<Long> createPrompt(@Valid @RequestBody PromptCreateRequest request,
                                        Authentication authentication) {
@@ -602,6 +609,7 @@ SysPrompt prompt = new SysPrompt();
      * @param authentication 认证对象
      * @return 空结果
      */
+    @Transactional(rollbackFor = Exception.class)
     @PutMapping("/prompts")
     public Result<Void> updatePrompt(@Valid @RequestBody PromptUpdateRequest request,
                                       Authentication authentication) {
@@ -655,6 +663,7 @@ SysPrompt prompt = new SysPrompt();
      * @param authentication 认证对象
      * @return 空结果
      */
+    @Transactional(rollbackFor = Exception.class)
     @PutMapping("/prompts/{id}/active")
     public Result<Void> togglePromptActive(@PathVariable Long id,
                                              @RequestParam Integer isActive,
@@ -662,6 +671,9 @@ SysPrompt prompt = new SysPrompt();
         Long userId = (Long) authentication.getPrincipal();
         checkAdminPermission(userId);
         log.info("Admin toggle prompt active, id: {}, isActive: {}", id, isActive);
+        if (isActive != 0 && isActive != 1) {
+            throw new BusinessException("isActive 只能为 0 或 1");
+        }
 
         SysPrompt prompt = sysPromptService.getById(id);
         if (prompt == null) {
@@ -734,8 +746,9 @@ SysPrompt prompt = new SysPrompt();
      * 管理员可以批量启用或禁用提示词模板。
      * 启用时会自动禁用同岗位同难度的其他模板，保证最多只有一个启用。
      */
+    @Transactional(rollbackFor = Exception.class)
     @PutMapping("/prompts/batch/active")
-    public Result<Void> togglePromptsBatchActive(@RequestBody BatchActiveRequest request,
+    public Result<Void> togglePromptsBatchActive(@Valid @RequestBody BatchActiveRequest request,
                                                 Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         checkAdminPermission(userId);
@@ -869,8 +882,9 @@ SysPrompt prompt = new SysPrompt();
      * 作用：
      * 管理员可以批量启用或禁用用户账号。
      */
+    @Transactional(rollbackFor = Exception.class)
     @PutMapping("/users/batch/status")
-    public Result<Void> updateUsersBatchStatus(@RequestBody BatchActiveRequest request,
+    public Result<Void> updateUsersBatchStatus(@Valid @RequestBody BatchActiveRequest request,
                                                Authentication authentication) {
         Long adminUserId = (Long) authentication.getPrincipal();
         checkAdminPermission(adminUserId);
