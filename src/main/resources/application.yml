@@ -187,7 +187,7 @@ app:
   # ------------------------------------------
   pdf:
     # Chrome/Chromium 可执行文件路径，留空则自动查找
-    chrome-path: C:\Users\luoshengr\AppData\Local\Google\Chrome\Application\chrome.exe
+    chrome-path:
     # PDF 生成超时时间（毫秒）
     timeout-ms: 30000
   # ------------------------------------------

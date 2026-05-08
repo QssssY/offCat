@@ -19,6 +19,9 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 站内消息通知服务
@@ -33,6 +36,16 @@ public class NotificationService {
 
     /** SSE 连接池：userId → SseEmitter */
     private final Map<Long, SseEmitter> emitterMap = new ConcurrentHashMap<>();
+
+    /** SSE 心跳调度器：定期向所有活跃连接发送心跳，防止代理/NLB 断开空闲连接 */
+    private final ScheduledExecutorService heartbeatScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "sse-heartbeat");
+        t.setDaemon(true);
+        return t;
+    });
+
+    /** 心跳是否已启动（避免重复调度） */
+    private volatile boolean heartbeatStarted = false;
 
     /**
      * 创建通知
@@ -196,9 +209,12 @@ public class NotificationService {
      * @return SseEmitter 实例
      */
     public SseEmitter registerEmitter(Long userId) {
-        // 超时设为 30 分钟，心跳保活会在此之前续期
+        // 超时设为 30 分钟，每 30 秒心跳保活
         SseEmitter emitter = new SseEmitter(30 * 60 * 1000L);
         emitterMap.put(userId, emitter);
+
+        // 启动心跳调度（仅首次连接时启动，后续连接共享同一调度器）
+        startHeartbeatIfNeeded();
 
         // 连接完成或超时时清理
         emitter.onCompletion(() -> {
@@ -287,6 +303,43 @@ public class NotificationService {
             log.warn("[SSE] 推送未读数失败，清理连接, userId: {}, error: {}", userId, e.getMessage());
             emitterMap.remove(userId);
         }
+    }
+
+    /**
+     * 启动心跳调度（幂理，仅首次调用生效）
+     * 每 30 秒向所有活跃连接发送 SSE 注释心跳，防止代理/NLB 断开空闲连接
+     */
+    private void startHeartbeatIfNeeded() {
+        if (heartbeatStarted) {
+            return;
+        }
+        synchronized (this) {
+            if (heartbeatStarted) {
+                return;
+            }
+            heartbeatStarted = true;
+            heartbeatScheduler.scheduleAtFixedRate(this::sendHeartbeatToAll, 30, 30, TimeUnit.SECONDS);
+            log.info("[SSE] 心跳调度已启动，间隔 30 秒");
+        }
+    }
+
+    /**
+     * 向所有活跃 SSE 连接发送心跳
+     * 使用 SSE 注释行（以 ':' 开头）作为心跳，不触发前端事件处理
+     * 发送失败时清理失效连接
+     */
+    private void sendHeartbeatToAll() {
+        if (emitterMap.isEmpty()) {
+            return;
+        }
+        emitterMap.forEach((userId, emitter) -> {
+            try {
+                emitter.send(":\n\n");
+            } catch (IOException e) {
+                log.warn("[SSE] 心跳发送失败，清理连接, userId: {}, error: {}", userId, e.getMessage());
+                emitterMap.remove(userId);
+            }
+        });
     }
 
     /**
