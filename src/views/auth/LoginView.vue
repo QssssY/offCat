@@ -100,6 +100,15 @@
 
               <el-form-item prop="password">
                 <el-input id="register-password" v-model="registerForm.password" type="password" placeholder="密码（6-100个字符）" :prefix-icon="Lock" show-password clearable />
+                <!-- 密码强度指示器 -->
+                <div v-if="registerForm.password" class="password-strength" role="meter" :aria-valuenow="registerStrengthScore" aria-valuemin="0" aria-valuemax="5" :aria-label="`密码强度：${registerStrengthLabel}`">
+                  <div class="strength-bars">
+                    <div class="strength-bar" :class="registerStrengthClass(1)"></div>
+                    <div class="strength-bar" :class="registerStrengthClass(2)"></div>
+                    <div class="strength-bar" :class="registerStrengthClass(3)"></div>
+                  </div>
+                  <span class="strength-text" :class="registerStrengthLevel">{{ registerStrengthLabel }}</span>
+                </div>
               </el-form-item>
 
               <el-form-item prop="confirmPassword">
@@ -165,6 +174,15 @@
 
               <el-form-item prop="newPassword">
                 <el-input v-model="forgotForm.newPassword" type="password" placeholder="新密码（6-100个字符）" :prefix-icon="Lock" show-password clearable />
+                <!-- 忘记密码流程的密码强度指示器 -->
+                <div v-if="forgotForm.newPassword" class="password-strength" role="meter" :aria-valuenow="forgotStrengthScore" aria-valuemin="0" aria-valuemax="5" :aria-label="`密码强度：${forgotStrengthLabel}`">
+                  <div class="strength-bars">
+                    <div class="strength-bar" :class="forgotStrengthClass(1)"></div>
+                    <div class="strength-bar" :class="forgotStrengthClass(2)"></div>
+                    <div class="strength-bar" :class="forgotStrengthClass(3)"></div>
+                  </div>
+                  <span class="strength-text" :class="forgotStrengthLevel">{{ forgotStrengthLabel }}</span>
+                </div>
               </el-form-item>
 
               <el-form-item prop="confirmPassword">
@@ -198,7 +216,7 @@
 </template>
 
 <script setup>
-import { ref, reactive } from "vue";
+import { ref, reactive, computed } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { User, Lock, Key, ArrowLeft, WarningFilled, CircleCheck } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
@@ -220,6 +238,46 @@ const registerFormRef = ref(null);
 
 const loginForm = reactive({ username: "", password: "" });
 const registerForm = reactive({ username: "", password: "", confirmPassword: "", securityQuestion: "", securityAnswer: "" });
+
+// 密码强度计算：0-5 分，分 3 档
+const calcPasswordScore = (pwd) => {
+  if (!pwd) return 0;
+  let score = 0;
+  if (pwd.length >= 6) score++;
+  if (/[A-Z]/.test(pwd)) score++;
+  if (/[a-z]/.test(pwd)) score++;
+  if (/[0-9]/.test(pwd)) score++;
+  if (/[^A-Za-z0-9]/.test(pwd)) score++;
+  return score;
+};
+
+// 密码强度通用逻辑：根据 score 返回 level / label / 各格样式
+const usePasswordStrength = (pwdRef) => {
+  const score = computed(() => calcPasswordScore(pwdRef.value));
+  const level = computed(() => {
+    if (score.value <= 1) return "weak";
+    if (score.value <= 3) return "medium";
+    return "strong";
+  });
+  const label = computed(() => {
+    if (score.value <= 1) return "弱";
+    if (score.value <= 3) return "中";
+    return "强";
+  });
+  const barClass = (bar) => {
+    if (bar === 1) return score.value >= 1 ? `active-${level.value}` : "";
+    if (bar === 2) return score.value >= 3 ? `active-${level.value}` : "";
+    if (bar === 3) return score.value >= 4 ? `active-${level.value}` : "";
+    return "";
+  };
+  return { score, level, label, barClass };
+};
+
+// 注册密码强度
+const { score: registerStrengthScore, level: registerStrengthLevel, label: registerStrengthLabel, barClass: registerStrengthClass } = usePasswordStrength(computed(() => registerForm.password));
+
+// 忘记密码强度
+const { score: forgotStrengthScore, level: forgotStrengthLevel, label: forgotStrengthLabel, barClass: forgotStrengthClass } = usePasswordStrength(computed(() => forgotForm.newPassword));
 
 // 预设安全问题列表
 const presetSecurityQuestions = [
@@ -837,5 +895,59 @@ const handleResetPassword = async () => {
     max-width: 400px;
     padding: 32px 24px;
   }
+}
+
+/* 密码强度指示器 */
+.password-strength {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  width: 100%;
+}
+
+.strength-bars {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+
+.strength-bar {
+  height: 4px;
+  flex: 1;
+  border-radius: 2px;
+  background: #e4e7ed;
+  transition: background 0.3s ease;
+}
+
+.strength-bar.active-weak {
+  background: #f56c6c;
+}
+
+.strength-bar.active-medium {
+  background: #e6a23c;
+}
+
+.strength-bar.active-strong {
+  background: #67c23a;
+}
+
+.strength-text {
+  font-size: 12px;
+  font-weight: 500;
+  flex-shrink: 0;
+  min-width: 16px;
+}
+
+.strength-text.weak {
+  color: #f56c6c;
+}
+
+.strength-text.medium {
+  color: #e6a23c;
+}
+
+.strength-text.strong {
+  color: #67c23a;
 }
 </style>

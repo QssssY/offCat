@@ -32,8 +32,24 @@
 
     <!-- 任务内容 -->
     <div v-else-if="task" class="result-content">
+      <!-- 轮询超时提示 -->
+      <div v-if="pollTimeout" class="poll-timeout-section">
+        <div class="poll-timeout-card">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="timeout-icon">
+            <circle cx="12" cy="12" r="10" />
+            <polyline points="12 6 12 12 16 14" />
+          </svg>
+          <h3 class="timeout-title">诊断处理时间较长</h3>
+          <p class="timeout-desc">系统仍在处理你的简历，你可以稍后在历史记录中查看结果。</p>
+          <div class="timeout-actions">
+            <el-button type="primary" @click="router.push('/resume/history')">查看历史记录</el-button>
+            <el-button @click="startPolling">继续等待</el-button>
+          </div>
+        </div>
+      </div>
+
       <!-- 等待/处理中状态：使用 AiLoadingState 组件 -->
-      <div v-if="isPending || isProcessing" class="loading-section">
+      <div v-else-if="isPending || isProcessing" class="loading-section">
         <AiLoadingState
           :title="isPending ? '任务排队中...' : 'AI 正在分析你的简历...'"
           :stages="resumeStages"
@@ -609,6 +625,9 @@ const isCompleted = computed(() => task.value?.status === 2)
 const isFailed = computed(() => task.value?.status === 3)
 const PENDING_POLL_INTERVAL = 5000
 const PROCESSING_POLL_INTERVAL = 7000
+const POLL_MAX_ROUNDS = 90 // 最多轮询 90 轮，约 10 分钟
+let pollRounds = 0
+const pollTimeout = ref(false)
 
 const statusText = computed(() => {
   if (task.value?.statusDesc) {
@@ -884,6 +903,8 @@ const fetchTaskDetail = async (options = {}) => {
 
 const startPolling = () => {
   stopPolling()
+  pollRounds = 0
+  pollTimeout.value = false
   scheduleNextPoll()
 }
 
@@ -893,6 +914,14 @@ const scheduleNextPoll = () => {
     stopPolling()
     return
   }
+
+  // 超过最大轮询次数时停止轮询，提示用户稍后查看
+  if (pollRounds >= POLL_MAX_ROUNDS) {
+    stopPolling()
+    pollTimeout.value = true
+    return
+  }
+  pollRounds++
 
   const nextInterval = isPending.value ? PENDING_POLL_INTERVAL : PROCESSING_POLL_INTERVAL
   pollTimer.value = setTimeout(async () => {
@@ -1243,6 +1272,53 @@ onUnmounted(() => {
   background: var(--bg-page);
   padding: 24px;
   box-sizing: border-box;
+}
+
+/* ============================================
+   轮询超时提示
+   ============================================ */
+.poll-timeout-section {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100vh - 48px);
+}
+
+.poll-timeout-card {
+  background: var(--bg-card, #ffffff);
+  border-radius: 20px;
+  padding: 48px 40px;
+  text-align: center;
+  max-width: 440px;
+  border: 1px solid var(--border-card, rgba(243, 216, 199, 0.5));
+  box-shadow: 0 4px 20px rgba(255, 140, 66, 0.08);
+}
+
+.timeout-icon {
+  width: 48px;
+  height: 48px;
+  color: #e6a23c;
+  margin-bottom: 16px;
+}
+
+.timeout-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-title, #303133);
+  margin: 0 0 8px;
+}
+
+.timeout-desc {
+  font-size: 14px;
+  color: var(--text-muted, #909399);
+  margin: 0 0 24px;
+  line-height: 1.6;
+}
+
+.timeout-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
 }
 
 /* ============================================

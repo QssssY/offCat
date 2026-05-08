@@ -74,18 +74,18 @@
 
         <div class="hero-stats">
           <div class="stat-item">
-            <span class="stat-number">10,000+</span>
+            <span class="stat-number">{{ formatCount(stats.userCount) }}</span>
             <span class="stat-text">用户使用</span>
           </div>
           <div class="stat-divider"></div>
           <div class="stat-item">
-            <span class="stat-number">98%</span>
-            <span class="stat-text">好评率</span>
+            <span class="stat-number">{{ formatCount(stats.diagnosisCount) }}</span>
+            <span class="stat-text">简历诊断</span>
           </div>
           <div class="stat-divider"></div>
           <div class="stat-item">
-            <span class="stat-number">24/7</span>
-            <span class="stat-text">在线服务</span>
+            <span class="stat-number">{{ formatCount(stats.interviewCount) }}</span>
+            <span class="stat-text">模拟面试</span>
           </div>
         </div>
       </div>
@@ -298,10 +298,38 @@
 </template>
 
 <script setup>
+import { ref, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { isLoggedIn } from "@/utils/auth";
+import { getPublicStats } from "@/api/stats";
 
 const router = useRouter();
+
+// 平台统计数据
+const stats = ref({
+  userCount: 0,
+  diagnosisCount: 0,
+  interviewCount: 0,
+});
+
+// 格式化数字：超过 1000 显示为 x,xxx+ 格式
+const formatCount = (num) => {
+  if (!num || num <= 0) return "0";
+  if (num >= 10000) return `${(num / 10000).toFixed(1).replace(/\.0$/, "")}万+`;
+  if (num >= 1000) return `${Math.floor(num / 1000)},${String(num % 1000).padStart(3, "0")}+`;
+  return `${num}+`;
+};
+
+onMounted(async () => {
+  try {
+    const res = await getPublicStats();
+    if (res.data) {
+      stats.value = res.data;
+    }
+  } catch {
+    // 获取失败时保持默认值 0，不影响页面展示
+  }
+});
 
 // 跳转简历诊断
 const handleResume = () => {

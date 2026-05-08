@@ -138,6 +138,8 @@
           :rows="3"
           placeholder="输入你的回答，AI 面试官将继续追问..."
           resize="none"
+          maxlength="2000"
+          show-word-limit
           @keyup.enter.ctrl="sendMessage"
         />
         <div class="input-footer">
@@ -460,110 +462,124 @@ const sendMessage = async () => {
   await nextTick();
   scrollToBottom();
 
+  // SSE 流断线重连：最多重试 3 次，保留已累积的文本内容
+  const MAX_RECONNECT = 3;
+  let reconnectAttempt = 0;
   let streamSucceeded = false;
-  try {
-    const token = getToken();
-    const response = await streamInterviewMessage(
-      sessionId.value,
-      { sessionId: sessionId.value, content },
-      token
-    );
 
-    if (!response.ok) {
-      let errMsg = `请求失败 (${response.status})`;
+  startTypingMachine(tempMsgId);
+
+  const applyStreamPayload = (payload) => {
+    const msgIndex = sessionData.value.chatLogs.findIndex((item) => item.id === tempMsgId);
+    if (msgIndex === -1) return;
+    const msg = sessionData.value.chatLogs[msgIndex];
+
+    if (payload.type === "content") {
+      const normalizedData = (payload.content || "").replace(/\r/g, "");
+      if (normalizedData) {
+        msg.status = "streaming";
+        msg.rawContent += normalizedData;
+        msg.pendingContent += normalizedData;
+      }
+      return;
+    }
+    if (payload.type === "done") {
+      msg.streamFinished = true;
+      return;
+    }
+    if (payload.type === "error") {
+      throw new Error(payload.message || "AI 回复失败");
+    }
+  };
+
+  const consumeSseBuffer = (sseBuffer, applyFn) => {
+    while (true) {
+      const eventEndIndex = sseBuffer.indexOf("\n\n");
+      if (eventEndIndex === -1) break;
+      const eventBlock = sseBuffer.slice(0, eventEndIndex).replace(/\r/g, "");
+      sseBuffer = sseBuffer.slice(eventEndIndex + 2);
+      if (!eventBlock.trim()) continue;
+      const dataLines = eventBlock
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice("data:".length).trim());
+      if (!dataLines.length) continue;
+      const jsonStr = dataLines.join("\n");
       try {
-        const errBody = await response.json();
-        errMsg = errBody.message || errBody.msg || errMsg;
-      } catch {
-        // 保持最小兜底。
+        applyFn(JSON.parse(jsonStr));
+      } catch (parseError) {
+        console.warn("[interview-stream] SSE parse failed:", jsonStr, parseError);
       }
-      throw new Error(errMsg);
     }
+    return sseBuffer;
+  };
 
-    if (!response.body) {
-      throw new Error("未获取到流式响应体");
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    startTypingMachine(tempMsgId);
-
+  const readSseStream = async (reader, decoder, applyFn) => {
     let sseBuffer = "";
-
-    const applyStreamPayload = (payload) => {
-      const msgIndex = sessionData.value.chatLogs.findIndex((item) => item.id === tempMsgId);
-      if (msgIndex === -1) {
-        return;
-      }
-      const msg = sessionData.value.chatLogs[msgIndex];
-
-      if (payload.type === "content") {
-        const normalizedData = (payload.content || "").replace(/\r/g, "");
-        if (normalizedData) {
-          msg.status = "streaming";
-          msg.rawContent += normalizedData;
-          msg.pendingContent += normalizedData;
-        }
-        return;
-      }
-
-      if (payload.type === "done") {
-        msg.streamFinished = true;
-        return;
-      }
-
-      if (payload.type === "error") {
-        throw new Error(payload.message || "AI 回复失败");
-      }
-    };
-
-    const consumeSseBuffer = () => {
-      while (true) {
-        const eventEndIndex = sseBuffer.indexOf("\n\n");
-        if (eventEndIndex === -1) {
-          break;
-        }
-
-        const eventBlock = sseBuffer.slice(0, eventEndIndex).replace(/\r/g, "");
-        sseBuffer = sseBuffer.slice(eventEndIndex + 2);
-        if (!eventBlock.trim()) {
-          continue;
-        }
-
-        const dataLines = eventBlock
-          .split("\n")
-          .filter((line) => line.startsWith("data:"))
-          .map((line) => line.slice("data:".length).trim());
-
-        if (!dataLines.length) {
-          continue;
-        }
-
-        const jsonStr = dataLines.join("\n");
-        try {
-          applyStreamPayload(JSON.parse(jsonStr));
-        } catch (parseError) {
-          console.warn("[interview-stream] SSE parse failed:", jsonStr, parseError);
-        }
-      }
-    };
-
     while (true) {
       const { done, value } = await reader.read();
       if (done) {
         sseBuffer += decoder.decode();
-        consumeSseBuffer();
+        consumeSseBuffer(sseBuffer, applyFn);
         break;
       }
-
       sseBuffer += decoder.decode(value, { stream: true });
-      consumeSseBuffer();
+      sseBuffer = consumeSseBuffer(sseBuffer, applyFn);
     }
+  };
 
-    streamSucceeded = true;
-    const msgIndex = sessionData.value.chatLogs.findIndex((item) => item.id === tempMsgId);
-    if (msgIndex !== -1) {
-      sessionData.value.chatLogs[msgIndex].streamFinished = true;
+  try {
+    while (reconnectAttempt <= MAX_RECONNECT) {
+      try {
+        const token = getToken();
+        const response = await streamInterviewMessage(
+          sessionId.value,
+          { sessionId: sessionId.value, content },
+          token
+        );
+
+        if (!response.ok) {
+          let errMsg = `请求失败 (${response.status})`;
+          try {
+            const errBody = await response.json();
+            errMsg = errBody.message || errBody.msg || errMsg;
+          } catch { /* 保持最小兜底 */ }
+          throw new Error(errMsg);
+        }
+        if (!response.body) throw new Error("未获取到流式响应体");
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        await readSseStream(reader, decoder, applyStreamPayload);
+
+        // 流正常结束
+        streamSucceeded = true;
+        const msgIndex = sessionData.value.chatLogs.findIndex((item) => item.id === tempMsgId);
+        if (msgIndex !== -1) {
+          sessionData.value.chatLogs[msgIndex].streamFinished = true;
+        }
+        break; // 成功，退出重连循环
+      } catch (streamErr) {
+        reconnectAttempt++;
+        const msgIndex = sessionData.value.chatLogs.findIndex((item) => item.id === tempMsgId);
+        const msg = msgIndex !== -1 ? sessionData.value.chatLogs[msgIndex] : null;
+
+        // 如果已完成（done事件已收到）或已达最大重试次数，直接抛出
+        if (msg?.streamFinished || reconnectAttempt > MAX_RECONNECT) {
+          throw streamErr;
+        }
+
+        // 重连提示：在消息气泡旁显示状态，然后重置已累积的内容防止重复
+        if (msg) {
+          msg.status = "streaming";
+          msg.displayContent = "⚠ 网络中断，正在重连...";
+          // 清除旧的部分内容，重连后服务器会重新发送完整回复
+          msg.rawContent = "";
+          msg.pendingContent = "";
+        }
+        console.warn(`[interview-stream] SSE 断流，第 ${reconnectAttempt} 次重连...`);
+        await new Promise((r) => setTimeout(r, 1000));
+      }
     }
   } catch (err) {
     ElMessage.error(err.message || "发送消息失败，请稍后重试");

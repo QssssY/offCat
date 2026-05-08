@@ -81,6 +81,10 @@
           <div class="quota-info">
             <div class="quota-number">{{ resumeQuotaLeft }}</div>
             <div class="quota-label">{{ resumeQuotaLabel }}</div>
+            <!-- 额度耗尽时显示升级引导 -->
+            <router-link v-if="resumeQuotaLeft <= 0 && !isAdmin" to="/membership" class="quota-upgrade-link">
+              升级会员
+            </router-link>
           </div>
         </div>
         <div class="quota-divider"></div>
@@ -102,6 +106,10 @@
           <div class="quota-info">
             <div class="quota-number">{{ interviewQuotaLeft }}</div>
             <div class="quota-label">{{ interviewQuotaLabel }}</div>
+            <!-- 额度耗尽时显示升级引导 -->
+            <router-link v-if="interviewQuotaLeft <= 0 && !isAdmin" to="/membership" class="quota-upgrade-link">
+              升级会员
+            </router-link>
           </div>
         </div>
       </div>
@@ -246,6 +254,8 @@
               v-for="record in recentResumeRecords"
               :key="record.taskId"
               class="record-item"
+              :class="{ clickable: record.status === 2 }"
+              @click="record.status === 2 && router.push(`/resume/result/${record.taskId}`)"
             >
               <div class="record-left">
                 <div class="file-icon">
@@ -336,6 +346,8 @@
               v-for="record in recentInterviewRecords"
               :key="record.sessionId"
               class="record-item"
+              :class="{ clickable: record.status === 1 }"
+              @click="record.status === 1 && router.push(`/interview/report/${record.sessionId}`)"
             >
               <div class="record-left">
                 <div class="interview-icon-wrap">
@@ -878,6 +890,21 @@ const viewAllInterview = () => {
   color: #909399;
 }
 
+.quota-upgrade-link {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--orange-main);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.2s;
+}
+
+.quota-upgrade-link:hover {
+  color: var(--orange-deep);
+  text-decoration: underline;
+}
+
 .quota-divider {
   width: 1px;
   height: 52px;
@@ -1112,6 +1139,10 @@ const viewAllInterview = () => {
   padding: 12px 14px;
   border-radius: 10px;
   transition: all 0.15s ease;
+  user-select: none;
+}
+
+.record-item.clickable {
   cursor: pointer;
 }
 

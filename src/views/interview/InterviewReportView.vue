@@ -181,24 +181,35 @@
           <h3 class="section-title">逐题表现</h3>
         </div>
         <div class="section-body">
-          <div v-for="(item, index) in reportQuestionPerformance" :key="`question-${index}`" class="question-card">
-            <div class="question-title">Q{{ index + 1 }} · {{ item.question || "未记录问题" }}</div>
-            <div class="question-answer">{{ item.answer || "未记录回答" }}</div>
-            <div class="question-footer">
-              <span class="question-score">得分：{{ item.score ?? "--" }}</span>
-              <div class="tag-list">
-                <el-tag
-                  v-for="tag in item.knowledgeTags || []"
-                  :key="`question-tag-${index}-${tag}`"
-                  size="small"
-                  effect="plain"
-                >
-                  {{ tag }}
-                </el-tag>
+          <el-collapse v-model="activeQuestions">
+            <el-collapse-item
+              v-for="(item, index) in reportQuestionPerformance"
+              :key="`question-${index}`"
+              :name="String(index)"
+            >
+              <template #title>
+                <div class="collapse-title">
+                  <span class="collapse-question">Q{{ index + 1 }} · {{ item.question || "未记录问题" }}</span>
+                  <el-tag v-if="item.score != null" size="small" type="warning" effect="plain" class="collapse-score">{{ item.score }}分</el-tag>
+                </div>
+              </template>
+              <div class="question-answer">{{ item.answer || "未记录回答" }}</div>
+              <div class="question-footer">
+                <span class="question-score">得分：{{ item.score ?? "--" }}</span>
+                <div class="tag-list">
+                  <el-tag
+                    v-for="tag in item.knowledgeTags || []"
+                    :key="`question-tag-${index}-${tag}`"
+                    size="small"
+                    effect="plain"
+                  >
+                    {{ tag }}
+                  </el-tag>
+                </div>
               </div>
-            </div>
-            <div v-if="item.comment" class="question-comment">{{ item.comment }}</div>
-          </div>
+              <div v-if="item.comment" class="question-comment">{{ item.comment }}</div>
+            </el-collapse-item>
+          </el-collapse>
         </div>
       </div>
 
@@ -326,6 +337,17 @@ const reportSuggestions = computed(() => [
 ]);
 const reportQuestionPerformance = computed(() => parsedReport.value?.questionPerformance || []);
 
+// 逐题表现折叠面板：题目数 <= 3 时全部展开，> 3 时只展开最后 3 题
+const activeQuestions = ref([]);
+watch(reportQuestionPerformance, (list) => {
+  const count = list.length;
+  if (count <= 3) {
+    activeQuestions.value = list.map((_, i) => String(i));
+  } else {
+    activeQuestions.value = Array.from({ length: 3 }, (_, i) => String(count - 3 + i));
+  }
+}, { immediate: true });
+
 const jobTargetFeedback = computed(() => sessionData.value?.jobTargetContext?.jobTargetedFeedback || null);
 
 const dimensionCards = computed(() => {
@@ -449,7 +471,19 @@ const refreshReportNow = async () => {
 
 const goBack = () => router.push("/interview/history");
 const goToSession = () => sessionId.value && router.push(`/interview/session/${sessionId.value}`);
-const goToEntry = () => router.push("/interview/entry");
+const goToEntry = () => {
+  // 保留上次面试配置，方便用户快速再来一次
+  const difficultyMap = { 1: "primary", 2: "intermediate", 3: "advanced" };
+  router.push({
+    path: "/interview/entry",
+    query: {
+      jobRole: sessionData.value?.jobRole || undefined,
+      difficulty: difficultyMap[sessionData.value?.difficulty] || undefined,
+      mode: sessionData.value?.interviewMode || undefined,
+      jobTargeted: sessionData.value?.jobTargeted ? "1" : undefined,
+    }
+  });
+};
 
 onMounted(() => {
   fetchSessionDetail();
@@ -716,6 +750,30 @@ onUnmounted(() => {
 
 .question-card:last-child {
   margin-bottom: 0;
+}
+
+/* 折叠面板标题样式 */
+.collapse-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.collapse-question {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-title, #2f2f2f);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.collapse-score {
+  flex-shrink: 0;
 }
 
 .question-title {

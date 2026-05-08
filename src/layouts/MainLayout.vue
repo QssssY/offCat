@@ -6,6 +6,7 @@
         <router-view />
       </section>
     </main>
+    <AppFooter />
     <!-- 新手引导弹窗：登录用户首次进入时展示 -->
     <OnboardingGuide v-model:visible="showGuide" />
   </div>
@@ -14,6 +15,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import AppHeader from '@/components/AppHeader.vue'
+import AppFooter from '@/components/AppFooter.vue'
 import OnboardingGuide from '@/components/OnboardingGuide.vue'
 import { getOnboardingStatus } from '@/api/onboarding'
 import { useUserStore } from '@/stores/user'

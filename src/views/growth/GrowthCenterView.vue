@@ -2,15 +2,25 @@
   <div class="growth-center">
     <!-- 页面标题 -->
     <div class="page-header">
-      <div class="header-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-        </svg>
+      <div class="header-left">
+        <div class="header-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+          </svg>
+        </div>
+        <div>
+          <h1 class="page-title">个人成长中心</h1>
+          <p class="page-desc">查看你的成长轨迹与个性化建议</p>
+        </div>
       </div>
-      <div>
-        <h1 class="page-title">个人成长中心</h1>
-        <p class="page-desc">查看你的成长轨迹与个性化建议</p>
-      </div>
+      <el-button
+        :icon="Refresh"
+        circle
+        size="small"
+        :loading="loading"
+        @click="fetchData"
+        class="refresh-btn"
+      />
     </div>
 
     <!-- 加载状态 -->
@@ -29,8 +39,8 @@
         </svg>
       </div>
       <h3 class="error-title">加载失败</h3>
-      <p class="error-desc">获取成长数据时出现问题，请刷新页面重试</p>
-      <el-button type="primary" @click="() => window.location.reload()">刷新页面</el-button>
+      <p class="error-desc">获取成长数据时出现问题，请重试</p>
+      <el-button type="primary" @click="fetchData">重新加载</el-button>
     </div>
 
     <!-- 全量无数据状态 -->
@@ -257,6 +267,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { Refresh } from '@element-plus/icons-vue'
 import { getGrowthOverview } from '@/api/growth'
 import LineChart from '@/components/resume/LineChart.vue'
 
@@ -314,8 +325,10 @@ const modeLabel = (mode) => {
   return map[mode] || mode || '普通面试'
 }
 
-/** 页面加载时获取数据 */
-onMounted(async () => {
+/** 获取成长中心数据 */
+const fetchData = async () => {
+  loading.value = true
+  loadError.value = false
   try {
     const res = await getGrowthOverview()
     overviewData.value = res.data
@@ -325,6 +338,11 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+}
+
+/** 页面加载时获取数据 */
+onMounted(() => {
+  fetchData()
 })
 </script>
 
@@ -338,8 +356,19 @@ onMounted(async () => {
 .page-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 16px;
   margin-bottom: 28px;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.refresh-btn {
+  flex-shrink: 0;
 }
 
 .header-icon {

@@ -407,6 +407,28 @@ const handleStart = async () => {
 onMounted(async () => {
   await fetchJobOptions();
   await fetchResumeTaskDetail();
+
+  // 从面试报告页"再来一次"时，预填上次面试配置
+  const q = route.query;
+  if (q.difficulty && ["primary", "intermediate", "advanced"].includes(q.difficulty)) {
+    selectedDifficulty.value = q.difficulty;
+  }
+  if (q.mode && ["normal", "stress"].includes(q.mode)) {
+    selectedMode.value = q.mode;
+  }
+  if (q.jobTargeted === "1") {
+    jobTargeted.value = true;
+  }
+  // 岗位需要匹配 jobOptions，确保选项已加载后再设置
+  if (q.jobRole && jobOptions.value.length > 0) {
+    const matched = jobOptions.value.find(
+      (opt) => opt.roleCode === q.jobRole || opt.roleName === q.jobRole
+    );
+    if (matched) {
+      selectedJob.value = matched.roleName;
+      selectedRoleCode.value = matched.roleCode || "";
+    }
+  }
 });
 </script>
 
