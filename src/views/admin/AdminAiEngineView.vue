@@ -272,7 +272,7 @@
                 size="small"
                 @click="handleToggleActive(row)"
                 class="action-btn"
-                :loading="toggleLoadingId === row.id"
+                :loading="toggleLoadingIds.has(row.id)"
               >
                 {{ row.isActive === 1 ? '禁用' : '启用' }}
               </el-button>
@@ -505,7 +505,8 @@ const dialogVisible = ref(false)
 const isEditMode = ref(false)
 const submitLoading = ref(false)
 const formRef = ref(null)
-const toggleLoadingId = ref(null)
+/** 正在切换状态的行 ID 集合（per-row 锁，避免全局互斥） */
+const toggleLoadingIds = ref(new Set())
 const editOriginalPayload = ref(null)
 
 // 表单字段：与后端 DTO 字段保持一致。
@@ -663,7 +664,7 @@ const activeEngineIdByBusiness = computed(() => {
 const isCurrentActiveEngine = (row) => {
   const businessType = String(row?.businessType || '')
   if (!businessType) return false
-  return Number(activeEngineIdByBusiness.value[businessType]) === Number(row?.id)
+  return String(activeEngineIdByBusiness.value[businessType]) === String(row?.id)
 }
 
 /**
@@ -675,7 +676,7 @@ const isCurrentActiveEngine = (row) => {
 const getCurrentActiveEngineByBusiness = (businessType) => {
   const activeId = activeEngineIdByBusiness.value[String(businessType || '')]
   if (!activeId) return null
-  return engineList.value.find((item) => Number(item.id) === Number(activeId)) || null
+  return engineList.value.find((item) => String(item.id) === String(activeId)) || null
 }
 
 /**
@@ -828,7 +829,7 @@ const findDuplicateEngineCode = () => {
   const currentCode = String(formData.engineCode || '').trim().toLowerCase()
   if (!currentCode) return null
   return engineList.value.find((item) => {
-    if (isEditMode.value && Number(item.id) === Number(formData.id)) return false
+    if (isEditMode.value && String(item.id) === String(formData.id)) return false
     return String(item.engineCode || '').trim().toLowerCase() === currentCode
   }) || null
 }
@@ -843,7 +844,7 @@ const findDuplicateBusinessModel = () => {
   const currentModelName = String(formData.modelName || '').trim().toLowerCase()
   if (!currentBusinessType || !currentModelName) return null
   return engineList.value.find((item) => {
-    if (isEditMode.value && Number(item.id) === Number(formData.id)) return false
+    if (isEditMode.value && String(item.id) === String(formData.id)) return false
     return String(item.businessType || '') === currentBusinessType
       && String(item.modelName || '').trim().toLowerCase() === currentModelName
   }) || null
@@ -1107,7 +1108,7 @@ const submitForm = async () => {
  * @param {Record<string, any>} row
  */
 const handleToggleActive = async (row) => {
-  if (toggleLoadingId.value) return
+  if (toggleLoadingIds.value.has(row.id)) return
 
   const nextActive = row.isActive === 1 ? 0 : 1
   const actionText = nextActive === 1 ? '启用' : '禁用'
@@ -1121,7 +1122,7 @@ const handleToggleActive = async (row) => {
   const currentActiveEngine = getCurrentActiveEngineByBusiness(row.businessType)
   const confirmLines = [`确认${actionText}配置「${row.engineName}」吗？`]
 
-  if (nextActive === 1 && currentActiveEngine && Number(currentActiveEngine.id) !== Number(row.id)) {
+  if (nextActive === 1 && currentActiveEngine && String(currentActiveEngine.id) !== String(row.id)) {
     confirmLines.push(`该操作会将当前生效配置「${currentActiveEngine.engineName}」自动切换为禁用。`)
   }
 
@@ -1138,11 +1139,11 @@ const handleToggleActive = async (row) => {
       impactHint: confirmLines.slice(1).join('；') || '该操作会影响当前业务的模型路由与线上调用结果。',
       type: 'warning'
     })
-    toggleLoadingId.value = row.id
+    toggleLoadingIds.value.add(row.id)
     await toggleAdminAiEngineActive(row.id, nextActive)
     await fetchEngineList()
 
-    if (nextActive === 1 && currentActiveEngine && Number(currentActiveEngine.id) !== Number(row.id)) {
+    if (nextActive === 1 && currentActiveEngine && String(currentActiveEngine.id) !== String(row.id)) {
       showAdminSuccess(`配置已启用，并替换生效项「${currentActiveEngine.engineName}」`)
       return
     }
@@ -1152,7 +1153,7 @@ const handleToggleActive = async (row) => {
       showAdminError(error?.message || `${actionText}配置失败`)
     }
   } finally {
-    toggleLoadingId.value = null
+    toggleLoadingIds.value.delete(row.id)
   }
 }
 

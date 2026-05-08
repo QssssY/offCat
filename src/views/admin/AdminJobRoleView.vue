@@ -324,7 +324,8 @@ const tagStyleTemplateOptions = [
   { value: 'purple-feature', label: '紫色特色', effect: 'dark', className: 'tag-style-purple' },
   { value: 'gray-muted', label: '灰色弱化', effect: 'dark', className: 'tag-style-gray' },
   { value: 'outline', label: '描边风格', effect: 'plain', className: 'tag-style-outline' },
-  { value: 'pill', label: '胶囊风格', effect: 'light', className: 'tag-style-pill' }
+  { value: 'pill', label: '胶囊风格', effect: 'light', className: 'tag-style-pill' },
+  { value: 'pink-rose', label: '粉色柔和', effect: 'light', className: 'tag-style-pink' }
 ]
 
 // 历史值兼容映射：兼容老数据中的 tagType 值，避免编辑旧数据时样式丢失。
@@ -861,7 +862,7 @@ watch(
 }
 
 .field-tip {
-  margin-top: 6px;
+  margin-top: 4px;
   font-size: 12px;
   color: #b8967a;
   font-weight: 500;
@@ -880,8 +881,8 @@ watch(
 
 .template-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
   width: 100%;
 }
 
@@ -889,10 +890,10 @@ watch(
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 14px;
+  gap: 4px;
+  padding: 8px;
   border: 2px solid rgba(217, 196, 170, 0.3);
-  border-radius: 12px;
+  border-radius: 10px;
   background: linear-gradient(135deg, #fffcf8 0%, #fff8f3 100%);
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
@@ -935,8 +936,7 @@ watch(
 }
 
 .template-item-label {
-  font-size: 11px;
-  color: #b89d8a;
+  display: none;
 }
 
 .custom-preview-tag {
@@ -1001,6 +1001,12 @@ watch(
   --el-tag-border-color: rgba(255, 140, 66, 0.25);
   --el-tag-text-color: #b35f2b;
   border-radius: 999px;
+}
+
+.tag-style-pink {
+  --el-tag-bg-color: rgba(236, 113, 147, 0.12);
+  --el-tag-border-color: rgba(236, 113, 147, 0.25);
+  --el-tag-text-color: #d64575;
 }
 
 .action-group {
@@ -1083,7 +1089,7 @@ watch(
 }
 
 :deep(.el-form-item) {
-  margin-bottom: 22px;
+  margin-bottom: 14px;
 }
 
 :deep(.el-input__wrapper) {
@@ -1186,17 +1192,15 @@ watch(
   }
 }
 
-.fixed-dialog :deep(.el-overlay) {
-  position: fixed !important;
-  inset: 0;
+:global(.el-overlay:has(.fixed-dialog)) {
   overflow: hidden !important;
 }
 
 .fixed-dialog :deep(.el-dialog) {
   position: relative !important;
-  max-height: 80vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .fixed-dialog :deep(.el-dialog__wrapper) {
@@ -1210,7 +1214,7 @@ watch(
 
 .fixed-dialog :deep(.el-dialog__header) {
   flex-shrink: 0;
-  padding: 14px 20px;
+  padding: 12px 20px;
   margin: 0;
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border-divider);
@@ -1218,7 +1222,6 @@ watch(
 
 .fixed-dialog :deep(.el-dialog__body) {
   flex: 1;
-  overflow-y: auto;
   padding: 16px 20px;
 }
 

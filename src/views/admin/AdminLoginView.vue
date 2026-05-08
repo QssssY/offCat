@@ -97,7 +97,7 @@ const handleLogin = async () => {
   try {
     await adminStore.doAdminLogin(formData)
     showAdminSuccess('管理端登录成功')
-    const redirect = typeof route.query.redirect === 'string'
+    const redirect = typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/admin')
       ? route.query.redirect
       : '/admin/dashboard'
     router.push(redirect)

@@ -318,7 +318,7 @@
 
         <el-form-item label="Prompt" prop="promptContent">
           <el-input
-            v-model.trim="formData.promptContent"
+            v-model="formData.promptContent"
             type="textarea"
             :rows="10"
             placeholder="请输入 Prompt 模板内容"
@@ -742,7 +742,7 @@ const fillPromptTemplateByScenario = async () => {
  */
 const findDuplicatePrompt = () => {
   return promptList.value.find((item) => {
-    if (isEditMode.value && Number(item.id) === Number(formData.id)) return false
+    if (isEditMode.value && String(item.id) === String(formData.id)) return false
     return Number(item.scenarioType) === Number(formData.scenarioType)
       && String(item.jobRoleCode) === String(formData.jobRoleCode)
       && Number(item.difficulty) === Number(formData.difficulty)

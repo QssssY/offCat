@@ -479,10 +479,10 @@ const rightsData = reactive({
   isVipActive: false,
   resumeQuota: 0,
   interviewQuota: 0,
-dailyResumeUsed: 0,
+  dailyResumeUsed: 0,
+  dailyInterviewUsed: 0,
+  totalResumeUsed: 0,
   totalInterviewUsed: 0,
-  resumeQuota: 0,
-  interviewQuota: 0,
   lastRefreshDate: ''
 })
 
@@ -1074,9 +1074,6 @@ const handleBatchDisable = async () => {
     return
   }
 
-  console.log('批量封禁选中的用户:', selectedUsers.value)
-  console.log('提取的IDs:', selectedUsers.value.map(item => item.id))
-
   try {
     await confirmAdminRiskAction({
       title: '批量封禁确认',
@@ -1086,7 +1083,6 @@ const handleBatchDisable = async () => {
       type: 'warning'
     })
     const ids = selectedUsers.value.map(item => item.id)
-    console.log('发送请求的IDs:', ids)
     await updateUsersBatchStatus(ids, 0)
     showAdminSuccess(`成功封禁 ${ids.length} 个用户`)
     await fetchUserList()

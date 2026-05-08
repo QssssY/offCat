@@ -269,6 +269,7 @@ const tagStyleTemplateOptions = [
   { value: 'gray-muted', className: 'tag-style-gray' },
   { value: 'outline', className: 'tag-style-outline' },
   { value: 'pill', className: 'tag-style-pill' },
+  { value: 'pink-rose', className: 'tag-style-pink' },
 ]
 
 // 历史值兼容映射（与管理端保持一致）
@@ -599,6 +600,11 @@ onMounted(async () => {
   background-color: rgba(255, 140, 66, 0.12);
   color: #b35f2b;
   border-radius: 999px;
+}
+
+.tag-style-pink {
+  background-color: rgba(236, 113, 147, 0.12);
+  color: #d64575;
 }
 
 .empty-options {
