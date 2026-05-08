@@ -367,12 +367,6 @@ const buildCreatePayload = () => {
 };
 
 const handleStart = async () => {
-  if (!userStore.isLoggedIn()) {
-    ElMessage.warning("请先登录");
-    router.push("/login");
-    return;
-  }
-
   if (!selectedJob.value) {
     ElMessage.warning("请选择面试岗位");
     return;
@@ -422,10 +416,10 @@ onMounted(async () => {
   // 岗位需要匹配 jobOptions，确保选项已加载后再设置
   if (q.jobRole && jobOptions.value.length > 0) {
     const matched = jobOptions.value.find(
-      (opt) => opt.roleCode === q.jobRole || opt.roleName === q.jobRole
+      (opt) => opt.roleCode === q.jobRole || opt.label === q.jobRole
     );
     if (matched) {
-      selectedJob.value = matched.roleName;
+      selectedJob.value = matched.label;
       selectedRoleCode.value = matched.roleCode || "";
     }
   }

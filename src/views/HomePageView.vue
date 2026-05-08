@@ -74,17 +74,20 @@
 
         <div class="hero-stats">
           <div class="stat-item">
-            <span class="stat-number">{{ formatCount(stats.userCount) }}</span>
+            <span v-if="statsLoading" class="stat-skeleton"><el-skeleton-item variant="h1" style="width: 60px; height: 32px;" /></span>
+            <span v-else class="stat-number">{{ formatCount(stats.userCount) }}</span>
             <span class="stat-text">用户使用</span>
           </div>
           <div class="stat-divider"></div>
           <div class="stat-item">
-            <span class="stat-number">{{ formatCount(stats.diagnosisCount) }}</span>
+            <span v-if="statsLoading" class="stat-skeleton"><el-skeleton-item variant="h1" style="width: 60px; height: 32px;" /></span>
+            <span v-else class="stat-number">{{ formatCount(stats.diagnosisCount) }}</span>
             <span class="stat-text">简历诊断</span>
           </div>
           <div class="stat-divider"></div>
           <div class="stat-item">
-            <span class="stat-number">{{ formatCount(stats.interviewCount) }}</span>
+            <span v-if="statsLoading" class="stat-skeleton"><el-skeleton-item variant="h1" style="width: 60px; height: 32px;" /></span>
+            <span v-else class="stat-number">{{ formatCount(stats.interviewCount) }}</span>
             <span class="stat-text">模拟面试</span>
           </div>
         </div>
@@ -306,6 +309,7 @@ import { getPublicStats } from "@/api/stats";
 const router = useRouter();
 
 // 平台统计数据
+const statsLoading = ref(true);
 const stats = ref({
   userCount: 0,
   diagnosisCount: 0,
@@ -328,6 +332,8 @@ onMounted(async () => {
     }
   } catch {
     // 获取失败时保持默认值 0，不影响页面展示
+  } finally {
+    statsLoading.value = false;
   }
 });
 

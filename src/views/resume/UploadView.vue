@@ -1,16 +1,5 @@
 <template>
   <div class="resume-upload-view">
-    <div v-if="needLogin" class="login-prompt">
-      <el-alert title="请先登录" type="warning" :closable="false" show-icon>
-        <template #default>
-          <span>使用简历诊断功能前需要先登录账号。</span>
-          <el-button type="primary" size="small" style="margin-left: 12px" @click="goToLogin">
-            去登录
-          </el-button>
-        </template>
-      </el-alert>
-    </div>
-
     <div class="page-header">
       <h1 class="page-title">简历诊断</h1>
       <p class="page-desc">上传 PDF 简历后，系统会自动提取内容并生成诊断结果。</p>
@@ -133,7 +122,6 @@ const router = useRouter()
 const acceptedFormats = '.pdf'
 const maxFileSize = 10 * 1024 * 1024
 
-const needLogin = computed(() => !isLoggedIn())
 const selectedFile = ref(null)
 const fileError = ref('')
 const submitting = ref(false)
@@ -254,9 +242,6 @@ const retrySubmit = () => {
   min-height: 100%;
 }
 
-.login-prompt {
-  margin-bottom: 24px;
-}
 
 .page-header {
   margin-bottom: 24px;

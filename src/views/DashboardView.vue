@@ -1,5 +1,17 @@
 <template>
-  <div class="dashboard-view">
+  <!-- 骨架屏 -->
+  <div v-if="pageLoading" class="dashboard-skeleton">
+    <el-skeleton :rows="8" animated />
+  </div>
+  <!-- 错误状态 -->
+  <div v-else-if="loadError" class="dashboard-error">
+    <div class="error-icon">!</div>
+    <h3>加载失败</h3>
+    <p>获取数据时出现问题，请重试</p>
+    <el-button type="primary" @click="fetchData">重新加载</el-button>
+  </div>
+  <!-- 正常内容 -->
+  <div v-else class="dashboard-view">
     <!-- 顶部区域 -->
     <div class="top-section">
       <!-- 左侧：身份欢迎卡 -->
@@ -406,6 +418,7 @@ import { useRouter } from "vue-router";
 import { useUserStore } from "@/stores/user";
 import { getResumeHistory, extractFileName } from "@/api/resume";
 import { getInterviewHistory } from "@/api/interview";
+import { getMonthlyStats } from "@/api/stats";
 
 const router = useRouter();
 const userStore = useUserStore();
@@ -488,53 +501,27 @@ const formatVipExpireTime = computed(() => {
   });
 });
 
-// 分离数据源：用于统计和展示
-const allResumeHistoryForStats = ref([]);
-const allInterviewHistoryForStats = ref([]);
+// 本月统计数据（由后端接口返回）
+const resumeCountThisMonth = ref(0);
+const interviewCountThisMonth = ref(0);
+
+// 展示用历史记录
 const allResumeHistoryForDisplay = ref([]);
 const allInterviewHistoryForDisplay = ref([]);
 
-/**
- * 从 API 响应中提取列表数据
- */
-const extractListFromResponse = (res) => {
-  if (!res) return [];
-  if (Array.isArray(res.data)) {
-    return res.data;
-  }
-  if (res.data && typeof res.data === "object") {
-    const listFields = ["list", "records", "rows", "data"];
-    for (const field of listFields) {
-      if (Array.isArray(res.data[field])) {
-        return res.data[field];
-      }
-    }
-  }
-  if (res && typeof res === "object") {
-    const listFields = ["list", "records", "rows", "data"];
-    for (const field of listFields) {
-      if (Array.isArray(res[field])) {
-        return res[field];
-      }
-    }
-  }
-  return [];
-};
+// 页面加载与错误状态
+const pageLoading = ref(true);
+const loadError = ref(false);
 
 /**
- * 判断给定时间是否为本月
+ * 从 API 响应中提取列表数据
+ * 后端统一返回 Result<PageResult<T>> 或 Result<List<T>>
  */
-const isCurrentMonth = (timeValue) => {
-  if (!timeValue) return false;
-  const now = new Date();
-  const currentMonth = now.getMonth();
-  const currentYear = now.getFullYear();
-  const itemDate = new Date(timeValue);
-  if (isNaN(itemDate.getTime())) return false;
-  return (
-    itemDate.getMonth() === currentMonth &&
-    itemDate.getFullYear() === currentYear
-  );
+const extractPageList = (res) => {
+  if (!res?.data) return [];
+  if (Array.isArray(res.data)) return res.data;
+  if (Array.isArray(res.data.list)) return res.data.list;
+  return [];
 };
 
 /**
@@ -552,22 +539,6 @@ const extractTimeFromRecord = (item) => {
     null
   );
 };
-
-// 本月诊断统计
-const resumeCountThisMonth = computed(() => {
-  return allResumeHistoryForStats.value.filter((item) => {
-    const timeValue = extractTimeFromRecord(item);
-    return isCurrentMonth(timeValue);
-  }).length;
-});
-
-// 本月面试统计
-const interviewCountThisMonth = computed(() => {
-  return allInterviewHistoryForStats.value.filter((item) => {
-    const timeValue = extractTimeFromRecord(item);
-    return isCurrentMonth(timeValue);
-  }).length;
-});
 
 // 状态映射 - 橙色主题
 const statusMap = {
@@ -631,55 +602,59 @@ const jobRoleMap = {
   marketing: "市场/销售",
 };
 
-// 获取简历诊断历史记录
+// 获取简历诊断历史记录（仅拉取展示用前 10 条）
 const fetchResumeHistory = async () => {
-  try {
-    const resStats = await getResumeHistory({ pageNum: 1, pageSize: 1000 });
-    allResumeHistoryForStats.value = extractListFromResponse(resStats);
-    const resDisplay = await getResumeHistory({ pageNum: 1, pageSize: 10 });
-    allResumeHistoryForDisplay.value = extractListFromResponse(resDisplay);
-    const sortByTime = (a, b) => {
-      const timeA = new Date(extractTimeFromRecord(a)).getTime();
-      const timeB = new Date(extractTimeFromRecord(b)).getTime();
-      return timeB - timeA;
-    };
-    allResumeHistoryForStats.value.sort(sortByTime);
-    allResumeHistoryForDisplay.value.sort(sortByTime);
-  } catch (err) {
-    if (import.meta.env.DEV) {
-      console.error("[首页] 获取简历诊断历史失败:", err);
-    }
+  const res = await getResumeHistory({ pageNum: 1, pageSize: 10 });
+  allResumeHistoryForDisplay.value = extractPageList(res);
+};
+
+// 获取模拟面试历史记录（仅拉取展示用前 10 条）
+const fetchInterviewHistory = async () => {
+  const res = await getInterviewHistory({ pageNum: 1, pageSize: 10 });
+  allInterviewHistoryForDisplay.value = extractPageList(res);
+};
+
+// 获取本月统计数据（后端 SQL COUNT，无需前端过滤）
+const fetchMonthlyStats = async () => {
+  const res = await getMonthlyStats();
+  if (res?.data) {
+    resumeCountThisMonth.value = res.data.resumeCountThisMonth ?? 0;
+    interviewCountThisMonth.value = res.data.interviewCountThisMonth ?? 0;
   }
 };
 
-// 获取模拟面试历史记录
-const fetchInterviewHistory = async () => {
-  try {
-    const resStats = await getInterviewHistory({ pageNum: 1, pageSize: 1000 });
-    allInterviewHistoryForStats.value = extractListFromResponse(resStats);
-    const resDisplay = await getInterviewHistory({ pageNum: 1, pageSize: 10 });
-    allInterviewHistoryForDisplay.value = extractListFromResponse(resDisplay);
-    const sortByTime = (a, b) => {
-      const timeA = new Date(extractTimeFromRecord(a)).getTime();
-      const timeB = new Date(extractTimeFromRecord(b)).getTime();
-      return timeB - timeA;
-    };
-    allInterviewHistoryForStats.value.sort(sortByTime);
-    allInterviewHistoryForDisplay.value.sort(sortByTime);
-  } catch (err) {
-    if (import.meta.env.DEV) {
-      console.error("[首页] 获取模拟面试历史失败:", err);
-    }
+// 按时间倒序排列记录
+const sortByTime = (list) => {
+  list.sort((a, b) => {
+    const timeA = new Date(extractTimeFromRecord(a)).getTime();
+    const timeB = new Date(extractTimeFromRecord(b)).getTime();
+    return timeB - timeA;
+  });
+};
+
+// 统一加载数据（用户信息 + 历史记录 + 月度统计并发，骨架屏覆盖全部加载）
+const fetchData = async () => {
+  pageLoading.value = true;
+  loadError.value = false;
+  const fetches = [fetchResumeHistory(), fetchInterviewHistory(), fetchMonthlyStats()];
+  if (!userStore.userInfo) {
+    fetches.push(userStore.fetchUserInfo());
   }
+  const results = await Promise.allSettled(fetches);
+  // 全部失败时显示错误状态
+  const allFailed = results.slice(0, 2).every((r) => r.status === "rejected");
+  if (allFailed) {
+    loadError.value = true;
+  } else {
+    sortByTime(allResumeHistoryForDisplay.value);
+    sortByTime(allInterviewHistoryForDisplay.value);
+  }
+  pageLoading.value = false;
 };
 
 // 页面加载时获取用户信息和历史记录
 onMounted(() => {
-  if (userStore.isLoggedIn() && !userStore.userInfo) {
-    userStore.fetchUserInfo();
-  }
-  fetchResumeHistory();
-  fetchInterviewHistory();
+  fetchData();
 });
 
 const startResumeDiagnosis = () => {
@@ -701,6 +676,44 @@ const viewAllInterview = () => {
 </script>
 
 <style scoped>
+.dashboard-skeleton {
+  padding: 24px;
+  min-height: 60vh;
+}
+
+.dashboard-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  gap: 12px;
+  color: var(--text-muted);
+}
+
+.dashboard-error .error-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #fef0f0;
+  color: #f56c6c;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: bold;
+}
+
+.dashboard-error h3 {
+  margin: 0;
+  color: var(--text-title);
+}
+
+.dashboard-error p {
+  margin: 0;
+  font-size: 14px;
+}
+
 .dashboard-view {
   min-height: 100%;
   padding: 0;
@@ -887,7 +900,7 @@ const viewAllInterview = () => {
 
 .quota-label {
   font-size: 13px;
-  color: #909399;
+  color: var(--text-muted);
 }
 
 .quota-upgrade-link {
@@ -1372,9 +1385,6 @@ const viewAllInterview = () => {
 
 /* 超小屏：≤767px - 手机 */
 @media (max-width: 767px) {
-  .dashboard-container {
-    padding: 16px;
-  }
   .stat-card {
     padding: 14px 16px;
     gap: 12px;
@@ -1410,27 +1420,27 @@ const viewAllInterview = () => {
   }
 }
 
-/* ===== 暗色模式适配 ===== */
+/* ===== 暗色模式适配（通过 CSS 变量自动响应 [data-theme="dark"]） ===== */
 .quota-divider {
   background: linear-gradient(180deg, transparent 0%, var(--border-card) 50%, transparent 100%);
 }
 
 .stat-icon.resume {
-  background: linear-gradient(135deg, rgba(255, 140, 66, 0.15) 0%, rgba(255, 140, 66, 0.08) 100%);
+  background: linear-gradient(135deg, var(--orange-light-bg) 0%, rgba(255, 140, 66, 0.08) 100%);
 }
 
 .stat-icon.interview {
-  background: linear-gradient(135deg, rgba(255, 140, 66, 0.12) 0%, rgba(255, 140, 66, 0.06) 100%);
+  background: linear-gradient(135deg, var(--orange-light-bg) 0%, rgba(255, 140, 66, 0.06) 100%);
 }
 
 .stat-icon.resume-left {
   background: linear-gradient(135deg, rgba(103, 194, 58, 0.2) 0%, rgba(103, 194, 58, 0.1) 100%);
-  color: #95d06a;
+  color: var(--color-success);
 }
 
 .stat-icon.interview-left {
   background: linear-gradient(135deg, rgba(230, 162, 60, 0.2) 0%, rgba(230, 162, 60, 0.1) 100%);
-  color: #f0c060;
+  color: var(--color-warning);
 }
 
 .stat-label {
@@ -1447,7 +1457,7 @@ const viewAllInterview = () => {
 
 .record-status-badge.status-processing {
   background: rgba(230, 162, 60, 0.15);
-  color: #f0c060;
+  color: var(--color-warning);
 }
 
 .record-status-badge.status-pending {
@@ -1456,10 +1466,10 @@ const viewAllInterview = () => {
 
 .record-status-badge.status-failed {
   background: rgba(245, 108, 108, 0.15);
-  color: #f89898;
+  color: var(--color-danger);
 }
 
 .record-score-tag {
-  background: linear-gradient(135deg, rgba(255, 140, 66, 0.15) 0%, rgba(255, 140, 66, 0.08) 100%);
+  background: linear-gradient(135deg, var(--orange-light-bg) 0%, rgba(255, 140, 66, 0.08) 100%);
 }
 </style>

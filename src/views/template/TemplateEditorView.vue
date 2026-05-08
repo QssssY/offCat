@@ -20,12 +20,12 @@
     <!-- 编辑器主体 -->
     <div class="editor-body">
       <!-- 左侧编辑面板 -->
-      <div class="editor-panel">
+      <div class="editor-panel" v-show="!isMobile || mobileTab === 'edit'">
         <ResumeEditor />
       </div>
 
       <!-- 右侧预览 -->
-      <div class="preview-panel">
+      <div class="preview-panel" v-show="!isMobile || mobileTab === 'preview'">
         <div class="preview-paper-wrapper">
           <div class="preview-paper" ref="previewRef">
             <component :is="'style'" v-html="templateStyle" />
@@ -57,7 +57,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useTemplateEditorStore } from '@/stores/templateEditor.js'
 import { templates } from '@/data/templates.js'
@@ -72,6 +72,13 @@ const store = useTemplateEditorStore()
 const previewRef = ref(null)
 const templateStyle = ref('')
 const mobileTab = ref('edit')
+
+// 移动端检测：控制编辑/预览面板切换
+const isMobile = ref(false)
+const mobileQuery = window.matchMedia('(max-width: 768px)')
+const updateMobile = (e) => { isMobile.value = e.matches }
+mobileQuery.addEventListener('change', updateMobile)
+isMobile.value = mobileQuery.matches
 
 const currentTemplate = computed(() => {
   return templates.find(t => t.id === route.params.templateId)
@@ -101,6 +108,10 @@ function goBack() {
 
 onMounted(() => {
   loadTemplateData()
+})
+
+onUnmounted(() => {
+  mobileQuery.removeEventListener('change', updateMobile)
 })
 
 watch(() => route.params.templateId, () => {
