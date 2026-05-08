@@ -8,6 +8,7 @@ import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -36,6 +37,7 @@ public class UserStatsController {
      * 返回本月简历诊断完成数、本月模拟面试完成数
      */
     @GetMapping("/monthly")
+    @Cacheable(value = "user:monthlyStats", key = "#authentication.principal")
     public Result<Map<String, Long>> getMonthlyStats(Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         // 本月起始时间

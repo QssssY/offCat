@@ -18,6 +18,8 @@ import com.airesume.server.vo.membership.MembershipUpgradeVO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,6 +42,7 @@ public class MembershipServiceImpl implements MembershipService {
     private final UserQuotaService userQuotaService;
 
     @Override
+    @Cacheable(value = "config:membershipPlans", key = "'all'")
     public List<MembershipPlanVO> listPlans() {
         LambdaQueryWrapper<MembershipPlan> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(MembershipPlan::getStatus, MembershipConstants.PLAN_STATUS_ENABLED)
@@ -53,6 +56,7 @@ public class MembershipServiceImpl implements MembershipService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "auth:userInfo", key = "#userId")
     public MembershipUpgradeVO mockUpgrade(Long userId, MembershipUpgradeRequest request) {
         if (userId == null) {
             throw new BusinessException("User is not logged in");

@@ -8,6 +8,7 @@ import com.airesume.server.common.result.Result;
 import com.airesume.server.dto.admin.*;
 import com.airesume.server.entity.SysAiEngineConfig;
 import com.airesume.server.entity.SysJobRole;
+import org.springframework.cache.annotation.CacheEvict;
 import com.airesume.server.entity.SysPrompt;
 import com.airesume.server.entity.SysUser;
 import com.airesume.server.entity.UserQuota;
@@ -79,6 +80,7 @@ public class AdminController {
      * 新增岗位配置
      */
     @PostMapping("/job-roles")
+    @CacheEvict(value = "config:jobRoles", allEntries = true)
     public Result<Long> createJobRole(@Valid @RequestBody JobRoleCreateRequest request,
                                       Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
@@ -103,6 +105,7 @@ public class AdminController {
      * 修改岗位配置
      */
     @PutMapping("/job-roles")
+    @CacheEvict(value = "config:jobRoles", allEntries = true)
     public Result<Void> updateJobRole(@Valid @RequestBody JobRoleUpdateRequest request,
                                       Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
@@ -145,6 +148,7 @@ public class AdminController {
      * 启用/禁用岗位配置
      */
     @PutMapping("/job-roles/{id}/active")
+    @CacheEvict(value = "config:jobRoles", allEntries = true)
     public Result<Void> toggleJobRoleActive(@PathVariable Long id,
                                             @RequestParam Integer isActive,
                                             Authentication authentication) {
@@ -173,6 +177,7 @@ public class AdminController {
      * 此操作会绕过逻辑删除，直接从数据库移除记录。
      */
     @DeleteMapping("/job-roles/{id}")
+    @CacheEvict(value = "config:jobRoles", allEntries = true)
     public Result<Void> deleteJobRole(@PathVariable Long id, Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         checkAdminPermission(userId);
@@ -195,6 +200,7 @@ public class AdminController {
      * 管理员可以批量物理删除岗位配置，删除后数据无法恢复。
      */
     @DeleteMapping("/job-roles/batch")
+    @CacheEvict(value = "config:jobRoles", allEntries = true)
     public Result<Void> deleteJobRolesBatch(@RequestBody List<Long> ids, Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         checkAdminPermission(userId);
@@ -218,6 +224,7 @@ public class AdminController {
      */
     @Transactional(rollbackFor = Exception.class)
     @PutMapping("/job-roles/batch/active")
+    @CacheEvict(value = "config:jobRoles", allEntries = true)
     public Result<Void> toggleJobRolesBatchActive(@Valid @RequestBody BatchActiveRequest request,
                                            Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
@@ -857,6 +864,7 @@ SysPrompt prompt = new SysPrompt();
     }
 
     @PutMapping("/users/{userId}/status")
+    @CacheEvict(value = "auth:userInfo", key = "#userId")
     public Result<Void> updateUserStatus(@PathVariable Long userId,
                                           @RequestParam Integer status,
                                           Authentication authentication) {
@@ -884,6 +892,7 @@ SysPrompt prompt = new SysPrompt();
      */
     @Transactional(rollbackFor = Exception.class)
     @PutMapping("/users/batch/status")
+    @CacheEvict(value = {"auth:userInfo", "user:monthlyStats", "user:growthOverview"}, allEntries = true)
     public Result<Void> updateUsersBatchStatus(@Valid @RequestBody BatchActiveRequest request,
                                                Authentication authentication) {
         Long adminUserId = (Long) authentication.getPrincipal();
@@ -956,6 +965,7 @@ SysPrompt prompt = new SysPrompt();
      * @return 空结果
      */
     @PutMapping("/users/quota")
+    @CacheEvict(value = "auth:userInfo", key = "#request.userId")
     public Result<Void> updateUserQuota(@Valid @RequestBody UserQuotaUpdateRequest request,
                                          Authentication authentication) {
         Long adminUserId = (Long) authentication.getPrincipal();

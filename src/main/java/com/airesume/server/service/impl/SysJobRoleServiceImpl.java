@@ -5,6 +5,7 @@ import com.airesume.server.mapper.SysJobRoleMapper;
 import com.airesume.server.service.SysJobRoleService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -26,6 +27,7 @@ public class SysJobRoleServiceImpl extends ServiceImpl<SysJobRoleMapper, SysJobR
     }
 
     @Override
+    @Cacheable(value = "config:jobRoles", key = "'all'")
     public List<SysJobRole> listActiveOrdered() {
         LambdaQueryWrapper<SysJobRole> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(SysJobRole::getIsActive, STATUS_ACTIVE)

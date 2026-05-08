@@ -9,6 +9,8 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -60,6 +62,7 @@ public class NotificationService {
      * @param bizId   关联业务ID
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @CacheEvict(value = "notification:unreadCount", key = "#userId")
     public void createNotification(Long userId, String type, String title, String content, String bizType, String bizId) {
         try {
             UserNotification notification = new UserNotification();
@@ -101,6 +104,7 @@ public class NotificationService {
      * @param userId 用户ID
      * @return 未读数量
      */
+    @Cacheable(value = "notification:unreadCount", key = "#userId")
     public long countUnread(Long userId) {
         LambdaQueryWrapper<UserNotification> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(UserNotification::getUserId, userId)
@@ -116,6 +120,7 @@ public class NotificationService {
      * @param userId         当前用户ID
      * @param notificationId 通知ID
      */
+    @CacheEvict(value = "notification:unreadCount", key = "#userId")
     public void markAsRead(Long userId, Long notificationId) {
         log.info("[通知] 开始标记已读, userId: {}, notificationId: {}", userId, notificationId);
         LambdaUpdateWrapper<UserNotification> updateWrapper = new LambdaUpdateWrapper<>();
@@ -134,6 +139,7 @@ public class NotificationService {
      *
      * @param userId 用户ID
      */
+    @CacheEvict(value = "notification:unreadCount", key = "#userId")
     public void markAllAsRead(Long userId) {
         LambdaUpdateWrapper<UserNotification> updateWrapper = new LambdaUpdateWrapper<>();
         updateWrapper.eq(UserNotification::getUserId, userId)
@@ -192,6 +198,7 @@ public class NotificationService {
      * @param userId         当前用户ID
      * @param notificationId 通知ID
      */
+    @CacheEvict(value = "notification:unreadCount", key = "#userId")
     public void deleteNotification(Long userId, Long notificationId) {
         LambdaUpdateWrapper<UserNotification> wrapper = new LambdaUpdateWrapper<>();
         wrapper.eq(UserNotification::getId, notificationId)
@@ -210,6 +217,7 @@ public class NotificationService {
      * @param userId 当前用户ID
      * @param ids    通知ID列表
      */
+    @CacheEvict(value = "notification:unreadCount", key = "#userId")
     public void batchDeleteNotifications(Long userId, List<Long> ids) {
         if (ids == null || ids.isEmpty()) return;
         LambdaUpdateWrapper<UserNotification> wrapper = new LambdaUpdateWrapper<>();

@@ -18,6 +18,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.time.format.DateTimeFormatter;
@@ -53,6 +54,7 @@ public class GrowthServiceImpl implements GrowthService {
     private static final int INTERVIEW_STATUS_ENDED = 1;
 
     @Override
+    @Cacheable(value = "user:growthOverview", key = "#userId")
     public GrowthOverviewResponse getGrowthOverview(Long userId) {
         // 1. 查询简历诊断历史（已完成，按时间倒序）
         List<ResumeDiagnosisTask> resumeTasks = queryCompletedResumeTasks(userId);
