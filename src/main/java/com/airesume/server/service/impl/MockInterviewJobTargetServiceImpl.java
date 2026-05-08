@@ -13,8 +13,9 @@ import com.airesume.server.entity.ResumeJobMatchRecord;
 import com.airesume.server.mapper.MockInterviewJobTargetRecordMapper;
 import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
 import com.airesume.server.service.MockInterviewJobTargetService;
-import com.airesume.server.service.PdfTextExtractor;
+import com.airesume.server.service.ResumeContentExtractor;
 import com.airesume.server.service.ResumeJobMatchService;
+import com.airesume.server.service.resume.ResumeParseResult;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -41,7 +42,7 @@ public class MockInterviewJobTargetServiceImpl
 
     private final ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper;
     private final ResumeJobMatchService resumeJobMatchService;
-    private final PdfTextExtractor pdfTextExtractor;
+    private final ResumeContentExtractor resumeContentExtractor;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -282,7 +283,12 @@ public class MockInterviewJobTargetServiceImpl
             return "";
         }
         try {
-            return normalizeText(pdfTextExtractor.extractText(task.getFileUrl()));
+            ResumeParseResult parseResult = resumeContentExtractor.extract(task.getFileUrl());
+            task.setResumeText(parseResult.getText());
+            task.setParseMode(parseResult.getParseMode());
+            task.setParseMessage(parseResult.getParseMessage());
+            resumeDiagnosisTaskMapper.updateById(task);
+            return normalizeText(parseResult.getText());
         } catch (Exception e) {
             log.warn("提取简历文本失败, userId: {}, resumeTaskId: {}", userId, resumeTaskId, e);
             return "";

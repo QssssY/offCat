@@ -55,4 +55,16 @@ public class ResumeDiagnosisTask extends BaseEntity {
      */
     @TableField("resume_text")
     private String resumeText;
+
+    /**
+     * 解析模式：TEXT / MULTIMODAL / OCR / MIXED。
+     */
+    @TableField("parse_mode")
+    private String parseMode;
+
+    /**
+     * 解析来源提示信息。
+     */
+    @TableField("parse_message")
+    private String parseMessage;
 }

@@ -64,6 +64,19 @@ public class SysAiEngineConfig extends BaseEntity {
     private String apiKey;
 
     /**
+     * 是否支持多模态识别（图片型 PDF）。1-支持，0-不支持。
+     */
+    @TableField("supports_multimodal")
+    private Integer supportsMultimodal;
+
+    /**
+     * 思考模式：enabled / disabled / none。
+     * none 表示不传 thinking 参数，使用模型默认行为。
+     */
+    @TableField("thinking_mode")
+    private String thinkingMode;
+
+    /**
      * 模型生成温度参数。
      */
     @TableField("temperature")

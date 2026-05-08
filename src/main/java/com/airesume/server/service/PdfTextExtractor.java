@@ -10,8 +10,14 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.regex.Pattern;
 
+/**
+ * PDF 原生文本提取服务。
+ * 仅负责文件校验、页级文本提取和文本清洗，不再直接判定图片型 PDF 失败。
+ */
 @Service
 @Slf4j
 public class PdfTextExtractor {
@@ -20,36 +26,105 @@ public class PdfTextExtractor {
     private static final Pattern ZERO_WIDTH = Pattern.compile("[\\u200B-\\u200F\\uFEFF]");
 
     /**
-     * 最小有效文本长度阈值
-     * 低于此长度的 PDF 大概率是图片型（扫描件），无法提取有效文本
+     * 提取整份 PDF 的原生文本。
+     * 如果整份文档完全没有原生文本，则仍然抛出异常，由上层决定是否回退 OCR / 多模态。
+     *
+     * @param fileUrl 文件访问路径
+     * @return 清洗后的整份文本
      */
-    private static final int MIN_TEXT_LENGTH = 50;
-
     public String extractText(String fileUrl) {
-        String absolutePath = resolveAbsolutePath(fileUrl);
-
-        validateFile(absolutePath);
-
-        String rawText = loadAndExtract(absolutePath);
-
-        String cleaned = cleanText(rawText);
-
-        if (cleaned.isBlank()) {
-            throw new PdfExtractionException("PDF 文本提取结果为空，请确认上传的是文本型 PDF（非扫描件/图片型）");
+        PdfDocumentText documentText = extractDocument(fileUrl);
+        if (documentText.getText().isBlank()) {
+            throw new PdfExtractionException("PDF 原生文本提取结果为空");
         }
-
-        // 检测是否为图片型PDF：提取的文本过少，大概率是扫描件
-        if (cleaned.length() < MIN_TEXT_LENGTH) {
-            log.warn("PDF 文本过少(length={})，疑似图片型/扫描件 PDF: {}", cleaned.length(), fileUrl);
-            throw new PdfExtractionException(
-                    "当前 PDF 似乎是图片型/扫描件，无法提取文本。请上传由 Word、WPS 等软件直接导出的文本型 PDF，或使用 Chrome 浏览器「打印 → 另存为 PDF」生成的文件");
-        }
-
-        log.info("PDF 文本提取成功, fileUrl: {}, charCount: {}", fileUrl, cleaned.length());
-        return cleaned;
+        log.info("PDF 原生文本提取完成, fileUrl: {}, charCount: {}", fileUrl, documentText.getText().length());
+        return documentText.getText();
     }
 
-    private String resolveAbsolutePath(String fileUrl) {
+    /**
+     * 提取整份 PDF 的页级文本结果。
+     * 统一解析层会基于页级结果判断哪些页面继续走多模态或 OCR。
+     *
+     * @param fileUrl 文件访问路径
+     * @return 页级文本与整份合并文本
+     */
+    public PdfDocumentText extractDocument(String fileUrl) {
+        String absolutePath = resolveAbsolutePath(fileUrl);
+        validateFile(absolutePath);
+
+        try (PDDocument document = Loader.loadPDF(new File(absolutePath))) {
+            return extractDocument(absolutePath, document);
+        } catch (IOException e) {
+            throw new PdfExtractionException("PDF 解析失败: " + absolutePath, e);
+        }
+    }
+
+    /**
+     * 从已加载的 PDDocument 提取页级文本，避免调用方重复加载文件。
+     *
+     * @param absolutePath 文件绝对路径，仅用于结果记录
+     * @param document 已打开的 PDDocument，由调用方管理生命周期
+     * @return 页级文本与整份合并文本
+     */
+    public PdfDocumentText extractDocument(String absolutePath, PDDocument document) {
+        try {
+            PDFTextStripper stripper = new PDFTextStripper();
+            stripper.setSortByPosition(true);
+
+            List<String> pageTexts = new ArrayList<>();
+            for (int pageNumber = 1; pageNumber <= document.getNumberOfPages(); pageNumber++) {
+                stripper.setStartPage(pageNumber);
+                stripper.setEndPage(pageNumber);
+                pageTexts.add(cleanText(stripper.getText(document)));
+            }
+
+            String mergedText = String.join("\n\n", pageTexts).trim();
+            return new PdfDocumentText(absolutePath, pageTexts, mergedText);
+        } catch (IOException e) {
+            throw new PdfExtractionException("PDF 文本提取失败: " + absolutePath, e);
+        }
+    }
+
+    /**
+     * 统一清洗提取结果。
+     * 原生文本、多模态和 OCR 三条链路都复用这套清洗规则。
+     *
+     * @param raw 原始文本
+     * @return 清洗后的文本
+     */
+    public String cleanText(String raw) {
+        if (raw == null) {
+            return "";
+        }
+
+        // 移除控制字符，避免后续 JSON 落库或返回时出现非法编码问题。
+        String result = raw.replaceAll("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]", "");
+        result = ZERO_WIDTH.matcher(result).replaceAll("");
+        result = MULTI_SPACE.matcher(result).replaceAll(" ");
+        result = result.replaceAll("\\r\\n|\\r", "\n");
+        result = result.replace('\t', ' ');
+
+        StringBuilder builder = new StringBuilder();
+        boolean lastWasBlank = false;
+        for (String line : result.split("\\n", -1)) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty()) {
+                if (!lastWasBlank) {
+                    builder.append('\n');
+                    lastWasBlank = true;
+                }
+            } else {
+                builder.append(trimmed).append('\n');
+                lastWasBlank = false;
+            }
+        }
+        return builder.toString().trim();
+    }
+
+    /**
+     * 统一把上传路径转换为本地绝对路径。
+     */
+    public String resolveAbsolutePath(String fileUrl) {
         String normalized = fileUrl.replace("\\", "/");
         if (normalized.startsWith("/")) {
             return System.getProperty("user.dir") + normalized;
@@ -57,6 +132,9 @@ public class PdfTextExtractor {
         return normalized;
     }
 
+    /**
+     * 提取前先校验文件存在且可读。
+     */
     private void validateFile(String absolutePath) {
         Path path = Path.of(absolutePath);
         if (!Files.exists(path)) {
@@ -67,41 +145,31 @@ public class PdfTextExtractor {
         }
     }
 
-    private String loadAndExtract(String absolutePath) {
-        try (PDDocument document = Loader.loadPDF(new File(absolutePath))) {
-            PDFTextStripper stripper = new PDFTextStripper();
-            stripper.setSortByPosition(true);
-            return stripper.getText(document);
-        } catch (IOException e) {
-            throw new PdfExtractionException("PDF 解析失败: " + absolutePath, e);
+    /**
+     * 页级文本提取结果。
+     */
+    public static class PdfDocumentText {
+        private final String absolutePath;
+        private final List<String> pageTexts;
+        private final String text;
+
+        public PdfDocumentText(String absolutePath, List<String> pageTexts, String text) {
+            this.absolutePath = absolutePath;
+            this.pageTexts = List.copyOf(pageTexts);
+            this.text = text;
         }
-    }
 
-    private String cleanText(String raw) {
-        if (raw == null) return "";
-
-        // 移除C0控制字符（保留\n和\t），防止存入MySQL JSON列时报Invalid encoding
-        String result = raw.replaceAll("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]", "");
-        result = ZERO_WIDTH.matcher(result).replaceAll("");
-        result = MULTI_SPACE.matcher(result).replaceAll(" ");
-        result = result.replaceAll("\\r\\n|\\r", "\n");
-        result = result.replaceAll("\t", " ");
-
-        StringBuilder sb = new StringBuilder();
-        boolean lastWasBlank = false;
-        for (String line : result.split("\\n", -1)) {
-            String trimmed = line.trim();
-            if (trimmed.isEmpty()) {
-                if (!lastWasBlank) {
-                    sb.append('\n');
-                    lastWasBlank = true;
-                }
-            } else {
-                sb.append(trimmed).append('\n');
-                lastWasBlank = false;
-            }
+        public String getAbsolutePath() {
+            return absolutePath;
         }
-        return sb.toString().trim();
+
+        public List<String> getPageTexts() {
+            return pageTexts;
+        }
+
+        public String getText() {
+            return text;
+        }
     }
 
     public static class PdfExtractionException extends RuntimeException {

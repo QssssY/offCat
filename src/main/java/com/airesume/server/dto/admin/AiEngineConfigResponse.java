@@ -69,6 +69,16 @@ public class AiEngineConfigResponse {
     private BigDecimal temperature;
 
     /**
+     * 是否支持多模态识别（图片型 PDF）。1-支持，0-不支持。
+     */
+    private Integer supportsMultimodal;
+
+    /**
+     * 思考模式：enabled / disabled / none。
+     */
+    private String thinkingMode;
+
+    /**
      * 最大 token 数。
      */
     private Integer maxTokens;

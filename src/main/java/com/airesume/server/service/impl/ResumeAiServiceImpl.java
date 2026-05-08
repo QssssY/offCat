@@ -11,6 +11,7 @@ import com.airesume.server.service.SysAiEngineConfigService;
 import com.airesume.server.service.SysPromptService;
 import com.airesume.server.util.AiInputCompressor;
 import com.airesume.server.util.TokenEstimator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -181,6 +182,99 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         }
     }
 
+    @Override
+    public boolean supportsVisionExtraction() {
+        try {
+            SysAiEngineConfig activeConfig = sysAiEngineConfigService
+                    .getActiveByBusinessType(AiEngineConstants.BUSINESS_TYPE_RESUME);
+            return activeConfig != null && Integer.valueOf(1).equals(activeConfig.getSupportsMultimodal());
+        } catch (Exception e) {
+            // 这里按保守策略处理，避免在配置不明时误走多模态。
+            log.warn("读取简历多模态能力配置失败，默认按不支持处理: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    @Override
+    public String extractTextFromImage(String imageDataUrl, String pageHint) {
+        if (imageDataUrl == null || imageDataUrl.isBlank()) {
+            throw new IllegalArgumentException("图片内容不能为空");
+        }
+        if (!supportsVisionExtraction()) {
+            throw new IllegalStateException("当前简历 AI 引擎未开启多模态识别能力");
+        }
+
+        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
+        String apiKey = runtimeConfig.apiKey();
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new IllegalStateException("请先配置简历 AI 密钥");
+        }
+
+        RequestBody request = new RequestBody();
+        request.model = runtimeConfig.model();
+        request.messages = List.of(
+                new Message("system", buildVisionExtractSystemPrompt()),
+                Message.userWithImage(buildVisionExtractUserPrompt(pageHint), imageDataUrl));
+        request.thinking = buildThinkingConfig(runtimeConfig.model(), runtimeConfig.thinkingMode());
+
+        // 【视觉模型超时保障】多模态识别需要更长处理时间，最低 180 秒。
+        int configuredTimeout = resolveReadTimeoutMs(runtimeConfig.timeoutMs(), 180_000);
+        int readTimeout = Math.max(configuredTimeout, 180_000);
+        if (configuredTimeout < 180_000) {
+            log.info("视觉 API 超时从 {}ms 提升至 {}ms（多模态识别最低保障）", configuredTimeout, readTimeout);
+        }
+        RestClient runtimeRestClient = restClientBuilder
+                .baseUrl(runtimeConfig.baseUrl())
+                .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .requestFactory(buildRequestFactory(readTimeout))
+                .build();
+
+        try {
+            // 使用 exchange 获取完整响应，便于捕获非 JSON 格式的错误响应。
+            org.springframework.http.ResponseEntity<ResponseBody> responseEntity = runtimeRestClient.post()
+                    .uri(runtimeConfig.endpoint())
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                    .body(request)
+                    .retrieve()
+                    .onStatus(status -> status.is4xxClientError() || status.is5xxServerError(), (req, resp) -> {
+                        String errorBody = "";
+                        try {
+                            errorBody = new String(resp.getBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                        } catch (Exception ignored) {
+                        }
+                        throw new RuntimeException("API 返回 HTTP " + resp.getStatusCode().value() + ": " + errorBody);
+                    })
+                    .toEntity(ResponseBody.class);
+            ResponseBody response = responseEntity.getBody();
+            if (response == null || response.choices == null || response.choices.isEmpty()) {
+                throw new RuntimeException("多模态识别返回内容为空");
+            }
+
+            String result = normalizeVisionExtractedText(
+                    extractResponseText(response.choices.get(0).message.content));
+            if (result.isBlank()) {
+                throw new RuntimeException("多模态识别返回内容为空");
+            }
+            return result;
+        } catch (Exception e) {
+            // 检查是否为超时异常（RestClient 会将 SocketTimeoutException 包装为 ResourceAccessException）
+            boolean isTimeout = false;
+            Throwable cause = e;
+            while (cause != null) {
+                if (cause instanceof java.net.SocketTimeoutException) {
+                    isTimeout = true;
+                    break;
+                }
+                cause = cause.getCause();
+            }
+            if (isTimeout) {
+                throw new RuntimeException("多模态识别超时（" + readTimeout / 1000 + "秒），视觉模型处理大图片需要较长时间。"
+                        + "建议在管理端增大引擎超时时间，或降低 OCR DPI 配置减小图片体积", e);
+            }
+            throw new RuntimeException("多模态识别失败: " + e.getMessage(), e);
+        }
+    }
+
     private String diagnoseLegacy(String resumeText) {
         long startTime = System.currentTimeMillis();
         RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
@@ -224,7 +318,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         request.messages = List.of(
                 new Message("system", systemPrompt),
                 new Message("user", userPrompt));
-        request.thinking = buildThinkingConfig(runtimeConfig.model(), thinkingMode);
+        request.thinking = buildThinkingConfig(runtimeConfig.model(), runtimeConfig.thinkingMode());
         try {
             log.info("[{}] ═══════════════════════════════════════════════", tag);
             log.info("[{}] ║  简历诊断请求参数验证  ║", tag);
@@ -241,11 +335,10 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             RestClient.Builder builder = restClientBuilder
                     .baseUrl(runtimeConfig.baseUrl())
                     .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json");
-            // 默认 3 分钟，SiliconFlow DeepSeek-V3 对短文本通常 30-90 秒内返回
+            // 【超时保障】默认 3 分钟，DB 配置值取较大者，确保大型思考模型有足够响应时间。
             int readTimeout = 180_000;
             if (runtimeConfig.timeoutMs() != null && runtimeConfig.timeoutMs() > 0) {
-                // 使用管理员配置值，但设上限 5 分钟避免极端等待
-                readTimeout = runtimeConfig.timeoutMs();
+                readTimeout = Math.max(runtimeConfig.timeoutMs(), 120_000);
             }
             SimpleClientHttpRequestFactory customFactory = new SimpleClientHttpRequestFactory();
             customFactory.setConnectTimeout(10000);
@@ -271,7 +364,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             if (response == null || response.choices == null || response.choices.isEmpty()) {
                 throw new RuntimeException("AI 返回内容为空");
             }
-            String result = response.choices.get(0).message.content;
+            String result = extractResponseText(response.choices.get(0).message.content);
             long elapsed = System.currentTimeMillis() - startTime;
             long elapsedSec = elapsed / 1000;
             log.info("[{}] 简历诊断成功, responseLength: {}, 总耗时: {}ms ({}分{}秒)",
@@ -314,16 +407,17 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         request.messages = List.of(
                 new Message("system", systemPrompt),
                 new Message("user", userPrompt));
-        request.thinking = buildThinkingConfig(runtimeConfig.model(), thinkingMode);
+        request.thinking = buildThinkingConfig(runtimeConfig.model(), runtimeConfig.thinkingMode());
         try {
             log.info("[{}] JD 匹配分析请求, model: {}, 配置来源: {}",
                     tag, runtimeConfig.model(), runtimeConfig.source());
             RestClient.Builder builder = restClientBuilder
                     .baseUrl(runtimeConfig.baseUrl())
                     .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json");
-            int readTimeout = 180_000; // 默认 3 分钟
+            // 【超时保障】默认 3 分钟，DB 配置值取较大者，确保大型思考模型有足够响应时间。
+            int readTimeout = 180_000;
             if (runtimeConfig.timeoutMs() != null && runtimeConfig.timeoutMs() > 0) {
-                readTimeout = runtimeConfig.timeoutMs();
+                readTimeout = Math.max(runtimeConfig.timeoutMs(), 120_000);
             }
             SimpleClientHttpRequestFactory customFactory = new SimpleClientHttpRequestFactory();
             customFactory.setConnectTimeout(10000);
@@ -339,7 +433,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             if (response == null || response.choices == null || response.choices.isEmpty()) {
                 throw new RuntimeException("AI 返回内容为空");
             }
-            String result = response.choices.get(0).message.content;
+            String result = extractResponseText(response.choices.get(0).message.content);
             log.info("[{}] JD 匹配分析成功, responseLength: {}",
                     tag, result == null ? 0 : result.length());
             return extractJsonFromResponse(result);
@@ -401,7 +495,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         StreamRequestBody request = new StreamRequestBody(runtimeConfig.model(), List.of(
                 new Message("system", prompt.systemPrompt()),
                 new Message("user", prompt.userPrompt())), true);
-        request.thinking = buildThinkingConfig(runtimeConfig.model(), thinkingMode);
+        request.thinking = buildThinkingConfig(runtimeConfig.model(), runtimeConfig.thinkingMode());
         logDiagnosisRequest(tag, runtimeConfig, prompt.version(), retryCount, true, readTimeout, prompt.totalTokens());
 
         WebClient runtimeWebClient = webClientBuilder
@@ -471,7 +565,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         request.messages = List.of(
                 new Message("system", prompt.systemPrompt()),
                 new Message("user", prompt.userPrompt()));
-        request.thinking = buildThinkingConfig(runtimeConfig.model(), thinkingMode);
+        request.thinking = buildThinkingConfig(runtimeConfig.model(), runtimeConfig.thinkingMode());
         logDiagnosisRequest(tag, runtimeConfig, prompt.version(), retryCount, false, readTimeout, prompt.totalTokens());
 
         RestClient runtimeRestClient = restClientBuilder
@@ -490,7 +584,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         if (response == null || response.choices == null || response.choices.isEmpty()) {
             throw new EmptyAiResponseException("AI 非流式返回内容为空");
         }
-        String result = extractJsonFromResponse(response.choices.get(0).message.content);
+        String result = extractJsonFromResponse(extractResponseText(response.choices.get(0).message.content));
         if (result == null || result.isBlank()) {
             throw new EmptyAiResponseException("AI 非流式返回内容为空");
         }
@@ -534,6 +628,90 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         long elapsedSec = elapsed / 1000;
         log.error("[{}] 简历诊断失败, stage: {}, totalMs: {} ({}m {}s)",
                 tag, stage, elapsed, elapsedSec / 60, elapsedSec % 60, exception);
+    }
+
+    /**
+     * 多模态识别只负责看图转文本，不返回诊断结论。
+     */
+    private String buildVisionExtractSystemPrompt() {
+        return """
+                你是简历图片文字提取助手。
+                任务：从简历页面图片中完整提取可读文本。
+                要求：
+                1. 只输出提取出的纯文本，不要解释，不要 JSON，不要 Markdown。
+                2. 保留原有段落顺序，尽量保留标题、时间、公司、项目、技能等结构。
+                3. 若存在中英文混排，按原文输出。
+                4. 如果图片中某些内容看不清，跳过无法确认的噪声，不要编造。
+                """;
+    }
+
+    /**
+     * 给模型补充页码提示，便于在多页场景下稳定输出。
+     */
+    private String buildVisionExtractUserPrompt(String pageHint) {
+        if (pageHint == null || pageHint.isBlank()) {
+            return "请提取这张简历图片中的全部文字内容。";
+        }
+        return pageHint + "，请提取该页中的全部文字内容。";
+    }
+
+    /**
+     * 兼容 OpenAI 风格多模态返回：content 可能是字符串，也可能是内容块数组。
+     */
+    private String extractResponseText(Object content) {
+        if (content == null) {
+            return "";
+        }
+        if (content instanceof String text) {
+            return text;
+        }
+        JsonNode contentNode = objectMapper.valueToTree(content);
+        return extractResponseText(contentNode);
+    }
+
+    private String extractResponseText(JsonNode contentNode) {
+        if (contentNode == null || contentNode.isNull()) {
+            return "";
+        }
+        if (contentNode.isTextual()) {
+            return contentNode.asText("");
+        }
+        if (contentNode.isArray()) {
+            List<String> parts = new ArrayList<>();
+            for (JsonNode itemNode : contentNode) {
+                String part = extractResponseText(itemNode);
+                if (!part.isBlank()) {
+                    parts.add(part);
+                }
+            }
+            return String.join("\n", parts).trim();
+        }
+        if (contentNode.isObject()) {
+            String directText = firstNonBlankField(contentNode, "text", "content", "value");
+            if (!directText.isBlank()) {
+                return directText;
+            }
+        }
+        return contentNode.asText("");
+    }
+
+    /**
+     * 模型偶尔会包裹代码块，这里统一去掉外围噪声。
+     */
+    private String normalizeVisionExtractedText(String rawText) {
+        if (rawText == null) {
+            return "";
+        }
+        String normalized = rawText.trim();
+        if (normalized.startsWith("```text")) {
+            normalized = normalized.substring(7).trim();
+        } else if (normalized.startsWith("```")) {
+            normalized = normalized.substring(3).trim();
+        }
+        if (normalized.endsWith("```")) {
+            normalized = normalized.substring(0, normalized.length() - 3).trim();
+        }
+        return normalized;
     }
 
     private boolean shouldFallbackToNonStream(Throwable throwable) {
@@ -773,6 +951,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         String runtimeApiKey = fallbackApiKey;
         String source = "application";
         Integer runtimeTimeoutMs = null;
+        String runtimeThinkingMode = this.thinkingMode;
         SysAiEngineConfig activeConfig = null;
         try {
             activeConfig = sysAiEngineConfigService.getActiveByBusinessType(AiEngineConstants.BUSINESS_TYPE_RESUME);
@@ -797,6 +976,11 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                 log.debug("数据库 apiKey 为空，使用本地兜底");
             }
             runtimeTimeoutMs = activeConfig.getTimeoutMs();
+            // DB 思考模式优先，为空时沿用 YAML 注入值。
+            String dbThinkingMode = normalizeConfigValue(activeConfig.getThinkingMode());
+            if (dbThinkingMode != null) {
+                runtimeThinkingMode = dbThinkingMode;
+            }
             source = "db-active:" + activeConfig.getEngineCode();
         }
         if (runtimeModel == null) {
@@ -820,7 +1004,8 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                 getEndpointByProvider(runtimeProvider),
                 runtimeApiKey,
                 source,
-                runtimeTimeoutMs);
+                runtimeTimeoutMs,
+                runtimeThinkingMode);
     }
 
     private String getEndpointByProvider(String providerType) {
@@ -999,14 +1184,15 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         request.messages = List.of(
                 new Message("system", systemPrompt),
                 new Message("user", userPrompt));
-        request.thinking = buildThinkingConfig(runtimeConfig.model(), thinkingMode);
+        request.thinking = buildThinkingConfig(runtimeConfig.model(), runtimeConfig.thinkingMode());
         try {
             RestClient.Builder builder = restClientBuilder
                     .baseUrl(runtimeConfig.baseUrl())
                     .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json");
-            int readTimeout = 180_000; // 默认 3 分钟
+            // 【超时保障】默认 3 分钟，DB 配置值取较大者，确保大型思考模型有足够响应时间。
+            int readTimeout = 180_000;
             if (runtimeConfig.timeoutMs() != null && runtimeConfig.timeoutMs() > 0) {
-                readTimeout = runtimeConfig.timeoutMs();
+                readTimeout = Math.max(runtimeConfig.timeoutMs(), 120_000);
             }
             SimpleClientHttpRequestFactory customFactory = new SimpleClientHttpRequestFactory();
             customFactory.setConnectTimeout(10000);
@@ -1022,7 +1208,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             if (response == null || response.choices == null || response.choices.isEmpty()) {
                 throw new RuntimeException("AI 润色返回内容为空");
             }
-            String result = extractJsonFromResponse(response.choices.get(0).message.content);
+            String result = extractJsonFromResponse(extractResponseText(response.choices.get(0).message.content));
             return parseResumePolishAiResult(result);
         } catch (Exception e) {
             log.error("[{}] AI 简历润色失败", tag, e);
@@ -1361,7 +1547,8 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             String endpoint,
             String apiKey,
             String source,
-            Integer timeoutMs) {
+            Integer timeoutMs,
+            String thinkingMode) {
     }
 
     private static class RequestBody {
@@ -1393,11 +1580,51 @@ public class ResumeAiServiceImpl implements ResumeAiService {
 
     private static class Message {
         public String role;
-        public String content;
+        public Object content;
 
         public Message(String role, String content) {
             this.role = role;
             this.content = content;
+        }
+
+        public Message(String role, Object content) {
+            this.role = role;
+            this.content = content;
+        }
+
+        public static Message userWithImage(String prompt, String imageDataUrl) {
+            return new Message("user", List.of(
+                    ContentPart.text(prompt),
+                    ContentPart.image(imageDataUrl)));
+        }
+    }
+
+    private static class ContentPart {
+        public String type;
+        public String text;
+        @JsonProperty("image_url")
+        public ImageUrl imageUrl;
+
+        public static ContentPart text(String text) {
+            ContentPart part = new ContentPart();
+            part.type = "text";
+            part.text = text;
+            return part;
+        }
+
+        public static ContentPart image(String imageDataUrl) {
+            ContentPart part = new ContentPart();
+            part.type = "image_url";
+            part.imageUrl = new ImageUrl(imageDataUrl);
+            return part;
+        }
+    }
+
+    private static class ImageUrl {
+        public String url;
+
+        public ImageUrl(String url) {
+            this.url = url;
         }
     }
 
@@ -1408,7 +1635,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             public MessageContent message;
 
             public static class MessageContent {
-                public String content;
+                public Object content;
             }
         }
     }

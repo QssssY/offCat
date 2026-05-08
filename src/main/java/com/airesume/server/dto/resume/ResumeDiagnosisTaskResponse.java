@@ -57,6 +57,16 @@ public class ResumeDiagnosisTaskResponse {
     private String resumeText;
 
     /**
+     * 解析模式：TEXT / MULTIMODAL / OCR / MIXED。
+     */
+    private String parseMode;
+
+    /**
+     * 解析来源提示信息，用于结果页展示。
+     */
+    private String parseMessage;
+
+    /**
      * 最近一次岗位 JD 对比分析结果。
      */
     private ResumeJobMatchAnalyzeResponse latestJobMatchAnalysis;

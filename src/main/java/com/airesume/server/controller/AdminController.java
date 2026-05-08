@@ -285,6 +285,8 @@ public class AdminController {
         config.setModelName(normalizeRequiredValue(request.getModelName(), "模型名称不能为空"));
         config.setBaseUrl(normalizeRequiredValue(request.getBaseUrl(), "基础地址不能为空"));
         config.setApiKey(normalizeRequiredValue(request.getApiKey(), "API Key 不能为空"));
+        config.setSupportsMultimodal(request.getSupportsMultimodal());
+        config.setThinkingMode(request.getThinkingMode());
         config.setTemperature(request.getTemperature());
         config.setMaxTokens(request.getMaxTokens());
         config.setTimeoutMs(request.getTimeoutMs());
@@ -343,6 +345,12 @@ public class AdminController {
                 throw new BusinessException("API Key 不能为脱敏格式，请输入完整的真实 API Key");
             }
             config.setApiKey(normalizeRequiredValue(request.getApiKey(), "API Key 不能为空"));
+        }
+        if (request.getSupportsMultimodal() != null) {
+            config.setSupportsMultimodal(request.getSupportsMultimodal());
+        }
+        if (request.getThinkingMode() != null) {
+            config.setThinkingMode(request.getThinkingMode());
         }
         if (request.getTemperature() != null) {
             config.setTemperature(request.getTemperature());
@@ -1015,6 +1023,8 @@ SysPrompt prompt = new SysPrompt();
                 .modelName(config.getModelName())
                 .baseUrl(config.getBaseUrl())
                 .apiKey(maskApiKey(config.getApiKey()))
+                .supportsMultimodal(config.getSupportsMultimodal())
+                .thinkingMode(config.getThinkingMode())
                 .temperature(config.getTemperature())
                 .maxTokens(config.getMaxTokens())
                 .timeoutMs(config.getTimeoutMs())

@@ -309,7 +309,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 tag, runtimeConfig.baseUrl(), runtimeConfig.endpoint(), runtimeConfig.model(), runtimeConfig.source());
 
         StreamRequestBody reqBody = new StreamRequestBody(runtimeConfig.model(), messages, true);
-        reqBody.thinking = buildThinkingConfig(runtimeConfig.model(), thinkingMode);
+        reqBody.thinking = buildThinkingConfig(runtimeConfig.model(), runtimeConfig.thinkingMode());
 
         try {
             String requestJson = objectMapper.writeValueAsString(reqBody);
@@ -931,7 +931,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 new Message("system", systemPrompt),
                 new Message("user", userPrompt)
         );
-        request.thinking = buildThinkingConfig(runtimeConfig.model(), thinkingMode);
+        request.thinking = buildThinkingConfig(runtimeConfig.model(), runtimeConfig.thinkingMode());
 
         try {
             log.info("[{}] ═══════════════════════════════════════════════", tag);
@@ -948,9 +948,10 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             RestClient.Builder builder = restClientBuilder
                     .baseUrl(runtimeConfig.baseUrl())
                     .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
-            int readTimeout = 180_000; // 默认 3 分钟
+            // 【超时保障】默认 3 分钟，DB 配置值范围 [120s, 300s]，确保大型思考模型有足够响应时间。
+            int readTimeout = 180_000;
             if (runtimeConfig.timeoutMs() != null && runtimeConfig.timeoutMs() > 0) {
-                readTimeout = Math.min(runtimeConfig.timeoutMs(), 300_000); // 上限 5 分钟
+                readTimeout = Math.max(Math.min(runtimeConfig.timeoutMs(), 300_000), 120_000);
             }
             SimpleClientHttpRequestFactory customFactory = new SimpleClientHttpRequestFactory();
             customFactory.setConnectTimeout(10000);
@@ -991,7 +992,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         RequestBody request = new RequestBody();
         request.model = runtimeConfig.model();
         request.messages = messages;
-        request.thinking = buildThinkingConfig(runtimeConfig.model(), thinkingMode);
+        request.thinking = buildThinkingConfig(runtimeConfig.model(), runtimeConfig.thinkingMode());
 
         try {
             log.info("[{}] ═══════════════════════════════════════════════", tag);
@@ -1008,9 +1009,10 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             RestClient.Builder builder = restClientBuilder
                     .baseUrl(runtimeConfig.baseUrl())
                     .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE);
-            int readTimeout = 180_000; // 默认 3 分钟
+            // 【超时保障】默认 3 分钟，DB 配置值范围 [120s, 300s]，确保大型思考模型有足够响应时间。
+            int readTimeout = 180_000;
             if (runtimeConfig.timeoutMs() != null && runtimeConfig.timeoutMs() > 0) {
-                readTimeout = Math.min(runtimeConfig.timeoutMs(), 300_000); // 上限 5 分钟
+                readTimeout = Math.max(Math.min(runtimeConfig.timeoutMs(), 300_000), 120_000);
             }
             SimpleClientHttpRequestFactory customFactory = new SimpleClientHttpRequestFactory();
             customFactory.setConnectTimeout(10000);
@@ -1707,6 +1709,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         String runtimeApiKey = fallbackApiKey;
         String source = "application";
         Integer runtimeTimeoutMs = null;
+        String runtimeThinkingMode = this.thinkingMode;
 
         SysAiEngineConfig activeConfig = null;
         try {
@@ -1735,6 +1738,11 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 log.warn("数据库 apiKey 为空，使用本地兜底");
             }
             runtimeTimeoutMs = activeConfig.getTimeoutMs();
+            // DB 思考模式优先，为空时沿用 YAML 注入值。
+            String dbThinkingMode = normalizeConfigValue(activeConfig.getThinkingMode());
+            if (dbThinkingMode != null) {
+                runtimeThinkingMode = dbThinkingMode;
+            }
             source = "db-active:" + activeConfig.getEngineCode();
         }
 
@@ -1765,7 +1773,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 getEndpointByProvider(runtimeProvider),
                 runtimeApiKey,
                 source,
-                runtimeTimeoutMs
+                runtimeTimeoutMs,
+                runtimeThinkingMode
         );
     }
 
@@ -1791,7 +1800,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             String endpoint,
             String apiKey,
             String source,
-            Integer timeoutMs
+            Integer timeoutMs,
+            String thinkingMode
     ) {
     }
 

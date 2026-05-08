@@ -3,11 +3,12 @@ package com.airesume.server.service.impl;
 import com.airesume.server.common.constants.ResumeDiagnosisConstants;
 import com.airesume.server.dto.resume.ResumeDiagnosisResult;
 import com.airesume.server.service.NotificationService;
-import com.airesume.server.service.PdfTextExtractor;
 import com.airesume.server.service.ResumeAiService;
+import com.airesume.server.service.ResumeContentExtractor;
 import com.airesume.server.service.ResumeDiagnosisTaskService;
 import com.airesume.server.service.ResumeInfoExtractor;
 import com.airesume.server.service.UserQuotaService;
+import com.airesume.server.service.resume.ResumeParseResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,7 +26,7 @@ import java.util.concurrent.TimeoutException;
 public class ResumeDiagnosisProcessor {
 
     private final ResumeDiagnosisTaskService resumeDiagnosisTaskService;
-    private final PdfTextExtractor pdfTextExtractor;
+    private final ResumeContentExtractor resumeContentExtractor;
     private final ResumeAiService resumeAiService;
     private final ResumeInfoExtractor resumeInfoExtractor;
     private final ObjectMapper objectMapper;
@@ -51,13 +52,20 @@ public class ResumeDiagnosisProcessor {
             resumeDiagnosisTaskService.updateStatusToProcessing(taskId);
 
             long pdfStartTime = System.currentTimeMillis();
-            String resumeText = pdfTextExtractor.extractText(fileUrl);
+            // 统一解析服务会优先复用文本直提，不足时再进入多模态或 OCR。
+            ResumeParseResult parseResult = resumeContentExtractor.extract(fileUrl);
+            String resumeText = parseResult.getText();
             long pdfElapsed = System.currentTimeMillis() - pdfStartTime;
             log.info("PDF 文本提取完成, taskId: {}, textLength: {}, elapsedMs: {}",
                     taskId, resumeText.length(), pdfElapsed);
 
             try {
-                resumeDiagnosisTaskService.updateTaskResumeText(taskId, resumeText);
+                // 统一缓存解析文本与解析来源，供结果页和后续能力复用。
+                resumeDiagnosisTaskService.updateTaskResumeParseResult(
+                        taskId,
+                        resumeText,
+                        parseResult.getParseMode(),
+                        parseResult.getParseMessage());
             } catch (Exception e) {
                 log.warn("缓存简历文本失败, taskId: {}, 不影响主流程", taskId, e);
             }
@@ -91,7 +99,7 @@ public class ResumeDiagnosisProcessor {
                     "你的简历诊断报告已生成，点击查看结果。",
                     "resume_diagnosis",
                     String.valueOf(taskId));
-        } catch (PdfTextExtractor.PdfExtractionException e) {
+        } catch (com.airesume.server.service.PdfTextExtractor.PdfExtractionException e) {
             log.error("PDF 解析失败, taskId: {}", taskId, e);
             refundQuotaIfNeeded(userId, taskId);
             markTaskFailed(taskId, "PDF解析失败: " + e.getMessage());

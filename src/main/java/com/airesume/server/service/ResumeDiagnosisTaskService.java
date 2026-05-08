@@ -103,6 +103,16 @@ public interface ResumeDiagnosisTaskService extends IService<ResumeDiagnosisTask
     void updateTaskResumeText(Long taskId, String resumeText);
 
     /**
+     * 缓存统一解析后的简历文本与解析元信息，避免后续功能重复解析 PDF。
+     *
+     * @param taskId 任务 ID
+     * @param resumeText 解析后的简历文本
+     * @param parseMode 解析模式
+     * @param parseMessage 解析提示信息
+     */
+    void updateTaskResumeParseResult(Long taskId, String resumeText, String parseMode, String parseMessage);
+
+    /**
      * 获取任务当前状态
      *
      * @param taskId 任务ID

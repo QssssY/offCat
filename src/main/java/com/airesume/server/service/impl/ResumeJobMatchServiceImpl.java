@@ -7,9 +7,10 @@ import com.airesume.server.entity.ResumeDiagnosisTask;
 import com.airesume.server.entity.ResumeJobMatchRecord;
 import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
 import com.airesume.server.mapper.ResumeJobMatchRecordMapper;
-import com.airesume.server.service.PdfTextExtractor;
 import com.airesume.server.service.ResumeAiService;
+import com.airesume.server.service.ResumeContentExtractor;
 import com.airesume.server.service.ResumeJobMatchService;
+import com.airesume.server.service.resume.ResumeParseResult;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -25,7 +26,7 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * 岗位 JD 对比分析服务实现（AI 驱动）。
+ * 简历与 JD 匹配分析服务。
  */
 @Slf4j
 @Service
@@ -34,7 +35,7 @@ public class ResumeJobMatchServiceImpl extends ServiceImpl<ResumeJobMatchRecordM
         implements ResumeJobMatchService {
 
     private final ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper;
-    private final PdfTextExtractor pdfTextExtractor;
+    private final ResumeContentExtractor resumeContentExtractor;
     private final ObjectMapper objectMapper;
     private final ResumeAiService resumeAiService;
 
@@ -49,16 +50,11 @@ public class ResumeJobMatchServiceImpl extends ServiceImpl<ResumeJobMatchRecordM
             throw new BusinessException("岗位 JD 文本不能为空");
         }
 
-        String resumeText = normalizeText(request.getResumeText());
-        if (resumeText.isBlank()) {
-            // 兼容前端未能携带 resumeText 的场景，后端兜底从原始 PDF 提取。
-            resumeText = normalizeText(pdfTextExtractor.extractText(task.getFileUrl()));
-        }
+        String resumeText = resolveResumeText(task, request.getResumeText());
         if (resumeText.isBlank()) {
             throw new BusinessException("简历文本不能为空");
         }
 
-        // 调用 AI 进行语义匹配分析
         String aiResultJson = resumeAiService.diagnoseJobMatch(resumeText, jdText);
         ResumeJobMatchAnalyzeResponse response = parseAiResult(aiResultJson, resumeTaskId);
 
@@ -91,7 +87,7 @@ public class ResumeJobMatchServiceImpl extends ServiceImpl<ResumeJobMatchRecordM
             response.setCreateTime(record.getCreateTime());
             return response;
         } catch (JsonProcessingException e) {
-            log.error("解析岗位 JD 对比记录失败, recordId: {}", record.getId(), e);
+            log.error("解析岗位 JD 匹配记录失败, recordId: {}", record.getId(), e);
             return null;
         }
     }
@@ -127,6 +123,39 @@ public class ResumeJobMatchServiceImpl extends ServiceImpl<ResumeJobMatchRecordM
         return getOne(wrapper, false);
     }
 
+    /**
+     * 文本优先级：前端显式传入 > 任务缓存文本 > 统一解析链路。
+     */
+    private String resolveResumeText(ResumeDiagnosisTask task, String requestResumeText) {
+        String resumeText = normalizeText(requestResumeText);
+        if (!resumeText.isBlank()) {
+            return resumeText;
+        }
+
+        resumeText = normalizeText(task.getResumeText());
+        if (!resumeText.isBlank()) {
+            return resumeText;
+        }
+
+        return normalizeText(parseAndCacheResume(task).getText());
+    }
+
+    /**
+     * 当任务缺少缓存文本时，统一走新的混合解析链路并回写任务缓存。
+     */
+    private ResumeParseResult parseAndCacheResume(ResumeDiagnosisTask task) {
+        if (task == null || task.getFileUrl() == null || task.getFileUrl().isBlank()) {
+            throw new BusinessException("简历文件不存在，无法解析");
+        }
+
+        ResumeParseResult parseResult = resumeContentExtractor.extract(task.getFileUrl());
+        task.setResumeText(parseResult.getText());
+        task.setParseMode(parseResult.getParseMode());
+        task.setParseMessage(parseResult.getParseMessage());
+        resumeDiagnosisTaskMapper.updateById(task);
+        return parseResult;
+    }
+
     private ResumeJobMatchAnalyzeResponse parseAiResult(String aiResultJson, Long resumeTaskId) {
         try {
             JsonNode root = objectMapper.readTree(aiResultJson);
@@ -139,12 +168,8 @@ public class ResumeJobMatchServiceImpl extends ServiceImpl<ResumeJobMatchRecordM
             List<String> suggestions = readStringList(root, "suggestions");
             String analysisSummary = root.has("analysisSummary") ? root.get("analysisSummary").asText("") : "";
 
-            // 兜底：确保至少有基本数据
-            if (matchedKeywords.isEmpty() && missingKeywords.isEmpty()) {
-                log.warn("AI JD 匹配分析结果中 matchedKeywords 和 missingKeywords 均为空");
-            }
             if (suggestions.isEmpty()) {
-                suggestions.add("建议根据岗位 JD 优化简历中的技能和项目描述。");
+                suggestions.add("建议根据岗位 JD 优化简历中的技能与项目表述");
             }
 
             return ResumeJobMatchAnalyzeResponse.builder()
@@ -156,7 +181,7 @@ public class ResumeJobMatchServiceImpl extends ServiceImpl<ResumeJobMatchRecordM
                     .analysisSummary(analysisSummary)
                     .build();
         } catch (JsonProcessingException e) {
-            log.error("AI JD 匹配分析结果 JSON 解析失败, rawPreview: {}", buildRawPreview(aiResultJson), e);
+            log.error("AI JD 匹配结果 JSON 解析失败, rawPreview: {}", buildRawPreview(aiResultJson), e);
             throw new BusinessException("AI 分析结果解析失败，请重试");
         }
     }
@@ -166,6 +191,7 @@ public class ResumeJobMatchServiceImpl extends ServiceImpl<ResumeJobMatchRecordM
         if (node == null || !node.isArray()) {
             return new ArrayList<>();
         }
+
         List<String> result = new ArrayList<>();
         for (JsonNode item : node) {
             String text = item.asText("").trim();
@@ -214,7 +240,7 @@ public class ResumeJobMatchServiceImpl extends ServiceImpl<ResumeJobMatchRecordM
         try {
             return objectMapper.writeValueAsString(response);
         } catch (JsonProcessingException e) {
-            throw new BusinessException("岗位 JD 对比结果保存失败");
+            throw new BusinessException("岗位 JD 匹配结果保存失败");
         }
     }
 

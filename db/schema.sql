@@ -155,6 +155,8 @@ CREATE TABLE `sys_ai_engine_config` (
   `model_name` VARCHAR(128) NOT NULL COMMENT 'Model name used by current config',
   `base_url` VARCHAR(255) NOT NULL COMMENT 'Base URL for provider API',
   `api_key` VARCHAR(255) NOT NULL COMMENT 'Provider API key',
+  `supports_multimodal` TINYINT NOT NULL DEFAULT 0 COMMENT '1-supported, 0-unsupported',
+  `thinking_mode` VARCHAR(16) NOT NULL DEFAULT 'none' COMMENT 'Thinking mode: enabled/disabled/none',
   `temperature` DECIMAL(4,2) NOT NULL DEFAULT 0.70 COMMENT 'Model temperature',
   `max_tokens` INT NOT NULL DEFAULT 4096 COMMENT 'Maximum tokens',
   `timeout_ms` INT NOT NULL DEFAULT 30000 COMMENT 'Request timeout in milliseconds',
@@ -200,6 +202,8 @@ CREATE TABLE `resume_diagnosis_task` (
   `diagnosis_result` JSON NULL COMMENT 'Diagnosis result',
   `error_msg` VARCHAR(255) NULL DEFAULT NULL COMMENT 'Error message',
   `resume_text` MEDIUMTEXT NULL COMMENT '简历提取的文本内容，用于缓存PDF解析结果',
+  `parse_mode` VARCHAR(16) NULL DEFAULT NULL COMMENT 'Resume parse mode: TEXT/MULTIMODAL/OCR/MIXED',
+  `parse_message` VARCHAR(255) NULL DEFAULT NULL COMMENT 'Resume parse hint message',
   `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Create time',
   `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Update time',
   `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT 'Logical delete flag',
@@ -372,9 +376,9 @@ VALUES
   (3007, 'sales_marketing', '市场/销售', '常规', 'normal', 1, 70);
 
 INSERT INTO `sys_ai_engine_config`
-(`id`, `engine_code`, `engine_name`, `provider_type`, `business_type`, `model_name`, `base_url`, `api_key`, `temperature`, `max_tokens`, `timeout_ms`, `is_active`, `sort`, `remark`)
+(`id`, `engine_code`, `engine_name`, `provider_type`, `business_type`, `model_name`, `base_url`, `api_key`, `supports_multimodal`, `thinking_mode`, `temperature`, `max_tokens`, `timeout_ms`, `is_active`, `sort`, `remark`)
 VALUES
-  (4001, 'interview_mock_engine', 'Interview Mock Engine', 'mock', 'interview', 'mock-interview-model', 'https://mock.example.com/interview', 'sk-interview-demo-key', 0.70, 4096, 30000, 1, 10, 'Seed config for interview business'),
-  (4002, 'resume_mock_engine', 'Resume Mock Engine', 'mock', 'resume', 'mock-resume-model', 'https://mock.example.com/resume', 'sk-resume-demo-key', 0.50, 4096, 30000, 1, 20, 'Seed config for resume business');
+  (4001, 'interview_mock_engine', 'Interview Mock Engine', 'mock', 'interview', 'mock-interview-model', 'https://mock.example.com/interview', 'sk-interview-demo-key', 0, 'none', 0.70, 4096, 30000, 1, 10, 'Seed config for interview business'),
+  (4002, 'resume_mock_engine', 'Resume Mock Engine', 'mock', 'resume', 'mock-resume-model', 'https://mock.example.com/resume', 'sk-resume-demo-key', 0, 'none', 0.50, 4096, 30000, 1, 20, 'Seed config for resume business');
 
 SET FOREIGN_KEY_CHECKS = 1;
