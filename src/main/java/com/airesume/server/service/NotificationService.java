@@ -186,6 +186,40 @@ public class NotificationService {
     }
 
     /**
+     * 删除单条通知（逻辑删除）
+     * 通过 userId + id 双条件确保只能删除自己的通知
+     *
+     * @param userId         当前用户ID
+     * @param notificationId 通知ID
+     */
+    public void deleteNotification(Long userId, Long notificationId) {
+        LambdaUpdateWrapper<UserNotification> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(UserNotification::getId, notificationId)
+                .eq(UserNotification::getUserId, userId);
+        int affected = userNotificationMapper.delete(wrapper);
+        if (affected > 0) {
+            log.info("通知已删除, userId: {}, notificationId: {}", userId, notificationId);
+        } else {
+            log.warn("删除通知未命中, userId: {}, notificationId: {}（不存在或不属于当前用户）", userId, notificationId);
+        }
+    }
+
+    /**
+     * 批量删除通知（逻辑删除）
+     *
+     * @param userId 当前用户ID
+     * @param ids    通知ID列表
+     */
+    public void batchDeleteNotifications(Long userId, List<Long> ids) {
+        if (ids == null || ids.isEmpty()) return;
+        LambdaUpdateWrapper<UserNotification> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(UserNotification::getUserId, userId)
+                .in(UserNotification::getId, ids);
+        int affected = userNotificationMapper.delete(wrapper);
+        log.info("批量删除通知, userId: {}, 请求: {}, 实际删除: {}", userId, ids.size(), affected);
+    }
+
+    /**
      * 检查最近24小时是否存在同类型未读通知（用于额度不足防重）
      *
      * @param userId 用户ID
