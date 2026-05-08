@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.Map;
 
@@ -86,6 +87,34 @@ public class NotificationController {
         Long userId = (Long) authentication.getPrincipal();
         log.info("[通知] 全部标记已读, userId: {}", userId);
         notificationService.markAllAsRead(userId);
+        return Result.success();
+    }
+
+    /**
+     * SSE 通知推送流
+     * 建立长连接后，新通知会实时推送给用户
+     *
+     * @param authentication 当前登录用户身份
+     * @return SSE 发射器
+     */
+    @GetMapping("/stream")
+    public SseEmitter stream(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("[SSE] 用户建立通知流连接, userId: {}", userId);
+        return notificationService.registerEmitter(userId);
+    }
+
+    /**
+     * 断开 SSE 连接（用户退出登录时调用）
+     *
+     * @param authentication 当前登录用户身份
+     * @return 操作结果
+     */
+    @DeleteMapping("/stream")
+    public Result<Void> disconnectStream(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("[SSE] 用户断开通知流连接, userId: {}", userId);
+        notificationService.unregisterEmitter(userId);
         return Result.success();
     }
 }

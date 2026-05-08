@@ -8,6 +8,7 @@ import com.airesume.server.dto.auth.PasswordUpdateRequest;
 import com.airesume.server.dto.auth.RegisterRequest;
 import com.airesume.server.dto.auth.ResetPasswordRequest;
 import com.airesume.server.dto.auth.SecurityQuestionResponse;
+import com.airesume.server.dto.auth.SecurityQuestionUpdateRequest;
 import com.airesume.server.dto.auth.UserInfoResponse;
 import com.airesume.server.service.AuthService;
 import jakarta.validation.Valid;
@@ -130,6 +131,23 @@ public class AuthController {
     public Result<Void> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
         log.info("Reset password by security question request, username: {}", request.getUsername());
         authService.resetPasswordBySecurityQuestion(request);
+        return Result.success();
+    }
+
+    /**
+     * 修改安全问题和答案接口（需登录）
+     *
+     * @param request 修改请求参数，包含原密码、安全问题和安全答案
+     * @param authentication Spring Security 认证对象，包含当前用户ID
+     * @return 修改成功返回空结果
+     */
+    @PutMapping("/security-question")
+    public Result<Void> updateSecurityQuestion(
+            @Valid @RequestBody SecurityQuestionUpdateRequest request,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("Update security question request, userId: {}", userId);
+        authService.updateSecurityQuestion(userId, request);
         return Result.success();
     }
 

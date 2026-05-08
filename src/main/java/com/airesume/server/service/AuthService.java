@@ -6,6 +6,7 @@ import com.airesume.server.dto.auth.PasswordUpdateRequest;
 import com.airesume.server.dto.auth.RegisterRequest;
 import com.airesume.server.dto.auth.ResetPasswordRequest;
 import com.airesume.server.dto.auth.SecurityQuestionResponse;
+import com.airesume.server.dto.auth.SecurityQuestionUpdateRequest;
 import com.airesume.server.dto.auth.UserInfoResponse;
 
 /**
@@ -70,5 +71,14 @@ public interface AuthService {
      * @param request 重置密码请求参数
      */
     void resetPasswordBySecurityQuestion(ResetPasswordRequest request);
+
+    /**
+     * 修改安全问题和答案
+     * 验证原密码后更新安全问题和答案
+     *
+     * @param userId  当前用户ID
+     * @param request 修改请求参数，包含原密码、安全问题和安全答案
+     */
+    void updateSecurityQuestion(Long userId, SecurityQuestionUpdateRequest request);
 
 }

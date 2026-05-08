@@ -9,6 +9,7 @@ import com.airesume.server.dto.auth.PasswordUpdateRequest;
 import com.airesume.server.dto.auth.RegisterRequest;
 import com.airesume.server.dto.auth.ResetPasswordRequest;
 import com.airesume.server.dto.auth.SecurityQuestionResponse;
+import com.airesume.server.dto.auth.SecurityQuestionUpdateRequest;
 import com.airesume.server.dto.auth.UserInfoResponse;
 import com.airesume.server.entity.SysUser;
 import com.airesume.server.entity.UserQuota;
@@ -221,6 +222,28 @@ public class AuthServiceImpl implements AuthService {
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
         sysUserService.updateById(user);
         log.info("Password reset successfully by security question, username: {}", username);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void updateSecurityQuestion(Long userId, SecurityQuestionUpdateRequest request) {
+        log.info("Updating security question, userId: {}", userId);
+        SysUser user = sysUserService.getById(userId);
+        if (user == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND);
+        }
+
+        // 验证原密码是否正确
+        if (!passwordEncoder.matches(request.getOldPassword(), user.getPassword())) {
+            log.warn("Update security question failed, old password incorrect, userId: {}", userId);
+            throw new BusinessException("原密码不正确");
+        }
+
+        // 更新安全问题（明文）和安全答案（BCrypt加密）
+        user.setSecurityQuestion(request.getSecurityQuestion().trim());
+        user.setSecurityAnswer(passwordEncoder.encode(request.getSecurityAnswer().trim()));
+        sysUserService.updateById(user);
+        log.info("Security question updated successfully, userId: {}", userId);
     }
 
     /**

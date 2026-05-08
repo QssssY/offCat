@@ -10,6 +10,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 
 @Slf4j
 @RestControllerAdvice
@@ -46,6 +47,16 @@ public class GlobalExceptionHandler {
     public Result<Void> handleConstraintViolationException(ConstraintViolationException e) {
         log.warn("约束验证失败: {}", e.getMessage());
         return Result.error(ResultCode.PARAM_ERROR.getCode(), "参数验证失败");
+    }
+
+    /**
+     * SSE 异步请求超时异常
+     * SseEmitter 超时后触发此异常，直接返回空响应体，避免与 SSE 内容类型冲突
+     */
+    @ExceptionHandler(AsyncRequestTimeoutException.class)
+    @ResponseStatus(HttpStatus.OK)
+    public void handleAsyncRequestTimeoutException(AsyncRequestTimeoutException e) {
+        log.debug("SSE 异步请求超时，连接已清理");
     }
 
     @ExceptionHandler(Exception.class)
