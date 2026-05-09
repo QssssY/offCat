@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -15,7 +16,9 @@ import java.util.List;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ResumeJobMatchAnalyzeResponse {
+public class ResumeJobMatchAnalyzeResponse implements Serializable {
+
+    private static final long serialVersionUID = 1L;
 
     /**
      * 分析记录 ID。

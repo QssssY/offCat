@@ -26,7 +26,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -184,6 +187,30 @@ public class MockInterviewJobTargetServiceImpl
         context.setResumeText(resumeText);
 
         return context;
+    }
+
+    @Override
+    public Map<String, InterviewJobTargetContext> getSessionContextSummaryMap(Long userId, Collection<String> sessionIds) {
+        if (sessionIds == null || sessionIds.isEmpty()) {
+            return Map.of();
+        }
+
+        LambdaQueryWrapper<MockInterviewJobTargetRecord> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(MockInterviewJobTargetRecord::getUserId, userId)
+                .in(MockInterviewJobTargetRecord::getSessionId, sessionIds)
+                .orderByDesc(MockInterviewJobTargetRecord::getCreateTime)
+                .orderByDesc(MockInterviewJobTargetRecord::getId);
+
+        List<MockInterviewJobTargetRecord> records = list(wrapper);
+        Map<String, InterviewJobTargetContext> contextMap = new LinkedHashMap<>();
+        for (MockInterviewJobTargetRecord record : records) {
+            // 历史列表只需要判断是否为岗位定向以及来源类型，不需要加载完整上下文。
+            contextMap.putIfAbsent(record.getSessionId(), InterviewJobTargetContext.builder()
+                    .jobTargeted(true)
+                    .sourceType(record.getSourceType())
+                    .build());
+        }
+        return contextMap;
     }
 
     @Override

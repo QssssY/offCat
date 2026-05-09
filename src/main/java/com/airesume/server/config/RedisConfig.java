@@ -1,21 +1,17 @@
 package com.airesume.server.config;
 
-import com.fasterxml.jackson.annotation.JsonAutoDetect;
-import com.fasterxml.jackson.annotation.PropertyAccessor;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.databind.jsontype.impl.LaissezFaireSubTypeValidator;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.cache.interceptor.CacheErrorHandler;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.cache.RedisCacheConfiguration;
 import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.serializer.Jackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.JdkSerializationRedisSerializer;
 import org.springframework.data.redis.serializer.RedisSerializationContext;
+import org.springframework.data.redis.serializer.RedisSerializer;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 
 import java.time.Duration;
@@ -24,46 +20,65 @@ import java.util.Map;
 
 /**
  * Redis 配置类。
- * 包含 RedisTemplate 和 Spring Cache（RedisCacheManager）两套配置。
+ * <p>
+ * 这里将 Spring Cache 与 RedisTemplate 的值序列化统一切换为 JDK 序列化，
+ * 避免 Jackson 在根对象为 List 时出现“能写不能读”的反序列化问题。
  */
 @Configuration
 @EnableCaching
 public class RedisConfig {
 
+    /**
+     * Redis Key 统一使用字符串序列化，便于排查缓存键。
+     */
     @Bean
-    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory connectionFactory) {
+    public RedisSerializer<String> redisKeySerializer() {
+        return new StringRedisSerializer();
+    }
+
+    /**
+     * Redis Value 统一使用 JDK 序列化。
+     * <p>
+     * Spring Cache 的缓存对象大多是 DTO、VO、Map、List 等复杂结构，
+     * 使用 JDK 序列化可以稳定处理根对象为 List 的场景。
+     */
+    @Bean
+    public RedisSerializer<Object> redisValueSerializer() {
+        return new JdkSerializationRedisSerializer(getClass().getClassLoader());
+    }
+
+    /**
+     * 提供给手动 Redis 操作使用的模板。
+     * PublicStatsController 读写公开统计缓存时也复用这一套序列化配置。
+     */
+    @Bean
+    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory connectionFactory,
+                                                       RedisSerializer<String> redisKeySerializer,
+                                                       RedisSerializer<Object> redisValueSerializer) {
         RedisTemplate<String, Object> template = new RedisTemplate<>();
         template.setConnectionFactory(connectionFactory);
-
-        Jackson2JsonRedisSerializer<Object> jsonSerializer = jackson2JsonRedisSerializer();
-        StringRedisSerializer stringSerializer = new StringRedisSerializer();
-
-        template.setKeySerializer(stringSerializer);
-        template.setHashKeySerializer(stringSerializer);
-        template.setValueSerializer(jsonSerializer);
-        template.setHashValueSerializer(jsonSerializer);
-
+        template.setKeySerializer(redisKeySerializer);
+        template.setHashKeySerializer(redisKeySerializer);
+        template.setValueSerializer(redisValueSerializer);
+        template.setHashValueSerializer(redisValueSerializer);
         template.afterPropertiesSet();
         return template;
     }
 
     /**
-     * Spring Cache 缓存管理器，基于 Redis 实现。
-     * 每个命名缓存可配置独立 TTL。
+     * Spring Cache 缓存管理器。
+     * 不同缓存区域继续保留独立 TTL，避免一次性把所有缓存策略混成同一个周期。
      */
     @Bean
-    public CacheManager cacheManager(RedisConnectionFactory connectionFactory) {
-        Jackson2JsonRedisSerializer<Object> jsonSerializer = jackson2JsonRedisSerializer();
-        StringRedisSerializer stringSerializer = new StringRedisSerializer();
-
-        // 默认缓存配置：5 分钟 TTL
+    public CacheManager cacheManager(RedisConnectionFactory connectionFactory,
+                                     RedisSerializer<String> redisKeySerializer,
+                                     RedisSerializer<Object> redisValueSerializer) {
         RedisCacheConfiguration defaultConfig = RedisCacheConfiguration.defaultCacheConfig()
                 .entryTtl(Duration.ofMinutes(5))
-                .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(stringSerializer))
-                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(jsonSerializer))
+                .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(redisKeySerializer))
+                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(redisValueSerializer))
                 .disableCachingNullValues();
 
-        // 各缓存独立 TTL 配置
         Map<String, RedisCacheConfiguration> cacheConfigMap = new HashMap<>();
         cacheConfigMap.put("auth:userInfo", defaultConfig.entryTtl(Duration.ofMinutes(10)));
         cacheConfigMap.put("notification:unreadCount", defaultConfig.entryTtl(Duration.ofMinutes(2)));
@@ -80,14 +95,14 @@ public class RedisConfig {
                 .build();
     }
 
-    private Jackson2JsonRedisSerializer<Object> jackson2JsonRedisSerializer() {
-        ObjectMapper objectMapper = new ObjectMapper();
-        objectMapper.setVisibility(PropertyAccessor.ALL, JsonAutoDetect.Visibility.ANY);
-        objectMapper.activateDefaultTyping(LaissezFaireSubTypeValidator.instance, ObjectMapper.DefaultTyping.NON_FINAL);
-        objectMapper.registerModule(new JavaTimeModule());
-        objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
-
-        return new Jackson2JsonRedisSerializer<>(objectMapper, Object.class);
+    /**
+     * 缓存异常处理器。
+     * <p>
+     * 缓存命中失败不应影响主业务，请求应回源数据库并继续执行。
+     * 这样即使 Redis 中残留旧格式脏数据，也不会再把会员中心、成长中心直接打挂。
+     */
+    @Bean
+    public CacheErrorHandler cacheErrorHandler() {
+        return new RedisCacheErrorHandler();
     }
-
 }

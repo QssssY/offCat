@@ -11,7 +11,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 面试消息服务
@@ -83,6 +86,20 @@ public class InterviewMessageService {
      */
     public Integer getMessageCount(String sessionId) {
         return (int) interviewMessageRepository.countBySessionId(sessionId);
+    }
+
+    /**
+     * 批量获取会话消息数，避免历史列表逐条 count。
+     */
+    public Map<String, Integer> getMessageCountMap(Collection<String> sessionIds) {
+        if (sessionIds == null || sessionIds.isEmpty()) {
+            return Map.of();
+        }
+        return interviewMessageRepository.countBySessionIdIn(sessionIds).stream()
+                .collect(Collectors.toMap(
+                        InterviewMessageRepository.SessionMessageCountProjection::getSessionId,
+                        item -> Math.toIntExact(item.getMessageCount()),
+                        (left, right) -> left));
     }
 
     /**

@@ -38,7 +38,10 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -365,9 +368,7 @@ public class InterviewService {
     public PageResult<InterviewHistoryResponse> getHistory(Long userId, Integer pageNum, Integer pageSize) {
         Pageable pageable = PageRequest.of(pageNum - 1, pageSize, Sort.by(Sort.Direction.DESC, "createTime"));
         Page<InterviewSession> page = interviewSessionRepository.findByUserId(userId, pageable);
-        List<InterviewHistoryResponse> list = page.getContent().stream()
-                .map(this::convertToHistoryResponse)
-                .collect(Collectors.toList());
+        List<InterviewHistoryResponse> list = buildHistoryResponses(userId, page.getContent());
         return PageResult.of(list, page.getTotalElements(), pageNum, pageSize);
     }
 
@@ -377,9 +378,7 @@ public class InterviewService {
     @Deprecated
     public List<InterviewHistoryResponse> getAllHistory(Long userId) {
         List<InterviewSession> sessions = interviewSessionRepository.findByUserIdOrderByCreateTimeDesc(userId);
-        return sessions.stream()
-                .map(this::convertToHistoryResponse)
-                .collect(Collectors.toList());
+        return buildHistoryResponses(userId, sessions);
     }
 
     /**
@@ -650,14 +649,36 @@ public class InterviewService {
     /**
      * 转换历史记录响应。
      */
-    private InterviewHistoryResponse convertToHistoryResponse(InterviewSession session) {
-        Integer messageCount = interviewMessageService.getMessageCount(session.getSessionId());
+    /**
+     * 批量构建历史记录响应，避免分页结果逐条查询附加信息。
+     */
+    private List<InterviewHistoryResponse> buildHistoryResponses(Long userId, List<InterviewSession> sessions) {
+        if (sessions == null || sessions.isEmpty()) {
+            return List.of();
+        }
+
+        Set<String> sessionIds = sessions.stream()
+                .map(InterviewSession::getSessionId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<String, Integer> messageCountMap = interviewMessageService.getMessageCountMap(sessionIds);
+        Map<String, InterviewJobTargetContext> contextMap =
+                mockInterviewJobTargetService.getSessionContextSummaryMap(userId, sessionIds);
+
+        return sessions.stream()
+                .map(session -> convertToHistoryResponse(
+                        session,
+                        messageCountMap.getOrDefault(session.getSessionId(), 0),
+                        contextMap.get(session.getSessionId())))
+                .collect(Collectors.toList());
+    }
+
+    private InterviewHistoryResponse convertToHistoryResponse(InterviewSession session,
+                                                             Integer messageCount,
+                                                             InterviewJobTargetContext jobTargetContext) {
         String interviewMode = session.getInterviewMode();
         if (interviewMode == null || interviewMode.isBlank()) {
             interviewMode = InterviewConstants.MODE_NORMAL;
         }
-        InterviewJobTargetContext jobTargetContext =
-                mockInterviewJobTargetService.getSessionContext(session.getUserId(), session.getSessionId());
         String responseInterviewMode = resolveResponseInterviewMode(interviewMode, jobTargetContext);
 
         return InterviewHistoryResponse.builder()
@@ -671,7 +692,7 @@ public class InterviewService {
                 .status(session.getStatus())
                 .statusDesc(isSessionInProgress(session) ? "进行中" : "已结束")
                 .comprehensiveScore(session.getComprehensiveScore())
-                .messageCount(messageCount)
+                .messageCount(messageCount == null ? 0 : messageCount)
                 .jobTargeted(jobTargetContext != null && Boolean.TRUE.equals(jobTargetContext.getJobTargeted()))
                 .sourceType(jobTargetContext == null ? null : jobTargetContext.getSourceType())
                 .createTime(session.getCreateTime())
