@@ -53,7 +53,7 @@ public class AiTokenLimitConfig {
     private int interviewRoundMax = 4000;
 
     /** 面试评价报告最大输入 token 数 */
-    private int interviewEvaluationMax = 8000;
+    private int interviewEvaluationMax = 12000;
 
     /**
      * 上下文窗口安全使用率阈值
@@ -63,7 +63,7 @@ public class AiTokenLimitConfig {
     private double contextWindowRatio = 0.8;
 
     /** 默认模型最大上下文 token 数（适用于 DeepSeek-V3 等 8K 模型） */
-    private int defaultMaxContextTokens = 8192;
+    private int defaultMaxContextTokens = 16384;
 
     /** 是否启用输入压缩（true=启用，false=禁用，恢复原始行为） */
     private boolean compressionEnabled = true;
