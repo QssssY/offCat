@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.io.Serializable;
 import java.util.List;
 
 /**
@@ -15,7 +16,9 @@ import java.util.List;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class GrowthOverviewResponse {
+public class GrowthOverviewResponse implements Serializable {
+
+    private static final long serialVersionUID = 1L;
 
     /** 成长概览摘要 */
     private SummaryVO summary;
@@ -45,7 +48,8 @@ public class GrowthOverviewResponse {
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class SummaryVO {
+    public static class SummaryVO implements Serializable {
+        private static final long serialVersionUID = 1L;
         /** 最近一次简历诊断分数 */
         private Integer latestResumeScore;
         /** 最近一次面试评分 */
@@ -69,7 +73,8 @@ public class GrowthOverviewResponse {
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class ScoreTrendItem {
+    public static class ScoreTrendItem implements Serializable {
+        private static final long serialVersionUID = 1L;
         /** 日期标签，格式 MM/dd */
         private String date;
         /** 分数 0-100 */
@@ -83,7 +88,8 @@ public class GrowthOverviewResponse {
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class LatestJobMatchVO {
+    public static class LatestJobMatchVO implements Serializable {
+        private static final long serialVersionUID = 1L;
         /** 匹配分数 */
         private Integer matchScore;
         /** 已匹配关键词 */
@@ -103,7 +109,8 @@ public class GrowthOverviewResponse {
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class LatestPolishVO {
+    public static class LatestPolishVO implements Serializable {
+        private static final long serialVersionUID = 1L;
         /** 来源类型 */
         private String sourceType;
         /** 修改说明摘要 */
@@ -119,7 +126,8 @@ public class GrowthOverviewResponse {
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class LatestInterviewFeedbackVO {
+    public static class LatestInterviewFeedbackVO implements Serializable {
+        private static final long serialVersionUID = 1L;
         /** 面试岗位 */
         private String jobRole;
         /** 面试模式 */
@@ -141,7 +149,8 @@ public class GrowthOverviewResponse {
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class WeaknessSummaryVO {
+    public static class WeaknessSummaryVO implements Serializable {
+        private static final long serialVersionUID = 1L;
         /** 简历侧短板 */
         private List<String> resumeWeaknesses;
         /** 岗位匹配侧短板 */

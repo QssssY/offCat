@@ -10,6 +10,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -85,6 +86,7 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "auth:userInfo", key = "#userId")
     public void deductInterviewQuota(Long userId) {
         UserQuota userQuota = ensureUserQuota(userId);
         refreshDailyQuotaIfNeeded(userId, userQuota);
@@ -113,6 +115,7 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "auth:userInfo", key = "#userId")
     public void refundResumeQuota(Long userId) {
         UserQuota userQuota = ensureUserQuota(userId);
         // 退还总使用次数
@@ -127,6 +130,7 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "auth:userInfo", key = "#userId")
     public void deductResumeQuota(Long userId) {
         UserQuota userQuota = ensureUserQuota(userId);
         refreshDailyQuotaIfNeeded(userId, userQuota);

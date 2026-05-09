@@ -15,6 +15,7 @@ import com.airesume.server.service.UserQuotaService;
 import com.airesume.server.service.UserRightsChangeLogService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -77,6 +78,7 @@ public class AdminUserRightsServiceImpl implements AdminUserRightsService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "auth:userInfo", key = "#userId")
     public void updateUserRights(Long operatorUserId, Long userId, UserRightsUpdateRequest request) {
         if (request == null) {
             throw new BusinessException("用户权益修改请求不能为空");

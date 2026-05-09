@@ -8,6 +8,7 @@ import com.airesume.server.common.result.Result;
 import com.airesume.server.dto.admin.*;
 import com.airesume.server.entity.SysAiEngineConfig;
 import com.airesume.server.entity.SysJobRole;
+import org.springframework.cache.annotation.CacheEvict;
 import com.airesume.server.entity.SysPrompt;
 import com.airesume.server.entity.SysUser;
 import com.airesume.server.entity.UserQuota;
@@ -24,6 +25,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -78,6 +80,7 @@ public class AdminController {
      * 新增岗位配置
      */
     @PostMapping("/job-roles")
+    @CacheEvict(value = "config:jobRoles", allEntries = true)
     public Result<Long> createJobRole(@Valid @RequestBody JobRoleCreateRequest request,
                                       Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
@@ -102,6 +105,7 @@ public class AdminController {
      * 修改岗位配置
      */
     @PutMapping("/job-roles")
+    @CacheEvict(value = "config:jobRoles", allEntries = true)
     public Result<Void> updateJobRole(@Valid @RequestBody JobRoleUpdateRequest request,
                                       Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
@@ -144,12 +148,16 @@ public class AdminController {
      * 启用/禁用岗位配置
      */
     @PutMapping("/job-roles/{id}/active")
+    @CacheEvict(value = "config:jobRoles", allEntries = true)
     public Result<Void> toggleJobRoleActive(@PathVariable Long id,
                                             @RequestParam Integer isActive,
                                             Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         checkAdminPermission(userId);
         log.info("Admin toggle job role active, id: {}, isActive: {}", id, isActive);
+        if (isActive != 0 && isActive != 1) {
+            throw new BusinessException("isActive 只能为 0 或 1");
+        }
 
         SysJobRole jobRole = sysJobRoleService.getById(id);
         if (jobRole == null) {
@@ -169,6 +177,7 @@ public class AdminController {
      * 此操作会绕过逻辑删除，直接从数据库移除记录。
      */
     @DeleteMapping("/job-roles/{id}")
+    @CacheEvict(value = "config:jobRoles", allEntries = true)
     public Result<Void> deleteJobRole(@PathVariable Long id, Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         checkAdminPermission(userId);
@@ -191,6 +200,7 @@ public class AdminController {
      * 管理员可以批量物理删除岗位配置，删除后数据无法恢复。
      */
     @DeleteMapping("/job-roles/batch")
+    @CacheEvict(value = "config:jobRoles", allEntries = true)
     public Result<Void> deleteJobRolesBatch(@RequestBody List<Long> ids, Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         checkAdminPermission(userId);
@@ -212,8 +222,10 @@ public class AdminController {
      * 作用：
      * 管理员可以批量启用或禁用岗位配置。
      */
+    @Transactional(rollbackFor = Exception.class)
     @PutMapping("/job-roles/batch/active")
-    public Result<Void> toggleJobRolesBatchActive(@RequestBody BatchActiveRequest request,
+    @CacheEvict(value = "config:jobRoles", allEntries = true)
+    public Result<Void> toggleJobRolesBatchActive(@Valid @RequestBody BatchActiveRequest request,
                                            Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         checkAdminPermission(userId);
@@ -285,6 +297,8 @@ public class AdminController {
         config.setModelName(normalizeRequiredValue(request.getModelName(), "模型名称不能为空"));
         config.setBaseUrl(normalizeRequiredValue(request.getBaseUrl(), "基础地址不能为空"));
         config.setApiKey(normalizeRequiredValue(request.getApiKey(), "API Key 不能为空"));
+        config.setSupportsMultimodal(request.getSupportsMultimodal());
+        config.setThinkingMode(request.getThinkingMode());
         config.setTemperature(request.getTemperature());
         config.setMaxTokens(request.getMaxTokens());
         config.setTimeoutMs(request.getTimeoutMs());
@@ -343,6 +357,12 @@ public class AdminController {
                 throw new BusinessException("API Key 不能为脱敏格式，请输入完整的真实 API Key");
             }
             config.setApiKey(normalizeRequiredValue(request.getApiKey(), "API Key 不能为空"));
+        }
+        if (request.getSupportsMultimodal() != null) {
+            config.setSupportsMultimodal(request.getSupportsMultimodal());
+        }
+        if (request.getThinkingMode() != null) {
+            config.setThinkingMode(request.getThinkingMode());
         }
         if (request.getTemperature() != null) {
             config.setTemperature(request.getTemperature());
@@ -438,8 +458,9 @@ public class AdminController {
      * 管理员可以批量启用或禁用 AI 引擎配置。
      * 启用时会自动禁用同业务类型的其他配置，保证最多只有一个启用。
      */
+    @Transactional(rollbackFor = Exception.class)
     @PutMapping("/ai-engines/batch/active")
-    public Result<Void> toggleAiEnginesBatchActive(@RequestBody BatchActiveRequest request,
+    public Result<Void> toggleAiEnginesBatchActive(@Valid @RequestBody BatchActiveRequest request,
                                                Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         checkAdminPermission(userId);
@@ -556,6 +577,7 @@ public class AdminController {
      * @param authentication 认证对象
      * @return 新增的提示词模板 ID
      */
+    @Transactional(rollbackFor = Exception.class)
     @PostMapping("/prompts")
     public Result<Long> createPrompt(@Valid @RequestBody PromptCreateRequest request,
                                        Authentication authentication) {
@@ -594,6 +616,7 @@ SysPrompt prompt = new SysPrompt();
      * @param authentication 认证对象
      * @return 空结果
      */
+    @Transactional(rollbackFor = Exception.class)
     @PutMapping("/prompts")
     public Result<Void> updatePrompt(@Valid @RequestBody PromptUpdateRequest request,
                                       Authentication authentication) {
@@ -647,6 +670,7 @@ SysPrompt prompt = new SysPrompt();
      * @param authentication 认证对象
      * @return 空结果
      */
+    @Transactional(rollbackFor = Exception.class)
     @PutMapping("/prompts/{id}/active")
     public Result<Void> togglePromptActive(@PathVariable Long id,
                                              @RequestParam Integer isActive,
@@ -654,6 +678,9 @@ SysPrompt prompt = new SysPrompt();
         Long userId = (Long) authentication.getPrincipal();
         checkAdminPermission(userId);
         log.info("Admin toggle prompt active, id: {}, isActive: {}", id, isActive);
+        if (isActive != 0 && isActive != 1) {
+            throw new BusinessException("isActive 只能为 0 或 1");
+        }
 
         SysPrompt prompt = sysPromptService.getById(id);
         if (prompt == null) {
@@ -726,8 +753,9 @@ SysPrompt prompt = new SysPrompt();
      * 管理员可以批量启用或禁用提示词模板。
      * 启用时会自动禁用同岗位同难度的其他模板，保证最多只有一个启用。
      */
+    @Transactional(rollbackFor = Exception.class)
     @PutMapping("/prompts/batch/active")
-    public Result<Void> togglePromptsBatchActive(@RequestBody BatchActiveRequest request,
+    public Result<Void> togglePromptsBatchActive(@Valid @RequestBody BatchActiveRequest request,
                                                 Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         checkAdminPermission(userId);
@@ -836,6 +864,7 @@ SysPrompt prompt = new SysPrompt();
     }
 
     @PutMapping("/users/{userId}/status")
+    @CacheEvict(value = "auth:userInfo", key = "#userId")
     public Result<Void> updateUserStatus(@PathVariable Long userId,
                                           @RequestParam Integer status,
                                           Authentication authentication) {
@@ -861,8 +890,10 @@ SysPrompt prompt = new SysPrompt();
      * 作用：
      * 管理员可以批量启用或禁用用户账号。
      */
+    @Transactional(rollbackFor = Exception.class)
     @PutMapping("/users/batch/status")
-    public Result<Void> updateUsersBatchStatus(@RequestBody BatchActiveRequest request,
+    @CacheEvict(value = {"auth:userInfo", "user:monthlyStats", "user:growthOverview"}, allEntries = true)
+    public Result<Void> updateUsersBatchStatus(@Valid @RequestBody BatchActiveRequest request,
                                                Authentication authentication) {
         Long adminUserId = (Long) authentication.getPrincipal();
         checkAdminPermission(adminUserId);
@@ -934,6 +965,7 @@ SysPrompt prompt = new SysPrompt();
      * @return 空结果
      */
     @PutMapping("/users/quota")
+    @CacheEvict(value = "auth:userInfo", key = "#request.userId")
     public Result<Void> updateUserQuota(@Valid @RequestBody UserQuotaUpdateRequest request,
                                          Authentication authentication) {
         Long adminUserId = (Long) authentication.getPrincipal();
@@ -1015,6 +1047,8 @@ SysPrompt prompt = new SysPrompt();
                 .modelName(config.getModelName())
                 .baseUrl(config.getBaseUrl())
                 .apiKey(maskApiKey(config.getApiKey()))
+                .supportsMultimodal(config.getSupportsMultimodal())
+                .thinkingMode(config.getThinkingMode())
                 .temperature(config.getTemperature())
                 .maxTokens(config.getMaxTokens())
                 .timeoutMs(config.getTimeoutMs())

@@ -13,6 +13,7 @@ import java.util.List;
 
 /**
  * 简历 AI Mock 服务实现。
+ * 用于本地开发时覆盖诊断、多模态和润色等能力。
  */
 @Service("resumeAiService")
 @Slf4j
@@ -24,23 +25,40 @@ public class MockResumeAiServiceImpl implements ResumeAiService {
 
     @Override
     public String diagnose(String resumeText) {
-        log.info("[MOCK] 简历诊断调用(mock mode), resumeTextLength: {}",
-                resumeText == null ? 0 : resumeText.length());
+        log.info("[MOCK] 简历诊断调用, resumeTextLength: {}", resumeText == null ? 0 : resumeText.length());
         return mockDiagnosisResultGenerator.generateMockDiagnosisResult("mock-file-url");
     }
 
     @Override
+    public boolean supportsVisionExtraction() {
+        // Mock 模式默认声明支持，便于本地测试多模态解析分支。
+        return true;
+    }
+
+    @Override
+    public String extractTextFromImage(String imageDataUrl, String pageHint) {
+        log.info("[MOCK] 多模态图片转文本调用, pageHint: {}", pageHint);
+        return """
+                姓名：张三
+                电话：13800000000
+                邮箱：zhangsan@example.com
+                技能：Java、Spring Boot、MySQL
+                项目经历：负责后台接口开发、接口联调和性能优化。
+                """.trim();
+    }
+
+    @Override
     public ResumePolishAiResult polishResume(String resumeText, String jdText, ResumeJobMatchAnalyzeResponse latestJobMatchAnalysis) {
-        log.info("[MOCK] AI 简历润色调用(mock mode), resumeTextLength: {}, hasJd: {}",
+        log.info("[MOCK] AI 简历润色调用, resumeTextLength: {}, hasJd: {}",
                 resumeText == null ? 0 : resumeText.length(),
                 jdText != null && !jdText.isBlank());
 
         StringBuilder polishedTextBuilder = new StringBuilder();
         polishedTextBuilder.append("【求职摘要】\n");
-        polishedTextBuilder.append("具备较完整的项目经历与技术实践，能够围绕岗位目标整理经历并突出业务结果。\n\n");
+        polishedTextBuilder.append("具备较完整的项目经历与技术实践，能够围绕目标岗位整理经历并突出业务结果。\n\n");
         polishedTextBuilder.append("【核心能力】\n");
         polishedTextBuilder.append("1. 将目标岗位相关技能前置展示，提升招聘方快速阅读效率。\n");
-        polishedTextBuilder.append("2. 使用“场景-动作-结果”方式改写项目表达，增强成果导向。\n");
+        polishedTextBuilder.append("2. 使用“场景-动作-结果”的方式改写项目表达，增强成果导向。\n");
         polishedTextBuilder.append("3. 保留原始经历事实，只优化结构、措辞和投递针对性。\n\n");
         polishedTextBuilder.append("【项目经历优化示例】\n");
         polishedTextBuilder.append("- 负责核心模块设计与开发，推动关键功能按期交付，并通过性能优化提升系统稳定性。\n");
@@ -69,7 +87,7 @@ public class MockResumeAiServiceImpl implements ResumeAiService {
 
     @Override
     public String diagnoseJobMatch(String resumeText, String jdText) {
-        log.info("[MOCK] JD 匹配分析调用(mock mode), resumeTextLength: {}, jdTextLength: {}",
+        log.info("[MOCK] JD 匹配分析调用, resumeTextLength: {}, jdTextLength: {}",
                 resumeText == null ? 0 : resumeText.length(),
                 jdText == null ? 0 : jdText.length());
         return """
@@ -78,12 +96,12 @@ public class MockResumeAiServiceImpl implements ResumeAiService {
                   "matchedKeywords": ["Java", "Spring Boot", "MySQL", "项目经验", "团队协作"],
                   "missingKeywords": ["微服务架构", "Docker", "性能优化", "高并发经验"],
                   "suggestions": [
-                    "建议补充微服务架构相关的项目经历，如Spring Cloud、服务拆分经验",
-                    "在项目描述中增加Docker容器化部署和CI/CD流水线相关经验",
+                    "建议补充微服务架构相关的项目经历，如 Spring Cloud、服务拆分经验",
+                    "在项目描述中增加 Docker 容器化部署和 CI/CD 流水线相关经验",
                     "针对高并发场景，补充性能优化的具体案例和量化数据",
-                    "将已有技术能力按岗位JD的优先级重新排序，突出最相关技能"
+                    "将已有技术能力按岗位 JD 的优先级重新排序，突出最相关技能"
                   ],
-                  "analysisSummary": "候选人具备扎实的Java基础和项目开发经验，与岗位基础要求匹配度较好。但在微服务架构、容器化部署和高并发场景经验方面存在提升空间，建议针对性补充相关经历。"
+                  "analysisSummary": "候选人具备扎实的 Java 基础和项目开发经验，与岗位基础要求匹配度较好。但在微服务架构、容器化部署和高并发场景经验方面存在提升空间，建议针对性补充相关经历。"
                 }
                 """;
     }

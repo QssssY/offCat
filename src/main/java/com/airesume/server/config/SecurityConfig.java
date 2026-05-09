@@ -82,6 +82,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/diagnostic/**").permitAll()
                         // 用户端岗位选项需要由后台配置提供，前端不能再写死，所以这里开放只读岗位列表。
                         .requestMatchers(HttpMethod.GET, "/api/interview/job-roles").permitAll()
+                        // 公开统计接口放行 - 首页展示平台数据
+                        .requestMatchers(HttpMethod.GET, "/api/stats").permitAll()
                         .requestMatchers("/api/resume/**").authenticated()
                         .requestMatchers("/api/interview/**").authenticated()
                         // 社区模块需要登录

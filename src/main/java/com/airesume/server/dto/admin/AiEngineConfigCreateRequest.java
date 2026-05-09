@@ -6,6 +6,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -57,6 +58,21 @@ public class AiEngineConfigCreateRequest {
      */
     @NotBlank(message = "API Key 不能为空")
     private String apiKey;
+
+    /**
+     * 是否支持多模态识别（图片型 PDF）。1-支持，0-不支持。
+     */
+    @NotNull(message = "supportsMultimodal 不能为空")
+    @Min(value = 0, message = "supportsMultimodal 只支持 0 或 1")
+    @Max(value = 1, message = "supportsMultimodal 只支持 0 或 1")
+    private Integer supportsMultimodal;
+
+    /**
+     * 思考模式。enabled=开启，disabled=关闭，none=不传 thinking 参数。
+     */
+    @NotBlank(message = "thinkingMode 不能为空")
+    @Pattern(regexp = "^(enabled|disabled|none)$", message = "thinkingMode 只支持 enabled/disabled/none")
+    private String thinkingMode;
 
     /**
      * 模型生成温度参数。

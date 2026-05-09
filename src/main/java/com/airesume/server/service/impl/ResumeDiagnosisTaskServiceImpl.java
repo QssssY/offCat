@@ -12,17 +12,19 @@ import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
 import com.airesume.server.mq.DirectProcessRouter;
 import com.airesume.server.mq.ResumeDiagnosisProducer;
 import com.airesume.server.service.NotificationService;
-import com.airesume.server.service.PdfTextExtractor;
+import com.airesume.server.service.ResumeContentExtractor;
 import com.airesume.server.service.ResumeDiagnosisTaskService;
 import com.airesume.server.service.ResumeJobMatchService;
 import com.airesume.server.service.ResumePolishService;
 import com.airesume.server.service.UserQuotaService;
+import com.airesume.server.service.resume.ResumeParseResult;
 import org.springframework.context.annotation.Lazy;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -44,7 +46,7 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
     private final UserQuotaService userQuotaService;
     private final ResumeDiagnosisProducer resumeDiagnosisProducer;
     private final DirectProcessRouter directProcessRouter;
-    private final PdfTextExtractor pdfTextExtractor;
+    private final ResumeContentExtractor resumeContentExtractor;
     private final NotificationService notificationService;
     private final ResumeJobMatchService resumeJobMatchService;
     private final ResumePolishService resumePolishService;
@@ -56,14 +58,14 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
             UserQuotaService userQuotaService,
             ResumeDiagnosisProducer resumeDiagnosisProducer,
             @Lazy DirectProcessRouter directProcessRouter,
-            PdfTextExtractor pdfTextExtractor,
+            ResumeContentExtractor resumeContentExtractor,
             NotificationService notificationService,
             ResumeJobMatchService resumeJobMatchService,
             ResumePolishService resumePolishService) {
         this.userQuotaService = userQuotaService;
         this.resumeDiagnosisProducer = resumeDiagnosisProducer;
         this.directProcessRouter = directProcessRouter;
-        this.pdfTextExtractor = pdfTextExtractor;
+        this.resumeContentExtractor = resumeContentExtractor;
         this.notificationService = notificationService;
         this.resumeJobMatchService = resumeJobMatchService;
         this.resumePolishService = resumePolishService;
@@ -194,6 +196,7 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
     }
 
     @Override
+    @Cacheable(value = "resume:task", key = "#taskId + '::' + #userId")
     public ResumeDiagnosisTaskResponse getTaskById(Long taskId, Long userId) {
         ResumeDiagnosisTask task = getById(taskId);
         if (task == null) {
@@ -298,6 +301,23 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void updateTaskResumeParseResult(Long taskId, String resumeText, String parseMode, String parseMessage) {
+        ResumeDiagnosisTask task = getById(taskId);
+        if (task == null) {
+            log.warn("Task not found when updating resume parse result, taskId: {}", taskId);
+            return;
+        }
+
+        // 统一写入缓存文本与解析元信息，供结果页和后续能力复用。
+        task.setResumeText(resumeText);
+        task.setParseMode(parseMode);
+        task.setParseMessage(parseMessage);
+        updateById(task);
+        log.info("Task resume parse result updated, taskId: {}, parseMode: {}", taskId, parseMode);
+    }
+
+    @Override
     public Integer getTaskStatus(Long taskId) {
         ResumeDiagnosisTask task = getById(taskId);
         if (task == null) return null;
@@ -335,6 +355,8 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
                 .diagnosisResult(task.getDiagnosisResult())
                 .errorMsg(task.getErrorMsg())
                 .resumeText(resumeText)
+                .parseMode(task.getParseMode())
+                .parseMessage(task.getParseMessage())
                 .latestJobMatchAnalysis(resolveLatestJobMatchAnalysis(task, isCompletedTask))
                 .latestPolishResult(resolveLatestPolishResult(task, isCompletedTask))
                 .createTime(task.getCreateTime())
@@ -357,11 +379,17 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
         }
 
         try {
-            String resumeText = pdfTextExtractor.extractText(task.getFileUrl());
+            // 仅在已完成任务缺少缓存文本时才兜底重解析，避免轮询阶段重复开销。
+            ResumeParseResult parseResult = resumeContentExtractor.extract(task.getFileUrl());
+            String resumeText = parseResult.getText();
             try {
-                updateTaskResumeText(task.getId(), resumeText);
+                updateTaskResumeParseResult(
+                        task.getId(),
+                        resumeText,
+                        parseResult.getParseMode(),
+                        parseResult.getParseMessage());
             } catch (Exception e) {
-                log.warn("Failed to cache resume text for completed task, taskId: {}", task.getId(), e);
+                log.warn("Failed to cache resume parse result for completed task, taskId: {}", task.getId(), e);
             }
             return resumeText;
         } catch (Exception e) {

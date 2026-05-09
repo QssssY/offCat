@@ -12,10 +12,11 @@ import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
 import com.airesume.server.mapper.ResumeJobMatchRecordMapper;
 import com.airesume.server.mapper.ResumePolishRecordMapper;
 import com.airesume.server.service.NotificationService;
-import com.airesume.server.service.PdfTextExtractor;
+import com.airesume.server.service.ResumeAiService;
+import com.airesume.server.service.ResumeContentExtractor;
 import com.airesume.server.service.ResumeJobMatchService;
 import com.airesume.server.service.ResumePolishService;
-import com.airesume.server.service.ResumeAiService;
+import com.airesume.server.service.resume.ResumeParseResult;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -30,7 +31,7 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * AI 简历润色服务实现。
+ * AI 简历润色服务。
  */
 @Slf4j
 @Service
@@ -45,7 +46,7 @@ public class ResumePolishServiceImpl extends ServiceImpl<ResumePolishRecordMappe
     private final ResumeJobMatchRecordMapper resumeJobMatchRecordMapper;
     private final ResumeJobMatchService resumeJobMatchService;
     private final ResumeAiService resumeAiService;
-    private final PdfTextExtractor pdfTextExtractor;
+    private final ResumeContentExtractor resumeContentExtractor;
     private final ObjectMapper objectMapper;
     private final NotificationService notificationService;
 
@@ -55,16 +56,11 @@ public class ResumePolishServiceImpl extends ServiceImpl<ResumePolishRecordMappe
         Long resumeTaskId = parseResumeTaskId(request.getResumeTaskId());
         ResumeDiagnosisTask task = loadOwnedTask(userId, resumeTaskId);
 
-        // 优先使用前端传入的简历文本，缺失时再从 PDF 原文兜底提取。
-        String resumeText = normalizeText(request.getResumeText());
-        if (resumeText.isBlank()) {
-            resumeText = normalizeText(pdfTextExtractor.extractText(task.getFileUrl()));
-        }
+        String resumeText = resolveResumeText(task, request.getResumeText());
         if (resumeText.isBlank()) {
             throw new BusinessException("简历文本不能为空");
         }
 
-        // JD 文本优先用前端显式传入，其次回退到最近一次 JD 分析记录快照。
         ResumeJobMatchRecord latestJobMatchRecord = findLatestJobMatchRecord(userId, resumeTaskId);
         String jdText = normalizeText(request.getJdText());
         if (jdText.isBlank() && latestJobMatchRecord != null) {
@@ -73,14 +69,9 @@ public class ResumePolishServiceImpl extends ServiceImpl<ResumePolishRecordMappe
 
         ResumeJobMatchAnalyzeResponse latestJobMatchAnalysis =
                 resumeJobMatchService.getLatestAnalysis(userId, resumeTaskId);
-
         String sourceType = jdText.isBlank() ? SOURCE_TYPE_RESUME_ONLY : SOURCE_TYPE_RESUME_WITH_JD;
 
-        ResumePolishAiResult aiResult = resumeAiService.polishResume(
-                resumeText,
-                jdText,
-                latestJobMatchAnalysis
-        );
+        ResumePolishAiResult aiResult = resumeAiService.polishResume(resumeText, jdText, latestJobMatchAnalysis);
 
         ResumePolishRecord record = new ResumePolishRecord();
         record.setUserId(userId);
@@ -92,11 +83,13 @@ public class ResumePolishServiceImpl extends ServiceImpl<ResumePolishRecordMappe
         record.setSourceType(sourceType);
         save(record);
 
-        // 创建 AI 润色完成通知
         notificationService.createNotification(
-                userId, "polish", "AI 简历润色完成",
-                "你的简历润色结果已生成，点击查看优化内容。",
-                "resume_polish", String.valueOf(record.getId()));
+                userId,
+                "polish",
+                "AI 简历润色完成",
+                "你的简历润色结果已生成，点击即可查看优化内容。",
+                "resume_polish",
+                String.valueOf(record.getId()));
 
         return ResumePolishAnalyzeResponse.builder()
                 .polishRecordId(String.valueOf(record.getId()))
@@ -132,7 +125,40 @@ public class ResumePolishServiceImpl extends ServiceImpl<ResumePolishRecordMappe
     }
 
     /**
-     * 读取最近一次 JD 分析记录，用于回退提取 JD 原文快照。
+     * 文本优先级：前端显式传入 > 任务缓存文本 > 统一解析链路。
+     */
+    private String resolveResumeText(ResumeDiagnosisTask task, String requestResumeText) {
+        String resumeText = normalizeText(requestResumeText);
+        if (!resumeText.isBlank()) {
+            return resumeText;
+        }
+
+        resumeText = normalizeText(task.getResumeText());
+        if (!resumeText.isBlank()) {
+            return resumeText;
+        }
+
+        return normalizeText(parseAndCacheResume(task).getText());
+    }
+
+    /**
+     * 当任务缺少缓存文本时，统一走新的混合解析链路并回写任务缓存。
+     */
+    private ResumeParseResult parseAndCacheResume(ResumeDiagnosisTask task) {
+        if (task == null || task.getFileUrl() == null || task.getFileUrl().isBlank()) {
+            throw new BusinessException("简历文件不存在，无法解析");
+        }
+
+        ResumeParseResult parseResult = resumeContentExtractor.extract(task.getFileUrl());
+        task.setResumeText(parseResult.getText());
+        task.setParseMode(parseResult.getParseMode());
+        task.setParseMessage(parseResult.getParseMessage());
+        resumeDiagnosisTaskMapper.updateById(task);
+        return parseResult;
+    }
+
+    /**
+     * 读取最近一次 JD 匹配记录，用于回退提取 JD 原文快照。
      */
     private ResumeJobMatchRecord findLatestJobMatchRecord(Long userId, Long resumeTaskId) {
         LambdaQueryWrapper<ResumeJobMatchRecord> wrapper = new LambdaQueryWrapper<>();
@@ -143,9 +169,6 @@ public class ResumePolishServiceImpl extends ServiceImpl<ResumePolishRecordMappe
         return resumeJobMatchRecordMapper.selectOne(wrapper);
     }
 
-    /**
-     * 校验任务归属，防止跨用户读取简历原文。
-     */
     private ResumeDiagnosisTask loadOwnedTask(Long userId, Long resumeTaskId) {
         ResumeDiagnosisTask task = resumeDiagnosisTaskMapper.selectById(resumeTaskId);
         if (task == null) {
@@ -196,7 +219,8 @@ public class ResumePolishServiceImpl extends ServiceImpl<ResumePolishRecordMappe
             return List.of();
         }
         try {
-            return objectMapper.readValue(modificationNotes, new TypeReference<>() {});
+            return objectMapper.readValue(modificationNotes, new TypeReference<>() {
+            });
         } catch (JsonProcessingException e) {
             log.warn("解析润色说明失败，recordNotes: {}", modificationNotes, e);
             return List.of(modificationNotes);

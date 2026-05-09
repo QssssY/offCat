@@ -13,8 +13,9 @@ import com.airesume.server.entity.ResumeJobMatchRecord;
 import com.airesume.server.mapper.MockInterviewJobTargetRecordMapper;
 import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
 import com.airesume.server.service.MockInterviewJobTargetService;
-import com.airesume.server.service.PdfTextExtractor;
+import com.airesume.server.service.ResumeContentExtractor;
 import com.airesume.server.service.ResumeJobMatchService;
+import com.airesume.server.service.resume.ResumeParseResult;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -25,7 +26,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -41,7 +45,7 @@ public class MockInterviewJobTargetServiceImpl
 
     private final ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper;
     private final ResumeJobMatchService resumeJobMatchService;
-    private final PdfTextExtractor pdfTextExtractor;
+    private final ResumeContentExtractor resumeContentExtractor;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -186,6 +190,30 @@ public class MockInterviewJobTargetServiceImpl
     }
 
     @Override
+    public Map<String, InterviewJobTargetContext> getSessionContextSummaryMap(Long userId, Collection<String> sessionIds) {
+        if (sessionIds == null || sessionIds.isEmpty()) {
+            return Map.of();
+        }
+
+        LambdaQueryWrapper<MockInterviewJobTargetRecord> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(MockInterviewJobTargetRecord::getUserId, userId)
+                .in(MockInterviewJobTargetRecord::getSessionId, sessionIds)
+                .orderByDesc(MockInterviewJobTargetRecord::getCreateTime)
+                .orderByDesc(MockInterviewJobTargetRecord::getId);
+
+        List<MockInterviewJobTargetRecord> records = list(wrapper);
+        Map<String, InterviewJobTargetContext> contextMap = new LinkedHashMap<>();
+        for (MockInterviewJobTargetRecord record : records) {
+            // 历史列表只需要判断是否为岗位定向以及来源类型，不需要加载完整上下文。
+            contextMap.putIfAbsent(record.getSessionId(), InterviewJobTargetContext.builder()
+                    .jobTargeted(true)
+                    .sourceType(record.getSourceType())
+                    .build());
+        }
+        return contextMap;
+    }
+
+    @Override
     public InterviewJobTargetContext resolveLatestResumeContext(Long userId) {
         return buildGeneralResumeContext(userId, null);
     }
@@ -282,7 +310,12 @@ public class MockInterviewJobTargetServiceImpl
             return "";
         }
         try {
-            return normalizeText(pdfTextExtractor.extractText(task.getFileUrl()));
+            ResumeParseResult parseResult = resumeContentExtractor.extract(task.getFileUrl());
+            task.setResumeText(parseResult.getText());
+            task.setParseMode(parseResult.getParseMode());
+            task.setParseMessage(parseResult.getParseMessage());
+            resumeDiagnosisTaskMapper.updateById(task);
+            return normalizeText(parseResult.getText());
         } catch (Exception e) {
             log.warn("提取简历文本失败, userId: {}, resumeTaskId: {}", userId, resumeTaskId, e);
             return "";

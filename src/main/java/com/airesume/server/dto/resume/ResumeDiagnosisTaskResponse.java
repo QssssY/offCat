@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.io.Serializable;
 import java.time.LocalDateTime;
 
 /**
@@ -14,7 +15,9 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ResumeDiagnosisTaskResponse {
+public class ResumeDiagnosisTaskResponse implements Serializable {
+
+    private static final long serialVersionUID = 1L;
 
     /**
      * 任务 ID。
@@ -55,6 +58,16 @@ public class ResumeDiagnosisTaskResponse {
      * 简历原文文本。
      */
     private String resumeText;
+
+    /**
+     * 解析模式：TEXT / MULTIMODAL / OCR / MIXED。
+     */
+    private String parseMode;
+
+    /**
+     * 解析来源提示信息，用于结果页展示。
+     */
+    private String parseMessage;
 
     /**
      * 最近一次岗位 JD 对比分析结果。
