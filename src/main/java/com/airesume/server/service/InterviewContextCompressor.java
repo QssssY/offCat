@@ -2,12 +2,12 @@ package com.airesume.server.service;
 
 import com.airesume.server.config.AiTokenLimitConfig;
 import com.airesume.server.util.TokenEstimator;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 面试上下文压缩服务
@@ -17,43 +17,95 @@ import java.util.List;
  * 用途：当面试轮次增多时，避免将完整历史对话全量传入 AI，改用摘要+最近轮次的方式
  *
  * 【压缩策略】
- * 1. 分层压缩：超过阈值轮次后，将早期对话压缩为摘要，保留最近 N 轮完整对话
- * 2. 评价专用压缩：生成评价报告时，使用更激进的压缩策略（摘要+最近 6 轮）
- * 3. 主题提取：从对话中提取涉及的技术关键词，便于快速了解面试范围
+ * 1. AI 摘要压缩（优先）：调用 AI 将早期对话压缩为连贯摘要，保留技术要点和关键结论
+ * 2. 截断兜底（降级）：AI 不可用时，回退到硬截断模式（用户 80 字、面试官 60 字）
+ * 3. 评价专用压缩：生成评价报告时，用 AI 生成覆盖全部轮次的深度摘要
  *
  * 【配置依赖】
- * 通过 AiTokenLimitConfig 读取压缩阈值：
- * - historySummaryThreshold：触发压缩的最小轮次（默认 6 轮）
- * - recentMessagesToKeep：保留最近完整对话的轮数（默认 3 轮）
- * - interviewRoundMax：单轮对话最大 token 数
- * - interviewEvaluationMax：评价报告最大 token 数
+ * 通过 AiTokenLimitConfig 读取：
+ * - historySummaryThreshold：触发压缩的最小消息数（默认 6）
+ * - recentMessagesToKeep：常规压缩保留最近消息数（默认 3）
+ * - evaluationRecentMessagesToKeep：评价报告保留最近消息数（默认 10）
+ * - aiSummaryEnabled：是否启用 AI 摘要（默认 true）
+ * - aiSummaryTimeoutMs：AI 摘要超时时间（默认 30000ms）
  *
  * @author AI Resume Team
  */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class InterviewContextCompressor {
 
     private final AiTokenLimitConfig tokenLimitConfig;
+    private final AiChatClient aiChatClient;
+
+    /** 摘要缓存：sessionId → 上次生成的摘要信息，避免每轮都重新调用 AI */
+    private final ConcurrentHashMap<String, CachedSummary> summaryCache = new ConcurrentHashMap<>();
+
+    /** 获取重新摘要间隔（从配置读取，默认 6 条消息 = 3 轮对话） */
+    private int getResummarizeThreshold() {
+        return tokenLimitConfig.getResummarizeInterval();
+    }
+
+    public InterviewContextCompressor(AiTokenLimitConfig tokenLimitConfig, AiChatClient aiChatClient) {
+        this.tokenLimitConfig = tokenLimitConfig;
+        this.aiChatClient = aiChatClient;
+    }
+
+    /** 摘要缓存条目 */
+    private record CachedSummary(String summary, int messageCount) {}
+
+    // ==================== AI 摘要 Prompt 常量 ====================
+
+    /** 面试对话压缩摘要指令 — 保留技术要点、优劣表现、关键结论 */
+    private static final String COMPRESS_HISTORY_SYSTEM_PROMPT =
+            "你是一个面试对话摘要助手。请将以下面试对话压缩为一段连贯的中文摘要。\n\n" +
+            "要求：\n" +
+            "1. 保留所有关键技术问答要点（具体的技术概念、候选人的回答内容、面试官的评价判断）\n" +
+            "2. 保留候选人回答的优劣表现（哪里答得好，哪里有明显不足）\n" +
+            "3. 保留对话中的关键结论和判断（如'候选人对XX掌握扎实'、'候选人对XX概念理解模糊'）\n" +
+            "4. 使用简洁的叙述体，按轮次顺序描述\n" +
+            "5. 不要省略重要的技术细节，宁可稍长也不要丢失信息\n" +
+            "6. 输出纯文本摘要，不要加标题或格式标记\n" +
+            "7. 摘要总长度控制在 500 字以内";
+
+    /** 评价报告深度摘要指令 — 覆盖全部轮次，保留评分依据 */
+    private static final String COMPRESS_EVALUATION_SYSTEM_PROMPT =
+            "你是一个面试对话深度摘要助手。请将以下完整面试对话压缩为一份全面的评估参考摘要。\n\n" +
+            "要求：\n" +
+            "1. 覆盖面试的所有轮次，不可遗漏任何一轮的关键信息\n" +
+            "2. 对每一轮，记录：面试官的问题要点、候选人的回答核心内容、回答质量判断\n" +
+            "3. 明确记录候选人的技术强项和薄弱环节（附具体问题和回答作为证据）\n" +
+            "4. 记录候选人暴露的任何关键问题（逻辑矛盾、知识盲区、表述模糊等）\n" +
+            "5. 整体面试表现趋势（是否越答越差、是否稳定、是否有明显卡壳点）\n" +
+            "6. 此摘要将用于生成面试评价报告，必须保留足够细节支持评分和点评\n" +
+            "7. 输出纯文本，按轮次顺序组织\n" +
+            "8. 摘要总长度控制在 800 字以内";
+
+    /** 发送给 AI 做摘要的最大消息数，防止长对话超出 token 限制 */
+    private static final int MAX_MESSAGES_FOR_AI_SUMMARY = 30;
+
+    /** AI 摘要结果的最大字符数，防止摘要本身比原文还长 */
+    private static final int MAX_SUMMARY_LENGTH = 1500;
+
+    // ==================== 公开方法 ====================
 
     /**
      * 压缩面试历史对话
      *
-     * @param history     完整历史对话列表
+     * @param history      完整历史对话列表
      * @param currentRound 当前对话轮次（用户消息数）
      * @return 压缩后的对话列表（摘要 + 最近完整对话）
      *
      * 【压缩逻辑】
-     * 1. 若当前轮次 < threshold（默认 6），不压缩，返回原文
-     * 2. 若总 token 未超限，不压缩，返回原文
-     * 3. 否则将前 (history.size() - keepRecent) 轮压缩为摘要
-     * 4. 摘要格式：[历史对话摘要 - 前 X 轮] + 每轮简要内容
-     * 5. 保留最近 keepRecent 轮（默认 3 轮）完整对话
+     * 1. 若消息数 < threshold 或 token 未超限，不压缩
+     * 2. 优先使用 AI 摘要（若 aiSummaryEnabled=true）
+     * 3. AI 不可用时降级到截断模式
+     * 4. 组装：system 摘要消息 + 最近 N 轮完整对话
      */
     public List<InterviewAiService.ChatMessageItem> compressHistory(
             List<InterviewAiService.ChatMessageItem> history,
-            int currentRound) {
+            int currentRound,
+            String sessionId) {
         if (history == null || history.isEmpty()) {
             return history;
         }
@@ -61,7 +113,7 @@ public class InterviewContextCompressor {
         int threshold = tokenLimitConfig.getHistorySummaryThreshold();
         int keepRecent = tokenLimitConfig.getRecentMessagesToKeep();
 
-        // 基于总消息数判断是否达到阈值（而不是user消息数）
+        // 未达到压缩阈值，不压缩
         if (history.size() < threshold) {
             return history;
         }
@@ -79,31 +131,51 @@ public class InterviewContextCompressor {
             return history;
         }
 
-        // 提取最近 keepRecent 轮完整对话
+        // 早期消息太少，不值得调 AI 摘要，直接保留全部
+        int minMessagesForSummary = 3;
+        if (summaryCount < minMessagesForSummary) {
+            log.debug("早期消息仅{}条（<{}），跳过压缩", summaryCount, minMessagesForSummary);
+            return history;
+        }
+
+        // 提取需要压缩的早期对话和保留的最近对话
+        List<InterviewAiService.ChatMessageItem> earlyMessages = history.subList(0, summaryCount);
         List<InterviewAiService.ChatMessageItem> recentMessages = history.subList(
                 history.size() - keepRecent, history.size());
 
-        // 生成早期对话摘要
-        StringBuilder summaryBuilder = new StringBuilder();
-        summaryBuilder.append("[历史对话摘要 - 前").append(summaryCount).append("轮]\n");
-
-        for (int i = 0; i < summaryCount; i++) {
-            InterviewAiService.ChatMessageItem item = history.get(i);
-            if ("user".equals(item.role())) {
-                // 候选人回答摘要，限制 80 字
-                String brief = summarizeMessage(item.content(), 80);
-                summaryBuilder.append("- 候选人：").append(brief).append("\n");
-            } else if ("assistant".equals(item.role())) {
-                // 面试官提问摘要，限制 60 字
-                String brief = summarizeMessage(item.content(), 60);
-                summaryBuilder.append("  面试官：").append(brief).append("\n");
+        // 检查是否可以复用缓存的摘要
+        String summaryContent = null;
+        CachedSummary cached = sessionId != null ? summaryCache.get(sessionId) : null;
+        if (cached != null && cached.summary() != null) {
+            int newMessagesSinceCache = summaryCount - cached.messageCount();
+            int resummarizeThreshold = getResummarizeThreshold();
+            if (newMessagesSinceCache < resummarizeThreshold) {
+                // 新消息不足，复用缓存摘要
+                log.debug("复用缓存摘要：缓存覆盖{}条，当前{}条，新增{}条（未达阈值{}）",
+                        cached.messageCount(), summaryCount, newMessagesSinceCache, resummarizeThreshold);
+                summaryContent = cached.summary();
             }
         }
 
-        String summaryContent = summaryBuilder.toString();
+        // 缓存未命中或需要重新摘要
+        if (summaryContent == null) {
+            List<InterviewAiService.ChatMessageItem> messagesForAi = earlyMessages.size() > MAX_MESSAGES_FOR_AI_SUMMARY
+                    ? earlyMessages.subList(earlyMessages.size() - MAX_MESSAGES_FOR_AI_SUMMARY, earlyMessages.size())
+                    : earlyMessages;
+            String aiResult = aiSummarize(messagesForAi, COMPRESS_HISTORY_SYSTEM_PROMPT);
+            if (aiResult != null) {
+                summaryContent = "[历史对话摘要 - AI 生成]\n" + aiResult;
+                // 更新缓存
+                if (sessionId != null) {
+                    summaryCache.put(sessionId, new CachedSummary(summaryContent, summaryCount));
+                }
+            } else {
+                summaryContent = buildTruncatedSummary(earlyMessages);
+            }
+        }
+
         int summaryTokens = TokenEstimator.estimateTokens(summaryContent);
         int recentTokens = estimateHistoryTokens(recentMessages);
-
         log.info("面试历史对话已压缩：原始{}轮/{}token，压缩为摘要+最近{}轮/{}token",
                 history.size(), totalTokens, keepRecent, summaryTokens + recentTokens);
 
@@ -116,16 +188,90 @@ public class InterviewContextCompressor {
     }
 
     /**
-     * 生成对话整体摘要
+     * 清除指定会话的摘要缓存（面试结束时调用，防止内存泄漏）
+     *
+     * @param sessionId 会话 ID
+     */
+    public void evictCache(String sessionId) {
+        if (sessionId != null) {
+            summaryCache.remove(sessionId);
+            log.debug("已清除会话 {} 的摘要缓存", sessionId);
+        }
+    }
+
+    /**
+     * 为评价报告压缩历史对话
+     *
+     * @param history         完整历史对话列表
+     * @param existingSummary 已有的阶段性摘要（可为 null）
+     * @return 压缩后的对话列表
+     *
+     * 【压缩逻辑】
+     * 1. 若消息数不足（<=6），不压缩
+     * 2. 优先使用 AI 生成覆盖全部轮次的深度摘要（评价报告需要全局视角，不受 token 门槛限制）
+     * 3. AI 不可用时降级到主题提取摘要
+     * 4. 保留最近 evaluationRecentMessagesToKeep 条完整对话（默认 10 条）
+     * 5. 返回：system 摘要 + 最近 N 条完整对话
+     */
+    public List<InterviewAiService.ChatMessageItem> compressForEvaluation(
+            List<InterviewAiService.ChatMessageItem> history,
+            String existingSummary) {
+        if (history == null || history.isEmpty()) {
+            return history;
+        }
+
+        // 消息数太少，无需压缩
+        int threshold = tokenLimitConfig.getHistorySummaryThreshold();
+        if (history.size() <= threshold) {
+            return history;
+        }
+
+        // 保留最近 N 条消息（默认 10 条，比常规压缩多，确保评价有充分依据）
+        int keepRecent = Math.min(tokenLimitConfig.getEvaluationRecentMessagesToKeep(), history.size());
+        List<InterviewAiService.ChatMessageItem> recentMessages = history.subList(
+                history.size() - keepRecent, history.size());
+
+        List<InterviewAiService.ChatMessageItem> compressed = new ArrayList<>();
+
+        // 生成评价摘要
+        String summaryText = null;
+        if (existingSummary != null && !existingSummary.isBlank()) {
+            // 已有阶段性摘要，直接使用
+            summaryText = existingSummary;
+        } else {
+            // 使用 AI 生成深度摘要（评价报告需要全局视角，不设 token 门槛）
+            List<InterviewAiService.ChatMessageItem> messagesForAi = history.size() > MAX_MESSAGES_FOR_AI_SUMMARY
+                    ? history.subList(history.size() - MAX_MESSAGES_FOR_AI_SUMMARY, history.size())
+                    : history;
+            summaryText = aiSummarize(messagesForAi, COMPRESS_EVALUATION_SYSTEM_PROMPT);
+            if (summaryText == null) {
+                // 降级：主题提取摘要
+                summaryText = generateConversationSummary(history);
+            }
+        }
+
+        if (summaryText != null && !summaryText.isBlank()) {
+            compressed.add(new InterviewAiService.ChatMessageItem("system",
+                    "[评估参考摘要]\n" + summaryText));
+        }
+
+        compressed.addAll(recentMessages);
+
+        int totalTokens = estimateHistoryTokens(history);
+        int compressedTokens = estimateHistoryTokens(compressed);
+        log.info("面试评价历史已压缩：原始{}轮/{}token，压缩后{}轮/{}token",
+                history.size(), totalTokens, compressed.size(), compressedTokens);
+
+        return compressed;
+    }
+
+    /**
+     * 生成对话整体摘要（降级兜底用，不含 AI 调用）
      *
      * @param history 完整历史对话列表
      * @return 对话摘要文本（含轮次统计、主题提取）
-     *
-     * 【用途】
-     * 用于面试评价报告生成时，提供对话的整体概览，
-     * 替代全量对话历史，大幅降低 token 消耗。
      */
-    public String generateConversationSummary(List<InterviewAiService.ChatMessageItem> history) {
+    private String generateConversationSummary(List<InterviewAiService.ChatMessageItem> history) {
         if (history == null || history.isEmpty()) {
             return "";
         }
@@ -137,7 +283,6 @@ public class InterviewContextCompressor {
         int assistantCount = 0;
         List<String> keyTopics = new ArrayList<>();
 
-        // 统计对话轮次和提取主题
         for (InterviewAiService.ChatMessageItem item : history) {
             if ("user".equals(item.role())) {
                 userCount++;
@@ -150,7 +295,6 @@ public class InterviewContextCompressor {
         summary.append("- 对话轮次：").append(userCount).append("轮\n");
         summary.append("- 面试官提问：").append(assistantCount).append("次\n");
 
-        // 添加涉及的技术主题（最多 5 个）
         if (!keyTopics.isEmpty()) {
             summary.append("- 涉及主题：")
                     .append(String.join("、", keyTopics.subList(0, Math.min(5, keyTopics.size()))))
@@ -160,61 +304,124 @@ public class InterviewContextCompressor {
         return summary.toString();
     }
 
+    // ==================== AI 摘要核心逻辑 ====================
+
     /**
-     * 为评价报告压缩历史对话
+     * 调用 AI 对对话列表进行摘要
      *
-     * @param history         完整历史对话列表
-     * @param existingSummary 已有的阶段性摘要（可为 null）
-     * @return 压缩后的对话列表
-     *
-     * 【压缩逻辑】
-     * 1. 若总 token 未超限，返回原文
-     * 2. 若已有摘要，将摘要作为 system 消息前置
-     * 3. 保留最近 6 轮完整对话（比常规压缩多保留几轮，确保评价有足够依据）
-     * 4. 返回：system 摘要 + 最近 6 轮
+     * @param messages     需要摘要的消息列表
+     * @param systemPrompt 摘要指令（COMPRESS_HISTORY_SYSTEM_PROMPT 或 COMPRESS_EVALUATION_SYSTEM_PROMPT）
+     * @return AI 生成的摘要文本；若 AI 不可用或调用失败，返回 null
      */
-    public List<InterviewAiService.ChatMessageItem> compressForEvaluation(
-            List<InterviewAiService.ChatMessageItem> history,
-            String existingSummary) {
-        if (history == null || history.isEmpty()) {
-            return history;
+    private String aiSummarize(List<InterviewAiService.ChatMessageItem> messages, String systemPrompt) {
+        if (!tokenLimitConfig.isAiSummaryEnabled()) {
+            log.debug("AI 摘要已禁用，跳过");
+            return null;
         }
 
-        int totalTokens = estimateHistoryTokens(history);
-        int maxTokens = tokenLimitConfig.getInterviewEvaluationMax();
+        try {
+            String formatted = formatMessagesForSummary(messages);
+            // 拼接结果过长时截断，防止超出模型上下文窗口
+            int maxFormattedChars = 12000;
+            if (formatted.length() > maxFormattedChars) {
+                log.warn("摘要输入过长({}字)，截断到{}字", formatted.length(), maxFormattedChars);
+                formatted = formatted.substring(formatted.length() - maxFormattedChars);
+            }
+            int timeoutMs = tokenLimitConfig.getAiSummaryTimeoutMs();
+            log.info("调用 AI 摘要：消息数={}, 输入长度={}字, 超时={}ms", messages.size(), formatted.length(), timeoutMs);
 
-        // token 未超限，不压缩
-        if (totalTokens <= maxTokens) {
-            return history;
+            String result = aiChatClient.chat(systemPrompt, formatted, timeoutMs);
+
+            if (result != null && !result.isBlank() && result.length() > 20) {
+                // 防止 AI 返回过长摘要，截断到上限
+                if (result.length() > MAX_SUMMARY_LENGTH) {
+                    log.warn("AI 摘要过长({}字)，截断到{}字", result.length(), MAX_SUMMARY_LENGTH);
+                    result = result.substring(0, MAX_SUMMARY_LENGTH) + "...";
+                }
+                log.info("AI 摘要成功，长度={}字", result.length());
+                return result;
+            }
+
+            log.warn("AI 摘要返回结果过短或为空，降级到截断模式");
+            return null;
+        } catch (Exception e) {
+            log.warn("AI 摘要调用失败，降级到截断模式: {}", e.getMessage());
+            return null;
         }
-
-        // 评价报告保留最近 6 轮（比常规对话多，确保评价有充分依据）
-        int keepRecent = Math.min(6, history.size());
-        List<InterviewAiService.ChatMessageItem> recentMessages = history.subList(
-                history.size() - keepRecent, history.size());
-
-        List<InterviewAiService.ChatMessageItem> compressed = new ArrayList<>();
-
-        // 若已有阶段性摘要，前置到 system 消息
-        if (existingSummary != null && !existingSummary.isBlank()) {
-            compressed.add(new InterviewAiService.ChatMessageItem("system",
-                    "[前期对话摘要]\n" + existingSummary));
-        }
-
-        compressed.addAll(recentMessages);
-
-        int compressedTokens = estimateHistoryTokens(compressed);
-        log.info("面试评价历史已压缩：原始{}轮/{}token，压缩后{}轮/{}token",
-                history.size(), totalTokens, compressed.size(), compressedTokens);
-
-        return compressed;
     }
 
     /**
-     * 估算历史对话的 token 数量
+     * 将消息列表格式化为摘要用的文本格式
      *
-     * @param history 历史对话列表
-     * @return 预估总 token 数
+     * @param messages 消息列表
+     * @return 格式化文本，如 "第1轮 面试官：xxx\n候选人：xxx\n\n第2轮 ..."
+     */
+    private String formatMessagesForSummary(List<InterviewAiService.ChatMessageItem> messages) {
+        StringBuilder sb = new StringBuilder();
+        int round = 0;
+
+        for (int i = 0; i < messages.size(); i++) {
+            InterviewAiService.ChatMessageItem item = messages.get(i);
+            if ("assistant".equals(item.role())) {
+                round++;
+                sb.append("第").append(round).append("轮 面试官：").append(item.content()).append("\n");
+            } else if ("user".equals(item.role())) {
+                sb.append("候选人：").append(item.content()).append("\n\n");
+            } else if ("system".equals(item.role())) {
+                // 跳过 system 消息，不纳入摘要
+            }
+        }
+
+        return sb.toString();
+    }
+
+    // ==================== 截断降级逻辑 ====================
+
+    /**
+     * 构建截断式摘要（降级兜底，当 AI 不可用时使用）
+     *
+     * @param messages 需要压缩的消息列表
+     * @return 截断后的摘要文本
+     */
+    private String buildTruncatedSummary(List<InterviewAiService.ChatMessageItem> messages) {
+        StringBuilder summaryBuilder = new StringBuilder();
+        summaryBuilder.append("[历史对话摘要 - 前").append(messages.size()).append("轮]\n");
+
+        for (InterviewAiService.ChatMessageItem item : messages) {
+            if ("user".equals(item.role())) {
+                String brief = summarizeMessage(item.content(), 80);
+                summaryBuilder.append("- 候选人：").append(brief).append("\n");
+            } else if ("assistant".equals(item.role())) {
+                String brief = summarizeMessage(item.content(), 60);
+                summaryBuilder.append("  面试官：").append(brief).append("\n");
+            }
+        }
+
+        return summaryBuilder.toString();
+    }
+
+    /**
+     * 对单条消息内容进行截断（降级兜底用）
+     *
+     * @param content   原始消息内容
+     * @param maxLength 最大保留字符数
+     * @return 截断后的文本（超限则截断并追加...）
+     */
+    private String summarizeMessage(String content, int maxLength) {
+        if (content == null || content.isBlank()) {
+            return "";
+        }
+        String trimmed = content.trim().replaceAll("\\s+", " ");
+        if (trimmed.length() <= maxLength) {
+            return trimmed;
+        }
+        return trimmed.substring(0, maxLength) + "...";
+    }
+
+    // ==================== 工具方法 ====================
+
+    /**
+     * 估算历史对话的 token 数量
      */
     private int estimateHistoryTokens(List<InterviewAiService.ChatMessageItem> history) {
         if (history == null || history.isEmpty()) {
@@ -229,33 +436,7 @@ public class InterviewContextCompressor {
     }
 
     /**
-     * 对单条消息内容进行摘要
-     *
-     * @param content   原始消息内容
-     * @param maxLength 最大保留字符数
-     * @return 摘要后的文本（超限则截断并追加...）
-     */
-    private String summarizeMessage(String content, int maxLength) {
-        if (content == null || content.isBlank()) {
-            return "";
-        }
-        // 规范化空白字符
-        String trimmed = content.trim().replaceAll("\\s+", " ");
-        if (trimmed.length() <= maxLength) {
-            return trimmed;
-        }
-        return trimmed.substring(0, maxLength) + "...";
-    }
-
-    /**
-     * 从文本中提取技术主题关键词
-     *
-     * @param content 文本内容
-     * @param topics  主题列表（会追加到该列表中）
-     *
-     * 【提取规则】
-     * 匹配预定义的技术关键词列表，用于了解面试涉及的技术范围。
-     * 目前覆盖：Java 生态、数据库、中间件、云原生、AI 等领域。
+     * 从文本中提取技术主题关键词（降级兜底用）
      */
     private void extractTopics(String content, List<String> topics) {
         if (content == null || content.isBlank()) {

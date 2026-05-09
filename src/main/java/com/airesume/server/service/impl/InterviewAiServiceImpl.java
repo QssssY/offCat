@@ -679,6 +679,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     ) {
         RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
         String tag = runtimeConfig.provider().toUpperCase();
+        // 面试结束，清除摘要缓存
+        contextCompressor.evictCache(sessionId);
         log.info("[{}] ═══════════════════════════════════════════════", tag);
         log.info("[{}] ║  开始生成 AI 面试评价报告  ║", tag);
         log.info("[{}] ═══════════════════════════════════════════════", tag);
@@ -1654,8 +1656,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             return history;
         }
 
-        // 直接调用压缩，由compressHistory内部判断是否需要压缩
-        List<ChatMessageItem> compressed = contextCompressor.compressHistory(history, history.size());
+        // 直接调用压缩，由compressHistory内部判断是否需要压缩（传入sessionId用于摘要缓存）
+        List<ChatMessageItem> compressed = contextCompressor.compressHistory(history, history.size(), tag);
 
         // 若发生压缩（返回对象与原文不同），记录压缩效果
         if (compressed != history) {

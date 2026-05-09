@@ -180,7 +180,16 @@ app:
     compression-enabled: true
     token-limit-enabled: true
     history-summary-threshold: 6
-    recent-messages-to-keep: 3
+    # 保留最近N条消息不被压缩（6条≈3轮，减少盲区）
+    recent-messages-to-keep: 6
+    # 是否启用 AI 摘要（替代简单截断，提升压缩质量）
+    ai-summary-enabled: true
+    # AI 摘要请求超时时间（毫秒）
+    ai-summary-timeout-ms: 30000
+    # 评价报告保留最近完整对话的消息数
+    evaluation-recent-messages-to-keep: 10
+    # 重新摘要间隔（消息数），6=约3轮对话
+    resummarize-interval: 6
 
   # ------------------------------------------
   # 面试 AI 配置（开发环境）

@@ -32,6 +32,9 @@ import org.springframework.stereotype.Component;
  * - tokenLimitEnabled：是否启用 token 限制保护（默认 true）
  * - historySummaryThreshold：历史对话摘要触发阈值（超过该轮次开始压缩历史）
  * - recentMessagesToKeep：保留最近完整对话的轮数（不受压缩影响）
+ * - aiSummaryEnabled：是否启用 AI 摘要（默认 true，false 则回退到截断模式）
+ * - aiSummaryTimeoutMs：AI 摘要请求超时时间（毫秒，默认 30000）
+ * - evaluationRecentMessagesToKeep：评价报告保留最近完整对话的消息数（默认 10）
  *
  * @author AI Resume Team
  */
@@ -80,4 +83,16 @@ public class AiTokenLimitConfig {
      * 确保面试官能获取最新的对话上下文
      */
     private int recentMessagesToKeep = 3;
+
+    /** 是否启用 AI 摘要（true=用AI生成摘要，false=使用截断兜底） */
+    private boolean aiSummaryEnabled = true;
+
+    /** AI 摘要请求超时时间（毫秒），默认 30 秒 */
+    private int aiSummaryTimeoutMs = 30000;
+
+    /** 评价报告保留最近完整对话的消息数（比常规压缩多保留，确保评价有充分依据） */
+    private int evaluationRecentMessagesToKeep = 10;
+
+    /** 重新摘要间隔（消息数），每累积这么多新消息后重新调用 AI 摘要，默认 6（约 3 轮对话） */
+    private int resummarizeInterval = 6;
 }
