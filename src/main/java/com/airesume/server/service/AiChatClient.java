@@ -4,15 +4,12 @@ import com.airesume.server.common.constants.AiEngineConstants;
 import com.airesume.server.entity.SysAiEngineConfig;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClient;
+import org.springframework.web.reactive.function.client.WebClient;
 
-import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
-
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -36,6 +33,7 @@ import java.util.Locale;
 public class AiChatClient {
 
     private final SysAiEngineConfigService sysAiEngineConfigService;
+    private final ObjectMapper objectMapper;
 
     /** YAML 注入的默认 AI 提供商 */
     private final String defaultProvider;
@@ -60,12 +58,14 @@ public class AiChatClient {
             @Value("${app.interview.base-url:}") String configuredBaseUrl,
             @Value("${app.interview.model:}") String model,
             @Value("${app.interview.thinking-mode:none}") String thinkingMode,
-            SysAiEngineConfigService sysAiEngineConfigService) {
+            SysAiEngineConfigService sysAiEngineConfigService,
+            ObjectMapper objectMapper) {
         this.defaultProvider = provider == null ? "doubao" : provider.toLowerCase();
         this.configuredBaseUrl = configuredBaseUrl;
         this.defaultModel = model;
         this.defaultThinkingMode = thinkingMode;
         this.sysAiEngineConfigService = sysAiEngineConfigService;
+        this.objectMapper = objectMapper;
         log.info("[AiChatClient] 初始化完成, 默认 provider={}, model={}", this.defaultProvider, this.defaultModel);
     }
 
@@ -120,30 +120,31 @@ public class AiChatClient {
         try {
             log.info("[{}] AiChatClient 调用: model={}, timeout={}ms", tag, runtimeConfig.model(), timeoutMs);
 
-            // 支持 application/octet-stream 的 Jackson 转换器（部分 AI 供应商返回非 JSON content-type）
-            MappingJackson2HttpMessageConverter octetStreamConverter = new MappingJackson2HttpMessageConverter();
-            octetStreamConverter.setSupportedMediaTypes(new ArrayList<>(
-                    List.of(MediaType.APPLICATION_JSON, MediaType.APPLICATION_OCTET_STREAM)));
-
+            // 【关键修复】使用 WebClient 替代 RestClient，WebClient 底层 Reactor Netty 自动处理 gzip 解压，
+            // 彻底解决 SiliconFlow 等供应商返回 application/octet-stream + gzip 导致反序列化失败的问题。
             int readTimeout = Math.max(Math.min(timeoutMs, MAX_READ_TIMEOUT), MIN_READ_TIMEOUT);
-            SimpleClientHttpRequestFactory customFactory = new SimpleClientHttpRequestFactory();
-            customFactory.setConnectTimeout(CONNECT_TIMEOUT);
-            customFactory.setReadTimeout(readTimeout);
 
-            RestClient runtimeRestClient = RestClient.builder()
+            WebClient webClient = WebClient.builder()
                     .baseUrl(runtimeConfig.baseUrl())
                     .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                     .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
-                    .requestFactory(customFactory)
-                    .messageConverters(converters -> converters.add(0, octetStreamConverter))
                     .build();
 
-            ResponseBody response = runtimeRestClient.post()
+            // 以 String 接收原始响应，手动用 Jackson 解析，兼容任意 Content-Type
+            String rawJson = webClient.post()
                     .uri(runtimeConfig.endpoint())
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
-                    .body(request)
+                    .bodyValue(request)
                     .retrieve()
-                    .body(ResponseBody.class);
+                    .bodyToMono(String.class)
+                    .timeout(java.time.Duration.ofMillis(readTimeout))
+                    .block();
+
+            if (rawJson == null || rawJson.isBlank()) {
+                throw new RuntimeException("AI 返回内容为空");
+            }
+
+            ResponseBody response = objectMapper.readValue(rawJson, ResponseBody.class);
 
             if (response == null || response.choices == null || response.choices.isEmpty()) {
                 throw new RuntimeException("AI 返回内容为空");

@@ -688,30 +688,29 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 tag, sessionId, jobRole, jobRoleCode, difficulty, interviewMode,
                 history == null ? 0 : history.size());
 
-        List<ChatMessageItem> compressedHistory = contextCompressor.compressForEvaluation(history, null);
-
-        int originalTokens = estimateHistoryTokens(history);
-        int compressedTokens = estimateHistoryTokens(compressedHistory);
-        log.info("[{}] 评价报告历史对话已压缩: 原始{}token -> 压缩后{}token",
-                tag, originalTokens, compressedTokens);
+        // 【Token 优化】评价报告是一次性生成，跳过 AI 压缩避免双重调用浪费 token
+        // 直接使用完整历史，仅在 token 超限时做简单截断
+        List<ChatMessageItem> reportHistory = history;
 
         String systemPrompt = buildEvaluationSystemPrompt(jobRole, jobRoleCode, difficulty, interviewMode, jobTargetContext);
-        String userPrompt = buildEvaluationUserPrompt(compressedHistory, jobTargetContext);
+        String userPrompt = buildEvaluationUserPrompt(reportHistory, jobTargetContext);
 
-        // 【Token 优化】预估评价报告的输入 token 数
         int systemTokens = TokenEstimator.estimateTokens(systemPrompt);
         int userTokens = TokenEstimator.estimateTokens(userPrompt);
         int totalTokens = systemTokens + userTokens;
         log.info("[{}] 评价报告预估token: {}(system:{}, user:{})", tag, totalTokens, systemTokens, userTokens);
 
-        // 【Token 优化】若超过评价报告专用限制，进行二次压缩（更激进的压缩策略）
+        // 若超过评价报告 token 限制，简单截断保留最近消息（不调 AI，避免额外消耗）
         if (tokenLimitConfig.isTokenLimitEnabled() && totalTokens > tokenLimitConfig.getInterviewEvaluationMax()) {
-            log.warn("[{}] 评价报告token预估({})超过限制({})，进一步截断历史对话", tag, totalTokens, tokenLimitConfig.getInterviewEvaluationMax());
-            compressedHistory = contextCompressor.compressForEvaluation(compressedHistory, "前期对话已大幅压缩");
-            userPrompt = buildEvaluationUserPrompt(compressedHistory, jobTargetContext);
+            log.warn("[{}] 评价报告token预估({})超过限制({})，截断历史对话保留最近消息", tag, totalTokens, tokenLimitConfig.getInterviewEvaluationMax());
+            int keepRecent = tokenLimitConfig.getEvaluationRecentMessagesToKeep();
+            if (reportHistory.size() > keepRecent) {
+                reportHistory = reportHistory.subList(reportHistory.size() - keepRecent, reportHistory.size());
+            }
+            userPrompt = buildEvaluationUserPrompt(reportHistory, jobTargetContext);
             userTokens = TokenEstimator.estimateTokens(userPrompt);
             totalTokens = systemTokens + userTokens;
-            log.info("[{}] 二次压缩后预估token: {}(system:{}, user:{})", tag, totalTokens, systemTokens, userTokens);
+            log.info("[{}] 截断后预估token: {}(system:{}, user:{})", tag, totalTokens, systemTokens, userTokens);
         }
 
         String aiResponse = chat(systemPrompt, userPrompt);

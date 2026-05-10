@@ -176,8 +176,15 @@ public class InterviewContextCompressor {
 
         int summaryTokens = TokenEstimator.estimateTokens(summaryContent);
         int recentTokens = estimateHistoryTokens(recentMessages);
+        int compressedTotal = summaryTokens + recentTokens;
         log.info("面试历史对话已压缩：原始{}轮/{}token，压缩为摘要+最近{}轮/{}token",
-                history.size(), totalTokens, keepRecent, summaryTokens + recentTokens);
+                history.size(), totalTokens, keepRecent, compressedTotal);
+
+        // 【防退化】压缩后反而更长时，返回原始历史
+        if (compressedTotal >= totalTokens) {
+            log.warn("压缩后 token 反而增加（{}->{}），跳过压缩，使用原始历史", totalTokens, compressedTotal);
+            return history;
+        }
 
         // 组装压缩后的对话：system 摘要 + 最近完整对话
         List<InterviewAiService.ChatMessageItem> compressed = new ArrayList<>();
@@ -261,6 +268,12 @@ public class InterviewContextCompressor {
         int compressedTokens = estimateHistoryTokens(compressed);
         log.info("面试评价历史已压缩：原始{}轮/{}token，压缩后{}轮/{}token",
                 history.size(), totalTokens, compressed.size(), compressedTokens);
+
+        // 【防退化】压缩后反而更长时，返回原始历史
+        if (compressedTokens >= totalTokens) {
+            log.warn("压缩后 token 反而增加（{}->{}），跳过压缩，使用原始历史", totalTokens, compressedTokens);
+            return history;
+        }
 
         return compressed;
     }
