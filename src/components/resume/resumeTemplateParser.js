@@ -69,6 +69,19 @@ const TITLE_GARBAGE_PREFIX_PATTERN = /^[【\[(（\s]*/
 const TITLE_GARBAGE_SUFFIX_PATTERN = /[】\])）:\s：]+$/
 const TRAILING_METADATA_START_PATTERN = /\s*(?:\(String\)|\(LocalDateTime\)|\(Integer\)|<==\s*Updates:|仅基于简历\(String\)|\[(?=")|\{(?="))/u
 
+const EDUCATION_ROW_COMPACT_PATTERN = new RegExp(
+  `^(.+?)\\s+(\\S+)\\s+(\\u535A\\u58EB|\\u7855\\u58EB|\\u7814\\u7A76\\u751F|\\u672C\\u79D1|\\u4E13\\u79D1|\\u5927\\u4E13|\\u4E2D\\u4E13|\\u9AD8\\u4E2D|\\u5927\\u4E00|\\u5927\\u4E8C|\\u5927\\u4E09|\\u5927\\u56DB|\\u5728\\u8BFB|\\u5E94\\u5C4A)\\s*[\\uFF08(]?(${DATE_RANGE_SOURCE})[\\uFF09)]?$`,
+)
+const TRAILING_METADATA_LINE_PATTERNS = [
+  /^\[(?=")/,
+  /^\{(?=")/,
+  /\u4EC5\u57FA\u4E8E\u7B80\u5386\(String\)/,
+  /\(LocalDateTime\)/,
+  /\(Integer\)/,
+  /\(String\)\s*,/,
+  /^<==\s*Updates:/i,
+]
+
 const generateBlockId = () => `resume_block_${++blockIdSeed}`
 
 const escapeHtml = (value) => {
@@ -147,7 +160,12 @@ const matchSectionHeader = (line) => {
   }
 
   for (const spec of SECTION_SPECS) {
-    if (spec.aliases.some((alias) => normalized === alias)) {
+    const matchedAlias = spec.aliases.find((alias) => normalized === alias || normalized.startsWith(alias))
+    if (matchedAlias) {
+      const suffix = normalized.slice(matchedAlias.length)
+      if (suffix && !/^[与及、\/\s(（:：-]/.test(suffix)) {
+        continue
+      }
       return {
         key: spec.key,
         rawTitle: normalized,
@@ -230,7 +248,7 @@ const normalizeInputLines = (text) => {
 
 const splitInlineItems = (line) => {
   return String(line || '')
-    .split(/\s*(?:\||｜)\s*/)
+    .split(/\s*(?:\||\uFF5C|\u00B7|\u2022)\s*/)
     .map((item) => item.trim())
     .filter(Boolean)
 }
@@ -366,11 +384,7 @@ const parseEducationRow = (line) => {
     return inlineItems.map(normalizeEducationToken)
   }
 
-  const compactMatch = line.match(
-    new RegExp(
-      `^(.+?)\\s+(\\S+)\\s+(博士|硕士|研究生|本科|专科|大专|中专|高中|大一|大二|大三|大四|在读|应届)\\s*[（(]?(${DATE_RANGE_SOURCE})[）)]?$`,
-    ),
-  )
+  const compactMatch = line.match(EDUCATION_ROW_COMPACT_PATTERN)
   if (compactMatch) {
     return [compactMatch[1], compactMatch[2], compactMatch[3], compactMatch[4]].map(normalizeEducationToken)
   }
@@ -535,15 +549,7 @@ const looksLikeTrailingMetadata = (line) => {
   if (!normalized) {
     return false
   }
-  return (
-    /^\[/.test(normalized) ||
-    /^\{/.test(normalized) ||
-    /仅基于简历\(String\)/.test(normalized) ||
-    /\(LocalDateTime\)/.test(normalized) ||
-    /\(Integer\)/.test(normalized) ||
-    /\(String\)\s*,/.test(normalized) ||
-    /^<==\s*Updates:/i.test(normalized)
-  )
+  return TRAILING_METADATA_LINE_PATTERNS.some((pattern) => pattern.test(normalized))
 }
 
 const isResumeContactLikeRow = (line) => {
