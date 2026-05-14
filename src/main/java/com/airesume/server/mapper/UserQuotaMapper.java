@@ -21,4 +21,6 @@ public interface UserQuotaMapper extends BaseMapper<UserQuota> {
     int consumeVipDailyInterviewQuotaAtomic(@Param("userId") Long userId, @Param("dailyLimit") int dailyLimit);
 
     int consumeVipDailyResumeQuotaAtomic(@Param("userId") Long userId, @Param("dailyLimit") int dailyLimit);
+
+    int refundResumeQuotaAtomic(@Param("userId") Long userId, @Param("dailyLimit") int dailyLimit);
 }

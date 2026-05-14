@@ -42,4 +42,17 @@
           AND is_deleted = 0
     </update>
 
+    <update id="refundResumeQuotaAtomic">
+        UPDATE user_quota
+        SET resume_quota = resume_quota + CASE
+                WHEN daily_resume_used &gt; #{dailyLimit} OR #{dailyLimit} = 0 THEN 1
+                ELSE 0
+            END,
+            daily_resume_used = GREATEST(daily_resume_used - 1, 0),
+            total_resume_used = GREATEST(total_resume_used - 1, 0),
+            update_time = NOW()
+        WHERE user_id = #{userId}
+          AND is_deleted = 0
+    </update>
+
 </mapper>

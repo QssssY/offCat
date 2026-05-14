@@ -10,6 +10,7 @@ import com.airesume.server.service.PublicStatsService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -32,12 +33,13 @@ public class PublicStatsServiceImpl implements PublicStatsService {
     private final SysUserMapper sysUserMapper;
     private final ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper;
     private final InterviewSessionMapper interviewSessionMapper;
-    private final RedisTemplate<String, Object> redisTemplate;
+    @Autowired(required = false)
+    private RedisTemplate<String, Object> redisTemplate;
 
     @Override
     public Map<String, Long> getPublicStats() {
         // 尝试从缓存读取
-        try {
+        if (redisTemplate != null) try {
             Object cached = redisTemplate.opsForValue().get(STATS_CACHE_KEY);
             if (cached instanceof Map<?, ?> rawMap) {
                 Map<String, Long> stats = new HashMap<>();
@@ -73,7 +75,7 @@ public class PublicStatsServiceImpl implements PublicStatsService {
         stats.put("interviewCount", interviewCount);
 
         // 写入缓存
-        try {
+        if (redisTemplate != null) try {
             redisTemplate.opsForValue().set(STATS_CACHE_KEY, stats, STATS_CACHE_TTL_MINUTES, TimeUnit.MINUTES);
         } catch (Exception e) {
             log.warn("写入公开统计缓存失败", e);

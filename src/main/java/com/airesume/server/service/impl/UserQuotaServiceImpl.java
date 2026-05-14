@@ -113,17 +113,9 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
     @Transactional(rollbackFor = Exception.class)
     @CacheEvict(value = "auth:userInfo", key = "#userId")
     public void refundResumeQuota(Long userId) {
-        UserQuota userQuota = ensureUserQuota(userId);
-        boolean isVipUser = sysUserService.isVipUser(userId);
-        boolean shouldRestoreTotalQuota = !isVipUser
-                || safeValue(userQuota.getDailyResumeUsed()) > QuotaConstants.VIP_USER_DAILY_RESUME_LIMIT;
-
-        userQuota.setTotalResumeUsed(Math.max(0, safeValue(userQuota.getTotalResumeUsed()) - 1));
-        userQuota.setDailyResumeUsed(Math.max(0, safeValue(userQuota.getDailyResumeUsed()) - 1));
-        if (shouldRestoreTotalQuota) {
-            userQuota.setResumeQuota(safeValue(userQuota.getResumeQuota()) + 1);
-        }
-        updateById(userQuota);
+        ensureUserQuota(userId);
+        int dailyLimit = sysUserService.isVipUser(userId) ? QuotaConstants.VIP_USER_DAILY_RESUME_LIMIT : 0;
+        getBaseMapper().refundResumeQuotaAtomic(userId, dailyLimit);
         log.info("Refunded resume quota for userId: {}", userId);
     }
 

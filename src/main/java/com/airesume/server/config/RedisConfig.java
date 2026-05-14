@@ -1,11 +1,9 @@
 package com.airesume.server.config;
 
 import org.springframework.cache.CacheManager;
-import org.springframework.cache.annotation.EnableCaching;
-import org.springframework.cache.annotation.CachingConfigurer;
-import org.springframework.cache.interceptor.CacheErrorHandler;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.cache.RedisCacheConfiguration;
 import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
@@ -26,8 +24,7 @@ import java.util.Map;
  * 避免 Jackson 在根对象为 List 时出现“能写不能读”的反序列化问题。
  */
 @Configuration
-@EnableCaching
-public class RedisConfig implements CachingConfigurer {
+public class RedisConfig {
 
     /**
      * Redis Key 统一使用字符串序列化，便于排查缓存键。
@@ -53,9 +50,10 @@ public class RedisConfig implements CachingConfigurer {
      * PublicStatsController 读写公开统计缓存时也复用这一套序列化配置。
      */
     @Bean
-    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory connectionFactory,
-                                                       RedisSerializer<String> redisKeySerializer,
-                                                       RedisSerializer<Object> redisValueSerializer) {
+    @Lazy
+    public RedisTemplate<String, Object> redisTemplate(@Lazy RedisConnectionFactory connectionFactory,
+                                                        RedisSerializer<String> redisKeySerializer,
+                                                        RedisSerializer<Object> redisValueSerializer) {
         RedisTemplate<String, Object> template = new RedisTemplate<>();
         template.setConnectionFactory(connectionFactory);
         template.setKeySerializer(redisKeySerializer);
@@ -71,7 +69,7 @@ public class RedisConfig implements CachingConfigurer {
      * 不同缓存区域继续保留独立 TTL，避免一次性把所有缓存策略混成同一个周期。
      */
     @Bean
-    public CacheManager cacheManager(RedisConnectionFactory connectionFactory,
+    public CacheManager cacheManager(@Lazy RedisConnectionFactory connectionFactory,
                                      RedisSerializer<String> redisKeySerializer,
                                      RedisSerializer<Object> redisValueSerializer) {
         RedisCacheConfiguration defaultConfig = RedisCacheConfiguration.defaultCacheConfig()
@@ -96,19 +94,4 @@ public class RedisConfig implements CachingConfigurer {
                 .build();
     }
 
-    /**
-     * 缓存异常处理器。
-     * <p>
-     * 缓存命中失败不应影响主业务，请求应回源数据库并继续执行。
-     * 这样即使 Redis 中残留旧格式脏数据，也不会再把会员中心、成长中心直接打挂。
-     */
-    @Bean
-    public CacheErrorHandler cacheErrorHandler() {
-        return new RedisCacheErrorHandler();
-    }
-
-    @Override
-    public CacheErrorHandler errorHandler() {
-        return cacheErrorHandler();
-    }
 }

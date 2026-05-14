@@ -94,9 +94,9 @@ public class InterviewController {
                 }
                 StringBuilder fullReply = new StringBuilder();
                 List<InterviewChatLog> chatLogs = interviewService.getChatLogsForStream(sessionId, userId);
-                List<InterviewAiService.ChatMessageItem> history = chatLogs.stream()
+                List<InterviewAiService.ChatMessageItem> history = chatLogs != null ? chatLogs.stream()
                         .map(log -> new InterviewAiService.ChatMessageItem(log.getMessageRole(), log.getContent()))
-                        .toList();
+                        .toList() : List.of();
 
                 interviewService.validateSessionForStream(sessionId, userId);
 

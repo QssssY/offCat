@@ -20,6 +20,7 @@ import com.airesume.server.service.SysUserService;
 import com.airesume.server.service.UserQuotaService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -46,7 +47,9 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
     private final JwtProperties jwtProperties;
-    private final StringRedisTemplate stringRedisTemplate;
+
+    @Autowired(required = false)
+    private StringRedisTemplate stringRedisTemplate;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -119,6 +122,10 @@ public class AuthServiceImpl implements AuthService {
     }
 
     private int getLoginAttempts(String key) {
+        if (stringRedisTemplate == null) {
+            log.warn("Redis 不可用，登录暴力破解限流已降级为跳过");
+            return 0;
+        }
         try {
             String attemptsStr = stringRedisTemplate.opsForValue().get(key);
             return attemptsStr != null ? Integer.parseInt(attemptsStr) : 0;
@@ -136,6 +143,7 @@ public class AuthServiceImpl implements AuthService {
      * 登录失败时递增失败计数，首次失败时设置过期时间。
      */
     private void incrementLoginAttempts(String key) {
+        if (stringRedisTemplate == null) return;
         try {
             Long newAttempts = stringRedisTemplate.opsForValue().increment(key);
             if (newAttempts != null && newAttempts == 1) {
@@ -147,6 +155,7 @@ public class AuthServiceImpl implements AuthService {
     }
 
     private void clearLoginAttempts(String key) {
+        if (stringRedisTemplate == null) return;
         try {
             stringRedisTemplate.delete(key);
         } catch (Exception e) {
