@@ -9,6 +9,9 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 简历 PDF 生成服务
@@ -36,6 +39,7 @@ public class ResumePdfService {
 
         Path tempHtml = null;
         Path tempPdf = null;
+        ExecutorService outputReaderExecutor = null;
 
         try {
             // 创建临时 HTML 文件
@@ -68,9 +72,25 @@ public class ResumePdfService {
             pb.redirectErrorStream(true);
             Process process = pb.start();
 
-            // 读取输出（避免阻塞）
-            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            int exitCode = process.waitFor();
+            // 在独立线程中读取进程输出，避免 readAllBytes 阻塞导致 waitFor 超时无效
+            outputReaderExecutor = java.util.concurrent.Executors.newSingleThreadExecutor();
+            Future<String> outputFuture = outputReaderExecutor.submit(
+                    () -> new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
+            );
+            boolean finished = process.waitFor(60, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                outputFuture.cancel(true);
+                throw new PdfGenerationException("Chrome 执行超时（60秒），已强制终止", null);
+            }
+            String output;
+            try {
+                output = outputFuture.get(5, TimeUnit.SECONDS);
+            } catch (java.util.concurrent.TimeoutException | java.util.concurrent.ExecutionException readEx) {
+                String reason = readEx.getCause() != null ? readEx.getCause().getMessage() : readEx.getMessage();
+                throw new PdfGenerationException("读取 Chrome 输出失败: " + reason, readEx);
+            }
+            int exitCode = process.exitValue();
 
             if (exitCode != 0) {
                 log.error("Chrome 执行失败，退出码: {}, 输出: {}", exitCode, output);
@@ -89,6 +109,9 @@ public class ResumePdfService {
             log.error("PDF 生成失败", e);
             throw new PdfGenerationException("PDF 生成失败: " + e.getMessage(), e);
         } finally {
+            if (outputReaderExecutor != null) {
+                outputReaderExecutor.shutdownNow();
+            }
             // 清理临时文件
             deleteTempFile(tempHtml);
             deleteTempFile(tempPdf);

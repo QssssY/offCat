@@ -11,6 +11,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -56,8 +57,12 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
         quota.setDailyInterviewUsed(0);
         quota.setDailyResumeUsed(0);
         quota.setLastRefreshDate(LocalDate.now());
-        save(quota);
-        log.info("Initialized user quota for userId: {}", userId);
+        try {
+            save(quota);
+            log.info("Initialized user quota for userId: {}", userId);
+        } catch (DuplicateKeyException e) {
+            log.debug("User quota already exists for userId: {}", userId);
+        }
     }
 
     @Override
@@ -91,26 +96,17 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
         UserQuota userQuota = ensureUserQuota(userId);
         refreshDailyQuotaIfNeeded(userId, userQuota);
 
-        if (sysUserService.isVipUser(userId)) {
-            if (getVipDailyInterviewRemaining(userQuota) > 0) {
-                userQuota.setDailyInterviewUsed(safeValue(userQuota.getDailyInterviewUsed()) + 1);
-            } else if (safeValue(userQuota.getInterviewQuota()) > 0) {
-                userQuota.setInterviewQuota(safeValue(userQuota.getInterviewQuota()) - 1);
-                userQuota.setDailyInterviewUsed(safeValue(userQuota.getDailyInterviewUsed()) + 1);
-            } else {
-                throw new BusinessException("Interview quota is exhausted");
-            }
-        } else {
-            if (safeValue(userQuota.getInterviewQuota()) <= 0) {
-                throw new BusinessException("Interview quota is exhausted");
-            }
-            userQuota.setInterviewQuota(safeValue(userQuota.getInterviewQuota()) - 1);
-            userQuota.setDailyInterviewUsed(safeValue(userQuota.getDailyInterviewUsed()) + 1);
+        if (sysUserService.isVipUser(userId)
+                && getBaseMapper().consumeVipDailyInterviewQuotaAtomic(userId, QuotaConstants.VIP_USER_DAILY_INTERVIEW_LIMIT) > 0) {
+            log.info("VIP deducted interview daily quota for userId: {}", userId);
+            return;
         }
 
-        userQuota.setTotalInterviewUsed(safeValue(userQuota.getTotalInterviewUsed()) + 1);
-        updateById(userQuota);
-        log.info("Deducted interview quota for userId: {}", userId);
+        int affected = getBaseMapper().deductInterviewQuotaAtomic(userId);
+        if (affected == 0) {
+            throw new BusinessException("模拟面试次数已用完");
+        }
+        log.info("Deducted interview quota atomically for userId: {}", userId);
     }
 
     @Override
@@ -118,12 +114,15 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
     @CacheEvict(value = "auth:userInfo", key = "#userId")
     public void refundResumeQuota(Long userId) {
         UserQuota userQuota = ensureUserQuota(userId);
-        // 退还总使用次数
+        boolean isVipUser = sysUserService.isVipUser(userId);
+        boolean shouldRestoreTotalQuota = !isVipUser
+                || safeValue(userQuota.getDailyResumeUsed()) > QuotaConstants.VIP_USER_DAILY_RESUME_LIMIT;
+
         userQuota.setTotalResumeUsed(Math.max(0, safeValue(userQuota.getTotalResumeUsed()) - 1));
-        // 退还每日使用次数
         userQuota.setDailyResumeUsed(Math.max(0, safeValue(userQuota.getDailyResumeUsed()) - 1));
-        // 恢复可用配额
-        userQuota.setResumeQuota(safeValue(userQuota.getResumeQuota()) + 1);
+        if (shouldRestoreTotalQuota) {
+            userQuota.setResumeQuota(safeValue(userQuota.getResumeQuota()) + 1);
+        }
         updateById(userQuota);
         log.info("Refunded resume quota for userId: {}", userId);
     }
@@ -135,26 +134,17 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
         UserQuota userQuota = ensureUserQuota(userId);
         refreshDailyQuotaIfNeeded(userId, userQuota);
 
-        if (sysUserService.isVipUser(userId)) {
-            if (getVipDailyResumeRemaining(userQuota) > 0) {
-                userQuota.setDailyResumeUsed(safeValue(userQuota.getDailyResumeUsed()) + 1);
-            } else if (safeValue(userQuota.getResumeQuota()) > 0) {
-                userQuota.setResumeQuota(safeValue(userQuota.getResumeQuota()) - 1);
-                userQuota.setDailyResumeUsed(safeValue(userQuota.getDailyResumeUsed()) + 1);
-            } else {
-                throw new BusinessException("Resume quota is exhausted");
-            }
-        } else {
-            if (safeValue(userQuota.getResumeQuota()) <= 0) {
-                throw new BusinessException("Resume quota is exhausted");
-            }
-            userQuota.setResumeQuota(safeValue(userQuota.getResumeQuota()) - 1);
-            userQuota.setDailyResumeUsed(safeValue(userQuota.getDailyResumeUsed()) + 1);
+        if (sysUserService.isVipUser(userId)
+                && getBaseMapper().consumeVipDailyResumeQuotaAtomic(userId, QuotaConstants.VIP_USER_DAILY_RESUME_LIMIT) > 0) {
+            log.info("VIP deducted resume daily quota for userId: {}", userId);
+            return;
         }
 
-        userQuota.setTotalResumeUsed(safeValue(userQuota.getTotalResumeUsed()) + 1);
-        updateById(userQuota);
-        log.info("Deducted resume quota for userId: {}", userId);
+        int affected = getBaseMapper().deductResumeQuotaAtomic(userId);
+        if (affected == 0) {
+            throw new BusinessException("简历诊断次数已用完");
+        }
+        log.info("Deducted resume quota atomically for userId: {}", userId);
     }
 
     @Override

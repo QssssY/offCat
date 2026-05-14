@@ -115,8 +115,9 @@ public class ResumeDiagnosisProcessor {
             logDiagnosisFailure(taskId, taskStartTime, t);
             try {
                 refundQuotaIfNeeded(userId, taskId);
-            } catch (Exception ignored) {
-                // Keep the original failure as the primary error.
+            } catch (Exception refundEx) {
+                // 配额退还失败，保留原始异常作为主要错误
+                log.warn("诊断失败后配额退还异常, taskId: {}, error: {}", taskId, refundEx.getMessage());
             }
             markTaskFailed(taskId, buildUserFriendlyErrorMessage(t));
         }

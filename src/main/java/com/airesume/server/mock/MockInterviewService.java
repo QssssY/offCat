@@ -7,7 +7,6 @@ import org.springframework.stereotype.Component;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.Random;
 
 /**
  * Mock 模拟面试服务。
@@ -18,7 +17,7 @@ import java.util.Random;
 @RequiredArgsConstructor
 public class MockInterviewService {
 
-    private final Random random = new Random();
+    // 使用 ThreadLocalRandom.current() 替代共享 Random 实例，避免多线程竞争
 
     /**
      * 通用追问模板。
@@ -94,7 +93,7 @@ public class MockInterviewService {
      */
     public int generateMockScore(String sessionId) {
         log.info("Generating mock interview score, sessionId: {}", sessionId);
-        return 60 + random.nextInt(35);
+        return 60 + java.util.concurrent.ThreadLocalRandom.current().nextInt(35);
     }
 
     /**
@@ -187,10 +186,6 @@ public class MockInterviewService {
     }
 
     private String getDifficultyDesc(Integer difficulty) {
-        return switch (difficulty == null ? 2 : difficulty) {
-            case 1 -> "初级";
-            case 3 -> "高级";
-            default -> "中级";
-        };
+        return com.airesume.server.common.constants.InterviewConstants.getDifficultyLabel(difficulty == null ? 2 : difficulty);
     }
 }

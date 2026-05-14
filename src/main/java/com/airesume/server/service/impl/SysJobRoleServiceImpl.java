@@ -91,8 +91,7 @@ public class SysJobRoleServiceImpl extends ServiceImpl<SysJobRoleMapper, SysJobR
         }
         LambdaQueryWrapper<SysJobRole> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(SysJobRole::getRoleName, roleName.trim())
-                .eq(SysJobRole::getIsActive, STATUS_ACTIVE)
-                .last("LIMIT 1");
+                .eq(SysJobRole::getIsActive, STATUS_ACTIVE);
         return count(wrapper) > 0;
     }
 }

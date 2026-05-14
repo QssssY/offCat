@@ -1,6 +1,7 @@
 package com.airesume.server.dto.auth;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
@@ -13,6 +14,7 @@ public class RegisterRequest {
 
     @NotBlank(message = "密码不能为空")
     @Size(min = 6, max = 100, message = "密码长度需要在6-100之间")
+    @Pattern(regexp = "^(?=.*[a-zA-Z])(?=.*\\d).+$", message = "密码必须包含字母和数字")
     private String password;
 
     /** 安全问题文本（前端必填，后端不强制校验以保持向后兼容） */

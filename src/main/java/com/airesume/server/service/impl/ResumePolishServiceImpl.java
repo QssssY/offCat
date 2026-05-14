@@ -17,6 +17,7 @@ import com.airesume.server.service.ResumeContentExtractor;
 import com.airesume.server.service.ResumeJobMatchService;
 import com.airesume.server.service.ResumePolishService;
 import com.airesume.server.service.resume.ResumeParseResult;
+import com.airesume.server.util.TextNormalizeUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -24,11 +25,14 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Consumer;
 
 /**
  * AI 简历润色服务。
@@ -50,9 +54,14 @@ public class ResumePolishServiceImpl extends ServiceImpl<ResumePolishRecordMappe
     private final ObjectMapper objectMapper;
     private final NotificationService notificationService;
 
+    /** 注入代理对象，确保 @Transactional 自调用生效 */
+    @Lazy
+    @Autowired
+    private ResumePolishServiceImpl self;
+
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public ResumePolishAnalyzeResponse analyzeResumePolish(Long userId, ResumePolishAnalyzeRequest request) {
+        // 阶段1：加载任务、校验输入（非事务）
         Long resumeTaskId = parseResumeTaskId(request.getResumeTaskId());
         ResumeDiagnosisTask task = loadOwnedTask(userId, resumeTaskId);
 
@@ -62,17 +71,28 @@ public class ResumePolishServiceImpl extends ServiceImpl<ResumePolishRecordMappe
         }
 
         ResumeJobMatchRecord latestJobMatchRecord = findLatestJobMatchRecord(userId, resumeTaskId);
-        String jdText = normalizeText(request.getJdText());
+        String jdText = TextNormalizeUtil.normalizeText(request.getJdText());
         if (jdText.isBlank() && latestJobMatchRecord != null) {
-            jdText = normalizeText(latestJobMatchRecord.getJdText());
+            jdText = TextNormalizeUtil.normalizeText(latestJobMatchRecord.getJdText());
         }
 
         ResumeJobMatchAnalyzeResponse latestJobMatchAnalysis =
                 resumeJobMatchService.getLatestAnalysis(userId, resumeTaskId);
         String sourceType = jdText.isBlank() ? SOURCE_TYPE_RESUME_ONLY : SOURCE_TYPE_RESUME_WITH_JD;
 
+        // 阶段2：AI 调用（非事务）— 不持有数据库连接
         ResumePolishAiResult aiResult = resumeAiService.polishResume(resumeText, jdText, latestJobMatchAnalysis);
 
+        // 阶段3：保存结果（事务内）
+        return self.savePolishResult(userId, resumeTaskId, resumeText, jdText, sourceType, aiResult);
+    }
+
+    /**
+     * 事务内操作：保存润色结果并发送通知
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public ResumePolishAnalyzeResponse savePolishResult(Long userId, Long resumeTaskId, String resumeText,
+                                                         String jdText, String sourceType, ResumePolishAiResult aiResult) {
         ResumePolishRecord record = new ResumePolishRecord();
         record.setUserId(userId);
         record.setResumeTaskId(resumeTaskId);
@@ -89,7 +109,7 @@ public class ResumePolishServiceImpl extends ServiceImpl<ResumePolishRecordMappe
                 "AI 简历润色完成",
                 "你的简历润色结果已生成，点击即可查看优化内容。",
                 "resume_polish",
-                String.valueOf(record.getId()));
+                String.valueOf(resumeTaskId));
 
         return ResumePolishAnalyzeResponse.builder()
                 .polishRecordId(String.valueOf(record.getId()))
@@ -128,17 +148,17 @@ public class ResumePolishServiceImpl extends ServiceImpl<ResumePolishRecordMappe
      * 文本优先级：前端显式传入 > 任务缓存文本 > 统一解析链路。
      */
     private String resolveResumeText(ResumeDiagnosisTask task, String requestResumeText) {
-        String resumeText = normalizeText(requestResumeText);
+        String resumeText = TextNormalizeUtil.normalizeText(requestResumeText);
         if (!resumeText.isBlank()) {
             return resumeText;
         }
 
-        resumeText = normalizeText(task.getResumeText());
+        resumeText = TextNormalizeUtil.normalizeText(task.getResumeText());
         if (!resumeText.isBlank()) {
             return resumeText;
         }
 
-        return normalizeText(parseAndCacheResume(task).getText());
+        return TextNormalizeUtil.normalizeText(parseAndCacheResume(task).getText());
     }
 
     /**
@@ -191,18 +211,6 @@ public class ResumePolishServiceImpl extends ServiceImpl<ResumePolishRecordMappe
         }
     }
 
-    private String normalizeText(String text) {
-        if (text == null) {
-            return "";
-        }
-        return text.replace("\r\n", "\n")
-                .replace('\r', '\n')
-                .replace('\t', ' ')
-                .replaceAll("[\\u200B-\\u200F\\uFEFF]", "")
-                .replaceAll(" {2,}", " ")
-                .trim();
-    }
-
     /**
      * 润色说明以 JSON 数组落库，便于结果页直接回显。
      */
@@ -225,5 +233,49 @@ public class ResumePolishServiceImpl extends ServiceImpl<ResumePolishRecordMappe
             log.warn("解析润色说明失败，recordNotes: {}", modificationNotes, e);
             return List.of(modificationNotes);
         }
+    }
+    @Override
+    public ResumePolishAnalyzeResponse analyzeResumePolish(
+            Long userId,
+            ResumePolishAnalyzeRequest request,
+            Consumer<ResumePolishProgressEvent> progressConsumer) {
+        emitProgress(progressConsumer, "preparing", "preparing", "正在准备简历与岗位信息", 20, null);
+
+        Long resumeTaskId = parseResumeTaskId(request.getResumeTaskId());
+        ResumeDiagnosisTask task = loadOwnedTask(userId, resumeTaskId);
+
+        String resumeText = resolveResumeText(task, request.getResumeText());
+        if (resumeText.isBlank()) {
+            throw new BusinessException("简历文本不能为空");
+        }
+
+        ResumeJobMatchRecord latestJobMatchRecord = findLatestJobMatchRecord(userId, resumeTaskId);
+        String jdText = TextNormalizeUtil.normalizeText(request.getJdText());
+        if (jdText.isBlank() && latestJobMatchRecord != null) {
+            jdText = TextNormalizeUtil.normalizeText(latestJobMatchRecord.getJdText());
+        }
+
+        ResumeJobMatchAnalyzeResponse latestJobMatchAnalysis =
+                resumeJobMatchService.getLatestAnalysis(userId, resumeTaskId);
+        String sourceType = jdText.isBlank() ? SOURCE_TYPE_RESUME_ONLY : SOURCE_TYPE_RESUME_WITH_JD;
+
+        emitProgress(progressConsumer, "calling_ai", "calling_ai", "AI 正在生成润色结果", 60, null);
+        ResumePolishAiResult aiResult = resumeAiService.polishResume(resumeText, jdText, latestJobMatchAnalysis);
+
+        emitProgress(progressConsumer, "saving", "saving", "正在保存润色结果", 90, null);
+        return self.savePolishResult(userId, resumeTaskId, resumeText, jdText, sourceType, aiResult);
+    }
+
+    private void emitProgress(
+            Consumer<ResumePolishProgressEvent> progressConsumer,
+            String eventName,
+            String stage,
+            String message,
+            int progress,
+            Object data) {
+        if (progressConsumer == null) {
+            return;
+        }
+        progressConsumer.accept(new ResumePolishProgressEvent(eventName, stage, message, progress, data));
     }
 }

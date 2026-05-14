@@ -3,11 +3,12 @@ package com.airesume.server.service.impl;
 import com.airesume.server.common.constants.ResumeDiagnosisConstants;
 import com.airesume.server.dto.resume.ResumeDiagnosisResult;
 import com.airesume.server.service.NotificationService;
-import com.airesume.server.service.PdfTextExtractor;
+import com.airesume.server.service.ResumeContentExtractor;
 import com.airesume.server.service.ResumeAiService;
 import com.airesume.server.service.ResumeDiagnosisTaskService;
 import com.airesume.server.service.ResumeInfoExtractor;
 import com.airesume.server.service.UserQuotaService;
+import com.airesume.server.service.resume.ResumeParseResult;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -32,14 +33,15 @@ class ResumeDiagnosisProcessorTest {
     @Test
     void processTaskShouldNormalizeMinimalDiagnosisResult() throws Exception {
         ResumeDiagnosisTaskService taskService = mock(ResumeDiagnosisTaskService.class);
-        PdfTextExtractor pdfTextExtractor = mock(PdfTextExtractor.class);
+        ResumeContentExtractor resumeContentExtractor = mock(ResumeContentExtractor.class);
         ResumeAiService resumeAiService = mock(ResumeAiService.class);
         ResumeInfoExtractor resumeInfoExtractor = mock(ResumeInfoExtractor.class);
         UserQuotaService quotaService = mock(UserQuotaService.class);
         NotificationService notificationService = mock(NotificationService.class);
 
         when(taskService.getTaskStatus(1L)).thenReturn(ResumeDiagnosisConstants.STATUS_PENDING);
-        when(pdfTextExtractor.extractText("/resume.pdf")).thenReturn("张三 13800000000 zhangsan@test.com");
+        when(resumeContentExtractor.extract("/resume.pdf")).thenReturn(
+                ResumeParseResult.builder().text("张三 13800000000 zhangsan@test.com").parseMode("TEXT").build());
         when(resumeAiService.diagnose(anyString())).thenReturn("""
                 {"overallEvaluation":{"totalScore":72,"level":"B","summary":"基础还可以"}}
                 """);
@@ -57,7 +59,7 @@ class ResumeDiagnosisProcessorTest {
 
         ResumeDiagnosisProcessor processor = new ResumeDiagnosisProcessor(
                 taskService,
-                pdfTextExtractor,
+                resumeContentExtractor,
                 resumeAiService,
                 resumeInfoExtractor,
                 objectMapper,
@@ -84,20 +86,21 @@ class ResumeDiagnosisProcessorTest {
     @Test
     void processTaskShouldFailAndRefundOnTimeout() {
         ResumeDiagnosisTaskService taskService = mock(ResumeDiagnosisTaskService.class);
-        PdfTextExtractor pdfTextExtractor = mock(PdfTextExtractor.class);
+        ResumeContentExtractor resumeContentExtractor = mock(ResumeContentExtractor.class);
         ResumeAiService resumeAiService = mock(ResumeAiService.class);
         ResumeInfoExtractor resumeInfoExtractor = mock(ResumeInfoExtractor.class);
         UserQuotaService quotaService = mock(UserQuotaService.class);
         NotificationService notificationService = mock(NotificationService.class);
 
         when(taskService.getTaskStatus(1L)).thenReturn(ResumeDiagnosisConstants.STATUS_PENDING);
-        when(pdfTextExtractor.extractText("/resume.pdf")).thenReturn("简历内容");
+        when(resumeContentExtractor.extract("/resume.pdf")).thenReturn(
+                ResumeParseResult.builder().text("简历内容").parseMode("TEXT").build());
         when(resumeAiService.diagnose(anyString())).thenThrow(
                 new RuntimeException("call failed", new SocketTimeoutException("Read timed out")));
 
         ResumeDiagnosisProcessor processor = new ResumeDiagnosisProcessor(
                 taskService,
-                pdfTextExtractor,
+                resumeContentExtractor,
                 resumeAiService,
                 resumeInfoExtractor,
                 objectMapper,

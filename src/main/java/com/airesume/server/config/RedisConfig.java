@@ -2,6 +2,7 @@ package com.airesume.server.config;
 
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.cache.annotation.CachingConfigurer;
 import org.springframework.cache.interceptor.CacheErrorHandler;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -26,7 +27,7 @@ import java.util.Map;
  */
 @Configuration
 @EnableCaching
-public class RedisConfig {
+public class RedisConfig implements CachingConfigurer {
 
     /**
      * Redis Key 统一使用字符串序列化，便于排查缓存键。
@@ -104,5 +105,10 @@ public class RedisConfig {
     @Bean
     public CacheErrorHandler cacheErrorHandler() {
         return new RedisCacheErrorHandler();
+    }
+
+    @Override
+    public CacheErrorHandler errorHandler() {
+        return cacheErrorHandler();
     }
 }

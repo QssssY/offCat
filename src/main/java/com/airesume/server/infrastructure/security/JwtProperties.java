@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "jwt")
 public class JwtProperties {
 
-    private String secret = "ai-resume-secret-key-2024-jwt-token-secret-for-authentication";
+    private String secret = "";
     private long expiration = 86400000;
     private String header = "Authorization";
     private String prefix = "Bearer ";

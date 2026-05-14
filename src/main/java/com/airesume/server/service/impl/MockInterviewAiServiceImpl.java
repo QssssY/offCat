@@ -15,7 +15,6 @@ import reactor.core.scheduler.Schedulers;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Random;
 
 /**
  * Mock 模式下的模拟面试 AI 服务实现。
@@ -29,7 +28,7 @@ public class MockInterviewAiServiceImpl implements InterviewAiService {
 
     private final MockInterviewService mockInterviewService;
     private final ObjectMapper objectMapper;
-    private final Random random = new Random();
+    // 使用 ThreadLocalRandom.current() 替代共享 Random 实例，避免多线程竞争
 
     @Override
     public String generateOpening(String jobRole, String jobRoleCode, Integer difficulty,
@@ -107,8 +106,8 @@ public class MockInterviewAiServiceImpl implements InterviewAiService {
         log.info("[MOCK] 生成结构化评价报告, sessionId: {}, jobRole: {}, targeted: {}",
                 sessionId, jobRole, targeted);
 
-        int baseScore = 60 + random.nextInt(26);
-        int jobMatchScore = targeted ? 65 + random.nextInt(21) : 60 + random.nextInt(16);
+        int baseScore = 60 + java.util.concurrent.ThreadLocalRandom.current().nextInt(26);
+        int jobMatchScore = targeted ? 65 + java.util.concurrent.ThreadLocalRandom.current().nextInt(21) : 60 + java.util.concurrent.ThreadLocalRandom.current().nextInt(16);
 
         return InterviewEvaluationReport.builder()
                 .overallScore(baseScore)
@@ -254,7 +253,7 @@ public class MockInterviewAiServiceImpl implements InterviewAiService {
                 continue;
             }
 
-            int score = 60 + random.nextInt(26);
+            int score = 60 + java.util.concurrent.ThreadLocalRandom.current().nextInt(26);
             performances.add(InterviewEvaluationReport.QuestionPerformance.builder()
                     .question(trimText(currentQuestion, 100))
                     .answer(trimText(item.content(), 100))

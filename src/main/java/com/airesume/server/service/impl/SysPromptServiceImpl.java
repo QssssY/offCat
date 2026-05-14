@@ -9,6 +9,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -63,6 +64,7 @@ public class SysPromptServiceImpl extends ServiceImpl<SysPromptMapper, SysPrompt
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void deactivateOtherPrompts(Integer scenarioType, String jobRoleCode, Integer difficulty) {
         if (scenarioType == null || jobRoleCode == null || difficulty == null) {
             return;

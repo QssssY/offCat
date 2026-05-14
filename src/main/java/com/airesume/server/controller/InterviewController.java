@@ -2,13 +2,14 @@ package com.airesume.server.controller;
 
 import com.airesume.server.common.constants.InterviewConstants;
 import com.airesume.server.common.exception.BusinessException;
+import jakarta.validation.constraints.Max;
+import org.springframework.beans.factory.annotation.Qualifier;
 import com.airesume.server.common.result.PageResult;
 import com.airesume.server.common.result.Result;
 import com.airesume.server.dto.interview.*;
 import com.airesume.server.entity.InterviewChatLog;
 import com.airesume.server.entity.InterviewSession;
 import com.airesume.server.entity.SysJobRole;
-import com.airesume.server.mapper.InterviewChatLogMapper;
 import com.airesume.server.service.InterviewAiService;
 import com.airesume.server.service.InterviewService;
 import com.airesume.server.service.MockInterviewJobTargetService;
@@ -28,6 +29,7 @@ import org.reactivestreams.Publisher;
  * 模拟面试控制器
  */
 @RestController
+@Validated
 @RequestMapping("/api/interview")
 @RequiredArgsConstructor
 @Slf4j
@@ -35,9 +37,10 @@ public class InterviewController {
 
     private final InterviewService interviewService;
     private final InterviewAiService interviewAiService;
-    private final InterviewChatLogMapper interviewChatLogMapper;
     private final SysJobRoleService sysJobRoleService;
     private final MockInterviewJobTargetService mockInterviewJobTargetService;
+    @Qualifier("aiAsyncExecutor")
+    private final java.util.concurrent.Executor aiAsyncExecutor;
 
     /**
      * 查询当前启用的面试岗位选项
@@ -84,12 +87,12 @@ public class InterviewController {
 
         Authentication authenticationForThread = authentication;
 
-        new Thread(() -> {
-            if (authenticationForThread != null) {
-                SecurityContextHolder.getContext().setAuthentication(authenticationForThread);
-            }
-            StringBuilder fullReply = new StringBuilder();
+        aiAsyncExecutor.execute(() -> {
             try {
+                if (authenticationForThread != null) {
+                    SecurityContextHolder.getContext().setAuthentication(authenticationForThread);
+                }
+                StringBuilder fullReply = new StringBuilder();
                 List<InterviewChatLog> chatLogs = interviewService.getChatLogsForStream(sessionId, userId);
                 List<InterviewAiService.ChatMessageItem> history = chatLogs.stream()
                         .map(log -> new InterviewAiService.ChatMessageItem(log.getMessageRole(), log.getContent()))
@@ -137,7 +140,7 @@ public class InterviewController {
             } catch (Exception e) {
                 log.error("流式处理异常, sessionId: {}", sessionId, e);
                 try {
-                    emitter.send("event: error\ndata: 系统异常: " + e.getMessage() + "\n\n");
+                    emitter.send("event: error\ndata: 系统异常，请稍后重试\n\n");
                 } catch (Exception ex) {
                     log.error("发送异常事件失败", ex);
                 }
@@ -146,8 +149,10 @@ public class InterviewController {
                 } catch (Exception ex) {
                     log.error("完成emitter失败", ex);
                 }
+            } finally {
+                SecurityContextHolder.clearContext();
             }
-        }, "sse-interview-" + sessionId).start();
+        });
 
         return emitter;
     }
@@ -198,7 +203,7 @@ public class InterviewController {
     @GetMapping("/history")
     public Result<PageResult<InterviewHistoryResponse>> getHistory(
             @RequestParam(defaultValue = "1") Integer pageNum,
-            @RequestParam(defaultValue = "5") Integer pageSize,
+            @RequestParam(defaultValue = "5") @Max(value = 100, message = "每页最多100条") Integer pageSize,
             Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         log.info("获取面试历史, userId: {}, pageNum: {}, pageSize: {}", userId, pageNum, pageSize);
@@ -208,14 +213,18 @@ public class InterviewController {
 
     /**
      * 获取面试历史（不分页，兼容旧版）
-     * @deprecated 请使用分页接口 GET /api/interview/history
+     * @deprecated 请使用分页接口 GET /api/interview/history，此接口将在下个版本移除
      */
     @Deprecated
     @GetMapping("/history/all")
     public Result<List<InterviewHistoryResponse>> getAllHistory(Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
-        log.warn("调用已废弃接口 GET /api/interview/history/all, userId: {}", userId);
+        log.warn("调用已废弃接口 GET /api/interview/history/all, userId: {}，请迁移到分页接口", userId);
+        // 限制返回数量，防止数据过量
         List<InterviewHistoryResponse> list = interviewService.getAllHistory(userId);
+        if (list.size() > 100) {
+            list = list.subList(0, 100);
+        }
         return Result.success(list);
     }
 

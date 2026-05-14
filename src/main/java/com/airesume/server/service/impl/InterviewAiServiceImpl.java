@@ -173,20 +173,20 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     private String getApiKey() {
         String key = System.getenv("DOUBAO_API_KEY");
         if (key != null && !key.isBlank()) {
-            log.info("[DEBUG] getApiKey: 读取到 DOUBAO_API_KEY, 长度={}, 前5位={}", key.length(), key.substring(0, 5));
+            log.debug("[DEBUG] getApiKey: 读取到 DOUBAO_API_KEY, 长度={}", key.length());
             return key;
         }
         key = System.getenv("API_KEY");
         if (key != null && !key.isBlank()) {
-            log.info("[DEBUG] getApiKey: 读取到 API_KEY, 长度={}, 前5位={}", key.length(), key.substring(0, 5));
+            log.debug("[DEBUG] getApiKey: 读取到 API_KEY, 长度={}", key.length());
             return key;
         }
         key = System.getenv("AI_API_KEY");
         if (key != null && !key.isBlank()) {
-            log.info("[DEBUG] getApiKey: 读取到 AI_API_KEY, 长度={}, 前5位={}", key.length(), key.substring(0, 5));
+            log.debug("[DEBUG] getApiKey: 读取到 AI_API_KEY, 长度={}", key.length());
             return key;
         }
-        log.info("[DEBUG] getApiKey: 未读取到任何 API_KEY");
+        log.debug("[DEBUG] getApiKey: 未读取到任何 API_KEY");
         return null;
     }
 
@@ -202,11 +202,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                                   InterviewJobTargetContext jobTargetContext) {
         log.info("生成面试开场白(硬编码模板), jobRole: {}, jobRoleCode: {}, difficulty: {}",
                 jobRole, jobRoleCode, difficulty);
-        String difficultyDesc = switch (difficulty == null ? 2 : difficulty) {
-            case 1 -> "初级";
-            case 3 -> "高级";
-            default -> "中级";
-        };
+        String difficultyDesc = InterviewConstants.getDifficultyLabel(difficulty == null ? 2 : difficulty);
         boolean hasResume = hasResumeContext(jobTargetContext);
         String resumeHint = hasResume ? "我已经看过你的简历，" : "";
         return String.format(InterviewConstants.OPENING_TEMPLATE,
@@ -313,7 +309,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
 
         try {
             String requestJson = objectMapper.writeValueAsString(reqBody);
-            log.info("[{}] 请求体JSON: {}", tag, requestJson);
+            log.debug("[{}] 请求体JSON: {}", tag, requestJson);
         } catch (Exception e) {
             log.warn("[{}] 请求体序列化失败", tag, e);
         }
@@ -619,7 +615,9 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 || name.contains("WebClientRequestException")
                 || name.contains("IOException")
                 || name.contains("WebClientException")
-                || name.contains("IllegalStateException"); // 未配置 API Key 等启动期异常
+                || (name.contains("IllegalStateException")
+                    && throwable.getMessage() != null
+                    && throwable.getMessage().contains("密钥")); // 仅 API Key 缺失时降级
     }
 
     /**
@@ -734,11 +732,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     }
 
     private String buildDefaultEvaluationSystemPrompt(String jobRole, Integer difficulty, String interviewMode) {
-        String difficultyDesc = switch (difficulty == null ? 2 : difficulty) {
-            case 1 -> "初级（1-3年经验）";
-            case 3 -> "高级（5年以上经验）";
-            default -> "中级（3-5年经验）";
-        };
+        String difficultyDesc = InterviewConstants.getDifficultyDescription(difficulty);
         String modeDesc = "stress".equalsIgnoreCase(interviewMode) ? "压力面试" : "普通面试";
 
         String prompt = """
@@ -965,12 +959,14 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             log.info("[{}] HTTP 超时: {}ms", tag, readTimeout);
             RestClient runtimeRestClient = builder.build();
 
-            ResponseBody response = runtimeRestClient.post()
+            String responseText = runtimeRestClient.post()
                     .uri(runtimeConfig.endpoint())
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                    .accept(MediaType.APPLICATION_JSON)
                     .body(request)
                     .retrieve()
-                    .body(ResponseBody.class);
+                    .body(String.class);
+            ResponseBody response = tryReadResponseBody(responseText);
 
             if (response == null || response.choices == null || response.choices.isEmpty()) {
                 throw new RuntimeException("AI 返回内容为空");
@@ -1026,12 +1022,14 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             log.info("[{}] HTTP 超时: {}ms", tag, readTimeout);
             RestClient runtimeRestClient = builder.build();
 
-            ResponseBody response = runtimeRestClient.post()
+            String responseText = runtimeRestClient.post()
                     .uri(runtimeConfig.endpoint())
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                    .accept(MediaType.APPLICATION_JSON)
                     .body(request)
                     .retrieve()
-                    .body(ResponseBody.class);
+                    .body(String.class);
+            ResponseBody response = tryReadResponseBody(responseText);
 
             if (response == null || response.choices == null || response.choices.isEmpty()) {
                 throw new RuntimeException("AI 返回内容为空");
@@ -1212,11 +1210,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     }
 
     private String buildDefaultSystemPrompt(String jobRole, Integer difficulty) {
-        String difficultyDesc = switch (difficulty == null ? 2 : difficulty) {
-            case 1 -> "初级";
-            case 3 -> "高级";
-            default -> "中级";
-        };
+        String difficultyDesc = InterviewConstants.getDifficultyLabel(difficulty == null ? 2 : difficulty);
 
         String prompt = """
                 角色：大厂面试官(10年经验)。岗位：PLACEHOLDER_JOB。难度：PLACEHOLDER_DIFF。
@@ -1286,11 +1280,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      * 目标：通过有意图的施压行为，观察候选人被质疑、被推向边界时的真实反应
      */
     private String buildStressSystemPrompt(String jobRole, Integer difficulty) {
-        String difficultyDesc = switch (difficulty == null ? 2 : difficulty) {
-            case 1 -> "初级（1-3年经验）";
-            case 3 -> "高级（5年以上经验）";
-            default -> "中级（3-5年经验）";
-        };
+        String difficultyDesc = InterviewConstants.getDifficultyDescription(difficulty);
 
         // 分级施压策略
         String pressureLevel = switch (difficulty == null ? 2 : difficulty) {
@@ -1456,11 +1446,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     }
 
     private String buildOpeningUserPrompt(String jobRole, Integer difficulty, InterviewJobTargetContext jobTargetContext) {
-        String diffText = switch (difficulty == null ? 2 : difficulty) {
-            case 1 -> "初级";
-            case 3 -> "高级";
-            default -> "中级";
-        };
+        String diffText = InterviewConstants.getDifficultyLabel(difficulty == null ? 2 : difficulty);
         boolean hasResume = hasResumeContext(jobTargetContext);
 
         String prompt = String.format("""
@@ -1737,8 +1723,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             String dbApiKey = normalizeConfigValue(activeConfig.getApiKey());
             if (dbApiKey != null) {
                 runtimeApiKey = dbApiKey;
-                log.info("[DEBUG] 从数据库读取到 apiKey, 长度: {}, 前5位: {}",
-                        dbApiKey.length(), dbApiKey.substring(0, Math.min(5, dbApiKey.length())));
+                log.debug("[DEBUG] 从数据库读取到 apiKey, 长度: {}", dbApiKey.length());
             } else {
                 log.warn("数据库 apiKey 为空，使用本地兜底");
             }
@@ -1766,10 +1751,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                     + "请在管理端激活 AI 引擎配置，或设置环境变量 DOUBAO_API_KEY");
         }
 
-        log.info("[DEBUG] runtimeApiKey 最终状态: 长度={}, 前5位={}",
-                runtimeApiKey.length(), runtimeApiKey.substring(0, Math.min(5, runtimeApiKey.length())));
-        log.info("[DEBUG] Authorization 头将会是: Bearer {}****",
-                runtimeApiKey.substring(0, Math.min(4, runtimeApiKey.length())));
+        log.debug("[DEBUG] runtimeApiKey 最终状态: 长度={}", runtimeApiKey.length());
 
         return new RuntimeAiConfig(
                 runtimeProvider,
@@ -1859,6 +1841,18 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             private static class MessageContent {
                 public String content;
             }
+        }
+    }
+
+    private ResponseBody tryReadResponseBody(String rawText) {
+        if (rawText == null || rawText.isBlank()) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(rawText.trim(), ResponseBody.class);
+        } catch (Exception ex) {
+            log.warn("AI 响应 JSON 解析失败: {}", ex.getMessage());
+            return null;
         }
     }
 

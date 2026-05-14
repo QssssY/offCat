@@ -22,9 +22,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.concurrent.TimeUnit;
 
 /**
  * 认证服务实现类。
@@ -34,11 +37,16 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class AuthServiceImpl implements AuthService {
 
+    private static final String LOGIN_ATTEMPTS_KEY_PREFIX = "login:attempts:";
+    private static final int MAX_LOGIN_ATTEMPTS = 5;
+    private static final long LOGIN_LOCKOUT_MINUTES = 15;
+
     private final SysUserService sysUserService;
     private final UserQuotaService userQuotaService;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
     private final JwtProperties jwtProperties;
+    private final StringRedisTemplate stringRedisTemplate;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -77,13 +85,23 @@ public class AuthServiceImpl implements AuthService {
         String username = request.getUsername();
         log.info("Processing user login, username: {}", username);
 
+        // 检查是否因多次失败被临时锁定
+        String attemptsKey = LOGIN_ATTEMPTS_KEY_PREFIX + username;
+        int attempts = getLoginAttempts(attemptsKey);
+        if (attempts >= MAX_LOGIN_ATTEMPTS) {
+            log.warn("Login blocked due to too many failed attempts, username: {}", username);
+            throw new BusinessException("登录失败次数过多，请 " + LOGIN_LOCKOUT_MINUTES + " 分钟后再试");
+        }
+
         SysUser user = sysUserService.getByUsername(username);
         if (user == null) {
+            incrementLoginAttempts(attemptsKey);
             log.warn("Login failed, user not found: {}", username);
             throw new BusinessException(ResultCode.PARAM_ERROR.getCode(), "用户名或密码错误");
         }
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+            incrementLoginAttempts(attemptsKey);
             log.warn("Login failed, password incorrect, username: {}", username);
             throw new BusinessException(ResultCode.PARAM_ERROR.getCode(), "用户名或密码错误");
         }
@@ -93,9 +111,47 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException("账号已被封禁");
         }
 
+        // 登录成功，清除失败计数
+        clearLoginAttempts(attemptsKey);
         String token = jwtUtil.generateToken(user.getId(), user.getUsername(), user.getRole());
         log.info("User logged in successfully: {}", user.getUsername());
         return new LoginResponse(token, jwtProperties.getPrefix().trim(), jwtProperties.getExpiration() / 1000);
+    }
+
+    private int getLoginAttempts(String key) {
+        try {
+            String attemptsStr = stringRedisTemplate.opsForValue().get(key);
+            return attemptsStr != null ? Integer.parseInt(attemptsStr) : 0;
+        } catch (NumberFormatException e) {
+            log.warn("Redis 登录计数格式异常，重置失败次数: key={}", key);
+            clearLoginAttempts(key);
+            return 0;
+        } catch (Exception e) {
+            log.warn("读取 Redis 登录失败次数异常，降级为跳过限流: key={}", key, e);
+            return 0;
+        }
+    }
+
+    /**
+     * 登录失败时递增失败计数，首次失败时设置过期时间。
+     */
+    private void incrementLoginAttempts(String key) {
+        try {
+            Long newAttempts = stringRedisTemplate.opsForValue().increment(key);
+            if (newAttempts != null && newAttempts == 1) {
+                stringRedisTemplate.expire(key, LOGIN_LOCKOUT_MINUTES, TimeUnit.MINUTES);
+            }
+        } catch (Exception e) {
+            log.warn("写入 Redis 登录失败次数异常，降级为跳过限流: key={}", key, e);
+        }
+    }
+
+    private void clearLoginAttempts(String key) {
+        try {
+            stringRedisTemplate.delete(key);
+        } catch (Exception e) {
+            log.warn("清理 Redis 登录失败次数异常: key={}", key, e);
+        }
     }
 
     @Override
@@ -184,8 +240,9 @@ public class AuthServiceImpl implements AuthService {
         log.info("Getting security question for username: {}", username);
         SysUser user = sysUserService.getByUsername(username);
         if (user == null) {
-            log.warn("Get security question failed, user not found: {}", username);
-            throw new BusinessException("用户不存在");
+            // 不区分"用户不存在"和"未设置安全问题"，防止用户名枚举攻击
+            log.warn("Get security question failed, user not found or no question: {}", username);
+            throw new BusinessException("该用户未设置安全问题，无法找回密码");
         }
         if (user.getSecurityQuestion() == null || user.getSecurityQuestion().isBlank()) {
             log.warn("Get security question failed, user has no security question set: {}", username);
@@ -266,7 +323,7 @@ public class AuthServiceImpl implements AuthService {
         String prefix = "用户_";
         String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
         StringBuilder sb = new StringBuilder(prefix);
-        java.util.Random random = new java.util.Random();
+        java.util.concurrent.ThreadLocalRandom random = java.util.concurrent.ThreadLocalRandom.current();
         for (int i = 0; i < 6; i++) {
             sb.append(chars.charAt(random.nextInt(chars.length())));
         }

@@ -136,11 +136,7 @@ public class InterviewService {
         CompletableFuture.runAsync(() -> {
             try {
                 // 硬编码开场白模板，不调用 AI
-                String difficultyDesc = switch (request.getDifficulty() == null ? 2 : request.getDifficulty()) {
-                    case 1 -> "初级";
-                    case 3 -> "高级";
-                    default -> "中级";
-                };
+                String difficultyDesc = com.airesume.server.common.constants.InterviewConstants.getDifficultyLabel(request.getDifficulty() == null ? 2 : request.getDifficulty());
                 boolean hasResume = jobTargetContext != null
                         && jobTargetContext.getResumeText() != null
                         && !jobTargetContext.getResumeText().isBlank();
@@ -775,12 +771,7 @@ public class InterviewService {
         if (difficulty == null) {
             return "未知";
         }
-        return switch (difficulty) {
-            case 1 -> "初级";
-            case 2 -> "中级";
-            case 3 -> "高级";
-            default -> "未知";
-        };
+        return com.airesume.server.common.constants.InterviewConstants.getDifficultyLabel(difficulty);
     }
 
     /**

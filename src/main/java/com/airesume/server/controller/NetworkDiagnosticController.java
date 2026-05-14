@@ -3,6 +3,7 @@ package com.airesume.server.controller;
 import com.airesume.server.common.result.Result;
 import com.airesume.server.common.util.NetworkDiagnosticUtil;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Profile;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -29,6 +30,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/diagnostic")
 @Slf4j
+@Profile("dev")
 public class NetworkDiagnosticController {
 
     /**

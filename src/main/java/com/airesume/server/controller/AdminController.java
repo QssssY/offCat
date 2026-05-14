@@ -1,6 +1,7 @@
 package com.airesume.server.controller;
 
 import com.airesume.server.common.constants.AiEngineConstants;
+import com.airesume.server.common.constants.InterviewConstants;
 import com.airesume.server.common.constants.PromptConstants;
 import com.airesume.server.common.constants.UserRoleConstants;
 import com.airesume.server.common.exception.BusinessException;
@@ -199,7 +200,7 @@ public class AdminController {
      * 作用：
      * 管理员可以批量物理删除岗位配置，删除后数据无法恢复。
      */
-    @DeleteMapping("/job-roles/batch")
+    @PostMapping("/job-roles/batch-delete")
     @CacheEvict(value = "config:jobRoles", allEntries = true)
     public Result<Void> deleteJobRolesBatch(@RequestBody List<Long> ids, Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
@@ -208,6 +209,9 @@ public class AdminController {
 
         if (ids == null || ids.isEmpty()) {
             throw new BusinessException("请选择要删除的岗位配置");
+        }
+        if (ids.size() > 100) {
+            throw new BusinessException("单次操作不能超过100条");
         }
 
         // 物理删除：批量移除
@@ -235,13 +239,10 @@ public class AdminController {
             throw new BusinessException("请选择要操作的岗位配置");
         }
 
-        for (Long id : request.getIds()) {
-            SysJobRole jobRole = sysJobRoleService.getById(id);
-            if (jobRole != null) {
-                jobRole.setIsActive(request.getIsActive());
-                sysJobRoleService.updateById(jobRole);
-            }
-        }
+        sysJobRoleService.lambdaUpdate()
+                .in(SysJobRole::getId, request.getIds())
+                .set(SysJobRole::getIsActive, request.getIsActive())
+                .update();
         log.info("Batch toggle job roles active completed, count: {}", request.getIds().size());
         return Result.success("批量更新成功", null);
     }
@@ -435,7 +436,7 @@ public class AdminController {
      * 作用：
      * 管理员可以批量物理删除 AI 引擎配置，删除后数据无法恢复。
      */
-    @DeleteMapping("/ai-engines/batch")
+    @PostMapping("/ai-engines/batch-delete")
     public Result<Void> deleteAiEnginesBatch(@RequestBody List<Long> ids, Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         checkAdminPermission(userId);
@@ -443,6 +444,9 @@ public class AdminController {
 
         if (ids == null || ids.isEmpty()) {
             throw new BusinessException("请选择要删除的AI引擎配置");
+        }
+        if (ids.size() > 100) {
+            throw new BusinessException("单次操作不能超过100条");
         }
 
         // 物理删除：批量移除
@@ -595,7 +599,7 @@ SysPrompt prompt = new SysPrompt();
         prompt.setPromptContent(request.getPromptContent());
 
         Integer isActive = request.getActiveStatus() != null ? request.getActiveStatus() : PromptConstants.ACTIVE;
-        if (PromptConstants.ACTIVE ==(isActive)) {
+        if (isActive == PromptConstants.ACTIVE) {
             sysPromptService.deactivateOtherPrompts(
                     request.getScenarioType(),
                     configuredJobRole.getRoleCode(),
@@ -647,7 +651,7 @@ SysPrompt prompt = new SysPrompt();
             prompt.setPromptContent(request.getPromptContent());
         }
         if (request.getActiveStatus() != null) {
-            if (PromptConstants.ACTIVE ==(request.getActiveStatus())) {
+            if (request.getActiveStatus() == PromptConstants.ACTIVE) {
                 sysPromptService.deactivateOtherPrompts(
                         prompt.getScenarioType(),
                         prompt.getJobRoleCode(),
@@ -687,7 +691,7 @@ SysPrompt prompt = new SysPrompt();
             throw new BusinessException("Prompt不存在");
         }
 
-        if (PromptConstants.ACTIVE ==(isActive)) {
+        if (isActive == PromptConstants.ACTIVE) {
             sysPromptService.deactivateOtherPrompts(
                     prompt.getScenarioType(),
                     prompt.getJobRoleCode(),
@@ -730,7 +734,7 @@ SysPrompt prompt = new SysPrompt();
      * 作用：
      * 管理员可以批量物理删除 Prompt 模板，删除后数据无法恢复。
      */
-    @DeleteMapping("/prompts/batch")
+    @PostMapping("/prompts/batch-delete")
     public Result<Void> deletePromptsBatch(@RequestBody List<Long> ids, Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         checkAdminPermission(userId);
@@ -738,6 +742,9 @@ SysPrompt prompt = new SysPrompt();
 
         if (ids == null || ids.isEmpty()) {
             throw new BusinessException("请选择要删除的Prompt");
+        }
+        if (ids.size() > 100) {
+            throw new BusinessException("单次操作不能超过100条");
         }
 
         // 物理删除：批量移除
@@ -853,7 +860,7 @@ SysPrompt prompt = new SysPrompt();
      */
     @PutMapping("/users/{userId}/rights")
     public Result<Void> updateUserRights(@PathVariable Long userId,
-                                         @RequestBody UserRightsUpdateRequest request,
+                                         @Valid @RequestBody UserRightsUpdateRequest request,
                                          Authentication authentication) {
         Long adminUserId = (Long) authentication.getPrincipal();
         checkAdminPermission(adminUserId);
@@ -903,13 +910,10 @@ SysPrompt prompt = new SysPrompt();
             throw new BusinessException("请选择要操作的用户");
         }
 
-        for (Long userId : request.getIds()) {
-            SysUser user = sysUserService.getById(userId);
-            if (user != null) {
-                user.setStatus(request.getIsActive());
-                sysUserService.updateById(user);
-            }
-        }
+        sysUserService.lambdaUpdate()
+                .in(SysUser::getId, request.getIds())
+                .set(SysUser::getStatus, request.getIsActive())
+                .update();
         log.info("Batch update users status completed, count: {}", request.getIds().size());
         return Result.success("批量更新成功", null);
     }
@@ -1151,12 +1155,7 @@ private UserListResponse buildUserListResponse(SysUser user) {
     }
 
     private String getDifficultyDesc(Integer difficulty) {
-        return switch (difficulty) {
-            case 1 -> "初级";
-            case 2 -> "中级";
-            case 3 -> "高级";
-            default -> "未知";
-        };
+        return InterviewConstants.getDifficultyLabel(difficulty);
     }
 
     /**

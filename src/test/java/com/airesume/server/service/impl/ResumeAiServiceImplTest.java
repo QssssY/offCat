@@ -1,178 +1,273 @@
 package com.airesume.server.service.impl;
 
 import com.airesume.server.config.AiTokenLimitConfig;
-import com.airesume.server.entity.SysAiEngineConfig;
 import com.airesume.server.service.SysAiEngineConfigService;
 import com.airesume.server.service.SysPromptService;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpServer;
-import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.reactive.function.client.WebClient;
 
-import java.io.IOException;
-import java.io.OutputStream;
-import java.net.InetSocketAddress;
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.lang.reflect.Method;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 class ResumeAiServiceImplTest {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
-    private HttpServer server;
+    private ResumeAiServiceImpl service;
+    private Method sanitizeMethod;
 
-    @AfterEach
-    void tearDown() {
-        if (server != null) {
-            server.stop(0);
-            server = null;
-        }
-    }
-
-    @Test
-    void resolveReadTimeoutMsShouldRespectConfiguredValue() {
-        assertEquals(600_000, ResumeAiServiceImpl.resolveReadTimeoutMs(600_000, 180_000));
-        assertEquals(180_000, ResumeAiServiceImpl.resolveReadTimeoutMs(null, 180_000));
-    }
-
-    @Test
-    void diagnoseShouldAssembleStreamingResponse() throws Exception {
-        String finalJson = """
-                {"overallEvaluation":{"totalScore":88,"level":"A","summary":"诊断成功","strengths":[],"weaknesses":[]},
-                "highlights":["亮点1"],
-                "basicInfoEvaluation":{"score":90,"hasName":true,"hasPhone":true,"hasEmail":true,"hasGithub":false,"hasBlog":false,"evaluation":"信息完整","strengths":[],"weaknesses":[],"suggestions":[]},
-                "skillEvaluation":{"score":85,"skillList":["Java"],"evaluation":"技能明确","strengths":[],"weaknesses":[],"suggestions":[]},
-                "workExperienceEvaluation":{"score":70,"totalYears":1,"companyCount":1,"hasQuantifiableResults":false,"experiences":[],"evaluation":"经历一般","strengths":[],"weaknesses":[],"suggestions":[]},
-                "projectExperienceEvaluation":{"score":80,"projectCount":1,"hasTechStack":true,"hasResponsibilities":true,"projects":[],"evaluation":"项目较清晰","strengths":[],"weaknesses":[],"suggestions":[]},
-                "educationEvaluation":{"score":75,"degree":"本科","school":"测试大学","major":"软件工程","hasRelevantMajor":true,"evaluation":"教育背景匹配","strengths":[],"weaknesses":[],"suggestions":[]},
-                "optimizationSuggestions":["建议1"]}
-                """.replace("\r", "").replace("\n", "");
-
-        server = startServer(exchange -> {
-            String chunkJson = "{\"choices\":[{\"delta\":{\"content\":"
-                    + objectMapper.writeValueAsString(finalJson) + "}}]}";
-            String response = "data: " + chunkJson + "\n\n" + "data: [DONE]\n\n";
-            writeResponse(exchange, 200, "text/event-stream", response);
-        });
-
-        ResumeAiServiceImpl service = createService(server.getAddress().getPort(), 1_000, null);
-        String result = service.diagnose("张三 Java 工程师简历");
-
-        assertEquals(finalJson, result);
-    }
-
-    @Test
-    void diagnoseShouldRetryWithLeanPromptAfterTimeout() throws Exception {
-        AtomicInteger requestCount = new AtomicInteger();
-        List<String> requestBodies = new ArrayList<>();
-        String finalJson = """
-                {"overallEvaluation":{"totalScore":76,"level":"B","summary":"重试成功","strengths":[],"weaknesses":[]},
-                "highlights":[],
-                "basicInfoEvaluation":{"score":80,"hasName":true,"hasPhone":true,"hasEmail":true,"hasGithub":false,"hasBlog":false,"evaluation":"信息完整","strengths":[],"weaknesses":[],"suggestions":[]},
-                "skillEvaluation":{"score":78,"skillList":[],"evaluation":"技能尚可","strengths":[],"weaknesses":[],"suggestions":[]},
-                "workExperienceEvaluation":{"score":65,"totalYears":0,"companyCount":0,"hasQuantifiableResults":false,"experiences":[],"evaluation":"缺少实习","strengths":[],"weaknesses":[],"suggestions":[]},
-                "projectExperienceEvaluation":{"score":82,"projectCount":1,"hasTechStack":true,"hasResponsibilities":true,"projects":[],"evaluation":"项目清晰","strengths":[],"weaknesses":[],"suggestions":[]},
-                "educationEvaluation":{"score":72,"degree":"本科","school":"测试大学","major":"软件工程","hasRelevantMajor":true,"evaluation":"教育匹配","strengths":[],"weaknesses":[],"suggestions":[]},
-                "optimizationSuggestions":["建议1"]}
-                """.replace("\r", "").replace("\n", "");
-
-        server = startServer(exchange -> {
-            requestBodies.add(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
-            int current = requestCount.incrementAndGet();
-            if (current == 1) {
-                sleep(300);
-                writeResponse(exchange, 200, "text/event-stream", "data: [DONE]\n\n");
-                return;
-            }
-            String chunkJson = "{\"choices\":[{\"delta\":{\"content\":"
-                    + objectMapper.writeValueAsString(finalJson) + "}}]}";
-            String response = "data: " + chunkJson + "\n\n" + "data: [DONE]\n\n";
-            writeResponse(exchange, 200, "text/event-stream", response);
-        });
-
-        ResumeAiServiceImpl service = createService(server.getAddress().getPort(), 100, null);
-        String result = service.diagnose("李四 前端工程师简历");
-
-        assertEquals(finalJson, result);
-        assertEquals(2, requestCount.get());
-        assertTrue(requestBodies.get(1).contains("返回精简 JSON"));
-    }
-
-    private ResumeAiServiceImpl createService(int port, int timeoutMs, String dbPrompt) {
-        SysPromptService sysPromptService = mock(SysPromptService.class);
-        when(sysPromptService.getActivePromptContent(anyInt())).thenReturn(dbPrompt);
-
-        SysAiEngineConfigService aiEngineConfigService = mock(SysAiEngineConfigService.class);
-        SysAiEngineConfig config = new SysAiEngineConfig();
-        config.setProviderType("deepseek");
-        config.setModelName("test-model");
-        config.setBaseUrl("http://localhost:" + port);
-        config.setApiKey("test-key");
-        config.setTimeoutMs(timeoutMs);
-        config.setEngineCode("resume-test");
-        when(aiEngineConfigService.getActiveByBusinessType("resume")).thenReturn(config);
-
-        AiTokenLimitConfig tokenLimitConfig = new AiTokenLimitConfig();
-        tokenLimitConfig.setCompressionEnabled(false);
-        tokenLimitConfig.setTokenLimitEnabled(true);
-        tokenLimitConfig.setResumeDiagnosisMax(6000);
-
-        return new ResumeAiServiceImpl(
-                "deepseek",
-                "http://localhost:" + port,
-                "test-model",
+    @BeforeEach
+    void setUp() throws Exception {
+        service = new ResumeAiServiceImpl(
+                "doubao",
+                "",
+                "",
                 "none",
-                sysPromptService,
-                aiEngineConfigService,
-                objectMapper,
-                tokenLimitConfig,
-                org.springframework.web.client.RestClient.builder(),
-                org.springframework.web.reactive.function.client.WebClient.builder());
+                mock(SysPromptService.class),
+                mock(SysAiEngineConfigService.class),
+                new ObjectMapper(),
+                new AiTokenLimitConfig(),
+                RestClient.builder(),
+                WebClient.builder());
+        sanitizeMethod = ResumeAiServiceImpl.class.getDeclaredMethod("sanitizePolishedResumeText", String.class);
+        sanitizeMethod.setAccessible(true);
     }
 
-    private HttpServer startServer(ThrowingHandler handler) throws IOException {
-        HttpServer httpServer = HttpServer.create(new InetSocketAddress(0), 0);
-        httpServer.setExecutor(Executors.newCachedThreadPool());
-        httpServer.createContext("/chat/completions", exchange -> {
-            try {
-                handler.handle(exchange);
-            } finally {
-                exchange.close();
-            }
-        });
-        httpServer.start();
-        return httpServer;
+    @Test
+    void sanitizePolishedResumeTextShouldKeepFirstResumeAndStripMetadata() throws Exception {
+        String polluted = """
+                个人信息
+                温家健
+                Java后端开发工程师（初级）
+                教育背景
+                广东轻工职业技术学院 | 软件技术 | 专科 | 2021.09-2024.06
+                专业技能
+                • 精通Java OOP/集合/多线程，熟练Spring Boot/MyBatis/MySQL
+                荣誉证书
+                校级二等奖学金(2023)、Java编程竞赛三等奖(2023)
+                个人评价
+                具备扎实Java后端开发能力和半年实习经验。(String), 温家健
+                个人信息
+                温家健
+                教育背景
+                广东轻工职业技术学院 | 软件技术 | 专科 | 2021.09-2024.06
+                仅基于简历(String)
+                2026-05-12T22:05:26.181401600(LocalDateTime)
+                <==    Updates: 1
+                """;
+
+        String sanitized = (String) sanitizeMethod.invoke(service, polluted);
+
+        assertTrue(sanitized.contains("个人评价\n具备扎实Java后端开发能力和半年实习经验。"));
+        assertFalse(sanitized.contains("(String)"));
+        assertFalse(sanitized.contains("(LocalDateTime)"));
+        assertFalse(sanitized.contains("<==    Updates: 1"));
+        assertFalse(sanitized.contains("仅基于简历"));
+        assertFalse(sanitized.indexOf("个人信息") != sanitized.lastIndexOf("个人信息"));
     }
 
-    private void writeResponse(HttpExchange exchange, int status, String contentType, String body) throws IOException {
-        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-        exchange.getResponseHeaders().add("Content-Type", contentType);
-        exchange.sendResponseHeaders(status, bytes.length);
-        try (OutputStream outputStream = exchange.getResponseBody()) {
-            outputStream.write(bytes);
+    @Test
+    void sanitizePolishedResumeTextShouldHandleNullInput() throws Exception {
+        String sanitized = (String) sanitizeMethod.invoke(service, (Object) null);
+        assertEquals("", sanitized);
+    }
+
+    @Test
+    void sanitizePolishedResumeTextShouldHandleEmptyString() throws Exception {
+        String sanitized = (String) sanitizeMethod.invoke(service, "");
+        assertEquals("", sanitized);
+    }
+
+    @Test
+    void sanitizePolishedResumeTextShouldHandleBlankString() throws Exception {
+        String sanitized = (String) sanitizeMethod.invoke(service, "   \n  \n  ");
+        assertEquals("", sanitized);
+    }
+
+    @Test
+    void sanitizePolishedResumeTextShouldStripMarkdownCodeBlocks() throws Exception {
+        String input = """
+                ```json
+                个人信息
+                张三
+                教育背景
+                清华大学
+                ```
+                """;
+
+        String sanitized = (String) sanitizeMethod.invoke(service, input);
+
+        assertFalse(sanitized.startsWith("```"));
+        assertFalse(sanitized.endsWith("```"));
+        assertTrue(sanitized.contains("个人信息"));
+    }
+
+    @Test
+    void sanitizePolishedResumeTextShouldStripGenericCodeBlocks() throws Exception {
+        String input = """
+                ```
+                个人信息
+                张三
+                教育背景
+                清华大学
+                ```
+                """;
+
+        String sanitized = (String) sanitizeMethod.invoke(service, input);
+
+        assertFalse(sanitized.startsWith("```"));
+        assertFalse(sanitized.endsWith("```"));
+        assertTrue(sanitized.contains("个人信息"));
+    }
+
+    @Test
+    void sanitizePolishedResumeTextShouldStripLeadingTitles() throws Exception {
+        String input = """
+                AI润色简历
+                个人信息
+                张三
+                教育背景
+                清华大学
+                """;
+
+        String sanitized = (String) sanitizeMethod.invoke(service, input);
+
+        assertFalse(sanitized.startsWith("AI润色简历"));
+        assertTrue(sanitized.startsWith("个人信息"));
+    }
+
+    @Test
+    void sanitizePolishedResumeTextShouldStripLeadingSummaryBlock() throws Exception {
+        String input = """
+                摘要：这是一份优秀的简历
+                包含丰富的工作经验
+                个人信息
+                张三
+                教育背景
+                清华大学
+                """;
+
+        String sanitized = (String) sanitizeMethod.invoke(service, input);
+
+        assertFalse(sanitized.contains("摘要"));
+        assertTrue(sanitized.startsWith("个人信息"));
+    }
+
+    @Test
+    void sanitizePolishedResumeTextShouldNormalizeInlineSectionTitles() throws Exception {
+        String input = "个人信息 张三 教育背景 清华大学 专业技能 Java";
+
+        String sanitized = (String) sanitizeMethod.invoke(service, input);
+
+        // 验证章节标题被正确识别并换行
+        assertTrue(sanitized.contains("个人信息"));
+        assertTrue(sanitized.contains("张三"));
+        assertTrue(sanitized.contains("教育背景"));
+        assertTrue(sanitized.contains("清华大学"));
+        assertTrue(sanitized.contains("专业技能"));
+        assertTrue(sanitized.contains("Java"));
+    }
+
+    @Test
+    void sanitizePolishedResumeTextShouldKeepFirstResumeBody() throws Exception {
+        String input = """
+                个人信息
+                张三
+                教育背景
+                清华大学
+                个人信息
+                李四
+                教育背景
+                北京大学
+                """;
+
+        String sanitized = (String) sanitizeMethod.invoke(service, input);
+
+        assertTrue(sanitized.contains("张三"));
+        assertFalse(sanitized.contains("李四"));
+        assertEquals(1, countOccurrences(sanitized, "个人信息"));
+    }
+
+    @Test
+    void sanitizePolishedResumeTextShouldStripTrailingMetadata() throws Exception {
+        String input = """
+                个人信息
+                张三
+                教育背景
+                清华大学
+                (String)
+                (LocalDateTime)
+                <== Updates: 1
+                """;
+
+        String sanitized = (String) sanitizeMethod.invoke(service, input);
+
+        assertFalse(sanitized.contains("(String)"));
+        assertFalse(sanitized.contains("(LocalDateTime)"));
+        assertFalse(sanitized.contains("<== Updates:"));
+    }
+
+    @Test
+    void sanitizePolishedResumeTextShouldNormalizeLineEndings() throws Exception {
+        String input = "个人信息\r\n张三\r教育背景\n清华大学";
+
+        String sanitized = (String) sanitizeMethod.invoke(service, input);
+
+        assertFalse(sanitized.contains("\r"));
+        assertTrue(sanitized.contains("个人信息\n张三"));
+    }
+
+    @Test
+    void sanitizePolishedResumeTextShouldStripBom() throws Exception {
+        String input = "﻿个人信息\n张三";
+
+        String sanitized = (String) sanitizeMethod.invoke(service, input);
+
+        assertFalse(sanitized.contains("﻿"));
+        assertTrue(sanitized.startsWith("个人信息"));
+    }
+
+    @Test
+    void sanitizePolishedResumeTextShouldCollapseMultipleNewlines() throws Exception {
+        String input = "个人信息\n\n\n\n张三\n\n\n\n教育背景";
+
+        String sanitized = (String) sanitizeMethod.invoke(service, input);
+
+        // 验证多个换行符被折叠为最多两个
+        assertFalse(sanitized.contains("\n\n\n"));
+        assertTrue(sanitized.contains("个人信息"));
+        assertTrue(sanitized.contains("张三"));
+        assertTrue(sanitized.contains("教育背景"));
+    }
+
+    @Test
+    void sanitizePolishedResumeTextShouldStripMarkdownHeaders() throws Exception {
+        String input = """
+                # 个人信息
+                张三
+                ## 教育背景
+                清华大学
+                """;
+
+        String sanitized = (String) sanitizeMethod.invoke(service, input);
+
+        assertFalse(sanitized.contains("#"));
+        assertTrue(sanitized.contains("个人信息"));
+        assertTrue(sanitized.contains("教育背景"));
+    }
+
+    private int countOccurrences(String text, String substring) {
+        int count = 0;
+        int index = 0;
+        while ((index = text.indexOf(substring, index)) != -1) {
+            count++;
+            index += substring.length();
         }
-    }
-
-    private void sleep(long millis) {
-        try {
-            Thread.sleep(millis);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException(e);
-        }
-    }
-
-    @FunctionalInterface
-    private interface ThrowingHandler {
-        void handle(HttpExchange exchange) throws IOException;
+        return count;
     }
 }

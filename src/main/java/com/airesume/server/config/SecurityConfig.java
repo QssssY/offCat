@@ -54,7 +54,10 @@ public class SecurityConfig {
             configuration.setAllowedOrigins(List.of("http://localhost:3000"));
         }
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(Arrays.asList("*"));
+        configuration.setAllowedHeaders(Arrays.asList(
+                "Authorization", "Content-Type", "Accept", "Origin",
+                "X-Requested-With", "Cache-Control"
+        ));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
 
@@ -70,12 +73,15 @@ public class SecurityConfig {
                         request.getDispatcherType() == DispatcherType.REQUEST
                         || request.getDispatcherType() == DispatcherType.FORWARD
                         || request.getDispatcherType() == DispatcherType.INCLUDE)
+                // CSRF 禁用原因：本系统使用 JWT 无状态认证，不依赖 Cookie 携带会话凭据，
+                // 因此 CSRF 攻击面不存在。若后续引入 Cookie-based 认证，需重新启用 CSRF。
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/api/auth/**").permitAll()
-                        .requestMatchers("/actuator/**").permitAll()
+                        .requestMatchers("/actuator/health", "/actuator/info").permitAll()
+                        .requestMatchers("/actuator/**").hasRole("ADMIN")
                         // 网络诊断接口放行 - 用于排查 DNS、代理、端口等网络问题，无需登录
                         .requestMatchers("/api/diagnostic/**").permitAll()
                         // 用户端岗位选项需要由后台配置提供，前端不能再写死，所以这里开放只读岗位列表。

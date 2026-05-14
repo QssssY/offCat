@@ -32,6 +32,34 @@ public class InterviewConstants {
     public static final int DIFFICULTY_HARD = 3;
 
     /**
+     * 获取难度级别的中文描述。
+     * @param difficulty 难度级别（1/2/3）
+     * @return 中文描述
+     */
+    public static String getDifficultyLabel(Integer difficulty) {
+        if (difficulty == null) return "未知";
+        return switch (difficulty) {
+            case DIFFICULTY_EASY -> "初级";
+            case DIFFICULTY_MEDIUM -> "中级";
+            case DIFFICULTY_HARD -> "高级";
+            default -> "未知";
+        };
+    }
+
+    /**
+     * 获取难度级别的详细描述（含经验年限），用于 AI Prompt 构建。
+     * @param difficulty 难度级别（1/2/3），null 时按中级处理
+     * @return 详细描述
+     */
+    public static String getDifficultyDescription(Integer difficulty) {
+        return switch (difficulty == null ? DIFFICULTY_MEDIUM : difficulty) {
+            case DIFFICULTY_EASY -> "初级（1-3年经验）";
+            case DIFFICULTY_HARD -> "高级（5年以上经验）";
+            default -> "中级（3-5年经验）";
+        };
+    }
+
+    /**
      * 消息角色：用户
      */
     public static final String ROLE_USER = "user";

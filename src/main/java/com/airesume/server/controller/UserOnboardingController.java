@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -52,7 +53,7 @@ public class UserOnboardingController {
      * @param authentication Spring Security 认证对象，包含当前用户ID
      * @return 操作结果
      */
-    @PostMapping("/status")
+    @PutMapping("/status")
     public Result<Void> updateStatus(
             @Valid @RequestBody OnboardingUpdateRequest request,
             Authentication authentication) {
