@@ -9,6 +9,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -59,16 +61,21 @@ public class ResumePdfService {
             log.info("使用 Chrome 路径: {}", chromePath);
 
             // 构建 Chrome 命令
-            ProcessBuilder pb = new ProcessBuilder(
-                    chromePath,
-                    "--headless",
-                    "--no-sandbox",
-                    "--disable-gpu",
-                    "--disable-dev-shm-usage",
-                    "--print-to-pdf=" + tempPdf.toAbsolutePath(),
-                    "--print-to-pdf-no-header",
-                    tempHtml.toAbsolutePath().toString()
-            );
+            List<String> command = new ArrayList<>();
+            command.add(chromePath);
+            command.add("--headless");
+            if (pdfConfig.isNoSandboxEnabled()) {
+                command.add("--no-sandbox");
+            }
+            command.add("--disable-gpu");
+            command.add("--disable-dev-shm-usage");
+            command.add("--disable-background-networking");
+            command.add("--disable-extensions");
+            command.add("--disable-sync");
+            command.add("--print-to-pdf=" + tempPdf.toAbsolutePath());
+            command.add("--print-to-pdf-no-header");
+            command.add(tempHtml.toAbsolutePath().toString());
+            ProcessBuilder pb = new ProcessBuilder(command);
 
             pb.redirectErrorStream(true);
             process = pb.start();

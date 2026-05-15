@@ -248,8 +248,6 @@ class AuthServiceImplTest {
         @Test
         @DisplayName("should return fallback security question message when account not enumerable")
         void shouldReturnFallbackSecurityQuestionMessageWhenAccountNotEnumerable() {
-            when(sysUserService.getByUsername(TEST_USERNAME)).thenReturn(null);
-
             assertEquals("若账户已配置安全问题，可继续输入答案并重置密码",
                     authService.getSecurityQuestion(TEST_USERNAME).getSecurityQuestion());
         }

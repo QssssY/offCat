@@ -168,6 +168,33 @@ class CriticalEndpointRateLimitFilterTest {
         assertEquals(200, responseAfterWindow.getStatus());
     }
 
+    @Test
+    void shouldIgnoreForwardedForWhenProxyTrustIsDisabled() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-05-15T00:00:00Z"));
+        CriticalEndpointRateLimitFilter filter = new CriticalEndpointRateLimitFilter(new ObjectMapper(), clock);
+
+        for (int i = 0; i < 5; i++) {
+            MockHttpServletRequest request = buildRequest("POST", "/api/auth/register", "10.0.0.4");
+            request.addHeader("X-Forwarded-For", "198.51.100." + i);
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            verify(chain).doFilter(request, response);
+        }
+
+        MockHttpServletRequest blockedRequest = buildRequest("POST", "/api/auth/register", "10.0.0.4");
+        blockedRequest.addHeader("X-Forwarded-For", "198.51.100.99");
+        MockHttpServletResponse blockedResponse = new MockHttpServletResponse();
+        FilterChain blockedChain = mock(FilterChain.class);
+
+        filter.doFilter(blockedRequest, blockedResponse, blockedChain);
+
+        verify(blockedChain, never()).doFilter(blockedRequest, blockedResponse);
+        assertEquals(429, blockedResponse.getStatus());
+    }
+
     private MockHttpServletRequest buildRequest(String method, String path, String remoteAddr) {
         MockHttpServletRequest request = new MockHttpServletRequest(method, path);
         request.setRemoteAddr(remoteAddr);

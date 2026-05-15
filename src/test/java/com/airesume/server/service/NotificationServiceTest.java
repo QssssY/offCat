@@ -80,4 +80,14 @@ class NotificationServiceTest {
         assertThrows(IllegalStateException.class, () -> first.send(SseEmitter.event().name("test")));
         assertThrows(IllegalStateException.class, () -> second.send(SseEmitter.event().name("test")));
     }
+
+    @Test
+    void shutdownShouldClearRegisteredEmitters() throws Exception {
+        notificationService.registerEmitter(1L);
+        notificationService.registerEmitter(2L);
+
+        notificationService.shutdown();
+
+        assertTrue(getEmitterMap().isEmpty());
+    }
 }

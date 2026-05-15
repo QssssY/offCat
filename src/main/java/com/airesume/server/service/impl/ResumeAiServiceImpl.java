@@ -7,6 +7,7 @@ import com.airesume.server.dto.resume.ResumeJobMatchAnalyzeResponse;
 import com.airesume.server.dto.resume.ResumePolishAiResult;
 import com.airesume.server.entity.SysAiEngineConfig;
 import com.airesume.server.service.AiCircuitBreaker;
+import com.airesume.server.service.AiCredentialCrypto;
 import com.airesume.server.service.ResumeAiService;
 import com.airesume.server.service.SysAiEngineConfigService;
 import com.airesume.server.service.SysPromptService;
@@ -57,6 +58,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
     private final ObjectMapper objectMapper;
     private final AiTokenLimitConfig tokenLimitConfig;
     private final AiCircuitBreaker aiCircuitBreaker;
+    private final AiCredentialCrypto aiCredentialCrypto;
     private static final Pattern POLISHED_TEXT_PATTERN = Pattern.compile(
             "\"polishedResumeText\"\\s*:\\s*\"(.*?)\"\\s*,\\s*\"modificationNotes\"",
             Pattern.DOTALL);
@@ -87,7 +89,8 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             AiTokenLimitConfig tokenLimitConfig,
             RestClient.Builder restClientBuilder,
             WebClient.Builder webClientBuilder,
-            AiCircuitBreaker aiCircuitBreaker) {
+            AiCircuitBreaker aiCircuitBreaker,
+            AiCredentialCrypto aiCredentialCrypto) {
         this.provider = provider == null ? "doubao" : provider.toLowerCase();
         this.model = model;
         this.configuredBaseUrl = configuredBaseUrl;
@@ -99,6 +102,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         this.restClientBuilder = restClientBuilder;
         this.webClientBuilder = webClientBuilder;
         this.aiCircuitBreaker = aiCircuitBreaker;
+        this.aiCredentialCrypto = aiCredentialCrypto;
         this.resolvedBaseUrl = resolveBaseUrl(this.provider, configuredBaseUrl);
         this.endpoint = getEndpoint();
         this.restClient = restClientBuilder
@@ -927,7 +931,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             }
             String dbBaseUrl = normalizeConfigValue(activeConfig.getBaseUrl());
             runtimeBaseUrl = resolveBaseUrl(runtimeProvider, dbBaseUrl != null ? dbBaseUrl : configuredBaseUrl);
-            String dbApiKey = normalizeConfigValue(activeConfig.getApiKey());
+            String dbApiKey = normalizeConfigValue(aiCredentialCrypto.decrypt(activeConfig.getApiKey()));
             if (dbApiKey != null) {
                 runtimeApiKey = dbApiKey;
             } else {

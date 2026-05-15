@@ -17,6 +17,7 @@ import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
 import com.airesume.server.mapper.InterviewSessionMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.airesume.server.service.AiCircuitBreaker;
+import com.airesume.server.service.AiCredentialCrypto;
 import com.airesume.server.service.InterviewAiService;
 import com.airesume.server.service.InterviewContextCompressor;
 import com.airesume.server.service.SysAiEngineConfigService;
@@ -75,6 +76,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     private final ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper;
     private final InterviewSessionMapper interviewSessionMapper;
     private final AiCircuitBreaker aiCircuitBreaker;
+    private final AiCredentialCrypto aiCredentialCrypto;
 
     @Value("${app.interview.stream-debug-log:false}")
     private boolean streamDebugLog;
@@ -95,7 +97,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper,
             InterviewSessionMapper interviewSessionMapper,
             ObjectMapper objectMapper,
-            AiCircuitBreaker aiCircuitBreaker) {
+            AiCircuitBreaker aiCircuitBreaker,
+            AiCredentialCrypto aiCredentialCrypto) {
         this.provider = provider == null ? "doubao" : provider.toLowerCase();
         this.model = model;
         this.configuredBaseUrl = configuredBaseUrl;
@@ -112,6 +115,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         this.resumeDiagnosisTaskMapper = resumeDiagnosisTaskMapper;
         this.interviewSessionMapper = interviewSessionMapper;
         this.aiCircuitBreaker = aiCircuitBreaker;
+        this.aiCredentialCrypto = aiCredentialCrypto;
         this.resolvedBaseUrl = resolveBaseUrl(this.provider, configuredBaseUrl);
         this.endpoint = getEndpoint();
         this.restClient = restClientBuilder
@@ -1733,7 +1737,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             }
             String dbBaseUrl = normalizeConfigValue(activeConfig.getBaseUrl());
             runtimeBaseUrl = resolveBaseUrl(runtimeProvider, dbBaseUrl != null ? dbBaseUrl : configuredBaseUrl);
-            String dbApiKey = normalizeConfigValue(activeConfig.getApiKey());
+            String dbApiKey = normalizeConfigValue(aiCredentialCrypto.decrypt(activeConfig.getApiKey()));
             if (dbApiKey != null) {
                 runtimeApiKey = dbApiKey;
                 log.debug("[DEBUG] 从数据库读取到 apiKey, 长度: {}", dbApiKey.length());

@@ -9,6 +9,9 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -21,6 +24,7 @@ import java.time.Duration;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -54,17 +58,30 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
 
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    private final StringRedisTemplate stringRedisTemplate;
+    private final boolean trustForwardedHeaders;
     private final Map<String, RateLimitWindow> requestWindows = new ConcurrentHashMap<>();
     private final AtomicLong accessCounter = new AtomicLong();
 
     @Autowired
-    public CriticalEndpointRateLimitFilter(ObjectMapper objectMapper) {
-        this(objectMapper, Clock.systemDefaultZone());
+    public CriticalEndpointRateLimitFilter(ObjectMapper objectMapper,
+                                           ObjectProvider<StringRedisTemplate> redisTemplateProvider,
+                                           @Value("${app.security.trust-forwarded-headers:false}") boolean trustForwardedHeaders) {
+        this(objectMapper, Clock.systemDefaultZone(), redisTemplateProvider.getIfAvailable(), trustForwardedHeaders);
     }
 
     CriticalEndpointRateLimitFilter(ObjectMapper objectMapper, Clock clock) {
+        this(objectMapper, clock, null, false);
+    }
+
+    CriticalEndpointRateLimitFilter(ObjectMapper objectMapper,
+                                    Clock clock,
+                                    StringRedisTemplate stringRedisTemplate,
+                                    boolean trustForwardedHeaders) {
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.stringRedisTemplate = stringRedisTemplate;
+        this.trustForwardedHeaders = trustForwardedHeaders;
     }
 
     @Override
@@ -87,20 +104,40 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
 
         String requesterKey = buildRequesterKey(policy, request);
         String windowKey = policy.name() + "::" + requesterKey;
-        RateLimitWindow window = requestWindows.compute(windowKey, (key, existing) -> {
-            if (existing == null || existing.isExpired(now)) {
-                return RateLimitWindow.start(now, policy.windowMillis());
-            }
-            return existing.increment();
-        });
+        long requestCount = incrementRequestCount(windowKey, policy, now);
 
-        if (window.requestCount() > policy.maxRequests()) {
+        if (requestCount > policy.maxRequests()) {
             log.warn("Rate limit blocked, policy: {}, key: {}, path: {}", policy.name(), requesterKey, request.getRequestURI());
             writeTooManyRequests(response);
             return;
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private long incrementRequestCount(String windowKey, RateLimitPolicy policy, long now) {
+        if (stringRedisTemplate != null) {
+            try {
+                String redisKey = "rate-limit:" + windowKey;
+                Long count = stringRedisTemplate.opsForValue().increment(redisKey);
+                if (count != null && count == 1L) {
+                    stringRedisTemplate.expire(redisKey, policy.windowMillis(), TimeUnit.MILLISECONDS);
+                }
+                if (count != null) {
+                    return count;
+                }
+            } catch (Exception e) {
+                log.warn("Redis rate limit unavailable, fallback to local window, key={}", windowKey, e);
+            }
+        }
+
+        RateLimitWindow window = requestWindows.compute(windowKey, (key, existing) -> {
+            if (existing == null || existing.isExpired(now)) {
+                return RateLimitWindow.start(now, policy.windowMillis());
+            }
+            return existing.increment();
+        });
+        return window.requestCount();
     }
 
     /**
@@ -129,9 +166,11 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
     }
 
     private String extractClientIp(HttpServletRequest request) {
-        String forwardedFor = request.getHeader("X-Forwarded-For");
-        if (forwardedFor != null && !forwardedFor.isBlank()) {
-            return forwardedFor.split(",")[0].trim();
+        if (trustForwardedHeaders) {
+            String forwardedFor = request.getHeader("X-Forwarded-For");
+            if (forwardedFor != null && !forwardedFor.isBlank()) {
+                return forwardedFor.split(",")[0].trim();
+            }
         }
         return request.getRemoteAddr() == null || request.getRemoteAddr().isBlank()
                 ? "unknown"

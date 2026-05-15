@@ -17,6 +17,7 @@ import com.airesume.server.service.InterviewService;
 import com.airesume.server.service.MockInterviewJobTargetService;
 import com.airesume.server.service.SysJobRoleService;
 import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.reactivestreams.Publisher;
@@ -212,8 +213,8 @@ public class InterviewController {
      */
     @GetMapping("/history")
     public Result<PageResult<InterviewHistoryResponse>> getHistory(
-            @RequestParam(defaultValue = "1") Integer pageNum,
-            @RequestParam(defaultValue = "5") @Max(value = 100, message = "每页最多 100 条") Integer pageSize,
+            @RequestParam(defaultValue = "1") @Min(1) Integer pageNum,
+            @RequestParam(defaultValue = "5") @Min(1) @Max(value = 100, message = "每页最多 100 条") Integer pageSize,
             Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         log.info("获取面试历史, userId: {}, pageNum: {}, pageSize: {}", userId, pageNum, pageSize);

@@ -4,6 +4,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.util.List;
@@ -14,6 +15,7 @@ import java.util.List;
 @Data
 public class BatchActiveRequest {
     @NotEmpty(message = "操作对象列表不能为空")
+    @Size(max = 100, message = "批量操作最多支持100条")
     private List<Long> ids;
 
     @NotNull(message = "isActive 不能为空")

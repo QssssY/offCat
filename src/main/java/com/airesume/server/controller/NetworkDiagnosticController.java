@@ -3,12 +3,16 @@ package com.airesume.server.controller;
 import com.airesume.server.common.result.Result;
 import com.airesume.server.common.util.NetworkDiagnosticUtil;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.web.bind.annotation.*;
 
+import java.net.URI;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 网络诊断控制器
@@ -33,6 +37,16 @@ import java.util.Map;
 @Profile("dev")
 public class NetworkDiagnosticController {
 
+    private final Set<String> allowedHosts;
+
+    public NetworkDiagnosticController(
+            @Value("${app.diagnostic.allowed-hosts:ark.cn-beijing.volces.com}") List<String> allowedHosts) {
+        this.allowedHosts = allowedHosts.stream()
+                .map(host -> host.trim().toLowerCase())
+                .filter(host -> !host.isBlank())
+                .collect(Collectors.toUnmodifiableSet());
+    }
+
     /**
      * 执行完整网络诊断
      *
@@ -54,6 +68,7 @@ public class NetworkDiagnosticController {
             @RequestParam(required = false) String targetUrl) {
 
         String url = targetUrl != null ? targetUrl : "https://ark.cn-beijing.volces.com/api/coding/v3";
+        validateAllowedUrl(url);
         log.info("[网络诊断] 执行完整诊断, targetUrl: {}", url);
 
         try {
@@ -81,6 +96,7 @@ public class NetworkDiagnosticController {
         log.info("[网络诊断] DNS 解析检测, host: {}", host);
 
         try {
+            validateAllowedHost(host);
             String result = NetworkDiagnosticUtil.checkDnsResolution(host);
             return Result.success("DNS 检测完成", result);
         } catch (Exception e) {
@@ -147,6 +163,7 @@ public class NetworkDiagnosticController {
         log.info("[网络诊断] HTTP 连通性检测, url: {}", url);
 
         try {
+            validateAllowedUrl(url);
             String result = NetworkDiagnosticUtil.checkHttpConnectivity(url);
             return Result.success("HTTP 连通性检测完成", result);
         } catch (Exception e) {
@@ -173,6 +190,7 @@ public class NetworkDiagnosticController {
         log.info("[网络诊断] 执行 ping, host: {}, count: {}", host, count);
 
         try {
+            validateAllowedHost(host);
             List<String> result = NetworkDiagnosticUtil.ping(host, count);
             return Result.success("ping 执行完成", result);
         } catch (Exception e) {
@@ -197,6 +215,7 @@ public class NetworkDiagnosticController {
         log.info("[网络诊断] 执行 nslookup, host: {}", host);
 
         try {
+            validateAllowedHost(host);
             List<String> result = NetworkDiagnosticUtil.nslookup(host);
             return Result.success("nslookup 执行完成", result);
         } catch (Exception e) {
@@ -230,6 +249,20 @@ public class NetworkDiagnosticController {
         } catch (Exception e) {
             log.error("[网络诊断] 端口检测失败", e);
             return Result.error("端口检测失败: " + e.getMessage());
+        }
+    }
+
+    private void validateAllowedUrl(String url) {
+        URI uri = URI.create(url);
+        if (!"https".equalsIgnoreCase(uri.getScheme())) {
+            throw new IllegalArgumentException("Only https diagnostic URLs are allowed");
+        }
+        validateAllowedHost(uri.getHost());
+    }
+
+    private void validateAllowedHost(String host) {
+        if (host == null || host.isBlank() || !allowedHosts.contains(host.trim().toLowerCase())) {
+            throw new IllegalArgumentException("Diagnostic target is not allowed");
         }
     }
 }

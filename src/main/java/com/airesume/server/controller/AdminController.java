@@ -15,6 +15,7 @@ import com.airesume.server.entity.SysUser;
 import com.airesume.server.entity.UserQuota;
 import com.airesume.server.service.AdminDashboardService;
 import com.airesume.server.service.AdminUserRightsService;
+import com.airesume.server.service.AiCredentialCrypto;
 import com.airesume.server.service.SysAiEngineConfigService;
 import com.airesume.server.service.SysJobRoleService;
 import com.airesume.server.service.SysPromptService;
@@ -52,6 +53,7 @@ public class AdminController {
     private final SysJobRoleService sysJobRoleService;
     private final SysUserService sysUserService;
     private final UserQuotaService userQuotaService;
+    private final AiCredentialCrypto aiCredentialCrypto;
 
     // ==================== 提示词模板管理接口 ====================
 
@@ -296,8 +298,8 @@ public class AdminController {
         config.setProviderType(normalizeRequiredValue(request.getProviderType(), "提供商类型不能为空"));
         config.setBusinessType(businessType);
         config.setModelName(normalizeRequiredValue(request.getModelName(), "模型名称不能为空"));
-        config.setBaseUrl(normalizeRequiredValue(request.getBaseUrl(), "基础地址不能为空"));
-        config.setApiKey(normalizeRequiredValue(request.getApiKey(), "API Key 不能为空"));
+        config.setBaseUrl(validatePublicHttpsBaseUrl(normalizeRequiredValue(request.getBaseUrl(), "基础地址不能为空")));
+        config.setApiKey(aiCredentialCrypto.encrypt(normalizeRequiredValue(request.getApiKey(), "API Key 不能为空")));
         config.setSupportsMultimodal(request.getSupportsMultimodal());
         config.setThinkingMode(request.getThinkingMode());
         config.setTemperature(request.getTemperature());
@@ -349,7 +351,7 @@ public class AdminController {
             config.setModelName(normalizeRequiredValue(request.getModelName(), "模型名称不能为空"));
         }
         if (request.getBaseUrl() != null) {
-            config.setBaseUrl(normalizeRequiredValue(request.getBaseUrl(), "基础地址不能为空"));
+            config.setBaseUrl(validatePublicHttpsBaseUrl(normalizeRequiredValue(request.getBaseUrl(), "基础地址不能为空")));
         }
         if (request.getApiKey() != null) {
             // 【关键修复】防止脱敏值误写入数据库
@@ -357,7 +359,7 @@ public class AdminController {
             if (isMaskedApiKey(request.getApiKey())) {
                 throw new BusinessException("API Key 不能为脱敏格式，请输入完整的真实 API Key");
             }
-            config.setApiKey(normalizeRequiredValue(request.getApiKey(), "API Key 不能为空"));
+            config.setApiKey(aiCredentialCrypto.encrypt(normalizeRequiredValue(request.getApiKey(), "API Key 不能为空")));
         }
         if (request.getSupportsMultimodal() != null) {
             config.setSupportsMultimodal(request.getSupportsMultimodal());
@@ -1050,7 +1052,7 @@ SysPrompt prompt = new SysPrompt();
                 .businessTypeDesc(getAiBusinessTypeDesc(config.getBusinessType()))
                 .modelName(config.getModelName())
                 .baseUrl(config.getBaseUrl())
-                .apiKey(maskApiKey(config.getApiKey()))
+                .apiKey(maskApiKey(aiCredentialCrypto.decrypt(config.getApiKey())))
                 .supportsMultimodal(config.getSupportsMultimodal())
                 .thinkingMode(config.getThinkingMode())
                 .temperature(config.getTemperature())
@@ -1271,6 +1273,24 @@ private UserListResponse buildUserListResponse(SysUser user) {
         String normalized = trimToNull(value);
         if (normalized == null) {
             throw new BusinessException(errorMessage);
+        }
+        return normalized;
+    }
+
+    private String validatePublicHttpsBaseUrl(String baseUrl) {
+        String normalized = normalizeRequiredValue(baseUrl, "基础地址不能为空");
+        String lower = normalized.toLowerCase(Locale.ROOT);
+        if (!lower.startsWith("https://")) {
+            throw new BusinessException("基础地址只允许 https://");
+        }
+        if (lower.contains("localhost")
+                || lower.contains("127.0.0.1")
+                || lower.contains("0.0.0.0")
+                || lower.contains("[::1]")
+                || lower.matches("^https://10\\..*")
+                || lower.matches("^https://192\\.168\\..*")
+                || lower.matches("^https://172\\.(1[6-9]|2\\d|3[0-1])\\..*")) {
+            throw new BusinessException("基础地址不允许指向本机或内网地址");
         }
         return normalized;
     }

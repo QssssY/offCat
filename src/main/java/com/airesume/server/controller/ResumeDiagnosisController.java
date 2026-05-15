@@ -14,6 +14,7 @@ import com.airesume.server.service.ResumeJobMatchService;
 import com.airesume.server.service.ResumePolishService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -93,8 +94,8 @@ public class ResumeDiagnosisController {
      */
     @GetMapping("/history")
     public Result<PageResult<ResumeDiagnosisHistoryResponse>> getHistory(
-            @RequestParam(defaultValue = "1") Integer pageNum,
-            @RequestParam(defaultValue = "10") @Max(value = 100, message = "每页最多100条") Integer pageSize,
+            @RequestParam(defaultValue = "1") @Min(1) Integer pageNum,
+            @RequestParam(defaultValue = "10") @Min(1) @Max(value = 100, message = "每页最多100条") Integer pageSize,
             Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         log.info("Get history request, userId: {}, pageNum: {}, pageSize: {}", userId, pageNum, pageSize);

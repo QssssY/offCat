@@ -3,6 +3,7 @@ package com.airesume.server.service.impl;
 import com.airesume.server.config.AiTokenLimitConfig;
 import com.airesume.server.config.AiCircuitBreakerConfig;
 import com.airesume.server.service.AiCircuitBreaker;
+import com.airesume.server.service.AiCredentialCrypto;
 import com.airesume.server.service.SysAiEngineConfigService;
 import com.airesume.server.service.SysPromptService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -36,7 +37,8 @@ class ResumeAiServiceImplTest {
                 new AiTokenLimitConfig(),
                 RestClient.builder(),
                 WebClient.builder(),
-                new AiCircuitBreaker(new AiCircuitBreakerConfig()));
+                new AiCircuitBreaker(new AiCircuitBreakerConfig()),
+                new AiCredentialCrypto("test-secret-for-ai-key-encryption"));
         sanitizeMethod = ResumeAiServiceImpl.class.getDeclaredMethod("sanitizePolishedResumeText", String.class);
         sanitizeMethod.setAccessible(true);
     }

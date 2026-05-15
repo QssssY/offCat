@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.context.annotation.Profile;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -30,6 +31,7 @@ public class MembershipController {
         return Result.success(membershipService.listPlans());
     }
 
+    @Profile("dev")
     @PostMapping("/upgrade/mock")
     public Result<MembershipUpgradeVO> mockUpgrade(@Valid @RequestBody MembershipUpgradeRequest request,
                                                    Authentication authentication) {

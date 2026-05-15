@@ -34,6 +34,8 @@ public class AiChatClient {
     private final SysAiEngineConfigService sysAiEngineConfigService;
     private final ObjectMapper objectMapper;
     private final AiCircuitBreaker aiCircuitBreaker;
+    private final AiCredentialCrypto aiCredentialCrypto;
+    private final WebClient.Builder webClientBuilder;
 
     public AiChatClient(
             @Value("${app.interview.provider:doubao}") String provider,
@@ -42,7 +44,9 @@ public class AiChatClient {
             @Value("${app.interview.thinking-mode:none}") String thinkingMode,
             SysAiEngineConfigService sysAiEngineConfigService,
             ObjectMapper objectMapper,
-            AiCircuitBreaker aiCircuitBreaker) {
+            AiCircuitBreaker aiCircuitBreaker,
+            AiCredentialCrypto aiCredentialCrypto,
+            WebClient.Builder webClientBuilder) {
         this.defaultProvider = provider == null ? "doubao" : provider.toLowerCase(Locale.ROOT);
         this.configuredBaseUrl = configuredBaseUrl;
         this.defaultModel = model;
@@ -50,6 +54,8 @@ public class AiChatClient {
         this.sysAiEngineConfigService = sysAiEngineConfigService;
         this.objectMapper = objectMapper;
         this.aiCircuitBreaker = aiCircuitBreaker;
+        this.aiCredentialCrypto = aiCredentialCrypto;
+        this.webClientBuilder = webClientBuilder;
         log.info("[AiChatClient] 初始化完成, 默认 provider={}, model={}", this.defaultProvider, this.defaultModel);
     }
 
@@ -92,7 +98,7 @@ public class AiChatClient {
 
                 // 摘要链路也要走熔断，避免上游连续故障时每次都把超时跑满。
                 int readTimeout = Math.max(Math.min(timeoutMs, MAX_READ_TIMEOUT), MIN_READ_TIMEOUT);
-                WebClient webClient = WebClient.builder()
+                WebClient webClient = webClientBuilder.clone()
                         .baseUrl(runtimeConfig.baseUrl())
                         .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                         .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
@@ -158,7 +164,7 @@ public class AiChatClient {
                 }
                 String dbBaseUrl = normalizeConfigValue(activeConfig.getBaseUrl());
                 runtimeBaseUrl = resolveBaseUrl(runtimeProvider, dbBaseUrl != null ? dbBaseUrl : configuredBaseUrl);
-                String dbApiKey = normalizeConfigValue(activeConfig.getApiKey());
+                String dbApiKey = normalizeConfigValue(aiCredentialCrypto.decrypt(activeConfig.getApiKey()));
                 if (dbApiKey != null) {
                     runtimeApiKey = dbApiKey;
                 }

@@ -7,6 +7,7 @@ import com.airesume.server.mapper.UserNotificationMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
@@ -283,6 +284,8 @@ public class NotificationService {
         try {
             emitter.send(SseEmitter.event().name("connected").data("ok"));
         } catch (IOException e) {
+            emitterMap.remove(userId, emitter);
+            emitter.completeWithError(e);
             log.warn("[SSE] 发送连接确认失败, userId: {}", userId);
         }
 
@@ -389,6 +392,19 @@ public class NotificationService {
                 emitterMap.remove(userId, emitter);
             }
         });
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        heartbeatScheduler.shutdownNow();
+        emitterMap.forEach((userId, emitter) -> {
+            try {
+                emitter.complete();
+            } catch (Exception e) {
+                log.debug("[SSE] Close emitter during shutdown failed, userId: {}", userId, e);
+            }
+        });
+        emitterMap.clear();
     }
 
     /**

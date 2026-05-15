@@ -120,7 +120,7 @@ public class AuthServiceImpl implements AuthService {
 
         if (user.getStatus() == 0) {
             log.warn("Login failed, account banned, username: {}", username);
-            throw new BusinessException("账号已被封禁");
+            throw new BusinessException(ResultCode.PARAM_ERROR.getCode(), LOGIN_FAILURE_MESSAGE);
         }
 
         clearLoginAttempts(attemptsKey);
@@ -284,14 +284,8 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public SecurityQuestionResponse getSecurityQuestion(String username) {
         log.info("Getting security question for username: {}", username);
-        SysUser user = sysUserService.getByUsername(username);
         SecurityQuestionResponse response = new SecurityQuestionResponse();
-        if (user == null || user.getSecurityQuestion() == null || user.getSecurityQuestion().isBlank()) {
-            log.warn("Get security question fallback response returned, username: {}", username);
-            response.setSecurityQuestion(SECURITY_QUESTION_LOOKUP_MESSAGE);
-            return response;
-        }
-        response.setSecurityQuestion(user.getSecurityQuestion());
+        response.setSecurityQuestion(SECURITY_QUESTION_LOOKUP_MESSAGE);
         return response;
     }
 

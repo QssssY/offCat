@@ -7,6 +7,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -21,18 +22,21 @@ public class AiEngineConfigCreateRequest {
      * 管理端使用的稳定引擎编码。
      */
     @NotBlank(message = "引擎编码不能为空")
+    @Size(max = 64, message = "engineCode 不能超过64个字符")
     private String engineCode;
 
     /**
      * 管理端展示名称。
      */
     @NotBlank(message = "引擎名称不能为空")
+    @Size(max = 100, message = "engineName 不能超过100个字符")
     private String engineName;
 
     /**
      * 提供方类型，例如 openai / doubao / mock。
      */
     @NotBlank(message = "提供商类型不能为空")
+    @Size(max = 32, message = "providerType 不能超过32个字符")
     private String providerType;
 
     /**
@@ -45,12 +49,15 @@ public class AiEngineConfigCreateRequest {
      * 传给 AI 提供方的具体模型名。
      */
     @NotBlank(message = "模型名称不能为空")
+    @Size(max = 128, message = "modelName 不能超过128个字符")
     private String modelName;
 
     /**
      * 提供方基础地址。
      */
     @NotBlank(message = "基础地址不能为空")
+    @Size(max = 255, message = "baseUrl 不能超过255个字符")
+    @Pattern(regexp = "^https://.+", message = "baseUrl 只允许 https:// 地址")
     private String baseUrl;
 
     /**

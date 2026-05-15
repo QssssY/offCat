@@ -76,7 +76,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/info").permitAll()
                         .requestMatchers("/actuator/**").hasRole("ADMIN")
-                        .requestMatchers("/api/diagnostic/**").permitAll()
+                        .requestMatchers("/api/diagnostic/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/interview/job-roles").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/stats").permitAll()
                         .requestMatchers("/api/resume/**").authenticated()

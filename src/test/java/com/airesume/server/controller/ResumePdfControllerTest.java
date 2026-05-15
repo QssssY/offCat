@@ -12,6 +12,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -45,5 +46,21 @@ class ResumePdfControllerTest {
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertArrayEquals(pdfBytes, response.getBody());
         verify(resumePdfService).generatePdfFromHtml(html);
+    }
+
+    @Test
+    void shouldStripDangerousHtmlBeforePdfRendering() {
+        String html = """
+                <html><head><script>alert(1)</script><link href="https://evil.test/a.css"></head>
+                <body onload="steal()"><img src="file:///etc/passwd"><p style="background:url(https://evil.test/a.png)">ok</p></body></html>
+                """;
+
+        String sanitized = ResumePdfController.sanitizeHtmlForPdf(html);
+
+        assertFalse(sanitized.toLowerCase().contains("<script"));
+        assertFalse(sanitized.toLowerCase().contains("<link"));
+        assertFalse(sanitized.toLowerCase().contains("onload"));
+        assertFalse(sanitized.contains("file:///"));
+        assertFalse(sanitized.contains("https://evil.test"));
     }
 }
