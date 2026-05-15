@@ -31,9 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -79,11 +77,11 @@ class AuthServiceImplTest {
     }
 
     @Nested
-    @DisplayName("register 方法测试")
+    @DisplayName("register")
     class RegisterTests {
 
         @Test
-        @DisplayName("应该成功注册新用户")
+        @DisplayName("should register new user successfully")
         void shouldRegisterNewUserSuccessfully() {
             RegisterRequest request = new RegisterRequest();
             request.setUsername(TEST_USERNAME);
@@ -110,11 +108,11 @@ class AuthServiceImplTest {
     }
 
     @Nested
-    @DisplayName("login 方法测试")
+    @DisplayName("login")
     class LoginTests {
 
         @Test
-        @DisplayName("应该成功登录并返回 token")
+        @DisplayName("should login successfully and return token")
         void shouldLoginSuccessfullyAndReturnToken() {
             LoginRequest request = new LoginRequest();
             request.setUsername(TEST_USERNAME);
@@ -141,7 +139,7 @@ class AuthServiceImplTest {
         }
 
         @Test
-        @DisplayName("Redis 不可用时仍应使用本地限流并最终锁定")
+        @DisplayName("should use in-memory rate limit when redis unavailable")
         void shouldUseInMemoryRateLimitWhenRedisUnavailable() {
             LoginRequest request = new LoginRequest();
             request.setUsername(TEST_USERNAME);
@@ -155,7 +153,7 @@ class AuthServiceImplTest {
             when(sysUserService.getByUsername(TEST_USERNAME)).thenReturn(user);
             when(passwordEncoder.matches("wrongPassword", ENCODED_PASSWORD)).thenReturn(false);
             lenient().when(valueOperations.get(anyString())).thenThrow(new RuntimeException("Redis read failed"));
-            lenient().doThrow(new RuntimeException("Redis write failed")).when(valueOperations).increment(anyString());
+            lenient().when(valueOperations.increment(anyString())).thenThrow(new RuntimeException("Redis write failed"));
 
             for (int i = 0; i < 5; i++) {
                 BusinessException exception = assertThrows(BusinessException.class, () -> authService.login(request));
@@ -168,11 +166,11 @@ class AuthServiceImplTest {
     }
 
     @Nested
-    @DisplayName("getCurrentUserInfo 方法测试")
+    @DisplayName("getCurrentUserInfo")
     class GetCurrentUserInfoTests {
 
         @Test
-        @DisplayName("应该成功获取用户信息")
+        @DisplayName("should get user info successfully")
         void shouldGetUserInfoSuccessfully() {
             SysUser user = new SysUser();
             user.setId(TEST_USER_ID);
@@ -205,7 +203,7 @@ class AuthServiceImplTest {
         }
 
         @Test
-        @DisplayName("用户不存在时应该抛出异常")
+        @DisplayName("should throw when user not found")
         void shouldThrowExceptionWhenUserNotFound() {
             when(sysUserService.getById(TEST_USER_ID)).thenReturn(null);
 
@@ -217,11 +215,11 @@ class AuthServiceImplTest {
     }
 
     @Nested
-    @DisplayName("resetPasswordBySecurityQuestion 方法测试")
+    @DisplayName("resetPasswordBySecurityQuestion")
     class ResetPasswordTests {
 
         @Test
-        @DisplayName("用户不存在和答案错误应返回同一错误")
+        @DisplayName("should use same failure message for enumeration sensitive cases")
         void shouldUseSameFailureMessageForEnumerationSensitiveCases() {
             ResetPasswordRequest request = new ResetPasswordRequest();
             request.setUsername(TEST_USERNAME);
@@ -243,13 +241,22 @@ class AuthServiceImplTest {
             BusinessException wrongAnswerException = assertThrows(BusinessException.class,
                     () -> authService.resetPasswordBySecurityQuestion(request));
 
-            assertEquals("用户名或安全问题答案不正确", notFoundException.getMessage());
-            assertEquals("用户名或安全问题答案不正确", wrongAnswerException.getMessage());
+            assertEquals("用户名或凭证信息不正确", notFoundException.getMessage());
+            assertEquals("用户名或凭证信息不正确", wrongAnswerException.getMessage());
+        }
+
+        @Test
+        @DisplayName("should return fallback security question message when account not enumerable")
+        void shouldReturnFallbackSecurityQuestionMessageWhenAccountNotEnumerable() {
+            when(sysUserService.getByUsername(TEST_USERNAME)).thenReturn(null);
+
+            assertEquals("若账户已配置安全问题，可继续输入答案并重置密码",
+                    authService.getSecurityQuestion(TEST_USERNAME).getSecurityQuestion());
         }
     }
 
     @Test
-    @DisplayName("占位符密钥应在启动校验时失败")
+    @DisplayName("should reject weak placeholder secret")
     void jwtPropertiesShouldRejectWeakPlaceholderSecret() {
         JwtProperties properties = new JwtProperties();
         properties.setSecret("ai-resume-dev-jwt-secret-placeholder");
@@ -259,7 +266,7 @@ class AuthServiceImplTest {
     }
 
     @Test
-    @DisplayName("过短密钥应在启动校验时失败")
+    @DisplayName("should reject short secret")
     void jwtPropertiesShouldRejectShortSecret() {
         JwtProperties properties = new JwtProperties();
         properties.setSecret("short-secret");
@@ -269,7 +276,7 @@ class AuthServiceImplTest {
     }
 
     @Test
-    @DisplayName("合法密钥应通过启动校验")
+    @DisplayName("should accept valid secret")
     void jwtPropertiesShouldAcceptValidSecret() {
         JwtProperties properties = new JwtProperties();
         properties.setSecret("12345678901234567890123456789012");

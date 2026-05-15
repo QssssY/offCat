@@ -8,8 +8,8 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.MediaType;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -25,13 +25,15 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 关键高成本接口限流过滤器。
- * 这一层只覆盖注册、简历上传和面试写操作，先用最小改动阻断批量滥用。
+ * 这一层只覆盖注册、找回密码、简历上传和面试写操作，先用最小改动阻断批量滥用。
  */
 @Slf4j
 @Component
 public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
 
     private static final String REGISTER_PATH = "/api/auth/register";
+    private static final String SECURITY_QUESTION_PATH = "/api/auth/security-question";
+    private static final String RESET_PASSWORD_PATH = "/api/auth/reset-password";
     private static final String RESUME_UPLOAD_PATH = "/api/resume/upload";
     private static final String INTERVIEW_SESSION_PATH = "/api/interview/session";
     private static final String INTERVIEW_SESSION_PREFIX = "/api/interview/session/";
@@ -39,6 +41,10 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
 
     private static final RateLimitPolicy REGISTER_POLICY = new RateLimitPolicy(
             "register", REGISTER_PATH, MatchType.EXACT, 5, Duration.ofMinutes(15).toMillis(), KeyStrategy.IP_ONLY);
+    private static final RateLimitPolicy SECURITY_QUESTION_POLICY = new RateLimitPolicy(
+            "security_question", SECURITY_QUESTION_PATH, MatchType.EXACT, 10, Duration.ofMinutes(15).toMillis(), KeyStrategy.IP_ONLY, "GET");
+    private static final RateLimitPolicy RESET_PASSWORD_POLICY = new RateLimitPolicy(
+            "reset_password", RESET_PASSWORD_PATH, MatchType.EXACT, 5, Duration.ofMinutes(15).toMillis(), KeyStrategy.IP_ONLY);
     private static final RateLimitPolicy RESUME_UPLOAD_POLICY = new RateLimitPolicy(
             "resume_upload", RESUME_UPLOAD_PATH, MatchType.EXACT, 10, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
     private static final RateLimitPolicy INTERVIEW_CREATE_POLICY = new RateLimitPolicy(
@@ -108,7 +114,7 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
     }
 
     /**
-     * 已登录写接口优先按用户维度限流，注册接口仍按来源 IP 限流。
+     * 已登录写接口优先按用户维度限流，注册和找回密码入口按来源 IP 限流。
      */
     private String buildRequesterKey(RateLimitPolicy policy, HttpServletRequest request) {
         if (policy.keyStrategy() == KeyStrategy.IP_ONLY) {
@@ -133,21 +139,24 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
     }
 
     private RateLimitPolicy resolvePolicy(HttpServletRequest request) {
-        if (!"POST".equalsIgnoreCase(request.getMethod())) {
-            return null;
-        }
-
+        String requestMethod = request.getMethod();
         String requestUri = request.getRequestURI();
-        if (REGISTER_POLICY.matches(requestUri)) {
+        if (REGISTER_POLICY.matches(requestMethod, requestUri)) {
             return REGISTER_POLICY;
         }
-        if (RESUME_UPLOAD_POLICY.matches(requestUri)) {
+        if (SECURITY_QUESTION_POLICY.matches(requestMethod, requestUri)) {
+            return SECURITY_QUESTION_POLICY;
+        }
+        if (RESET_PASSWORD_POLICY.matches(requestMethod, requestUri)) {
+            return RESET_PASSWORD_POLICY;
+        }
+        if (RESUME_UPLOAD_POLICY.matches(requestMethod, requestUri)) {
             return RESUME_UPLOAD_POLICY;
         }
-        if (INTERVIEW_CREATE_POLICY.matches(requestUri)) {
+        if (INTERVIEW_CREATE_POLICY.matches(requestMethod, requestUri)) {
             return INTERVIEW_CREATE_POLICY;
         }
-        if (INTERVIEW_ACTION_POLICY.matches(requestUri)) {
+        if (INTERVIEW_ACTION_POLICY.matches(requestMethod, requestUri)) {
             return INTERVIEW_ACTION_POLICY;
         }
         return null;
@@ -175,9 +184,22 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
                                    MatchType matchType,
                                    int maxRequests,
                                    long windowMillis,
-                                   KeyStrategy keyStrategy) {
+                                   KeyStrategy keyStrategy,
+                                   String method) {
 
-        private boolean matches(String requestUri) {
+        private RateLimitPolicy(String name,
+                                String path,
+                                MatchType matchType,
+                                int maxRequests,
+                                long windowMillis,
+                                KeyStrategy keyStrategy) {
+            this(name, path, matchType, maxRequests, windowMillis, keyStrategy, "POST");
+        }
+
+        private boolean matches(String requestMethod, String requestUri) {
+            if (!method.equalsIgnoreCase(requestMethod)) {
+                return false;
+            }
             if (matchType == MatchType.EXACT) {
                 return path.equals(requestUri);
             }

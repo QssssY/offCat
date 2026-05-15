@@ -45,7 +45,8 @@ public class AuthServiceImpl implements AuthService {
     private static final int MAX_LOGIN_ATTEMPTS = 5;
     private static final long LOGIN_LOCKOUT_MINUTES = 15;
     private static final String LOGIN_FAILURE_MESSAGE = "用户名或密码错误";
-    private static final String RESET_PASSWORD_FAILURE_MESSAGE = "用户名或安全问题答案不正确";
+    private static final String RESET_PASSWORD_FAILURE_MESSAGE = "用户名或凭证信息不正确";
+    private static final String SECURITY_QUESTION_LOOKUP_MESSAGE = "若账户已配置安全问题，可继续输入答案并重置密码";
 
     private final SysUserService sysUserService;
     private final UserQuotaService userQuotaService;
@@ -147,7 +148,7 @@ public class AuthServiceImpl implements AuthService {
     }
 
     /**
-     * 登录失败次数优先写 Redis；若 Redis 不可用则自动切换到本地兜底。
+     * 登录失败次数优先写入 Redis，Redis 不可用时自动切换到本地兜底。
      */
     private void incrementLoginAttempts(String key) {
         if (stringRedisTemplate == null) {
@@ -284,15 +285,12 @@ public class AuthServiceImpl implements AuthService {
     public SecurityQuestionResponse getSecurityQuestion(String username) {
         log.info("Getting security question for username: {}", username);
         SysUser user = sysUserService.getByUsername(username);
-        if (user == null) {
-            log.warn("Get security question failed, user not found or no question: {}", username);
-            throw new BusinessException("该用户未设置安全问题，无法找回密码");
-        }
-        if (user.getSecurityQuestion() == null || user.getSecurityQuestion().isBlank()) {
-            log.warn("Get security question failed, user has no security question set: {}", username);
-            throw new BusinessException("该用户未设置安全问题，无法找回密码");
-        }
         SecurityQuestionResponse response = new SecurityQuestionResponse();
+        if (user == null || user.getSecurityQuestion() == null || user.getSecurityQuestion().isBlank()) {
+            log.warn("Get security question fallback response returned, username: {}", username);
+            response.setSecurityQuestion(SECURITY_QUESTION_LOOKUP_MESSAGE);
+            return response;
+        }
         response.setSecurityQuestion(user.getSecurityQuestion());
         return response;
     }
@@ -313,7 +311,7 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException(RESET_PASSWORD_FAILURE_MESSAGE);
         }
 
-        // 统一密码找回失败文案，避免通过错误差异枚举用户名或安全问题状态。
+        // 统一失败文案，避免通过差异化错误枚举用户名或安全问题状态。
         if (!passwordEncoder.matches(request.getSecurityAnswer(), user.getSecurityAnswer())) {
             log.warn("Reset password failed, security answer incorrect, username: {}", username);
             throw new BusinessException(RESET_PASSWORD_FAILURE_MESSAGE);

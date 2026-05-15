@@ -5,6 +5,7 @@ import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.entity.UserQuota;
 import com.airesume.server.mapper.UserQuotaMapper;
 import com.airesume.server.service.SysUserService;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -15,8 +16,10 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.time.LocalDate;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -144,6 +147,33 @@ class UserQuotaServiceImplAtomicDeductionTest {
         service.refundResumeQuota(VIP_USER_ID);
 
         verify(userQuotaMapper).refundResumeQuotaAtomic(VIP_USER_ID, QuotaConstants.VIP_USER_DAILY_RESUME_LIMIT);
+    }
+
+    @Test
+    @DisplayName("daily refresh should only update daily fields to avoid overwriting atomic deduction")
+    void shouldRefreshDailyQuotaWithoutOverwritingAtomicDeductionFields() {
+        SysUserService sysUserService = mock(SysUserService.class);
+        UserQuota quota = new UserQuota();
+        quota.setUserId(NORMAL_USER_ID);
+        quota.setLastRefreshDate(LocalDate.now().minusDays(1));
+        quota.setDailyInterviewUsed(3);
+        quota.setDailyResumeUsed(2);
+        quota.setInterviewQuota(7);
+        quota.setResumeQuota(4);
+
+        UserQuotaServiceImpl service = spy(new UserQuotaServiceImpl(sysUserService));
+        ReflectionTestUtils.setField(service, "baseMapper", userQuotaMapper);
+        ReflectionTestUtils.setField(service, "entityClass", UserQuota.class);
+        doReturn(true).when(service).update(any(UpdateWrapper.class));
+
+        service.refreshDailyQuotaIfNeeded(NORMAL_USER_ID, quota);
+
+        verify(service).update(any(UpdateWrapper.class));
+        assertEquals(0, quota.getDailyInterviewUsed());
+        assertEquals(0, quota.getDailyResumeUsed());
+        assertEquals(7, quota.getInterviewQuota());
+        assertEquals(4, quota.getResumeQuota());
+        assertEquals(LocalDate.now(), quota.getLastRefreshDate());
     }
 
     private static class TestableUserQuotaService extends UserQuotaServiceImpl {

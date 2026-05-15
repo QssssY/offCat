@@ -7,6 +7,7 @@ import com.airesume.server.mapper.UserQuotaMapper;
 import com.airesume.server.service.SysUserService;
 import com.airesume.server.service.UserQuotaService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -150,10 +151,20 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
         LocalDate lastRefresh = userQuota.getLastRefreshDate();
 
         if (lastRefresh == null || !today.equals(lastRefresh)) {
+            UpdateWrapper<UserQuota> updateWrapper = new UpdateWrapper<>();
+            updateWrapper.eq("user_id", userId)
+                    .eq("is_deleted", 0)
+                    .and(wrapper -> wrapper.isNull("last_refresh_date")
+                            .or()
+                            .ne("last_refresh_date", today))
+                    .set("daily_interview_used", 0)
+                    .set("daily_resume_used", 0)
+                    .set("last_refresh_date", today);
+            update(updateWrapper);
+
             userQuota.setDailyInterviewUsed(0);
             userQuota.setDailyResumeUsed(0);
             userQuota.setLastRefreshDate(today);
-            updateById(userQuota);
         }
     }
 
