@@ -312,6 +312,7 @@
 </template>
 
 <script setup>
+import DOMPurify from 'dompurify'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import ResumeInlineRichEditor from './ResumeInlineRichEditor.vue'
@@ -723,13 +724,25 @@ function handleDocumentPointerDown(event) {
   }
 }
 
+/**
+ * 简历富文本允许保留基础排版标签和内联样式，但必须先净化再做 DOM 解析，
+ * 避免历史数据或外部导入内容把脚本、事件属性等危险节点带进编辑器链路。
+ */
+function sanitizeRichTextHtml(html) {
+  return DOMPurify.sanitize(String(html || ''), {
+    ALLOWED_TAGS: ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 'span', 'div', 'ul', 'ol', 'li'],
+    ALLOWED_ATTR: ['style'],
+    FORBID_TAGS: ['script', 'iframe', 'object', 'embed'],
+  })
+}
+
 function stripHtmlToText(html) {
   if (!html) {
     return ''
   }
 
   const wrapper = document.createElement('div')
-  wrapper.innerHTML = html
+  wrapper.innerHTML = sanitizeRichTextHtml(html)
   wrapper.querySelectorAll('br').forEach((node) => {
     node.replaceWith('\n')
   })
@@ -1650,7 +1663,9 @@ function replacePhotoFrameButtonWithStaticNode(rootNode) {
     const nextNode = buttonNode.ownerDocument.createElement('div')
     copyScopedAttributes(buttonNode, nextNode)
     nextNode.className = buttonNode.className
-    nextNode.innerHTML = buttonNode.innerHTML
+    buttonNode.childNodes.forEach((childNode) => {
+      nextNode.appendChild(childNode.cloneNode(true))
+    })
     buttonNode.replaceWith(nextNode)
   })
 }

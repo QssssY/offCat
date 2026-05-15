@@ -15,6 +15,7 @@
     "@tiptap/vue-3": "^3.22.5",
     "axios": "^1.6.2",
     "chart.js": "^4.5.1",
+    "dompurify": "^3.4.1",
     "element-plus": "^2.4.4",
     "html2canvas": "^1.4.1",
     "html2pdf.js": "^0.14.0",
