@@ -49,6 +49,7 @@ public class ResumeOcrExtractor {
         Path imagePath = null;
         Path outputBase = null;
         ExecutorService outputReaderExecutor = null;
+        Process process = null;
         try {
             imagePath = Files.createTempFile("resume-ocr-", ".png");
             outputBase = Files.createTempFile("resume-ocr-out-", "");
@@ -63,13 +64,14 @@ public class ResumeOcrExtractor {
                     resumeParseConfig.getOcr().getLang()
             );
 
-            Process process = new ProcessBuilder(command)
+            process = new ProcessBuilder(command)
                     .redirectErrorStream(true)
                     .start();
             // 在独立线程中读取进程输出，避免 readAllBytes 阻塞导致 waitFor 超时无效
+            Process capturedProcess = process;
             outputReaderExecutor = java.util.concurrent.Executors.newSingleThreadExecutor();
             Future<String> outputFuture = outputReaderExecutor.submit(
-                    () -> new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
+                    () -> new String(capturedProcess.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
             );
             // OCR 超时 30 秒，防止 Tesseract 卡死阻塞线程。
             boolean finished = process.waitFor(30, TimeUnit.SECONDS);
@@ -101,6 +103,10 @@ public class ResumeOcrExtractor {
             Thread.currentThread().interrupt();
             throw new RuntimeException("OCR 执行被中断", e);
         } finally {
+            // 确保进程资源被释放，防止进程泄漏
+            if (process != null) {
+                process.destroy();
+            }
             if (outputReaderExecutor != null) {
                 outputReaderExecutor.shutdownNow();
             }

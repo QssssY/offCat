@@ -219,8 +219,9 @@ public class NetworkDiagnosticUtil {
 
             // 测试 HTTP 请求（不发送实际数据，仅测试连接）
             sb.append("\nHTTP 握手测试:\n");
+            HttpURLConnection conn = null;
             try {
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn = (HttpURLConnection) url.openConnection();
                 conn.setRequestMethod("HEAD");
                 conn.setConnectTimeout(5000);
                 conn.setReadTimeout(5000);
@@ -230,6 +231,10 @@ public class NetworkDiagnosticUtil {
                 sb.append("  ✅ HTTP 请求成功 (响应码: ").append(responseCode).append(", 耗时: ").append(duration).append("ms)\n");
             } catch (Exception e) {
                 sb.append("  ⚠️  HTTP 请求失败 (仅用于参考，AI API 需要认证): ").append(e.getMessage()).append("\n");
+            } finally {
+                if (conn != null) {
+                    conn.disconnect();
+                }
             }
 
         } catch (Exception e) {
@@ -282,10 +287,11 @@ public class NetworkDiagnosticUtil {
      */
     public static List<String> executeSystemCommand(String[] command) {
         List<String> output = new ArrayList<>();
+        Process process = null;
         try {
             ProcessBuilder pb = new ProcessBuilder(command);
             pb.redirectErrorStream(true);
-            Process process = pb.start();
+            process = pb.start();
 
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(process.getInputStream()))) {
@@ -298,6 +304,11 @@ public class NetworkDiagnosticUtil {
             process.waitFor();
         } catch (Exception e) {
             output.add("命令执行失败: " + e.getMessage());
+        } finally {
+            // 确保进程资源被释放，防止进程泄漏
+            if (process != null) {
+                process.destroy();
+            }
         }
         return output;
     }

@@ -40,6 +40,7 @@ public class ResumePdfService {
         Path tempHtml = null;
         Path tempPdf = null;
         ExecutorService outputReaderExecutor = null;
+        Process process = null;
 
         try {
             // 创建临时 HTML 文件
@@ -70,12 +71,13 @@ public class ResumePdfService {
             );
 
             pb.redirectErrorStream(true);
-            Process process = pb.start();
+            process = pb.start();
 
             // 在独立线程中读取进程输出，避免 readAllBytes 阻塞导致 waitFor 超时无效
+            Process capturedProcess = process;
             outputReaderExecutor = java.util.concurrent.Executors.newSingleThreadExecutor();
             Future<String> outputFuture = outputReaderExecutor.submit(
-                    () -> new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
+                    () -> new String(capturedProcess.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
             );
             boolean finished = process.waitFor(60, TimeUnit.SECONDS);
             if (!finished) {
@@ -109,6 +111,10 @@ public class ResumePdfService {
             log.error("PDF 生成失败", e);
             throw new PdfGenerationException("PDF 生成失败: " + e.getMessage(), e);
         } finally {
+            // 确保进程和线程池被释放，防止资源泄漏
+            if (process != null) {
+                process.destroy();
+            }
             if (outputReaderExecutor != null) {
                 outputReaderExecutor.shutdownNow();
             }
@@ -154,16 +160,22 @@ public class ResumePdfService {
         // 尝试从 PATH 中查找
         String os = System.getProperty("os.name").toLowerCase();
         String chromeCommand = os.contains("win") ? "chrome.exe" : "google-chrome";
+        Process p = null;
         try {
             ProcessBuilder pb = new ProcessBuilder("where", chromeCommand);
             pb.redirectErrorStream(true);
-            Process p = pb.start();
+            p = pb.start();
             String result = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
             if (p.waitFor() == 0 && !result.isEmpty()) {
                 return result.split("\n")[0].trim();
             }
         } catch (Exception e) {
             // 忽略，继续尝试其他方式
+        } finally {
+            // 确保进程资源被释放，防止进程泄漏
+            if (p != null) {
+                p.destroy();
+            }
         }
 
         return null;
