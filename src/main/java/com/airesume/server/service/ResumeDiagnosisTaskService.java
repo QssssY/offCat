@@ -10,121 +10,90 @@ import org.springframework.web.multipart.MultipartFile;
 import java.util.List;
 
 /**
- * 简历诊断任务服务接口
- * 定义简历诊断相关的业务操作
+ * 简历诊断任务服务接口。
  */
 public interface ResumeDiagnosisTaskService extends IService<ResumeDiagnosisTask> {
 
     /**
-     * 创建简历诊断任务
+     * 创建简历诊断任务。
      *
-     * @param userId  用户ID
+     * @param userId 用户 ID
      * @param fileUrl 简历文件地址
-     * @return 任务ID
+     * @return 任务 ID
      */
     Long createTask(Long userId, String fileUrl);
 
     /**
-     * 创建简历诊断任务（支持文件上传）
+     * 创建简历诊断任务，支持文件上传。
      *
-     * @param userId 用户ID
-     * @param file   PDF简历文件
-     * @return 任务ID（字符串形式，避免前端精度丢失）
+     * @param userId 用户 ID
+     * @param file PDF 简历文件
+     * @return 任务 ID，使用字符串避免前端长整型精度丢失
      */
     String createTask(Long userId, MultipartFile file);
 
     /**
-     * 根据任务ID查询任务详情
+     * 根据任务 ID 查询任务详情。
      *
-     * @param taskId 任务ID
-     * @param userId 用户ID（用于校验权限）
-     * @return 任务详情响应
+     * @param taskId 任务 ID
+     * @param userId 用户 ID，用于校验任务归属
+     * @return 任务详情
      */
     ResumeDiagnosisTaskResponse getTaskById(Long taskId, Long userId);
 
     /**
-     * 查询用户的简历诊断历史记录（分页）
-     *
-     * @param userId 用户ID
-     * @param pageNum 页码
-     * @param pageSize 每页大小
-     * @return 分页历史记录
+     * 查询用户的简历诊断历史记录，分页返回。
      */
     PageResult<ResumeDiagnosisHistoryResponse> getHistoryByUserId(Long userId, Integer pageNum, Integer pageSize);
 
     /**
-     * 查询用户的简历诊断历史记录（不分页，兼容旧版）
-     *
-     * @param userId 用户ID
-     * @return 历史记录列表
-     * @deprecated 请使用分页方法
+     * 查询用户的简历诊断历史记录，兼容旧接口。
      */
     @Deprecated
     List<ResumeDiagnosisHistoryResponse> getHistoryByUserId(Long userId);
 
     /**
-     * 更新任务状态为处理中
+     * 原子将任务状态从待处理切换为处理中。
      *
-     * @param taskId 任务ID
+     * @param taskId 任务 ID
+     * @return true 表示当前线程抢占成功，false 表示任务已被其他线程处理或不存在
      */
-    void updateStatusToProcessing(Long taskId);
+    boolean updateStatusToProcessing(Long taskId);
 
     /**
-     * 更新任务状态为完成
-     *
-     * @param taskId          任务ID
-     * @param diagnosisResult 诊断结果JSON
+     * 更新任务状态为完成。
      */
     void updateStatusToCompleted(Long taskId, String diagnosisResult);
 
     /**
-     * 更新任务状态为失败
-     *
-     * @param taskId   任务ID
-     * @param errorMsg 错误信息
+     * 更新任务状态为失败。
      */
     void updateStatusToFailed(Long taskId, String errorMsg);
 
     /**
-     * 获取状态描述
-     *
-     * @param status 状态码
-     * @return 状态描述
+     * 获取状态描述。
      */
     String getStatusDescription(Integer status);
 
     /**
-     * 更新任务的简历文本内容
-     * 用于缓存PDF解析结果，避免重复解析
-     *
-     * @param taskId 任务ID
-     * @param resumeText 提取的简历文本
+     * 更新任务缓存的简历文本内容。
      */
     void updateTaskResumeText(Long taskId, String resumeText);
 
     /**
-     * 缓存统一解析后的简历文本与解析元信息，避免后续功能重复解析 PDF。
-     *
-     * @param taskId 任务 ID
-     * @param resumeText 解析后的简历文本
-     * @param parseMode 解析模式
-     * @param parseMessage 解析提示信息
+     * 更新任务缓存的简历文本和解析元信息。
      */
     void updateTaskResumeParseResult(Long taskId, String resumeText, String parseMode, String parseMessage);
 
     /**
-     * 获取任务当前状态
-     *
-     * @param taskId 任务ID
-     * @return 状态码，任务不存在时返回null
+     * 获取任务当前状态。
      */
     Integer getTaskStatus(Long taskId);
 
     /**
-     * 回收超时的孤儿任务：将卡在处理中状态超过指定分钟数的任务标记为失败
-     * 由定时任务调度，防止消费者崩溃或重启后任务永久卡死
+     * 回收长时间卡在处理中状态的孤儿任务。
      *
-     * @param timeoutMinutes 超时阈值（分钟）
+     * @param timeoutMinutes 超时阈值，单位分钟
      * @return 回收的任务数量
      */
     int recoverOrphanedTasks(int timeoutMinutes);

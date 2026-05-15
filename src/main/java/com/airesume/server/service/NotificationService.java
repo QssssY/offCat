@@ -253,22 +253,29 @@ public class NotificationService {
     public SseEmitter registerEmitter(Long userId) {
         // 超时设为 30 分钟，每 30 秒心跳保活
         SseEmitter emitter = new SseEmitter(30 * 60 * 1000L);
-        emitterMap.put(userId, emitter);
+        SseEmitter previousEmitter = emitterMap.put(userId, emitter);
+        if (previousEmitter != null) {
+            try {
+                previousEmitter.complete();
+            } catch (Exception e) {
+                log.debug("[SSE] 关闭旧连接失败, userId: {}", userId, e);
+            }
+        }
 
         // 启动心跳调度（仅首次连接时启动，后续连接共享同一调度器）
         startHeartbeatIfNeeded();
 
         // 连接完成或超时时清理
         emitter.onCompletion(() -> {
-            emitterMap.remove(userId);
+            emitterMap.remove(userId, emitter);
             log.info("[SSE] 连接完成, userId: {}", userId);
         });
         emitter.onTimeout(() -> {
-            emitterMap.remove(userId);
+            emitterMap.remove(userId, emitter);
             log.info("[SSE] 连接超时, userId: {}", userId);
         });
         emitter.onError(e -> {
-            emitterMap.remove(userId);
+            emitterMap.remove(userId, emitter);
             log.warn("[SSE] 连接异常, userId: {}, error: {}", userId, e.getMessage());
         });
 
@@ -322,7 +329,7 @@ public class NotificationService {
             log.info("[SSE] 推送通知成功, userId: {}, notificationId: {}", userId, notification.getId());
         } catch (IOException e) {
             log.warn("[SSE] 推送通知失败，清理连接, userId: {}, error: {}", userId, e.getMessage());
-            emitterMap.remove(userId);
+            emitterMap.remove(userId, emitter);
         }
     }
 
@@ -343,7 +350,7 @@ public class NotificationService {
                     .data(Map.of("unreadCount", unreadCount)));
         } catch (IOException e) {
             log.warn("[SSE] 推送未读数失败，清理连接, userId: {}, error: {}", userId, e.getMessage());
-            emitterMap.remove(userId);
+            emitterMap.remove(userId, emitter);
         }
     }
 
@@ -379,7 +386,7 @@ public class NotificationService {
                 emitter.send(":\n\n");
             } catch (IOException e) {
                 log.warn("[SSE] 心跳发送失败，清理连接, userId: {}, error: {}", userId, e.getMessage());
-                emitterMap.remove(userId);
+                emitterMap.remove(userId, emitter);
             }
         });
     }

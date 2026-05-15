@@ -78,7 +78,7 @@ logging:
 # JWT 配置 - 身份认证
 # ------------------------------------------
 jwt:
-  secret: ${JWT_SECRET:ai-resume-dev-jwt-secret-placeholder}
+  secret: ${JWT_SECRET}
   expiration: 86400000
   header: Authorization
   prefix: "Bearer "

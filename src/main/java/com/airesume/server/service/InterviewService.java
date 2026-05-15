@@ -447,7 +447,7 @@ public class InterviewService {
                     String jsonData = "{\"type\":\"content\",\"content\":\"" + escaped + "\"}";
                     emitter.send("event: message\ndata: " + jsonData + "\n\n");
                 } catch (IOException e) {
-                    log.warn("SSE 发送失败，取消订阅, sessionId: {}, error: {}", sessionId, e.getMessage());
+                    log.warn("SSE send failed, cancel subscription, sessionId: {}, error: {}", sessionId, e.getMessage());
                     if (subscriptionRef[0] != null) {
                         subscriptionRef[0].cancel();
                     }
@@ -458,11 +458,11 @@ public class InterviewService {
             public void onError(Throwable t) {
                 if (done.compareAndSet(false, true)) {
                     try {
-                        String errorMsg = escapeJsonForSse(t.getMessage() == null ? "系统异常" : t.getMessage());
+                        String errorMsg = escapeJsonForSse(t.getMessage() == null ? "System error" : t.getMessage());
                         String jsonData = "{\"type\":\"error\",\"message\":\"" + errorMsg + "\"}";
                         emitter.send("event: message\ndata: " + jsonData + "\n\n");
                     } catch (Exception ex) {
-                        log.warn("SSE 发送错误事件失败, sessionId: {}", sessionId, ex);
+                        log.warn("SSE error event send failed, sessionId: {}", sessionId, ex);
                     } finally {
                         emitter.completeWithError(t);
                     }
@@ -474,35 +474,45 @@ public class InterviewService {
                 if (done.compareAndSet(false, true)) {
                     try {
                         if (fullReply.isEmpty()) {
-                            String jsonData = "{\"type\":\"error\",\"message\":\"AI 回复内容为空，请稍后重试\"}";
+                            String jsonData = "{\"type\":\"error\",\"message\":\"AI response is empty, please retry later\"}";
                             emitter.send("event: message\ndata: " + jsonData + "\n\n");
                             emitter.complete();
                             return;
                         }
 
+                        persistAssistantMessage(sessionId, fullReply.toString());
                         emitter.send("event: message\ndata: {\"type\":\"done\"}\n\n");
                         emitter.complete();
-
-                        InterviewChatLog assistantMessage = new InterviewChatLog();
-                        assistantMessage.setId(IdWorker.getId());
-                        assistantMessage.setSessionId(sessionId);
-                        assistantMessage.setMessageRole(InterviewConstants.ROLE_ASSISTANT);
-                        assistantMessage.setContent(fullReply.toString());
-                        assistantMessage.setCreateTime(LocalDateTime.now());
-                        assistantMessage.setUpdateTime(LocalDateTime.now());
-                        assistantMessage.setIsDeleted(0);
-                        interviewMessageRepository.save(assistantMessage);
                     } catch (Exception e) {
-                        log.error("流式结束时保存 assistant 消息失败, sessionId: {}", sessionId, e);
+                        log.error("Failed to persist assistant message after stream, sessionId: {}", sessionId, e);
+                        try {
+                            String errorMsg = escapeJsonForSse("Failed to persist message, please refresh conversation history");
+                            String jsonData = "{\"type\":\"error\",\"message\":\"" + errorMsg + "\"}";
+                            emitter.send("event: message\ndata: " + jsonData + "\n\n");
+                        } catch (Exception ex) {
+                            log.warn("SSE error event send failed, sessionId: {}", sessionId, ex);
+                        }
+                        emitter.completeWithError(e);
                     }
                 }
             }
         });
     }
 
-    /**
-     * 校验创建请求。
-     */
+    private void persistAssistantMessage(String sessionId, String content) {
+        transactionTemplate.executeWithoutResult(status -> {
+            InterviewChatLog assistantMessage = new InterviewChatLog();
+            assistantMessage.setId(IdWorker.getId());
+            assistantMessage.setSessionId(sessionId);
+            assistantMessage.setMessageRole(InterviewConstants.ROLE_ASSISTANT);
+            assistantMessage.setContent(content);
+            assistantMessage.setCreateTime(LocalDateTime.now());
+            assistantMessage.setUpdateTime(LocalDateTime.now());
+            assistantMessage.setIsDeleted(0);
+            interviewMessageRepository.save(assistantMessage);
+        });
+    }
+
     private void validateCreateRequest(CreateSessionRequest request) {
         if (request.getJobRole() == null || request.getJobRole().trim().isEmpty()) {
             throw new BusinessException("面试岗位不能为空");

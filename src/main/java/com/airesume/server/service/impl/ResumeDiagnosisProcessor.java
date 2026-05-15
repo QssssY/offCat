@@ -49,7 +49,12 @@ public class ResumeDiagnosisProcessor {
                 return;
             }
 
-            resumeDiagnosisTaskService.updateStatusToProcessing(taskId);
+            // 只有抢占到待处理任务的消费者才能继续执行，避免同一任务被重复解析和重复退款。
+            boolean claimed = resumeDiagnosisTaskService.updateStatusToProcessing(taskId);
+            if (!claimed) {
+                log.warn("Task was claimed by another worker, skip current processing, taskId: {}", taskId);
+                return;
+            }
 
             long pdfStartTime = System.currentTimeMillis();
             // 统一解析服务会优先复用文本直提，不足时再进入多模态或 OCR。

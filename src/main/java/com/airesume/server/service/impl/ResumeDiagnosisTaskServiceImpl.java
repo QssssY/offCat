@@ -24,6 +24,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,8 +32,12 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
@@ -138,61 +143,69 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
     @Override
     @Transactional(rollbackFor = Exception.class)
     public String createTask(Long userId, MultipartFile file) {
-        // 1. 校验文件
         if (file.isEmpty()) {
-            throw new BusinessException("上传文件不能为空");
+            throw new BusinessException("Uploaded file must not be empty");
         }
 
-        String originalFilename = file.getOriginalFilename();
-        if (originalFilename == null || !originalFilename.toLowerCase().endsWith(".pdf")) {
-            throw new BusinessException("仅支持 PDF 格式文件");
+        String originalFilename = sanitizeOriginalFilename(file.getOriginalFilename());
+        if (!originalFilename.toLowerCase().endsWith(".pdf")) {
+            throw new BusinessException("Only PDF files are supported");
         }
 
-        // 校验文件大小（防止大文件上传耗尽磁盘空间）
         if (file.getSize() > maxFileSize) {
-            throw new BusinessException("文件大小不能超过" + (maxFileSize / 1024 / 1024) + "MB");
+            throw new BusinessException("File size must not exceed " + (maxFileSize / 1024 / 1024) + "MB");
         }
 
-        // 2. 保存文件到存储（这里使用本地存储，生产环境建议改为OSS）
-        String fileName = System.currentTimeMillis() + "_" + originalFilename;
+        String fileName = buildStoredResumeFileName();
         String fileUrl;
 
         try {
-            // 使用配置的上传目录，如果未配置则使用默认路径
             String uploadDir;
             if (configuredUploadDir != null && !configuredUploadDir.isBlank()) {
                 uploadDir = configuredUploadDir;
             } else {
-                // 默认使用项目根目录下的 uploads 目录
                 uploadDir = System.getProperty("user.dir") + "/uploads/resumes/";
             }
-            // 确保目录路径以分隔符结尾
             if (!uploadDir.endsWith("/") && !uploadDir.endsWith("\\")) {
                 uploadDir = uploadDir + "/";
             }
-            java.io.File dir = new java.io.File(uploadDir);
-            if (!dir.exists()) {
-                dir.mkdirs();
+
+            Path uploadDirPath = Paths.get(uploadDir).toAbsolutePath().normalize();
+            Files.createDirectories(uploadDirPath);
+
+            Path destPath = uploadDirPath.resolve(fileName).normalize();
+            if (!destPath.startsWith(uploadDirPath)) {
+                throw new BusinessException("Illegal file path");
             }
+            file.transferTo(destPath.toFile());
 
-            // 保存文件
-            java.io.File destFile = new java.io.File(dir, fileName);
-            file.transferTo(destFile);
-
-            // 生成文件访问URL（这里使用相对路径，实际部署需要配置域名）
             fileUrl = "/uploads/resumes/" + fileName;
-
             log.info("Resume file saved, userId: {}, fileName: {}, fileUrl: {}",
                     userId, fileName, fileUrl);
-
         } catch (Exception e) {
             log.error("Failed to save resume file, userId: {}, fileName: {}", userId, fileName, e);
-            throw new BusinessException("文件保存失败，请稍后重试");
+            throw new BusinessException("Failed to save file, please retry later");
         }
 
-        // 3. 调用原有方法创建任务并转换为字符串返回
         Long taskId = createTask(userId, fileUrl);
         return String.valueOf(taskId);
+    }
+
+    private String sanitizeOriginalFilename(String originalFilename) {
+        if (originalFilename == null) {
+            throw new BusinessException("Filename must not be null");
+        }
+
+        String normalizedFilename = originalFilename.replace("\\", "/");
+        String safeFilename = Paths.get(normalizedFilename).getFileName().toString();
+        if (safeFilename.isBlank()) {
+            throw new BusinessException("Filename is invalid");
+        }
+        return safeFilename;
+    }
+
+    private String buildStoredResumeFileName() {
+        return System.currentTimeMillis() + "_" + UUID.randomUUID().toString().replace("-", "") + ".pdf";
     }
 
     @Override
@@ -242,20 +255,26 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void updateStatusToProcessing(Long taskId) {
-        ResumeDiagnosisTask task = getById(taskId);
-        if (task == null) {
-            log.warn("Task not found when updating to processing, taskId: {}", taskId);
-            return;
+    @CacheEvict(value = "resume:task", allEntries = true)
+    public boolean updateStatusToProcessing(Long taskId) {
+        // 只允许一个消费者把 PENDING 任务原子切换为 PROCESSING，避免重复扣费与重复调用 AI。
+        int affected = getBaseMapper().claimPendingTask(
+                taskId,
+                ResumeDiagnosisConstants.STATUS_PENDING,
+                ResumeDiagnosisConstants.STATUS_PROCESSING
+        );
+        boolean claimed = affected > 0;
+        if (!claimed) {
+            log.warn("Skip claiming task because it is already processed by another worker, taskId: {}", taskId);
+            return false;
         }
-
-        task.setStatus(ResumeDiagnosisConstants.STATUS_PROCESSING);
-        updateById(task);
-        log.info("Task status updated to processing, taskId: {}", taskId);
+        log.info("Task status updated to processing atomically, taskId: {}", taskId);
+        return true;
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "resume:task", allEntries = true)
     public void updateStatusToCompleted(Long taskId, String diagnosisResult) {
         ResumeDiagnosisTask task = getById(taskId);
         if (task == null) {
@@ -272,6 +291,7 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "resume:task", allEntries = true)
     public void updateStatusToFailed(Long taskId, String errorMsg) {
         ResumeDiagnosisTask task = getById(taskId);
         if (task == null) {
@@ -288,6 +308,7 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "resume:task", allEntries = true)
     public void updateTaskResumeText(Long taskId, String resumeText) {
         ResumeDiagnosisTask task = getById(taskId);
         if (task == null) {
@@ -302,6 +323,7 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "resume:task", allEntries = true)
     public void updateTaskResumeParseResult(Long taskId, String resumeText, String parseMode, String parseMessage) {
         ResumeDiagnosisTask task = getById(taskId);
         if (task == null) {

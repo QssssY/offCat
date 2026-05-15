@@ -77,7 +77,7 @@ logging:
 # 【注意】生产环境请更换为强密码
 # ------------------------------------------
 jwt:
-  secret: ai-resume-dev-jwt-secret-placeholder
+  secret: ${JWT_SECRET:dev-jwt-secret-key-for-local-development-only-32chars}
   expiration: 86400000
   header: Authorization
   prefix: "Bearer "
