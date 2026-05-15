@@ -4,6 +4,7 @@ import com.airesume.server.service.ResumePdfService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -24,6 +25,8 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class ResumePdfController {
 
+    static final int MAX_HTML_BYTES = 1024 * 1024;
+
     private final ResumePdfService resumePdfService;
 
     /**
@@ -37,6 +40,12 @@ public class ResumePdfController {
         String html = request.get("html");
         if (html == null || html.isBlank()) {
             return ResponseEntity.badRequest().build();
+        }
+        // HTML 会直接进入 Headless Chrome 渲染，先拦住超大请求体，避免拖垮渲染进程和临时文件。
+        int htmlBytes = html.getBytes(StandardCharsets.UTF_8).length;
+        if (htmlBytes > MAX_HTML_BYTES) {
+            log.warn("拒绝超大 PDF 导出请求，HTML 字节数: {}", htmlBytes);
+            return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).build();
         }
 
         log.info("收到 PDF 导出请求，HTML 长度: {}", html.length());

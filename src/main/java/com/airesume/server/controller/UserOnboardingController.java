@@ -28,7 +28,7 @@ public class UserOnboardingController {
     private final UserOnboardingService userOnboardingService;
 
     /** 默认引导版本标识 */
-    private static final String DEFAULT_GUIDE_KEY = "v1_2_main_onboarding";
+    private static final String DEFAULT_GUIDE_KEY = "v1_3_main_onboarding";
 
     /**
      * 查询当前用户的新手引导状态

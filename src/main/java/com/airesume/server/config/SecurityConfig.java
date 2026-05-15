@@ -68,9 +68,7 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
                 .securityMatcher((HttpServletRequest request) ->
-                        request.getDispatcherType() == DispatcherType.REQUEST
-                                || request.getDispatcherType() == DispatcherType.FORWARD
-                                || request.getDispatcherType() == DispatcherType.INCLUDE)
+                        supportsSecurityDispatcherType(request.getDispatcherType()))
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -99,6 +97,17 @@ public class SecurityConfig {
                 );
 
         return http.build();
+    }
+
+    /**
+     * SSE/异步请求在二次分派时仍然需要走安全过滤链，否则会绕过认证与授权判断。
+     * 这里显式放行 ASYNC，继续排除 ERROR，避免异常分派重复进入业务安全链。
+     */
+    static boolean supportsSecurityDispatcherType(DispatcherType dispatcherType) {
+        return dispatcherType == DispatcherType.REQUEST
+                || dispatcherType == DispatcherType.FORWARD
+                || dispatcherType == DispatcherType.INCLUDE
+                || dispatcherType == DispatcherType.ASYNC;
     }
 
     @Bean

@@ -1,5 +1,6 @@
 package com.airesume.server.infrastructure.security;
 
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -27,8 +28,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        String dispatcherType = request.getDispatcherType().name();
-        return "ASYNC".equals(dispatcherType) || "ERROR".equals(dispatcherType);
+        return request.getDispatcherType() == DispatcherType.ERROR;
+    }
+
+    @Override
+    protected boolean shouldNotFilterAsyncDispatch() {
+        // 异步分派也要补齐 JWT 认证，避免 SSE 等链路在 ASYNC 阶段丢失鉴权上下文。
+        return false;
     }
 
     @Override

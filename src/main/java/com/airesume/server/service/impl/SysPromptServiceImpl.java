@@ -2,11 +2,13 @@ package com.airesume.server.service.impl;
 
 import com.airesume.server.common.constants.PromptConstants;
 import com.airesume.server.entity.SysPrompt;
+import com.airesume.server.mapper.SysJobRoleMapper;
 import com.airesume.server.mapper.SysPromptMapper;
 import com.airesume.server.service.SysPromptService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,9 +17,11 @@ import java.util.List;
 
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class SysPromptServiceImpl extends ServiceImpl<SysPromptMapper, SysPrompt> implements SysPromptService {
 
     private static final Integer STATUS_ACTIVE = 1;
+    private final SysJobRoleMapper sysJobRoleMapper;
 
     @Override
     public String getActivePromptContent(Integer scenarioType) {
@@ -69,6 +73,9 @@ public class SysPromptServiceImpl extends ServiceImpl<SysPromptMapper, SysPrompt
         if (scenarioType == null || jobRoleCode == null || difficulty == null) {
             return;
         }
+        // 先锁定岗位配置行，把“停用旧 Prompt + 启用新 Prompt”整个事务串起来，
+        // 避免并发管理操作把同岗位 Prompt 组激活成多条有效记录。
+        sysJobRoleMapper.lockIdByRoleCode(jobRoleCode);
         LambdaQueryWrapper<SysPrompt> wrapper = Wrappers.<SysPrompt>lambdaQuery()
                 .eq(SysPrompt::getScenarioType, scenarioType)
                 .eq(SysPrompt::getJobRoleCode, jobRoleCode)
