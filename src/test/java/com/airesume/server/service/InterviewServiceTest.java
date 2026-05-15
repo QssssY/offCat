@@ -1,9 +1,11 @@
 package com.airesume.server.service;
 
 import com.airesume.server.entity.InterviewChatLog;
+import com.airesume.server.entity.InterviewSession;
 import com.airesume.server.mock.MockInterviewService;
 import com.airesume.server.repository.InterviewMessageRepository;
 import com.airesume.server.repository.InterviewSessionRepository;
+import com.airesume.server.dto.interview.InterviewEvaluationReport;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -20,6 +22,10 @@ import org.springframework.transaction.support.TransactionCallbackWithoutResult;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
 
+import java.lang.reflect.Method;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.Executor;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -153,5 +159,41 @@ class InterviewServiceTest {
         verify(subscription).cancel();
         verify(emitter).complete();
         verify(interviewMessageRepository, never()).save(any());
+    }
+
+    @Test
+    void generateAndPersistEvaluationReportShouldSkipWhenReportAlreadyWritten() throws Exception {
+        String sessionId = "session-1";
+        InterviewSession session = new InterviewSession();
+        session.setSessionId(sessionId);
+        session.setUserId(123L);
+        session.setStatus(1);
+        session.setJobRole("Java工程师");
+        session.setDifficulty(2);
+        session.setInterviewMode("normal");
+        session.setCreateTime(LocalDateTime.now());
+        session.setUpdateTime(LocalDateTime.now());
+
+        InterviewEvaluationReport report = InterviewEvaluationReport.builder()
+                .overallScore(88)
+                .summary("summary")
+                .build();
+
+        when(interviewSessionRepository.findBySessionId(sessionId)).thenReturn(Optional.of(session));
+        when(interviewMessageService.getMessageList(sessionId)).thenReturn(List.of());
+        when(interviewAiService.generateEvaluationReport(eq(sessionId), anyList(), anyString(), any(), any(), anyString(), any()))
+                .thenReturn(report);
+        doAnswer((Answer<Void>) invocation -> {
+            Object arg = invocation.getArgument(0);
+            if (arg instanceof TransactionCallbackWithoutResult callback) {
+                callback.doInTransaction(null);
+            }
+            return null;
+        }).when(transactionTemplate).executeWithoutResult(Mockito.any());
+        Method method = InterviewService.class.getDeclaredMethod("generateAndPersistEvaluationReport", String.class);
+        method.setAccessible(true);
+        method.invoke(interviewService, sessionId);
+
+        verify(notificationService, never()).createNotification(anyLong(), anyString(), anyString(), anyString(), anyString(), anyString());
     }
 }

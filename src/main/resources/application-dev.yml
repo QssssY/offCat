@@ -110,6 +110,11 @@ jwt:
 #   在 Environment variables 中添加：API_KEY=your-key
 # ==========================================
 app:
+  ai-circuit-breaker:
+    enabled: true
+    failure-threshold: 3
+    open-duration-ms: 30000
+
   ai:
     # AI 模式：mock / real
     # mock: 使用 MockDiagnosisResultGenerator 生成模拟数据

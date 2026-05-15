@@ -88,6 +88,11 @@ jwt:
 # 用途：控制简历诊断使用 Mock 还是真实 AI
 # ------------------------------------------
 app:
+  ai-circuit-breaker:
+    enabled: true
+    failure-threshold: 3
+    open-duration-ms: 30000
+
   ai:
     # AI 模式切换：
     # - mock: 使用模拟数据（开发调试用，不消耗 API 额度）

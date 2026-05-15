@@ -78,7 +78,7 @@ public class NotificationService {
             // 通过 SSE 实时推送给用户
             sendNotificationToUser(userId, notification);
         } catch (Exception e) {
-            log.error("创建通知失败，不影响主业务, userId: {}, type: {}, error: {}", userId, type, e.getMessage());
+            log.error("创建通知失败，不影响主业务, userId: {}, type: {}", userId, type, e);
         }
     }
 

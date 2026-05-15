@@ -344,13 +344,20 @@ public class InterviewService {
 
         Integer finalScore = score;
         String finalReportJson = evaluationReportJson;
-        transactionTemplate.executeWithoutResult(status -> interviewSessionRepository.updateEvaluationReport(
+        final int[] updatedRows = {0};
+        transactionTemplate.executeWithoutResult(status -> updatedRows[0] = interviewSessionRepository.updateEvaluationReportIfAbsent(
                 sessionId,
                 finalScore,
                 finalReportJson,
                 InterviewConstants.STATUS_ENDED,
                 LocalDateTime.now()
         ));
+
+        // 只允许首个异步结果落库，避免并发结束同一场面试时互相覆盖评估报告。
+        if (updatedRows[0] == 0) {
+            log.info("面试评估报告已存在，跳过重复回写, sessionId: {}", sessionId);
+            return;
+        }
 
         // 创建模拟面试完成通知
         notificationService.createNotification(

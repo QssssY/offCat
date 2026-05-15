@@ -6,6 +6,7 @@ import com.airesume.server.config.AiTokenLimitConfig;
 import com.airesume.server.dto.resume.ResumeJobMatchAnalyzeResponse;
 import com.airesume.server.dto.resume.ResumePolishAiResult;
 import com.airesume.server.entity.SysAiEngineConfig;
+import com.airesume.server.service.AiCircuitBreaker;
 import com.airesume.server.service.ResumeAiService;
 import com.airesume.server.service.SysAiEngineConfigService;
 import com.airesume.server.service.SysPromptService;
@@ -40,6 +41,8 @@ import java.util.regex.Pattern;
 @ConditionalOnProperty(name = "app.ai.mode", havingValue = "real")
 public class ResumeAiServiceImpl implements ResumeAiService {
 
+    private static final String RESUME_AI_BREAKER = "resume-ai";
+
     private final RestClient restClient;
     private final String provider;
     private final String model;
@@ -53,6 +56,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
     private final SysAiEngineConfigService sysAiEngineConfigService;
     private final ObjectMapper objectMapper;
     private final AiTokenLimitConfig tokenLimitConfig;
+    private final AiCircuitBreaker aiCircuitBreaker;
     private static final Pattern POLISHED_TEXT_PATTERN = Pattern.compile(
             "\"polishedResumeText\"\\s*:\\s*\"(.*?)\"\\s*,\\s*\"modificationNotes\"",
             Pattern.DOTALL);
@@ -82,7 +86,8 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             ObjectMapper objectMapper,
             AiTokenLimitConfig tokenLimitConfig,
             RestClient.Builder restClientBuilder,
-            WebClient.Builder webClientBuilder) {
+            WebClient.Builder webClientBuilder,
+            AiCircuitBreaker aiCircuitBreaker) {
         this.provider = provider == null ? "doubao" : provider.toLowerCase();
         this.model = model;
         this.configuredBaseUrl = configuredBaseUrl;
@@ -93,6 +98,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         this.tokenLimitConfig = tokenLimitConfig;
         this.restClientBuilder = restClientBuilder;
         this.webClientBuilder = webClientBuilder;
+        this.aiCircuitBreaker = aiCircuitBreaker;
         this.resolvedBaseUrl = resolveBaseUrl(this.provider, configuredBaseUrl);
         this.endpoint = getEndpoint();
         this.restClient = restClientBuilder
@@ -241,7 +247,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
 
         try {
             // 使用 exchange 获取完整响应，便于捕获非 JSON 格式的错误响应。
-            org.springframework.http.ResponseEntity<String> responseEntity = runtimeRestClient.post()
+            org.springframework.http.ResponseEntity<String> responseEntity = aiCircuitBreaker.execute(RESUME_AI_BREAKER, () -> runtimeRestClient.post()
                     .uri(runtimeConfig.endpoint())
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
                     .accept(MediaType.APPLICATION_JSON)
@@ -256,7 +262,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                         }
                         throw new RuntimeException("API 返回 HTTP " + resp.getStatusCode().value() + ": " + errorBody);
                     })
-                    .toEntity(String.class);
+                    .toEntity(String.class));
             ResponseBody response = tryReadResponseBody(responseEntity.getBody());
             if (response == null || response.choices == null || response.choices.isEmpty()) {
                 throw new RuntimeException("多模态识别返回内容为空");
@@ -333,13 +339,15 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             customFactory.setReadTimeout(readTimeout);
             builder = builder.requestFactory(customFactory);
             RestClient runtimeRestClient = builder.build();
-            String responseText = runtimeRestClient.post()
-                    .uri(runtimeConfig.endpoint())
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
-                    .accept(MediaType.APPLICATION_JSON)
-                    .body(request)
-                    .retrieve()
-                    .body(String.class);
+            String responseText = aiCircuitBreaker.execute(
+                    RESUME_AI_BREAKER,
+                    () -> runtimeRestClient.post()
+                            .uri(runtimeConfig.endpoint())
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                            .accept(MediaType.APPLICATION_JSON)
+                            .body(request)
+                            .retrieve()
+                            .body(String.class));
             ResponseBody response = tryReadResponseBody(responseText);
             if (response == null || response.choices == null || response.choices.isEmpty()) {
                 throw new RuntimeException("AI 返回内容为空");
@@ -415,13 +423,15 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .build();
 
-        Flux<String> rawLineFlux = runtimeWebClient.post()
-                .uri(runtimeConfig.endpoint())
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
-                .bodyValue(request)
-                .retrieve()
-                .bodyToFlux(String.class)
-                .timeout(Duration.ofMillis(readTimeout));
+        Flux<String> rawLineFlux = aiCircuitBreaker.executeFlux(
+                RESUME_AI_BREAKER,
+                () -> runtimeWebClient.post()
+                        .uri(runtimeConfig.endpoint())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                        .bodyValue(request)
+                        .retrieve()
+                        .bodyToFlux(String.class)
+                        .timeout(Duration.ofMillis(readTimeout)));
 
         StringBuilder content = new StringBuilder();
         int lineNo = 0;
@@ -487,13 +497,15 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                 .requestFactory(buildRequestFactory(readTimeout))
                 .build();
 
-        String responseText = runtimeRestClient.post()
-                .uri(runtimeConfig.endpoint())
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
-                .accept(MediaType.APPLICATION_JSON)
-                .body(request)
-                .retrieve()
-                .body(String.class);
+        String responseText = aiCircuitBreaker.execute(
+                RESUME_AI_BREAKER,
+                () -> runtimeRestClient.post()
+                        .uri(runtimeConfig.endpoint())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                        .accept(MediaType.APPLICATION_JSON)
+                        .body(request)
+                        .retrieve()
+                        .body(String.class));
         ResponseBody response = tryReadResponseBody(responseText);
 
         if (response == null || response.choices == null || response.choices.isEmpty()) {
@@ -575,13 +587,15 @@ public class ResumeAiServiceImpl implements ResumeAiService {
      */
     private String executeAiRequestForText(RestClient runtimeRestClient, String endpoint, String apiKey, RequestBody request)
             throws Exception {
-        String rawText = runtimeRestClient.post()
-                .uri(endpoint)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
-                .accept(MediaType.APPLICATION_JSON)
-                .body(request)
-                .retrieve()
-                .body(String.class);
+        String rawText = aiCircuitBreaker.execute(
+                RESUME_AI_BREAKER,
+                () -> runtimeRestClient.post()
+                        .uri(endpoint)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                        .accept(MediaType.APPLICATION_JSON)
+                        .body(request)
+                        .retrieve()
+                        .body(String.class));
         if (rawText == null || rawText.isBlank()) {
             throw new RuntimeException("AI 返回内容为空");
         }

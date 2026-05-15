@@ -16,6 +16,7 @@ import com.airesume.server.mapper.MockInterviewJobTargetRecordMapper;
 import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
 import com.airesume.server.mapper.InterviewSessionMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.airesume.server.service.AiCircuitBreaker;
 import com.airesume.server.service.InterviewAiService;
 import com.airesume.server.service.InterviewContextCompressor;
 import com.airesume.server.service.SysAiEngineConfigService;
@@ -51,6 +52,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 @ConditionalOnProperty(name = "app.interview.mode", havingValue = "real")
 public class InterviewAiServiceImpl implements InterviewAiService {
 
+    private static final String INTERVIEW_AI_BREAKER = "interview-ai";
+    private static final String INTERVIEW_STREAM_BREAKER = "interview-ai-stream";
+
     private final RestClient restClient;
     private final WebClient webClient;
     private final RestClient.Builder restClientBuilder;
@@ -70,6 +74,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     private final MockInterviewJobTargetRecordMapper mockInterviewJobTargetRecordMapper;
     private final ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper;
     private final InterviewSessionMapper interviewSessionMapper;
+    private final AiCircuitBreaker aiCircuitBreaker;
 
     @Value("${app.interview.stream-debug-log:false}")
     private boolean streamDebugLog;
@@ -89,7 +94,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             MockInterviewJobTargetRecordMapper mockInterviewJobTargetRecordMapper,
             ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper,
             InterviewSessionMapper interviewSessionMapper,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            AiCircuitBreaker aiCircuitBreaker) {
         this.provider = provider == null ? "doubao" : provider.toLowerCase();
         this.model = model;
         this.configuredBaseUrl = configuredBaseUrl;
@@ -105,6 +111,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         this.mockInterviewJobTargetRecordMapper = mockInterviewJobTargetRecordMapper;
         this.resumeDiagnosisTaskMapper = resumeDiagnosisTaskMapper;
         this.interviewSessionMapper = interviewSessionMapper;
+        this.aiCircuitBreaker = aiCircuitBreaker;
         this.resolvedBaseUrl = resolveBaseUrl(this.provider, configuredBaseUrl);
         this.endpoint = getEndpoint();
         this.restClient = restClientBuilder
@@ -332,13 +339,15 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .build();
 
-        Flux<String> rawLineFlux = runtimeWebClient.post()
-                .uri(runtimeConfig.endpoint())
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
-                .bodyValue(reqBody)
-                .retrieve()
-                .bodyToFlux(String.class)
-                .publishOn(Schedulers.boundedElastic());
+        Flux<String> rawLineFlux = aiCircuitBreaker.executeFlux(
+                INTERVIEW_STREAM_BREAKER,
+                () -> runtimeWebClient.post()
+                        .uri(runtimeConfig.endpoint())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                        .bodyValue(reqBody)
+                        .retrieve()
+                        .bodyToFlux(String.class)
+                        .publishOn(Schedulers.boundedElastic()));
 
         AtomicInteger totalLines = new AtomicInteger(0);
         AtomicInteger parsedJsonLines = new AtomicInteger(0);
@@ -491,15 +500,15 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                         upstream.request(1);
 
                     } catch (Exception e) {
-                        log.error("[{}] 【处理异常】error={}, message={}", logTag, e.getClass().getSimpleName(), e.getMessage());
+                        log.error("[{}] 流式响应处理异常, errorType={}", logTag, e.getClass().getSimpleName(), e);
                         sink.error(e);
                     }
                 }
 
                 @Override
                 public void onError(Throwable t) {
-                    log.error("[{}] 【WebClient错误】type={}, message={}",
-                            logTag, t.getClass().getSimpleName(), t.getMessage());
+                    log.error("[{}] 流式 WebClient 调用失败, errorType={}",
+                            logTag, t.getClass().getSimpleName(), t);
                     // 外部 AI 在 DNS / 网络层失败时，直接降级到本地 Mock，保证模拟面试不中断。
                     if (emittedCount.get() == 0) {
                         emitFallbackReplyToSink(
@@ -797,7 +806,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             log.info("[{}] 评价报告 JSON 解析成功", tag);
             return report;
         } catch (Exception e) {
-            log.error("[{}] 评价报告 JSON 解析失败，使用默认报告: {}", tag, e.getMessage());
+            log.error("[{}] 评价报告 JSON 解析失败，使用默认报告", tag, e);
             log.debug("[{}] 解析失败的 JSON 内容: {}", tag, jsonContent);
             return buildDefaultEvaluationReport();
         }
@@ -959,13 +968,15 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             log.info("[{}] HTTP 超时: {}ms", tag, readTimeout);
             RestClient runtimeRestClient = builder.build();
 
-            String responseText = runtimeRestClient.post()
-                    .uri(runtimeConfig.endpoint())
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
-                    .accept(MediaType.APPLICATION_JSON)
-                    .body(request)
-                    .retrieve()
-                    .body(String.class);
+            String responseText = aiCircuitBreaker.execute(
+                    INTERVIEW_AI_BREAKER,
+                    () -> runtimeRestClient.post()
+                            .uri(runtimeConfig.endpoint())
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                            .accept(MediaType.APPLICATION_JSON)
+                            .body(request)
+                            .retrieve()
+                            .body(String.class));
             ResponseBody response = tryReadResponseBody(responseText);
 
             if (response == null || response.choices == null || response.choices.isEmpty()) {
@@ -1022,13 +1033,15 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             log.info("[{}] HTTP 超时: {}ms", tag, readTimeout);
             RestClient runtimeRestClient = builder.build();
 
-            String responseText = runtimeRestClient.post()
-                    .uri(runtimeConfig.endpoint())
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
-                    .accept(MediaType.APPLICATION_JSON)
-                    .body(request)
-                    .retrieve()
-                    .body(String.class);
+            String responseText = aiCircuitBreaker.execute(
+                    INTERVIEW_AI_BREAKER,
+                    () -> runtimeRestClient.post()
+                            .uri(runtimeConfig.endpoint())
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                            .accept(MediaType.APPLICATION_JSON)
+                            .body(request)
+                            .retrieve()
+                            .body(String.class));
             ResponseBody response = tryReadResponseBody(responseText);
 
             if (response == null || response.choices == null || response.choices.isEmpty()) {
