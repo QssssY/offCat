@@ -49,6 +49,8 @@ class InterviewServiceTest {
 
     @Captor
     private ArgumentCaptor<InterviewChatLog> chatLogCaptor;
+    @Captor
+    private ArgumentCaptor<Runnable> timeoutCaptor;
 
     @BeforeEach
     void setUp() {
@@ -133,5 +135,23 @@ class InterviewServiceTest {
         verify(interviewMessageRepository, never()).save(any());
         verify(emitter, atLeastOnce()).send(anyString());
         verify(emitter).complete();
+    }
+
+    @Test
+    void subscribeAndWriteStreamShouldCancelSubscriptionOnTimeout() throws Exception {
+        String sessionId = "test-session-id";
+        ResponseBodyEmitter emitter = mock(ResponseBodyEmitter.class);
+        StringBuilder fullReply = new StringBuilder();
+
+        Publisher<String> publisher = subscriber -> subscriber.onSubscribe(subscription);
+
+        interviewService.subscribeAndWriteStream(sessionId, emitter, publisher, fullReply);
+
+        verify(emitter).onTimeout(timeoutCaptor.capture());
+        timeoutCaptor.getValue().run();
+
+        verify(subscription).cancel();
+        verify(emitter).complete();
+        verify(interviewMessageRepository, never()).save(any());
     }
 }

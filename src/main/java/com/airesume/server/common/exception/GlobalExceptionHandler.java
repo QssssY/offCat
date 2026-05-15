@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
+import java.io.IOException;
 
 @Slf4j
 @RestControllerAdvice
@@ -57,6 +58,12 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.OK)
     public void handleAsyncRequestTimeoutException(AsyncRequestTimeoutException e) {
         log.debug("SSE 异步请求超时，连接已清理");
+    }
+
+    @ExceptionHandler(IOException.class)
+    @ResponseStatus(HttpStatus.OK)
+    public void handleIOException(IOException e) {
+        log.warn("SSE 连接已断开: {}", e.getMessage());
     }
 
     @ExceptionHandler(Exception.class)

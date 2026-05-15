@@ -77,7 +77,7 @@ logging:
 # 【注意】生产环境请更换为强密码
 # ------------------------------------------
 jwt:
-  secret: ${JWT_SECRET:dev-jwt-secret-key-for-local-development-only-32chars}
+  secret: ${JWT_SECRET:dev-secret-key-change-in-production-123456}
   expiration: 86400000
   header: Authorization
   prefix: "Bearer "

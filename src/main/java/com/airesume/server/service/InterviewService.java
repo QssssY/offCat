@@ -46,6 +46,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 /**
@@ -426,18 +427,36 @@ public class InterviewService {
             Publisher<String> publisher,
             StringBuilder fullReply
     ) throws IOException {
-        Subscription[] subscriptionRef = new Subscription[1];
+        AtomicReference<Subscription> subscriptionRef = new AtomicReference<>();
         AtomicBoolean done = new AtomicBoolean(false);
+        AtomicBoolean streamClosed = new AtomicBoolean(false);
+
+        // SSE 连接关闭后立即取消订阅，避免 AI 流继续占用线程与网络资源。
+        emitter.onTimeout(() -> {
+            if (cancelActiveStream(sessionId, streamClosed, done, subscriptionRef, "timeout")) {
+                emitter.complete();
+            }
+        });
+        emitter.onCompletion(() -> cancelActiveStream(sessionId, streamClosed, done, subscriptionRef, "completion"));
+        emitter.onError(error -> cancelActiveStream(sessionId, streamClosed, done, subscriptionRef, "error"));
 
         publisher.subscribe(new Subscriber<>() {
             @Override
             public void onSubscribe(Subscription s) {
-                subscriptionRef[0] = s;
+                subscriptionRef.set(s);
+                if (streamClosed.get()) {
+                    s.cancel();
+                    return;
+                }
                 s.request(Long.MAX_VALUE);
             }
 
             @Override
             public void onNext(String item) {
+                if (streamClosed.get()) {
+                    cancelActiveStream(sessionId, streamClosed, done, subscriptionRef, "emitter_closed_before_chunk");
+                    return;
+                }
                 if (item == null || item.isBlank()) {
                     return;
                 }
@@ -448,14 +467,15 @@ public class InterviewService {
                     emitter.send("event: message\ndata: " + jsonData + "\n\n");
                 } catch (IOException e) {
                     log.warn("SSE send failed, cancel subscription, sessionId: {}, error: {}", sessionId, e.getMessage());
-                    if (subscriptionRef[0] != null) {
-                        subscriptionRef[0].cancel();
-                    }
+                    cancelActiveStream(sessionId, streamClosed, done, subscriptionRef, "send_failed");
                 }
             }
 
             @Override
             public void onError(Throwable t) {
+                if (streamClosed.get()) {
+                    return;
+                }
                 if (done.compareAndSet(false, true)) {
                     try {
                         String errorMsg = escapeJsonForSse(t.getMessage() == null ? "System error" : t.getMessage());
@@ -471,6 +491,9 @@ public class InterviewService {
 
             @Override
             public void onComplete() {
+                if (streamClosed.get()) {
+                    return;
+                }
                 if (done.compareAndSet(false, true)) {
                     try {
                         if (fullReply.isEmpty()) {
@@ -497,6 +520,30 @@ public class InterviewService {
                 }
             }
         });
+    }
+
+    /**
+     * 流式链路一旦关闭，就同时终止订阅，避免后续 token 继续生成。
+     */
+    private boolean cancelActiveStream(String sessionId,
+                                       AtomicBoolean streamClosed,
+                                       AtomicBoolean done,
+                                       AtomicReference<Subscription> subscriptionRef,
+                                       String reason) {
+        if (done.get()) {
+            streamClosed.set(true);
+            return false;
+        }
+        if (!streamClosed.compareAndSet(false, true)) {
+            return false;
+        }
+        done.set(true);
+        Subscription subscription = subscriptionRef.getAndSet(null);
+        if (subscription != null) {
+            subscription.cancel();
+        }
+        log.info("SSE stream cancelled, sessionId: {}, reason: {}", sessionId, reason);
+        return true;
     }
 
     private void persistAssistantMessage(String sessionId, String content) {
