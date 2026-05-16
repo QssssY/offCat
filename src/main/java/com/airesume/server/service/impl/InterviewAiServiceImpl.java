@@ -1,4 +1,4 @@
-package com.airesume.server.service.impl;
+ package com.airesume.server.service.impl;
 
 import com.airesume.server.common.constants.AiEngineConstants;
 import com.airesume.server.common.constants.InterviewConstants;
@@ -223,7 +223,9 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     @Override
     public String generateReply(String sessionId, List<ChatMessageItem> history, String userMessage,
                                  String jobRoleCode, Integer difficulty,
-                                 InterviewJobTargetContext jobTargetContext) {
+                                 InterviewJobTargetContext jobTargetContext,
+                                 String feedbackMode,
+                                 String interviewMode) {
         RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
         String tag = runtimeConfig.provider().toUpperCase();
 
@@ -237,12 +239,12 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         }
 
         List<ChatMessageItem> compressedHistory = compressHistoryIfEnabled(history, tag);
-        String interviewMode = resolveInterviewMode(sessionId);
+        String resolvedInterviewMode = resolveInterviewMode(sessionId, interviewMode);
 
-        log.info("[{}] 生成面试官回复, sessionId: {}, historySize: {}, compressedSize: {}, userMessageLength: {}, jobRoleCode: {}, difficulty: {}, mode: {}",
+        log.info("[{}] 生成面试官回复, sessionId: {}, historySize: {}, compressedSize: {}, userMessageLength: {}, jobRoleCode: {}, difficulty: {}, mode: {}, feedbackMode: {}",
                 tag, sessionId, history == null ? 0 : history.size(),
                 compressedHistory == null ? 0 : compressedHistory.size(),
-                userMessage == null ? 0 : userMessage.length(), jobRoleCode, difficulty, interviewMode);
+                userMessage == null ? 0 : userMessage.length(), jobRoleCode, difficulty, resolvedInterviewMode, feedbackMode);
 
         String currentJobRole = resolveCurrentJobRole(sessionId, history, jobRoleCode);
         List<Message> messages = buildConversationMessages(
@@ -251,15 +253,16 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 currentJobRole,
                 jobRoleCode,
                 difficulty,
-                interviewMode,
-                jobTargetContext
+                resolvedInterviewMode,
+                jobTargetContext,
+                feedbackMode
         );
 
         try {
             return chatWithMessages(messages);
         } catch (Exception e) {
             if (shouldFallbackToLocalMock(e)) {
-                return buildReplyFallback(tag, sessionId, userMessage, compressedHistory, jobTargetContext, e);
+                return buildReplyFallback(tag, sessionId, userMessage, compressedHistory, jobTargetContext, feedbackMode, resolvedInterviewMode, e);
             }
             log.error("[{}] 生成回复失败, sessionId: {}", tag, sessionId, e);
             throw new RuntimeException("AI 面试回复生成失败: " + e.getMessage(), e);
@@ -269,7 +272,9 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     @Override
     public Publisher<String> generateReplyStream(String sessionId, List<ChatMessageItem> history, String userMessage,
                                                    String jobRoleCode, Integer difficulty,
-                                                   InterviewJobTargetContext jobTargetContext) {
+                                                   InterviewJobTargetContext jobTargetContext,
+                                                   String feedbackMode,
+                                                   String interviewMode) {
         RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
         String tag = runtimeConfig.provider().toUpperCase();
 
@@ -283,11 +288,11 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         }
 
         List<ChatMessageItem> compressedHistory = compressHistoryIfEnabled(history, tag);
-        String interviewMode = resolveInterviewMode(sessionId);
+        String resolvedInterviewMode = resolveInterviewMode(sessionId, interviewMode);
 
-        log.info("[{}] 流式生成面试官回复, sessionId: {}, historySize: {}, compressedSize: {}, jobRoleCode: {}, difficulty: {}, mode: {}",
+        log.info("[{}] 流式生成面试官回复, sessionId: {}, historySize: {}, compressedSize: {}, jobRoleCode: {}, difficulty: {}, mode: {}, feedbackMode: {}",
                 tag, sessionId, history == null ? 0 : history.size(),
-                compressedHistory == null ? 0 : compressedHistory.size(), jobRoleCode, difficulty, interviewMode);
+                compressedHistory == null ? 0 : compressedHistory.size(), jobRoleCode, difficulty, resolvedInterviewMode, feedbackMode);
 
         String currentJobRole = resolveCurrentJobRole(sessionId, history, jobRoleCode);
         List<Message> messages = buildConversationMessages(
@@ -296,8 +301,9 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 currentJobRole,
                 jobRoleCode,
                 difficulty,
-                interviewMode,
-                jobTargetContext
+                resolvedInterviewMode,
+                jobTargetContext,
+                feedbackMode
         );
 
         String apiKey = runtimeConfig.apiKey();
@@ -308,6 +314,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                     userMessage,
                     compressedHistory,
                     jobTargetContext,
+                    feedbackMode,
+                    resolvedInterviewMode,
                     new IllegalStateException("未找到可用的面试 AI 密钥")
             );
         }
@@ -365,7 +373,9 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         final String logTag = tag;
         final InterviewJobTargetContext finalJobTargetContext = jobTargetContext;
         final List<ChatMessageItem> finalCompressedHistory = compressedHistory;
-        return Flux.create(sink -> {
+        final String finalFeedbackMode = feedbackMode;
+        final String finalInterviewMode = resolvedInterviewMode;
+        Flux<String> contentFlux = Flux.create(sink -> {
             rawLineFlux.subscribe(new Subscriber<String>() {
                 private Subscription upstream;
 
@@ -517,7 +527,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                     if (emittedCount.get() == 0) {
                         emitFallbackReplyToSink(
                                 sink,
-                                buildReplyFallback(logTag, sessionId, userMessage, finalCompressedHistory, finalJobTargetContext, t)
+                                buildReplyFallback(logTag, sessionId, userMessage, finalCompressedHistory, finalJobTargetContext, finalFeedbackMode, finalInterviewMode, t)
                         );
                         return;
                     }
@@ -560,6 +570,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 }
             });
         });
+        return contentFlux;
     }
 
     /**
@@ -576,11 +587,13 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      */
     private String buildReplyFallback(String tag, String sessionId, String userMessage,
                                       List<ChatMessageItem> history,
-                                      InterviewJobTargetContext jobTargetContext, Throwable cause) {
+                                      InterviewJobTargetContext jobTargetContext, String feedbackMode,
+                                      String interviewMode, Throwable cause) {
         log.warn("[{}] 真实 AI 面试回复失败，改用本地 Mock 兜底, sessionId: {}, cause={}",
                 tag, sessionId, cause.getMessage(), cause);
         int messageCount = history == null ? 0 : history.size();
-        return mockInterviewService.generateMockReply(sessionId, userMessage, messageCount, jobTargetContext);
+        String fallbackReply = mockInterviewService.generateMockReply(sessionId, userMessage, messageCount, jobTargetContext);
+        return applyStructuredImmediateFeedbackToMockReply(applyPersonaToMockReply(fallbackReply, interviewMode), feedbackMode);
     }
 
     /**
@@ -588,15 +601,43 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      */
     private Publisher<String> buildReplyFallbackStream(String tag, String sessionId, String userMessage,
                                                        List<ChatMessageItem> history,
-                                                       InterviewJobTargetContext jobTargetContext, Throwable cause) {
-        String fallbackReply = buildReplyFallback(tag, sessionId, userMessage, history, jobTargetContext, cause);
+                                                       InterviewJobTargetContext jobTargetContext, String feedbackMode,
+                                                       String interviewMode, Throwable cause) {
+        String fallbackReply = buildReplyFallback(tag, sessionId, userMessage, history, jobTargetContext, feedbackMode, interviewMode, cause);
         return Flux.<String>create(sink -> emitFallbackReplyToSink(sink, fallbackReply))
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
     /**
-     * 将本地兜底文案按字符流输出给 SSE 下游，保持与真实流式回复一致的消费方式。
+     * 真实 AI 失败后的本地兜底也要保留人设语气，避免流式故障时体验突然退回普通面试。
      */
+    private String applyPersonaToMockReply(String reply, String interviewMode) {
+        if (InterviewConstants.MODE_BIG_COMPANY_HR.equalsIgnoreCase(interviewMode)) {
+            return "从 HR 视角看，我想继续了解你的行为经历和团队协作方式。"
+                    + (reply == null ? "" : "\n\n" + reply);
+        }
+        if (InterviewConstants.MODE_TECH_LEADER.equalsIgnoreCase(interviewMode)) {
+            return "从技术 Leader 视角看，我会继续追问你的技术取舍和个人贡献。"
+                    + (reply == null ? "" : "\n\n" + reply);
+        }
+        if (InterviewConstants.MODE_FOREIGN_INTERVIEWER.equalsIgnoreCase(interviewMode)) {
+            return "Let's continue in English. I would like to understand your reasoning and impact more clearly."
+                    + (reply == null ? "" : "\n\n" + reply);
+        }
+        return reply;
+    }
+
+    private String applyStructuredImmediateFeedbackToMockReply(String reply, String feedbackMode) {
+        if (!InterviewConstants.FEEDBACK_MODE_IMMEDIATE.equalsIgnoreCase(feedbackMode)) {
+            return reply;
+        }
+        String safeReply = reply == null ? "" : reply.trim();
+        if (safeReply.contains("<FEEDBACK>")) {
+            return safeReply;
+        }
+        return safeReply + "\n\n<FEEDBACK>\n本题反馈：你的回答有基本方向，但还需要补充更具体的背景、个人动作和结果，避免只用一句话带过。\n</FEEDBACK>";
+    }
+
     private void emitFallbackReplyToSink(FluxSink<String> sink, String fallbackReply) {
         if (fallbackReply == null || fallbackReply.isBlank()) {
             sink.complete();
@@ -746,7 +787,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
 
     private String buildDefaultEvaluationSystemPrompt(String jobRole, Integer difficulty, String interviewMode) {
         String difficultyDesc = InterviewConstants.getDifficultyDescription(difficulty);
-        String modeDesc = "stress".equalsIgnoreCase(interviewMode) ? "压力面试" : "普通面试";
+        String modeDesc = getEvaluationModeDescription(interviewMode);
 
         String prompt = """
                 角色：大厂技术面试官(10年经验)。任务：严格评估候选人真实水平。
@@ -754,18 +795,41 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 原则：1)按一线大厂标准 2)实事求是不鼓励 3)直接尖锐指出问题 4)保守评分(60以下不录用) 5)不放水。
                 评分：90-100=S(远超预期)，80-89=A(优秀)，70-79=B(达标)，60-69=C(勉强)，<60=D(淘汰)。
                 录用：>=80强烈推荐，>=70推荐，>=60待定，<60不推荐。
-                输出JSON(无额外文本)：{"overallScore":0-100,"level":"S/A/B/C/D","finalVerdict":"结论","summary":"500字左右自然连贯的综合评价","strengths":[""],"weaknesses":[""],"criticalIssues":[""],"questionPerformance":[{"question":"","answer":"","score":0,"comment":"","knowledgeTags":[""]}],"technicalDepth":{"score":0,"comment":"","strengths":["具体加分项"],"weaknesses":["具体扣分项"]},"communication":{"score":0,"comment":"","strengths":["具体加分项"],"weaknesses":["具体扣分项"]},"problemSolving":{"score":0,"comment":"","strengths":["具体加分项"],"weaknesses":["具体扣分项"]},"pressureResistance":{"score":0,"comment":"","strengths":["具体加分项"],"weaknesses":["具体扣分项"]},"jobMatch":{"score":0,"comment":"","strengths":["具体加分项"],"weaknesses":["具体扣分项"]},"hireRecommendation":"","improvementSuggestions":[""],"redFlags":[""],"missingCompetencies":[""],"inflationRisk":"","answerAuthenticity":"","interviewPerformanceTags":[""],"passProbability":0,"rejectionReasons":[""]}
+                输出JSON(无额外文本)：{"overallScore":0-100,"level":"S/A/B/C/D","finalVerdict":"结论","summary":"500字左右自然连贯的综合评价","strengths":[""],"weaknesses":[""],"criticalIssues":[""],"questionPerformance":[{"question":"","answer":"","score":0,"comment":"","knowledgeTags":[""]}],"roundReviews":[{"roundNo":1,"question":"","answer":"","score":0,"replayAnalysis":"","missedFollowUp":"","nextPractice":""}],"followUpLossPoints":[""],"commonLossPatterns":[""],"immediateActions":["行动1","行动2","行动3"],"technicalDepth":{"score":0,"comment":"","strengths":["具体加分项"],"weaknesses":["具体扣分项"]},"projectExpression":{"score":0,"comment":"","strengths":["具体加分项"],"weaknesses":["具体扣分项"]},"communication":{"score":0,"comment":"","strengths":["具体加分项"],"weaknesses":["具体扣分项"]},"problemSolving":{"score":0,"comment":"","strengths":["具体加分项"],"weaknesses":["具体扣分项"]},"pressureResistance":{"score":0,"comment":"","strengths":["具体加分项"],"weaknesses":["具体扣分项"]},"jobMatch":{"score":0,"comment":"","strengths":["具体加分项"],"weaknesses":["具体扣分项"]},"hireRecommendation":"","improvementSuggestions":[""],"redFlags":[""],"missingCompetencies":[""],"inflationRisk":"","answerAuthenticity":"","interviewPerformanceTags":[""],"passProbability":0,"rejectionReasons":[""]}
                 summary写作规范(500字左右，必须是一段或两段自然连贯的综合评价，严禁分点、编号、分阶段或分维度说明)：
                 summary是整体结论性评价，需要综合概括候选人的整体表现、岗位匹配度、核心优势、主要不足、风险点和最终倾向，表达风格应接近真实面试官写出的面试结论。
                 严禁出现以下内容：(1)"（1）""（2）""（3）"等编号；(2)"1.""2.""3."等数字列表；(3)"一、""二、""三、"等中文列表；(4)"胜任力匹配度：""行为事件真实性：""软技能与情景反应：""潜在风险与适配预警："等维度标题；(5)"技术深度：""沟通能力：""问题解决能力：""岗位匹配度："等评分维度标题；(6)任何类似提纲、清单、分析维度的表达。
                 因为报告中已有strengths、weaknesses、suggestions、technicalDepth、problemSolving、communication、jobMatch、pressureResistance等结构化字段，summary不需要再次按维度展开，只负责输出整体结论。
                 内容应涵盖：候选人整体表现如何、与目标岗位匹配度怎样、核心优势是什么、主要不足在哪里、有无风险点、最终倾向如何。有JD时对标岗位能力，有简历时可提简历与实际表现的一致性，压力面试可提抗压表现。所有信息融合在连贯的段落中，不拆分维度。
                 questionPerformance筛选规则(不追求数量覆盖，追求每个展示项直指候选人本质)：按优先级筛选——(1)暴露致命伤的回答(直接否掉候选人的关键问题)；(2)高度矛盾的信号(简历/前面回答与现场表现冲突)；(3)高度证实性的高光(极好地证明某项核心能力)；(4)体现典型行为模式(虽非致命但能稳定反映思维/性格的样本)。每条comment必须80-120字，用具体证据和细节点评，指出该问答暴露的核心问题或亮点，不要泛泛而谈。数量硬性要求(必须严格遵守，不可少于下限)：1-2轮返回全部问答；3-4轮questionPerformance数组至少3个元素；5轮及以上questionPerformance数组至少5个元素最多15个元素。若按优先级筛选后数量不足下限，则降低优先级标准补齐数量；超过上限则保留优先级最高的。压力面试追加规则：压力面试中每一轮追问都算独立条目，候选人被追问后出现认知闭合、自我修正、情绪波动的瞬间必须单独展示，压力场景题/陷阱题的应对必须展示，压力面试questionPerformance最低数量不得少于对话中面试官提问的总轮次数(上限15)。有简历时额外检查回答与简历经历冲突如有则优先展示；无JD时弱化硬技能缺失标签强化逻辑自洽筛选；初级岗降低战略视野负面标签关注学习意愿和执行细节。
+                V2深度分析规则：roundReviews必须按真实问答顺序回放至少3轮(不足3轮则返回全部)，每轮说明“这轮答得怎么样、追问哪里没接住、下一次怎么改”；followUpLossPoints只记录被追问后暴露的失分点；commonLossPatterns归纳2-5条反复出现的模式；immediateActions必须且只能给3条明天就能练的动作，每条要包含训练对象和完成标准；projectExpression重点评估项目讲述是否有背景、动作、结果和量化证据。
                 规则：所有字段必填；level按overallScore自动判定；passProbability与overallScore一致；每个维度的strengths和weaknesses各列出1-3条具体表现，用中文描述；summary字段必须500字左右自然连贯的综合评价，严禁分点编号和维度标题；questionPerformance按上述筛选规则智能筛选且必须满足数量下限(5轮对话至少5条最多15条，压力面试中每轮追问都算独立条目不得合并)，comment必须80-120字具体深入点评。
                 """;
         return prompt.replace("PLACEHOLDER1", jobRole)
                      .replace("PLACEHOLDER2", difficultyDesc)
                      .replace("PLACEHOLDER3", modeDesc);
+    }
+
+    /**
+     * 评价报告里保留本次面试官人设，确保反馈口径和练习过程一致。
+     */
+    private String getEvaluationModeDescription(String interviewMode) {
+        if (InterviewConstants.MODE_STRESS.equalsIgnoreCase(interviewMode)) {
+            return "压力面试";
+        }
+        if (InterviewConstants.MODE_BIG_COMPANY_HR.equalsIgnoreCase(interviewMode)) {
+            return "大厂 HR 面";
+        }
+        if (InterviewConstants.MODE_TECH_LEADER.equalsIgnoreCase(interviewMode)) {
+            return "技术 Leader 面";
+        }
+        if (InterviewConstants.MODE_FOREIGN_INTERVIEWER.equalsIgnoreCase(interviewMode)) {
+            return "外企面试官";
+        }
+        if (InterviewConstants.MODE_JOB_TARGETED.equalsIgnoreCase(interviewMode)) {
+            return "岗位定向模拟";
+        }
+        return "普通面试";
     }
 
     private String buildEvaluationUserPrompt(List<ChatMessageItem> history, InterviewJobTargetContext jobTargetContext) {
@@ -827,6 +891,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
 
     private void normalizeDimensionScores(InterviewEvaluationReport report) {
         normalizeDimensionScore(report.getTechnicalDepth());
+        normalizeDimensionScore(report.getProjectExpression());
         normalizeDimensionScore(report.getCommunication());
         normalizeDimensionScore(report.getProblemSolving());
         normalizeDimensionScore(report.getPressureResistance());
@@ -849,7 +914,16 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 .weaknesses(new ArrayList<>())
                 .criticalIssues(new ArrayList<>())
                 .questionPerformance(new ArrayList<>())
+                .roundReviews(new ArrayList<>())
+                .followUpLossPoints(List.of("报告生成失败，暂未识别追问失分点"))
+                .commonLossPatterns(List.of("报告生成失败，暂未归纳共性失分模式"))
+                .immediateActions(List.of(
+                        "回看原始面试记录，先标出答得最空泛的 1 个问题",
+                        "选 1 个项目案例按 STAR 结构重写一版回答",
+                        "针对最弱维度补录 3 分钟口述练习并检查是否包含具体证据"
+                ))
                 .technicalDepth(InterviewEvaluationReport.DimensionScore.builder().score(60).comment("暂无").build())
+                .projectExpression(InterviewEvaluationReport.DimensionScore.builder().score(60).comment("暂无").build())
                 .communication(InterviewEvaluationReport.DimensionScore.builder().score(60).comment("暂无").build())
                 .problemSolving(InterviewEvaluationReport.DimensionScore.builder().score(60).comment("暂无").build())
                 .pressureResistance(InterviewEvaluationReport.DimensionScore.builder().score(60).comment("暂无").build())
@@ -876,6 +950,10 @@ public class InterviewAiServiceImpl implements InterviewAiService {
 
         if (report.getTechnicalDepth() != null && report.getTechnicalDepth().getScore() != null) {
             total += report.getTechnicalDepth().getScore();
+            count++;
+        }
+        if (report.getProjectExpression() != null && report.getProjectExpression().getScore() != null) {
+            total += report.getProjectExpression().getScore();
             count++;
         }
         if (report.getCommunication() != null && report.getCommunication().getScore() != null) {
@@ -915,6 +993,9 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         com.fasterxml.jackson.databind.node.ObjectNode dimensions = objectMapper.createObjectNode();
         if (report.getTechnicalDepth() != null) {
             dimensions.put("technicalDepth", report.getTechnicalDepth().getScore());
+        }
+        if (report.getProjectExpression() != null) {
+            dimensions.put("projectExpression", report.getProjectExpression().getScore());
         }
         if (report.getCommunication() != null) {
             dimensions.put("communication", report.getCommunication().getScore());
@@ -1064,10 +1145,10 @@ public class InterviewAiServiceImpl implements InterviewAiService {
 
     private List<Message> buildConversationMessages(List<ChatMessageItem> history, String currentUserMessage, String jobRole,
                                                     String jobRoleCode, Integer difficulty, String interviewMode,
-                                                    InterviewJobTargetContext jobTargetContext) {
+                                                    InterviewJobTargetContext jobTargetContext, String feedbackMode) {
         java.util.List<Message> messages = new java.util.ArrayList<>();
 
-        String systemPrompt = buildSystemPromptFromJobRole(history, jobRole, jobRoleCode, difficulty, interviewMode, jobTargetContext);
+        String systemPrompt = buildSystemPromptFromJobRole(history, jobRole, jobRoleCode, difficulty, interviewMode, jobTargetContext, feedbackMode);
         messages.add(new Message("system", systemPrompt));
 
         int historyUserCount = 0;
@@ -1101,8 +1182,9 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         log.info("[{}] ═══════════════════════════════════════════════", tag);
         log.info("[{}] ║  对话消息组装完成  ║", tag);
         log.info("[{}] ═══════════════════════════════════════════════", tag);
-        log.info("[{}] 总消息数: {} (system:1, user:{}, assistant:{})",
-                tag, totalMessages, historyUserCount + 1, historyAssistantCount);
+        log.info("[{}] 总消息数: {} (system:1, user:{}, assistant:{}), feedbackMode: {}, feedbackInstructionIncluded: {}",
+                tag, totalMessages, historyUserCount + 1, historyAssistantCount,
+                feedbackMode, InterviewConstants.FEEDBACK_MODE_IMMEDIATE.equalsIgnoreCase(feedbackMode));
         log.info("[{}] 首条消息角色: {}, 末条消息角色: {}", tag, firstRole, lastRole);
         log.info("[{}] 是否包含历史: {} (历史user数:{}, 历史assistant数:{})",
                 tag, historyUserCount + historyAssistantCount > 0, historyUserCount, historyAssistantCount);
@@ -1148,22 +1230,38 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      * 用途：当数据库 Prompt 缺失时，至少保证系统 Prompt 仍然贴近用户选择的真实岗位。
      */
     /**
-     * 根据 sessionId 读取面试模式（normal / stress / job_targeted）
+     * 解析面试模式。
+     * 优先使用 Service 层传入的已持久化模式；缺失时再按 sessionId 兜底读取，兼容旧调用链。
      */
-    private String resolveInterviewMode(String sessionId) {
-        if (sessionId == null || sessionId.isBlank()) return "normal";
+    private String resolveInterviewMode(String sessionId, String providedInterviewMode) {
+        String providedMode = normalizeInterviewMode(providedInterviewMode);
+        if (providedMode != null) {
+            return providedMode;
+        }
+        if (sessionId == null || sessionId.isBlank()) return InterviewConstants.MODE_NORMAL;
         try {
             InterviewSession session = interviewSessionMapper.selectOne(
                     new LambdaQueryWrapper<InterviewSession>()
                             .eq(InterviewSession::getSessionId, sessionId)
                             .last("limit 1"));
-            if (session != null && session.getInterviewMode() != null) {
-                return session.getInterviewMode();
+            String storedMode = normalizeInterviewMode(session == null ? null : session.getInterviewMode());
+            if (storedMode != null) {
+                return storedMode;
             }
         } catch (Exception e) {
             log.warn("读取 interviewMode 失败, sessionId: {}", sessionId, e);
         }
-        return "normal";
+        return InterviewConstants.MODE_NORMAL;
+    }
+
+    private String normalizeInterviewMode(String interviewMode) {
+        if (interviewMode == null || interviewMode.isBlank()) {
+            return null;
+        }
+        String normalizedMode = interviewMode.toLowerCase(Locale.ROOT).trim();
+        return InterviewConstants.isSupportedInterviewMode(normalizedMode)
+                ? normalizedMode
+                : InterviewConstants.MODE_NORMAL;
     }
 
     private String mapJobRoleCodeToName(String jobRoleCode) {
@@ -1182,7 +1280,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     }
 
     private String buildSystemPromptFromJobRole(List<ChatMessageItem> history, String jobRole, String jobRoleCode, Integer difficulty,
-                                                String interviewMode, InterviewJobTargetContext jobTargetContext) {
+                                                String interviewMode, InterviewJobTargetContext jobTargetContext,
+                                                String feedbackMode) {
         String resolvedJobRole = jobRole;
         if (resolvedJobRole == null || resolvedJobRole.isBlank()) {
             resolvedJobRole = mapJobRoleCodeToName(jobRoleCode);
@@ -1201,15 +1300,23 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         if (resolvedJobRole == null || resolvedJobRole.isBlank()) {
             resolvedJobRole = "软件工程师";
         }
-        return buildSystemPrompt(resolvedJobRole, jobRoleCode, difficulty, interviewMode, jobTargetContext);
+        return buildSystemPrompt(resolvedJobRole, jobRoleCode, difficulty, interviewMode, jobTargetContext, feedbackMode);
     }
 
     private String buildSystemPrompt(String jobRole, String jobRoleCode, Integer difficulty,
-                                     String interviewMode, InterviewJobTargetContext jobTargetContext) {
+                                     String interviewMode, InterviewJobTargetContext jobTargetContext, String feedbackMode) {
+        if (InterviewConstants.FEEDBACK_MODE_IMMEDIATE.equalsIgnoreCase(feedbackMode)) {
+            log.info("使用每题反馈独立 Prompt, jobRole: {}, difficulty: {}", jobRole, difficulty);
+            return buildImmediateFeedbackSystemPrompt(jobRole, difficulty)
+                    + buildJobTargetInstruction(jobTargetContext, jobRole)
+                    + buildInterviewerPersonaInstruction(interviewMode);
+        }
         // 压力面试：使用独立的硬编码 prompt，不查数据库
         if ("stress".equalsIgnoreCase(interviewMode)) {
             log.info("使用压力面试 Prompt, jobRole: {}, difficulty: {}", jobRole, difficulty);
-            return buildStressSystemPrompt(jobRole, difficulty) + buildJobTargetInstruction(jobTargetContext, jobRole);
+            return buildStressSystemPrompt(jobRole, difficulty)
+                    + buildJobTargetInstruction(jobTargetContext, jobRole)
+                    + buildInterviewerPersonaInstruction(interviewMode);
         }
         // 普通面试：原有逻辑不变
         SysPrompt dbPrompt = null;
@@ -1220,10 +1327,74 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         if (dbPrompt != null && dbPrompt.getPromptContent() != null && !dbPrompt.getPromptContent().isBlank()) {
             log.info("使用数据库配置的 Prompt, jobRoleCode: {}, difficulty: {}, promptId: {}",
                     jobRoleCode, difficulty, dbPrompt.getId());
-            return dbPrompt.getPromptContent() + buildJobTargetInstruction(jobTargetContext, jobRole);
+            return dbPrompt.getPromptContent()
+                    + buildJobTargetInstruction(jobTargetContext, jobRole)
+                    + buildInterviewerPersonaInstruction(interviewMode);
         }
         log.debug("使用硬编码兜底 Prompt, jobRole: {}, difficulty: {}", jobRole, difficulty);
-        return buildDefaultSystemPrompt(jobRole, difficulty) + buildJobTargetInstruction(jobTargetContext, jobRole);
+        return buildDefaultSystemPrompt(jobRole, difficulty)
+                + buildJobTargetInstruction(jobTargetContext, jobRole)
+                + buildInterviewerPersonaInstruction(interviewMode);
+    }
+
+    /**
+     * 固定面试官人设补充指令。
+     * 本轮只支持三个受控人设，不接受用户自定义，避免 Prompt 风格不可控。
+     */
+    private String buildImmediateFeedbackSystemPrompt(String jobRole, Integer difficulty) {
+        String difficultyDesc = InterviewConstants.getDifficultyLabel(difficulty == null ? 2 : difficulty);
+        return """
+                角色：真实面试官。岗位：PLACEHOLDER_JOB。难度：PLACEHOLDER_DIFF。
+
+                【任务】
+                你正在进行每题反馈模式。每次收到候选人回答后，必须先像正常面试官一样承接并提出下一轮追问，然后在下方给出本题反馈。
+
+                【输出格式，必须严格遵守】
+                第一段只输出面试官自然追问，不要输出“追问：”“问题：”等标签。追问必须自然、简短，只问一个主问题。
+                追问后空一行，然后输出：
+                <FEEDBACK>
+                本题反馈：一句话指出本题 1 个亮点和 1 个改进点。
+                </FEEDBACK>
+                <FEEDBACK> 标签必须原样输出，不能改名，不能省略。
+
+                【反馈规则】
+                反馈必须基于候选人的上一条回答，不能泛泛而谈。
+                不输出分数、通过结论、长报告、模板化清单或示范答案。
+                候选人回答很短时，追问要要求补充具体背景、个人动作和结果；反馈中明确指出回答过短。
+                你的输出只能是面试官对候选人说的话，不要解释规则，不要输出思考过程。
+                """.replace("PLACEHOLDER_JOB", jobRole != null ? jobRole : "软件工程师")
+                .replace("PLACEHOLDER_DIFF", difficultyDesc);
+    }
+
+    private String buildInterviewerPersonaInstruction(String interviewMode) {
+        if (InterviewConstants.MODE_BIG_COMPANY_HR.equalsIgnoreCase(interviewMode)) {
+            return """
+
+                    【面试官人设：大厂 HR 面】
+                    你现在是大厂 HR 面试官。问题应侧重行为面试、职业动机、团队协作、冲突处理、价值观和文化匹配。
+                    每轮仍只问一个主问题；可以要求候选人用 STAR 结构补充事实，但不要深入追问底层技术实现。
+                    反馈口径更关注表达清晰度、动机可信度、协作方式和岗位稳定性。
+                    """;
+        }
+        if (InterviewConstants.MODE_TECH_LEADER.equalsIgnoreCase(interviewMode)) {
+            return """
+
+                    【面试官人设：技术 Leader 面】
+                    你现在是技术 Leader。问题应侧重技术深度、项目架构、关键取舍、边界条件、故障处理和个人贡献。
+                    对候选人的泛泛回答要继续追问实现细节、数据依据和替代方案，但每轮仍只问一个主问题。
+                    反馈口径更关注技术判断力、工程落地能力和项目复盘深度。
+                    """;
+        }
+        if (InterviewConstants.MODE_FOREIGN_INTERVIEWER.equalsIgnoreCase(interviewMode)) {
+            return """
+
+                    【面试官人设：外企面试官】
+                    You are now an interviewer from an international company. Conduct the interview mainly in English.
+                    Focus on structured communication, concise reasoning, cross-functional collaboration, ownership, and business impact.
+                    Ask one main question each turn. If the candidate answers in Chinese, you may briefly acknowledge it and continue in clear English.
+                    """;
+        }
+        return "";
     }
 
     private String buildDefaultSystemPrompt(String jobRole, Integer difficulty) {

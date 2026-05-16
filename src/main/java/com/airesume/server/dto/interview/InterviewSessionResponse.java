@@ -54,7 +54,7 @@ public class InterviewSessionResponse {
     private String difficultyDesc;
 
     /**
-     * 面试模式：normal-普通面试，stress-压力面试，job_targeted-岗位定向模拟
+     * 面试模式：normal-普通面试，stress-压力面试，job_targeted-岗位定向模拟，也支持固定面试官人设。
      */
     private String interviewMode;
 
@@ -97,6 +97,17 @@ public class InterviewSessionResponse {
      * 聊天记录列表
      */
     private List<ChatMessageResponse> chatLogs;
+
+    /**
+     * 面试历史回放轮次。
+     * 由 interview_chat_log 派生，不单独落库，便于报告页按“问题-回答-反馈”查看。
+     */
+    private List<InterviewReplayRoundResponse> replayRounds;
+
+    /**
+     * 反馈模式：immediate-每题反馈，after_interview-面完复盘
+     */
+    private String feedbackMode;
 
     /**
      * 开场白是否正在生成中（前端据此显示加载状态）

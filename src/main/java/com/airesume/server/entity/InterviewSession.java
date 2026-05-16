@@ -50,7 +50,7 @@ public class InterviewSession extends BaseEntity {
     private Integer difficulty;
 
     /**
-     * 面试模式：normal-普通面试，stress-压力面试
+     * 面试模式：normal-普通面试，stress-压力面试，也可保存固定面试官人设。
      */
     @TableField("interview_mode")
     private String interviewMode;
@@ -78,4 +78,11 @@ public class InterviewSession extends BaseEntity {
      */
     @TableField("opening_generated")
     private Integer openingGenerated;
+
+    /**
+     * 反馈模式：immediate-每题即时反馈，after_interview-面完统一复盘（默认）
+     * 用户在创建会话时选择，不影响存量会话。
+     */
+    @TableField("feedback_mode")
+    private String feedbackMode;
 }

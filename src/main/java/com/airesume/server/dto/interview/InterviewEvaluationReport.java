@@ -63,9 +63,38 @@ public class InterviewEvaluationReport {
     private List<QuestionPerformance> questionPerformance = new ArrayList<>();
 
     /**
+     * 逐轮回放式复盘，用于展示每一轮问答暴露出的具体问题与下一次改法。
+     */
+    @Builder.Default
+    private List<RoundReview> roundReviews = new ArrayList<>();
+
+    /**
+     * 追问环节的失分点，帮助用户定位“被追问后为什么没接住”。
+     */
+    @Builder.Default
+    private List<String> followUpLossPoints = new ArrayList<>();
+
+    /**
+     * 本次面试反复出现的失分模式，例如表达模糊、案例缺证据、技术边界说不清。
+     */
+    @Builder.Default
+    private List<String> commonLossPatterns = new ArrayList<>();
+
+    /**
+     * 看完报告后可以马上执行的三条训练动作，必须足够具体。
+     */
+    @Builder.Default
+    private List<String> immediateActions = new ArrayList<>();
+
+    /**
      * 技术深度评分
      */
     private DimensionScore technicalDepth;
+
+    /**
+     * 项目表达能力评分，补足原有雷达图对项目案例讲述质量的呈现。
+     */
+    private DimensionScore projectExpression;
 
     /**
      * 沟通表达评分
@@ -187,6 +216,51 @@ public class InterviewEvaluationReport {
          */
         @Builder.Default
         private List<String> knowledgeTags = new ArrayList<>();
+    }
+
+    /**
+     * 单轮复盘详情。
+     * 该结构不替代原有 questionPerformance，只负责承载 V2 报告的回放式分析。
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class RoundReview {
+        /**
+         * 轮次序号，从 1 开始。
+         */
+        private Integer roundNo;
+
+        /**
+         * 本轮面试官问题。
+         */
+        private String question;
+
+        /**
+         * 本轮候选人回答。
+         */
+        private String answer;
+
+        /**
+         * 本轮评分（0-100）。
+         */
+        private Integer score;
+
+        /**
+         * 回放式复盘，说明这轮答得好/差在哪里。
+         */
+        private String replayAnalysis;
+
+        /**
+         * 本轮追问或继续深挖时没有接住的点。
+         */
+        private String missedFollowUp;
+
+        /**
+         * 针对这一轮下次可直接替换使用的改进建议。
+         */
+        private String nextPractice;
     }
 
     /**

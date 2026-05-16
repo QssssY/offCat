@@ -91,10 +91,62 @@ public class InterviewConstants {
     public static final String MODE_JOB_TARGETED = "job_targeted";
 
     /**
+     * 大厂 HR 面试官人设。
+     */
+    public static final String MODE_BIG_COMPANY_HR = "big_company_hr";
+
+    /**
+     * 技术 Leader 面试官人设。
+     */
+    public static final String MODE_TECH_LEADER = "tech_leader";
+
+    /**
+     * 外企面试官人设。
+     */
+    public static final String MODE_FOREIGN_INTERVIEWER = "foreign_interviewer";
+
+    /**
+     * 每���即时反馈模式。
+     */
+    public static final String FEEDBACK_MODE_IMMEDIATE = "immediate";
+
+    /**
+     * 面完统一复盘模式。
+     */
+    public static final String FEEDBACK_MODE_AFTER_INTERVIEW = "after_interview";
+
+    /**
+     * 反馈模式默认值。
+     */
+    public static final String FEEDBACK_MODE_DEFAULT = FEEDBACK_MODE_AFTER_INTERVIEW;
+
+    /**
      * 面试开场白模板。
      * 参数：{0}=难度描述, {1}=岗位名称, {2}=简历提示
      */
     public static final String OPENING_TEMPLATE = "你好，欢迎参加%s%s面试。我是今天的面试官，%s请你先介绍一下自己吧。";
+
+    /**
+     * 判断是否为本轮支持的有限面试模式。
+     * 说明：只开放固定人设，避免前端传入任意字符串影响 AI Prompt。
+     */
+    public static boolean isSupportedInterviewMode(String interviewMode) {
+        return MODE_NORMAL.equals(interviewMode)
+                || MODE_STRESS.equals(interviewMode)
+                || MODE_JOB_TARGETED.equals(interviewMode)
+                || MODE_BIG_COMPANY_HR.equals(interviewMode)
+                || MODE_TECH_LEADER.equals(interviewMode)
+                || MODE_FOREIGN_INTERVIEWER.equals(interviewMode);
+    }
+
+    /**
+     * 判断是否为新增面试官人设模式。
+     */
+    public static boolean isInterviewerPersonaMode(String interviewMode) {
+        return MODE_BIG_COMPANY_HR.equals(interviewMode)
+                || MODE_TECH_LEADER.equals(interviewMode)
+                || MODE_FOREIGN_INTERVIEWER.equals(interviewMode);
+    }
 
     private InterviewConstants() {
     }

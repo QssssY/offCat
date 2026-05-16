@@ -15,7 +15,9 @@ public interface InterviewAiService {
             String userMessage,
             String jobRoleCode,
             Integer difficulty,
-            InterviewJobTargetContext jobTargetContext
+            InterviewJobTargetContext jobTargetContext,
+            String feedbackMode,
+            String interviewMode
     );
 
     Publisher<String> generateReplyStream(
@@ -24,7 +26,9 @@ public interface InterviewAiService {
             String userMessage,
             String jobRoleCode,
             Integer difficulty,
-            InterviewJobTargetContext jobTargetContext
+            InterviewJobTargetContext jobTargetContext,
+            String feedbackMode,
+            String interviewMode
     );
 
     /**

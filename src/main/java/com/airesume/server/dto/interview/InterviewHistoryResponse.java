@@ -77,6 +77,11 @@ public class InterviewHistoryResponse {
     private Boolean jobTargeted;
 
     /**
+     * 反馈模式：immediate-每题反馈，after_interview-面完复盘
+     */
+    private String feedbackMode;
+
+    /**
      * 岗位定向来源类型。
      */
     private String sourceType;

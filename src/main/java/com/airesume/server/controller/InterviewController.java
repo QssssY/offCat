@@ -74,8 +74,8 @@ public class InterviewController {
             @RequestBody @Validated CreateSessionRequest request,
             Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
-        log.info("创建面试会话, userId: {}, 岗位: {}, 难度: {}, 模式: {}",
-                userId, request.getJobRole(), request.getDifficulty(), request.getInterviewMode());
+        log.info("创建面试会话, userId: {}, 岗位: {}, 难度: {}, 模式: {}, feedbackMode: {}",
+                userId, request.getJobRole(), request.getDifficulty(), request.getInterviewMode(), request.getFeedbackMode());
         InterviewSessionResponse response = interviewService.createSession(userId, request);
         return Result.success(response);
     }
@@ -89,7 +89,8 @@ public class InterviewController {
             @RequestBody @Validated SendMessageRequest request,
             Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
-        log.info("收到流式消息请求, userId: {}, sessionId: {}", userId, sessionId);
+        log.info("收到流式消息请求, userId: {}, sessionId: {}, requestFeedbackMode: {}",
+                userId, sessionId, request.getFeedbackMode());
 
         ResponseBodyEmitter emitter = new ResponseBodyEmitter(120_000L);
         AtomicBoolean streamClosed = new AtomicBoolean(false);
@@ -131,11 +132,15 @@ public class InterviewController {
                 InterviewSession session = interviewService.getSessionByOwner(sessionId, userId);
                 String jobRoleCode = session != null ? session.getJobRoleCode() : null;
                 Integer difficulty = session != null ? session.getDifficulty() : null;
+                String interviewMode = session != null ? session.getInterviewMode() : null;
                 InterviewJobTargetContext jobTargetContext =
                         mockInterviewJobTargetService.getSessionContext(userId, sessionId);
                 if (jobTargetContext == null) {
                     jobTargetContext = mockInterviewJobTargetService.resolveLatestResumeContext(userId);
                 }
+                String resolvedFeedbackMode = interviewService.resolveFeedbackMode(request.getFeedbackMode(), session);
+                log.info("流式面试消息配置解析完成, sessionId: {}, requestFeedbackMode: {}, sessionFeedbackMode: {}, resolvedFeedbackMode: {}",
+                        sessionId, request.getFeedbackMode(), session == null ? null : session.getFeedbackMode(), resolvedFeedbackMode);
 
                 Publisher<String> publisher = interviewAiService.generateReplyStream(
                         sessionId,
@@ -143,7 +148,9 @@ public class InterviewController {
                         request.getContent(),
                         jobRoleCode,
                         difficulty,
-                        jobTargetContext
+                        jobTargetContext,
+                        resolvedFeedbackMode,
+                        interviewMode
                 );
                 interviewService.subscribeAndWriteStream(sessionId, emitter, publisher, fullReply);
             } catch (Exception e) {
@@ -177,7 +184,8 @@ public class InterviewController {
             @RequestBody @Validated SendMessageRequest request,
             Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
-        log.info("发送消息, userId: {}, sessionId: {}", userId, sessionId);
+        log.info("发送消息, userId: {}, sessionId: {}, requestFeedbackMode: {}",
+                userId, sessionId, request.getFeedbackMode());
         SendMessageResponse response = interviewService.sendMessage(userId, sessionId, request);
         return Result.success(response);
     }
