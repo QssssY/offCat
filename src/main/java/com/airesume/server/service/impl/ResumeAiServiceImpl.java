@@ -752,10 +752,10 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                 角色：跨行业资深职业顾问。任务：严格诊断简历问题。
                 原则：1)根据简历实际岗位方向评价，不预设技术岗标准 2)优点缺点都直说 3)项目必须有业务价值+量化成果 4)学历放宽但项目要硬。
                 评分标准：S(90+)顶尖 A(75-89)优秀 B(60-74)合格 C(40-59)偏弱 D(<40)问题严重。多数简历应在B-C区间，仅真正出色者得A以上。
-                权重：基本信息10% 岗位核心能力15% 工作25% 项目40% 教育10%。
+                权重：工作经验40% 项目经历30% 核心技能15% 基础信息5% 教育背景5% 简历表达5%。
                 跨行业原则：按岗位方向评价核心能力，不默认技术标准。与岗位无关的字段不扣分。
                 规则：只返回JSON，无额外文本；JSON完整闭合；缺信息返回null/空数组；basicInfoDetails从原文提取真实值。
-                得分明细规则：每个维度（basicInfoEvaluation、skillEvaluation、workExperienceEvaluation、projectExperienceEvaluation、educationEvaluation）必须包含strengths和weaknesses数组，strengths列出2-4条加分项（做得好的具体方面），weaknesses列出2-4条扣分项（需要改进的具体方面及扣分原因），每项一句话简洁具体，不得为空数组。
+                得分明细规则：每个维度（basicInfoEvaluation、skillEvaluation、workExperienceEvaluation、projectExperienceEvaluation、educationEvaluation、expressionEvaluation）必须包含strengths和weaknesses数组，strengths列出2-4条加分项（做得好的具体方面），weaknesses列出2-4条扣分项（需要改进的具体方面及扣分原因），每项一句话简洁具体，不得为空数组。
                 """;
     }
 
@@ -774,6 +774,10 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                         4.简历结构：逻辑是否清晰，有无错别字/排版问题。
                         5.每个维度的strengths列出该维度的加分项（做得好的地方），weaknesses列出扣分项（需要改进的地方），每项一句话，简洁具体。
                         6.除overallEvaluation外，每个维度必须包含evaluation字段：一段80-150字的评价文本，结构为"先说明分数由来→列出主要加分项→列出主要扣分项→给出改进建议"，语气专业客观，不要泛泛而谈。
+                        7.highlights至少输出3条确定性的简历亮点，最多7条；亮点需有简历原文证据支撑，如量化成果、技术亮点、项目成就等；表达自信明确，不使用模糊措辞。
+                        8.简历表达维度（expressionEvaluation）评估排版整洁度、语言规范性、逻辑结构清晰度、篇幅合理性、错别字/语病等。
+                        9.每个维度的suggestions至少输出3条建议，最多7条；必须针对具体问题给出可执行的改进方向。
+                        10.optimizationSuggestions至少输出5条核心优化建议，最多8条；按优先级排列，优先写最关键的问题。
 
                         summary要求：写一份300-400字的"评判官视角"总体评价，采用连贯的自然段落叙述，不使用模块编号或小标题。具体规则：
                         1.内容维度：覆盖岗位匹配度（一句话定位竞争力层级）→经历深度（实习>项目>教育优先级，无实习则提升项目权重，均无则转向教育背景）→技能可信度（是否具体到工具/场景/效果）→核心改进方向（优先级明确的2-3条建议）。
@@ -783,14 +787,15 @@ public class ResumeAiServiceImpl implements ResumeAiService {
 
                         返回JSON格式(不要额外文本)：
                         {"overallEvaluation":{"totalScore":0-100,"level":"S/A/B/C/D","summary":"按上方summary要求填写","strengths":["整体优势1","整体优势2"],"weaknesses":["整体不足1","整体不足2"]},
-                        "highlights":["亮点1"],
-                        "basicInfoEvaluation":{"score":0-100,"hasName":true/false,"hasPhone":true/false,"hasEmail":true/false,"hasGithub":true/false,"hasBlog":true/false,"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1"]},
+                        "highlights":["亮点1","亮点2","亮点3"],
+                        "basicInfoEvaluation":{"score":0-100,"hasName":true/false,"hasPhone":true/false,"hasEmail":true/false,"hasGithub":true/false,"hasBlog":true/false,"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1","建议2","建议3"]},
                         "basicInfoDetails":{"name":"","email":"","phone":"","location":"","currentCompany":"","github":"","blog":""},
                         "skillEvaluation":{"score":0-100,"skillList":[""],"evaluation":"80-150字评价文本","strengths":[""],"weaknesses":[""],"suggestions":[""]},
                         "workExperienceEvaluation":{"score":0-100,"totalYears":0,"companyCount":0,"hasQuantifiableResults":true/false,"experiences":[{"company":"","position":"","duration":"","highlights":[""]}],"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":[""]},
                         "projectExperienceEvaluation":{"score":0-100,"projectCount":0,"hasTechStack":true/false,"hasResponsibilities":true/false,"projects":[{"name":"","role":"","techStack":"","highlights":[""]}],"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":[""]},
                         "educationEvaluation":{"score":0-100,"degree":"","school":"","major":"","hasRelevantMajor":true/false,"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":[""]},
-                        "optimizationSuggestions":["建议1"]}
+                        "expressionEvaluation":{"score":0-100,"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1"]},
+                        "optimizationSuggestions":["建议1","建议2","建议3","建议4","建议5"]}
                         """;
     }
 
@@ -811,6 +816,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                           "workExperienceEvaluation":{"score":0,"totalYears":0,"companyCount":0,"hasQuantifiableResults":false,"experiences":[],"evaluation":"","strengths":[],"weaknesses":[],"suggestions":[]},
                           "projectExperienceEvaluation":{"score":0,"projectCount":0,"hasTechStack":false,"hasResponsibilities":false,"projects":[],"evaluation":"","strengths":[],"weaknesses":[],"suggestions":[]},
                           "educationEvaluation":{"score":0,"degree":"","school":"","major":"","hasRelevantMajor":false,"evaluation":"","strengths":[],"weaknesses":[],"suggestions":[]},
+                          "expressionEvaluation":{"score":0,"evaluation":"","strengths":[],"weaknesses":[],"suggestions":[]},
                           "optimizationSuggestions":[]
                         }
                         """;
@@ -1003,13 +1009,13 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                 角色：跨行业资深职业顾问。任务：严格诊断简历问题。
                 原则：1)根据简历实际岗位方向评价，不预设技术岗标准 2)优点缺点都直说 3)项目必须有业务价值和量化成果 4)学历可以放宽，但经历必须真实可信。
                 评分标准：S(90+)顶尖 A(75-89)优秀 B(60-74)合格 C(40-59)偏弱 D(<40)问题严重。多数简历应落在B-C区间，仅真正出色者得A以上。
-                权重：基本信息10% 岗位核心能力15% 工作25% 项目40% 教育10%。
+                权重：工作经验40% 项目经历30% 核心技能15% 基础信息5% 教育背景5% 简历表达5%。
                 规则：只返回JSON，不要额外文本；JSON必须完整闭合；缺信息返回null或空数组；basicInfoDetails必须从原文提取真实值。
                 输出约束：
                 1. 每个维度的 strengths 和 weaknesses 各输出1-3条，必须简洁具体，不得为空数组。
                 2. 除 overallEvaluation 外，每个维度的 evaluation 控制在50-90字。
                 3. overallEvaluation.summary 控制在180-260字，使用1个自然段。
-                4. optimizationSuggestions 输出2-4条，优先写最关键的问题。
+                4. optimizationSuggestions 输出5-8条，优先写最关键的问题。
                 """;
     }
 
@@ -1030,23 +1036,28 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                         3. 与岗位无关的字段直接填 false，不扣分。
                         4. 简历结构：逻辑、错别字、排版问题都要指出。
                         5. 每个维度的 strengths 和 weaknesses 各输出1-3条，每条一句话。
-                        6. 除 overallEvaluation 外，每个维度必须包含 evaluation，长度50-90字，结构为“分数由来 + 主要优点 + 主要问题 + 改进建议”。
+                        6. 除 overallEvaluation 外，每个维度必须包含 evaluation，长度50-90字，结构为"分数由来 + 主要优点 + 主要问题 + 改进建议"。
+                        7. highlights至少输出3条确定性的简历亮点，最多7条；亮点需有简历原文证据支撑，如量化成果、技术亮点、项目成就等；表达自信明确，不使用模糊措辞。
+                        8. 简历表达维度（expressionEvaluation）评估排版整洁度、语言规范性、逻辑结构清晰度、篇幅合理性等。
+                        9. 每个维度的suggestions至少输出3条建议，最多7条；必须针对具体问题给出可执行的改进方向。
+                        10. optimizationSuggestions至少输出5条核心优化建议，最多8条；按优先级排列。
 
                         summary要求：
                         1. 写一段180-260字的总体评价，不使用编号或小标题。
                         2. 内容覆盖岗位匹配度、经历深度、技能可信度、最关键改进方向。
-                        3. 语气客观正式，使用“该简历”“候选人”“呈现”“缺乏”等表达。
+                        3. 语气客观正式，使用"该简历""候选人""呈现""缺乏"等表达。
 
                         返回JSON格式(不要额外文本)：
                         {"overallEvaluation":{"totalScore":0-100,"level":"S/A/B/C/D","summary":"180-260字总体评价","strengths":["整体优势1"],"weaknesses":["整体不足1"]},
-                        "highlights":["亮点1"],
-                        "basicInfoEvaluation":{"score":0-100,"hasName":true/false,"hasPhone":true/false,"hasEmail":true/false,"hasGithub":true/false,"hasBlog":true/false,"evaluation":"50-90字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1"]},
+                        "highlights":["亮点1","亮点2","亮点3"],
+                        "basicInfoEvaluation":{"score":0-100,"hasName":true/false,"hasPhone":true/false,"hasEmail":true/false,"hasGithub":true/false,"hasBlog":true/false,"evaluation":"50-90字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1","建议2","建议3"]},
                         "basicInfoDetails":{"name":"","email":"","phone":"","location":"","currentCompany":"","github":"","blog":""},
-                        "skillEvaluation":{"score":0-100,"skillList":[""],"evaluation":"50-90字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1"]},
-                        "workExperienceEvaluation":{"score":0-100,"totalYears":0,"companyCount":0,"hasQuantifiableResults":true/false,"experiences":[{"company":"","position":"","duration":"","highlights":[""]}],"evaluation":"50-90字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1"]},
-                        "projectExperienceEvaluation":{"score":0-100,"projectCount":0,"hasTechStack":true/false,"hasResponsibilities":true/false,"projects":[{"name":"","role":"","techStack":"","highlights":[""]}],"evaluation":"50-90字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1"]},
-                        "educationEvaluation":{"score":0-100,"degree":"","school":"","major":"","hasRelevantMajor":true/false,"evaluation":"50-90字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1"]},
-                        "optimizationSuggestions":["建议1","建议2"]}
+                        "skillEvaluation":{"score":0-100,"skillList":[""],"evaluation":"50-90字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1","建议2","建议3"]},
+                        "workExperienceEvaluation":{"score":0-100,"totalYears":0,"companyCount":0,"hasQuantifiableResults":true/false,"experiences":[{"company":"","position":"","duration":"","highlights":[""]}],"evaluation":"50-90字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1","建议2","建议3"]},
+                        "projectExperienceEvaluation":{"score":0-100,"projectCount":0,"hasTechStack":true/false,"hasResponsibilities":true/false,"projects":[{"name":"","role":"","techStack":"","highlights":[""]}],"evaluation":"50-90字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1","建议2","建议3"]},
+                        "educationEvaluation":{"score":0-100,"degree":"","school":"","major":"","hasRelevantMajor":true/false,"evaluation":"50-90字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1","建议2","建议3"]},
+                        "expressionEvaluation":{"score":0-100,"evaluation":"50-90字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1","建议2","建议3"]},
+                        "optimizationSuggestions":["建议1","建议2","建议3","建议4","建议5"]}
                         """;
     }
 
@@ -1065,6 +1076,10 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                         4.简历结构：逻辑是否清晰，有无错别字/排版问题。
                         5.每个维度的strengths列出该维度的加分项（做得好的地方），weaknesses列出扣分项（需要改进的地方），每项一句话，简洁具体。
                         6.除overallEvaluation外，每个维度必须包含evaluation字段：一段80-150字的评价文本，结构为"先说明分数由来→列出主要加分项→列出主要扣分项→给出改进建议"，语气专业客观，不要泛泛而谈。
+                        7.highlights至少输出3条确定性的简历亮点，最多7条；亮点需有简历原文证据支撑，如量化成果、技术亮点、项目成就等；表达自信明确，不使用模糊措辞。
+                        8.简历表达维度（expressionEvaluation）评估排版整洁度、语言规范性、逻辑结构清晰度、篇幅合理性、错别字/语病等。
+                        9.每个维度的suggestions至少输出3条建议，最多7条；必须针对具体问题给出可执行的改进方向。
+                        10.optimizationSuggestions至少输出5条核心优化建议，最多8条；按优先级排列，优先写最关键的问题。
 
                         summary要求：写一份300-400字的"评判官视角"总体评价，采用连贯的自然段落叙述，不使用模块编号或小标题。具体规则：
                         1.内容维度：覆盖岗位匹配度（一句话定位竞争力层级）→经历深度（实习>项目>教育优先级，无实习则提升项目权重，均无则转向教育背景）→技能可信度（是否具体到工具/场景/效果）→核心改进方向（优先级明确的2-3条建议）。
@@ -1074,14 +1089,15 @@ public class ResumeAiServiceImpl implements ResumeAiService {
 
                         返回JSON格式(不要额外文本)：
                         {"overallEvaluation":{"totalScore":0-100,"level":"S/A/B/C/D","summary":"按上方summary要求填写","strengths":["整体优势1","整体优势2"],"weaknesses":["整体不足1","整体不足2"]},
-                        "highlights":["亮点1"],
-                        "basicInfoEvaluation":{"score":0-100,"hasName":true/false,"hasPhone":true/false,"hasEmail":true/false,"hasGithub":true/false,"hasBlog":true/false,"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1"]},
+                        "highlights":["亮点1","亮点2","亮点3"],
+                        "basicInfoEvaluation":{"score":0-100,"hasName":true/false,"hasPhone":true/false,"hasEmail":true/false,"hasGithub":true/false,"hasBlog":true/false,"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1","建议2","建议3"]},
                         "basicInfoDetails":{"name":"","email":"","phone":"","location":"","currentCompany":"","github":"","blog":""},
                         "skillEvaluation":{"score":0-100,"skillList":[""],"evaluation":"80-150字评价文本","strengths":[""],"weaknesses":[""],"suggestions":[""]},
                         "workExperienceEvaluation":{"score":0-100,"totalYears":0,"companyCount":0,"hasQuantifiableResults":true/false,"experiences":[{"company":"","position":"","duration":"","highlights":[""]}],"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":[""]},
                         "projectExperienceEvaluation":{"score":0-100,"projectCount":0,"hasTechStack":true/false,"hasResponsibilities":true/false,"projects":[{"name":"","role":"","techStack":"","highlights":[""]}],"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":[""]},
                         "educationEvaluation":{"score":0-100,"degree":"","school":"","major":"","hasRelevantMajor":true/false,"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":[""]},
-                        "optimizationSuggestions":["建议1"]}
+                        "expressionEvaluation":{"score":0-100,"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1","建议2","建议3"]},
+                        "optimizationSuggestions":["建议1","建议2","建议3","建议4","建议5"]}
                         """;
     }
 
