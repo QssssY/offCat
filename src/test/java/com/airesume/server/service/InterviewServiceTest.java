@@ -331,6 +331,23 @@ class InterviewServiceTest {
     }
 
     @Test
+    void shouldSkipSavingDuplicateUserMessageWhenLatestMessageMatchesContent() {
+        String sessionId = "session-duplicate";
+        Long userId = 123L;
+        String content = "这是同一条用户回答";
+        InterviewSession session = buildInProgressSession(sessionId, userId);
+        InterviewChatLog latestMessage = buildChatLog(99L, sessionId, "user", content, 5);
+
+        when(interviewSessionRepository.findBySessionIdAndUserId(sessionId, userId)).thenReturn(Optional.of(session));
+        when(interviewMessageRepository.findFirstBySessionIdOrderByCreateTimeDesc(sessionId))
+                .thenReturn(Optional.of(latestMessage));
+
+        interviewService.saveUserMessage(sessionId, userId, content);
+
+        verify(interviewMessageRepository, never()).save(any(InterviewChatLog.class));
+    }
+
+    @Test
     void shouldKeepPersonaModeWhenJobTargetedContextExists() {
         String sessionId = "session-persona";
         Long userId = 123L;

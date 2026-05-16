@@ -42,6 +42,7 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -422,6 +423,17 @@ public class InterviewService {
         // 开场白尚未生成完成时，拒绝发送消息，避免上下文缺失
         if (session.getOpeningGenerated() == null || session.getOpeningGenerated() == 0) {
             throw new BusinessException("开场白正在生成中，请稍候再发送消息");
+        }
+
+        // 流式回答断线后可能重复请求同一条消息；若最新一条仍是相同用户消息，则直接跳过，避免重复落库。
+        InterviewChatLog latestMessage = interviewMessageRepository
+                .findFirstBySessionIdOrderByCreateTimeDesc(sessionId)
+                .orElse(null);
+        if (latestMessage != null
+                && InterviewConstants.ROLE_USER.equalsIgnoreCase(latestMessage.getMessageRole())
+                && Objects.equals(latestMessage.getContent(), content)) {
+            log.warn("检测到重复的流式用户消息，跳过写入, sessionId: {}, userId: {}", sessionId, userId);
+            return;
         }
 
         InterviewChatLog userMessage = new InterviewChatLog();

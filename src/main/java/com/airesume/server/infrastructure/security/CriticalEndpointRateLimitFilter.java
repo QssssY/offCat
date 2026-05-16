@@ -41,6 +41,7 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
     private static final String RESUME_UPLOAD_PATH = "/api/resume/upload";
     private static final String INTERVIEW_SESSION_PATH = "/api/interview/session";
     private static final String INTERVIEW_SESSION_PREFIX = "/api/interview/session/";
+    private static final String OFFER_API_PREFIX = "/api/offer/";
     private static final long CLEANUP_INTERVAL = 256L;
 
     private static final RateLimitPolicy REGISTER_POLICY = new RateLimitPolicy(
@@ -55,6 +56,8 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
             "interview_create", INTERVIEW_SESSION_PATH, MatchType.EXACT, 10, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
     private static final RateLimitPolicy INTERVIEW_ACTION_POLICY = new RateLimitPolicy(
             "interview_action", INTERVIEW_SESSION_PREFIX, MatchType.PREFIX, 40, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
+    private static final RateLimitPolicy OFFER_ACTION_POLICY = new RateLimitPolicy(
+            "offer_action", OFFER_API_PREFIX, MatchType.PREFIX, 10, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
 
     private final ObjectMapper objectMapper;
     private final Clock clock;
@@ -197,6 +200,9 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
         }
         if (INTERVIEW_ACTION_POLICY.matches(requestMethod, requestUri)) {
             return INTERVIEW_ACTION_POLICY;
+        }
+        if (OFFER_ACTION_POLICY.matches(requestMethod, requestUri)) {
+            return OFFER_ACTION_POLICY;
         }
         return null;
     }

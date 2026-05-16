@@ -871,6 +871,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
 
         try {
             InterviewEvaluationReport report = objectMapper.readValue(jsonContent, InterviewEvaluationReport.class);
+            normalizeReportCollections(report);
             normalizeDimensionScores(report);
             log.info("[{}] 评价报告 JSON 解析成功", tag);
             return report;
@@ -897,6 +898,28 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         normalizeDimensionScore(report.getProblemSolving());
         normalizeDimensionScore(report.getPressureResistance());
         normalizeDimensionScore(report.getJobMatch());
+    }
+
+    /**
+     * 统一把 AI 报告中的 null 数组字段归一化为空列表，避免有效报告在兼容映射时被 NPE 打回默认报告。
+     */
+    private void normalizeReportCollections(InterviewEvaluationReport report) {
+        if (report == null) return;
+        if (report.getStrengths() == null) report.setStrengths(new ArrayList<>());
+        if (report.getWeaknesses() == null) report.setWeaknesses(new ArrayList<>());
+        if (report.getCriticalIssues() == null) report.setCriticalIssues(new ArrayList<>());
+        if (report.getQuestionPerformance() == null) report.setQuestionPerformance(new ArrayList<>());
+        if (report.getRoundReviews() == null) report.setRoundReviews(new ArrayList<>());
+        if (report.getFollowUpLossPoints() == null) report.setFollowUpLossPoints(new ArrayList<>());
+        if (report.getCommonLossPatterns() == null) report.setCommonLossPatterns(new ArrayList<>());
+        if (report.getImmediateActions() == null) report.setImmediateActions(new ArrayList<>());
+        if (report.getImprovementSuggestions() == null) report.setImprovementSuggestions(new ArrayList<>());
+        if (report.getRedFlags() == null) report.setRedFlags(new ArrayList<>());
+        if (report.getMissingCompetencies() == null) report.setMissingCompetencies(new ArrayList<>());
+        if (report.getInterviewPerformanceTags() == null) report.setInterviewPerformanceTags(new ArrayList<>());
+        if (report.getRejectionReasons() == null) report.setRejectionReasons(new ArrayList<>());
+        if (report.getSuggestions() == null) report.setSuggestions(new ArrayList<>());
+        if (report.getImprovements() == null) report.setImprovements(new ArrayList<>());
     }
 
     private void normalizeDimensionScore(InterviewEvaluationReport.DimensionScore ds) {
@@ -970,6 +993,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     }
 
     private void mapLegacyFields(InterviewEvaluationReport report) {
+        normalizeReportCollections(report);
         com.fasterxml.jackson.databind.node.ObjectNode dimensions = objectMapper.createObjectNode();
         if (report.getTechnicalDepth() != null) {
             dimensions.put("technicalDepth", report.getTechnicalDepth().getScore());

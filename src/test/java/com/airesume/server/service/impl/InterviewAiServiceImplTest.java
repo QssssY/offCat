@@ -300,6 +300,46 @@ class InterviewAiServiceImplTest {
     }
 
     @Test
+    void parseEvaluationResponseShouldNormalizeNullCollections() throws Exception {
+        Method parseMethod = InterviewAiServiceImpl.class.getDeclaredMethod(
+                "parseEvaluationResponse", String.class);
+        parseMethod.setAccessible(true);
+        Method legacyMethod = InterviewAiServiceImpl.class.getDeclaredMethod(
+                "mapLegacyFields", InterviewEvaluationReport.class);
+        legacyMethod.setAccessible(true);
+
+        String aiResponse = """
+                {
+                  "overallScore": 82,
+                  "level": "A",
+                  "finalVerdict": "pass",
+                  "summary": "valid report",
+                  "strengths": ["clear"],
+                  "weaknesses": null,
+                  "improvementSuggestions": null,
+                  "technicalDepth": {"score": 81, "comment": "depth ok", "strengths": null, "weaknesses": null},
+                  "projectExpression": {"score": 83, "comment": "project ok"},
+                  "communication": {"score": 82, "comment": "communication ok"},
+                  "problemSolving": {"score": 80, "comment": "problem solving ok"},
+                  "pressureResistance": {"score": 79, "comment": "pressure ok"},
+                  "jobMatch": {"score": 84, "comment": "job match ok"}
+                }
+                """;
+
+        InterviewEvaluationReport report = (InterviewEvaluationReport) parseMethod.invoke(service, aiResponse);
+        assertEquals(82, report.getOverallScore());
+        assertEquals("valid report", report.getSummary());
+        assertNotNull(report.getWeaknesses());
+        assertNotNull(report.getImprovementSuggestions());
+        assertNotNull(report.getTechnicalDepth().getStrengths());
+        assertNotNull(report.getTechnicalDepth().getWeaknesses());
+
+        assertDoesNotThrow(() -> legacyMethod.invoke(service, report));
+        assertNotNull(report.getSuggestions());
+        assertNotNull(report.getImprovements());
+    }
+
+    @Test
     void extractJsonFromResponseShouldWork() throws Exception {
         Method method = InterviewAiServiceImpl.class.getDeclaredMethod(
                 "extractJsonFromResponse", String.class);
