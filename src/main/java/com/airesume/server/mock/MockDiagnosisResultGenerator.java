@@ -79,10 +79,22 @@ public class MockDiagnosisResultGenerator {
             skills.set("skillList", skillList);
             result.set("skills", skills);
 
-            // 5. 总体评价
+            // 5. 个人定位评估
+            ObjectNode positioning = objectMapper.createObjectNode();
+            positioning.put("score", java.util.concurrent.ThreadLocalRandom.current().nextInt(25) + 65);
+            positioning.put("hasSummary", java.util.concurrent.ThreadLocalRandom.current().nextBoolean());
+            positioning.put("hasClearPositioning", java.util.concurrent.ThreadLocalRandom.current().nextBoolean());
+            ArrayNode positioningSuggestions = objectMapper.createArrayNode();
+            positioningSuggestions.add("建议增加个人总结/职业目标描述");
+            positioningSuggestions.add("核心竞争力描述需更突出");
+            positioning.set("suggestions", positioningSuggestions);
+            result.set("positioningEvaluation", positioning);
+
+            // 6. 总体评价
             ObjectNode overall = objectMapper.createObjectNode();
             int totalScore = (basicInfo.get("score").asInt() + workExperience.get("score").asInt()
-                    + projectExperience.get("score").asInt() + skills.get("score").asInt()) / 4;
+                    + projectExperience.get("score").asInt() + skills.get("score").asInt()
+                    + positioning.get("score").asInt()) / 5;
             overall.put("totalScore", totalScore);
             overall.put("level", getLevel(totalScore));
             ArrayNode highlights = objectMapper.createArrayNode();
