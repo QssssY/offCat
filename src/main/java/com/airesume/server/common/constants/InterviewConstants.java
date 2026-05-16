@@ -1,5 +1,7 @@
 package com.airesume.server.common.constants;
 
+import java.util.Map;
+
 /**
  * 模拟面试模块常量类
  * 定义会话状态、消息角色等常量
@@ -56,6 +58,41 @@ public class InterviewConstants {
             case DIFFICULTY_EASY -> "初级（1-3年经验）";
             case DIFFICULTY_HARD -> "高级（5年以上经验）";
             default -> "中级（3-5年经验）";
+        };
+    }
+
+    /**
+     * 获取按难度分级的维度权重映射。
+     * 不同难度侧重不同能力维度，确保总分与岗位要求相符。
+     * @param difficulty 难度级别（1/2/3），null 时按中级处理
+     * @return 维度 -> 权重的不可变 Map
+     */
+    public static Map<String, Double> getDimensionWeights(Integer difficulty) {
+        return switch (difficulty == null ? DIFFICULTY_MEDIUM : difficulty) {
+            case DIFFICULTY_EASY -> Map.of(
+                    "jobMatch", 0.20,
+                    "communication", 0.25,
+                    "pressureResistance", 0.20,
+                    "problemSolving", 0.15,
+                    "technicalDepth", 0.10,
+                    "projectExpression", 0.10
+            );
+            case DIFFICULTY_HARD -> Map.of(
+                    "technicalDepth", 0.25,
+                    "projectExpression", 0.25,
+                    "problemSolving", 0.25,
+                    "jobMatch", 0.10,
+                    "communication", 0.10,
+                    "pressureResistance", 0.05
+            );
+            default -> Map.of(
+                    "technicalDepth", 0.20,
+                    "projectExpression", 0.20,
+                    "problemSolving", 0.20,
+                    "jobMatch", 0.15,
+                    "communication", 0.15,
+                    "pressureResistance", 0.10
+            );
         };
     }
 

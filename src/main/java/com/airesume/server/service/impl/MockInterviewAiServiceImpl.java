@@ -1,5 +1,6 @@
 package com.airesume.server.service.impl;
 
+import com.airesume.server.common.constants.InterviewConstants;
 import com.airesume.server.dto.interview.InterviewEvaluationReport;
 import com.airesume.server.dto.interview.InterviewJobTargetContext;
 import com.airesume.server.mock.MockInterviewService;
@@ -15,6 +16,7 @@ import reactor.core.scheduler.Schedulers;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Mock 模式下的模拟面试 AI 服务实现。
@@ -147,34 +149,51 @@ public class MockInterviewAiServiceImpl implements InterviewAiService {
         int baseScore = 60 + java.util.concurrent.ThreadLocalRandom.current().nextInt(26);
         int jobMatchScore = targeted ? 65 + java.util.concurrent.ThreadLocalRandom.current().nextInt(21) : 60 + java.util.concurrent.ThreadLocalRandom.current().nextInt(16);
 
+        InterviewEvaluationReport.DimensionScore technicalDepth = buildDimensionScore(baseScore - 5);
+        InterviewEvaluationReport.DimensionScore projectExpression = buildProjectExpressionScore(baseScore, jobTargetContext);
+        InterviewEvaluationReport.DimensionScore communication = buildDimensionScore(baseScore + 5);
+        InterviewEvaluationReport.DimensionScore problemSolving = buildDimensionScore(baseScore - 3);
+        InterviewEvaluationReport.DimensionScore pressureResistance = buildPressureScore(interviewMode, baseScore);
+        InterviewEvaluationReport.DimensionScore jobMatch = buildJobMatchScore(jobMatchScore, targeted, jobTargetContext);
+
+        Map<String, Double> weights = InterviewConstants.getDimensionWeights(difficulty);
+        double weightedScore = 0;
+        if (technicalDepth.getScore() != null) weightedScore += technicalDepth.getScore() * weights.get("technicalDepth");
+        if (projectExpression.getScore() != null) weightedScore += projectExpression.getScore() * weights.get("projectExpression");
+        if (communication.getScore() != null) weightedScore += communication.getScore() * weights.get("communication");
+        if (problemSolving.getScore() != null) weightedScore += problemSolving.getScore() * weights.get("problemSolving");
+        if (pressureResistance.getScore() != null) weightedScore += pressureResistance.getScore() * weights.get("pressureResistance");
+        if (jobMatch.getScore() != null) weightedScore += jobMatch.getScore() * weights.get("jobMatch");
+        int finalScore = (int) Math.round(weightedScore);
+
         return InterviewEvaluationReport.builder()
-                .overallScore(baseScore)
-                .level(calculateLevel(baseScore))
-                .finalVerdict(buildFinalVerdict(baseScore))
-                .summary(buildSummary(baseScore, jobRole, targeted))
-                .strengths(buildStrengths(baseScore, jobTargetContext))
-                .weaknesses(buildWeaknesses(baseScore, jobTargetContext))
-                .criticalIssues(buildCriticalIssues(baseScore))
+                .overallScore(finalScore)
+                .level(calculateLevel(finalScore))
+                .finalVerdict(buildFinalVerdict(finalScore))
+                .summary(buildSummary(finalScore, jobRole, targeted))
+                .strengths(buildStrengths(finalScore, jobTargetContext))
+                .weaknesses(buildWeaknesses(finalScore, jobTargetContext))
+                .criticalIssues(buildCriticalIssues(finalScore))
                 .questionPerformance(buildQuestionPerformance(history))
                 .roundReviews(buildRoundReviews(history))
-                .followUpLossPoints(buildFollowUpLossPoints(baseScore))
-                .commonLossPatterns(buildCommonLossPatterns(baseScore))
+                .followUpLossPoints(buildFollowUpLossPoints(finalScore))
+                .commonLossPatterns(buildCommonLossPatterns(finalScore))
                 .immediateActions(buildImmediateActions(jobTargetContext))
-                .technicalDepth(buildDimensionScore(baseScore - 5))
-                .projectExpression(buildProjectExpressionScore(baseScore, jobTargetContext))
-                .communication(buildDimensionScore(baseScore + 5))
-                .problemSolving(buildDimensionScore(baseScore - 3))
-                .pressureResistance(buildPressureScore(interviewMode, baseScore))
-                .jobMatch(buildJobMatchScore(jobMatchScore, targeted, jobTargetContext))
-                .hireRecommendation(calculateHireRecommendation(baseScore))
-                .improvementSuggestions(buildImprovementSuggestions(baseScore, jobTargetContext))
-                .redFlags(buildRedFlags(baseScore))
-                .missingCompetencies(buildMissingCompetencies(baseScore, jobTargetContext))
-                .inflationRisk(buildInflationRisk(baseScore))
-                .answerAuthenticity(buildAnswerAuthenticity(baseScore))
-                .interviewPerformanceTags(buildPerformanceTags(baseScore, targeted))
-                .passProbability(baseScore)
-                .rejectionReasons(buildRejectionReasons(baseScore))
+                .technicalDepth(technicalDepth)
+                .projectExpression(projectExpression)
+                .communication(communication)
+                .problemSolving(problemSolving)
+                .pressureResistance(pressureResistance)
+                .jobMatch(jobMatch)
+                .hireRecommendation(calculateHireRecommendation(finalScore))
+                .improvementSuggestions(buildImprovementSuggestions(finalScore, jobTargetContext))
+                .redFlags(buildRedFlags(finalScore))
+                .missingCompetencies(buildMissingCompetencies(finalScore, jobTargetContext))
+                .inflationRisk(buildInflationRisk(finalScore))
+                .answerAuthenticity(buildAnswerAuthenticity(finalScore))
+                .interviewPerformanceTags(buildPerformanceTags(finalScore, targeted))
+                .passProbability(finalScore)
+                .rejectionReasons(buildRejectionReasons(finalScore))
                 .build();
     }
 

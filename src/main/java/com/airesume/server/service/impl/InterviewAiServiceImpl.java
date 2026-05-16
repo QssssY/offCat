@@ -45,6 +45,7 @@ import reactor.core.scheduler.Schedulers;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -769,7 +770,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         log.info("[{}] AI 评价原始响应长度: {}", tag, aiResponse == null ? 0 : aiResponse.length());
 
         InterviewEvaluationReport report = parseEvaluationResponse(aiResponse);
-        calculateOverallScore(report);
+        calculateOverallScore(report, difficulty);
         mapLegacyFields(report);
 
         log.info("[{}] 评价报告生成完成, overallScore: {}, hireRecommendation: {}",
@@ -940,53 +941,32 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 .build();
     }
 
-    private void calculateOverallScore(InterviewEvaluationReport report) {
-        if (report.getOverallScore() != null && report.getOverallScore() > 0) {
-            return;
-        }
+    private void calculateOverallScore(InterviewEvaluationReport report, Integer difficulty) {
+        Map<String, Double> weights = InterviewConstants.getDimensionWeights(difficulty);
+        double weightedScore = 0;
 
-        int total = 0;
-        int count = 0;
+        if (report.getTechnicalDepth() != null && report.getTechnicalDepth().getScore() != null)
+            weightedScore += report.getTechnicalDepth().getScore() * weights.get("technicalDepth");
+        if (report.getProjectExpression() != null && report.getProjectExpression().getScore() != null)
+            weightedScore += report.getProjectExpression().getScore() * weights.get("projectExpression");
+        if (report.getCommunication() != null && report.getCommunication().getScore() != null)
+            weightedScore += report.getCommunication().getScore() * weights.get("communication");
+        if (report.getProblemSolving() != null && report.getProblemSolving().getScore() != null)
+            weightedScore += report.getProblemSolving().getScore() * weights.get("problemSolving");
+        if (report.getPressureResistance() != null && report.getPressureResistance().getScore() != null)
+            weightedScore += report.getPressureResistance().getScore() * weights.get("pressureResistance");
+        if (report.getJobMatch() != null && report.getJobMatch().getScore() != null)
+            weightedScore += report.getJobMatch().getScore() * weights.get("jobMatch");
 
-        if (report.getTechnicalDepth() != null && report.getTechnicalDepth().getScore() != null) {
-            total += report.getTechnicalDepth().getScore();
-            count++;
-        }
-        if (report.getProjectExpression() != null && report.getProjectExpression().getScore() != null) {
-            total += report.getProjectExpression().getScore();
-            count++;
-        }
-        if (report.getCommunication() != null && report.getCommunication().getScore() != null) {
-            total += report.getCommunication().getScore();
-            count++;
-        }
-        if (report.getProblemSolving() != null && report.getProblemSolving().getScore() != null) {
-            total += report.getProblemSolving().getScore();
-            count++;
-        }
-        if (report.getPressureResistance() != null && report.getPressureResistance().getScore() != null) {
-            total += report.getPressureResistance().getScore();
-            count++;
-        }
-        if (report.getJobMatch() != null && report.getJobMatch().getScore() != null) {
-            total += report.getJobMatch().getScore();
-            count++;
-        }
+        int finalScore = (int) Math.round(weightedScore);
+        report.setOverallScore(finalScore);
+        report.setPassProbability(finalScore);
 
-        if (count > 0) {
-            int avgScore = total / count;
-            report.setOverallScore(avgScore);
-            report.setPassProbability(avgScore);
-        }
-
-        if (report.getLevel() == null || report.getLevel().isBlank()) {
-            int score = report.getOverallScore() != null ? report.getOverallScore() : 60;
-            if (score >= 90) report.setLevel("S");
-            else if (score >= 80) report.setLevel("A");
-            else if (score >= 70) report.setLevel("B");
-            else if (score >= 60) report.setLevel("C");
-            else report.setLevel("D");
-        }
+        if (finalScore >= 90) report.setLevel("S");
+        else if (finalScore >= 80) report.setLevel("A");
+        else if (finalScore >= 70) report.setLevel("B");
+        else if (finalScore >= 60) report.setLevel("C");
+        else report.setLevel("D");
     }
 
     private void mapLegacyFields(InterviewEvaluationReport report) {
