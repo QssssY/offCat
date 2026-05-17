@@ -79,6 +79,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/diagnostic/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/interview/job-roles").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/stats").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/version-logs/**").permitAll()
                         .requestMatchers("/api/resume/**").authenticated()
                         .requestMatchers("/api/interview/**").authenticated()
                         .requestMatchers("/api/user/**").authenticated()

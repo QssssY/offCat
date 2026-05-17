@@ -1,9 +1,11 @@
 package com.airesume.server.service;
 
+import com.airesume.server.entity.UserNotification;
 import com.airesume.server.mapper.UserNotificationMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -89,5 +91,14 @@ class NotificationServiceTest {
         notificationService.shutdown();
 
         assertTrue(getEmitterMap().isEmpty());
+    }
+
+    @Test
+    void createNotificationShouldWriteBroadcastIdWhenBizTypeIsBroadcast() {
+        notificationService.createNotification(1L, "system", "title", "content", "broadcast", "300");
+
+        ArgumentCaptor<UserNotification> captor = ArgumentCaptor.forClass(UserNotification.class);
+        verify(userNotificationMapper).insert(captor.capture());
+        assertEquals(300L, captor.getValue().getBroadcastId());
     }
 }

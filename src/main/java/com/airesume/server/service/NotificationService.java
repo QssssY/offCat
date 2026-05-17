@@ -73,6 +73,9 @@ public class NotificationService {
             notification.setContent(content);
             notification.setBizType(bizType);
             notification.setBizId(bizId);
+            if ("broadcast".equals(bizType) && bizId != null) {
+                notification.setBroadcastId(Long.valueOf(bizId));
+            }
             notification.setReadStatus(0);
             userNotificationMapper.insert(notification);
             log.info("通知创建成功, userId: {}, type: {}, title: {}", userId, type, title);
@@ -418,6 +421,7 @@ public class NotificationService {
                 .content(entity.getContent())
                 .bizType(entity.getBizType())
                 .bizId(entity.getBizId())
+                .broadcastId(entity.getBroadcastId())
                 .readStatus(entity.getReadStatus())
                 .readTime(entity.getReadTime())
                 .createTime(entity.getCreateTime())

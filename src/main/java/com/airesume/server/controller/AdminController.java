@@ -908,10 +908,6 @@ SysPrompt prompt = new SysPrompt();
         checkAdminPermission(adminUserId);
         log.info("Admin batch update users status, ids: {}, status: {}", request.getIds(), request.getIsActive());
 
-        if (request.getIds() == null || request.getIds().isEmpty()) {
-            throw new BusinessException("请选择要操作的用户");
-        }
-
         sysUserService.lambdaUpdate()
                 .in(SysUser::getId, request.getIds())
                 .set(SysUser::getStatus, request.getIsActive())
@@ -1114,6 +1110,7 @@ private UserListResponse buildUserListResponse(SysUser user) {
         boolean vipActive = isVipActive(user);
         return UserListResponse.builder()
                 .id(user.getId())
+                .userId(user.getId() != null ? user.getId().toString() : null)
                 .username(user.getUsername())
                 .nickname(user.getNickname())
                 .role(user.getRole())
