@@ -56,6 +56,42 @@ const routes = [
         name: 'AdminMonitor',
         component: () => import('@/views/admin/AdminMonitorView.vue'),
         meta: { useLayout: false, requiresAdminAuth: true }
+      },
+      {
+        path: 'notifications',
+        name: 'AdminNotifications',
+        component: () => import('@/views/admin/AdminNotificationView.vue'),
+        meta: { useLayout: false, requiresAdminAuth: true }
+      },
+      {
+        path: 'version-logs',
+        name: 'AdminVersionLogs',
+        component: () => import('@/views/admin/AdminVersionLogView.vue'),
+        meta: { useLayout: false, requiresAdminAuth: true }
+      },
+      {
+        path: 'audit-logs',
+        name: 'AdminAuditLogs',
+        component: () => import('@/views/admin/AdminAuditLogView.vue'),
+        meta: { useLayout: false, requiresAdminAuth: true }
+      },
+      {
+        path: 'membership/plans',
+        name: 'AdminMembershipPlans',
+        component: () => import('@/views/admin/AdminMembershipPlanView.vue'),
+        meta: { useLayout: false, requiresAdminAuth: true }
+      },
+      {
+        path: 'membership/orders',
+        name: 'AdminMembershipOrders',
+        component: () => import('@/views/admin/AdminMembershipOrderView.vue'),
+        meta: { useLayout: false, requiresAdminAuth: true }
+      },
+      {
+        path: 'growth-config',
+        name: 'AdminGrowthConfig',
+        component: () => import('@/views/admin/AdminGrowthConfigView.vue'),
+        meta: { useLayout: false, requiresAdminAuth: true }
       }
     ]
   },
@@ -70,6 +106,12 @@ const routes = [
     name: 'Login',
     component: () => import('@/views/auth/LoginView.vue'),
     meta: { requiresAuth: false, useLayout: false }
+  },
+  {
+    path: '/version-logs',
+    name: 'VersionLogs',
+    component: () => import('@/views/VersionLogView.vue'),
+    meta: { requiresAuth: false, useLayout: true }
   },
   {
     path: '/dashboard',
