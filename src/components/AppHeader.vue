@@ -1815,14 +1815,19 @@ onUnmounted(() => {
   cursor: pointer;
   background: none;
   border: none;
-  transition: background-color 0.2s;
+  transition: background-color 0.2s, transform 0.15s;
   margin-right: 4px;
   color: var(--text-body);
+  -webkit-tap-highlight-color: transparent;
 }
 
 .theme-toggle:hover {
   background-color: var(--bg-page);
   color: var(--orange-main);
+}
+
+.theme-toggle:active {
+  transform: scale(0.88);
 }
 
 .theme-toggle svg {
@@ -1841,6 +1846,12 @@ onUnmounted(() => {
   cursor: pointer;
   width: 100%;
   text-align: left;
+  transition: transform 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.theme-toggle-mobile:active {
+  transform: scale(0.96);
 }
 
 .theme-toggle-mobile .theme-icon {

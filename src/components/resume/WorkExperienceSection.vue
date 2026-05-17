@@ -347,4 +347,75 @@ const getScoreClass = (score) => {
   color: #6c6a64;
   font-size: 14px;
 }
+
+[data-theme="dark"] .scores-overview {
+  border-bottom-color: var(--border-card);
+}
+
+[data-theme="dark"] .score-evaluation {
+  color: var(--text-body);
+}
+
+[data-theme="dark"] .score-excellent {
+  color: #5db872;
+}
+
+[data-theme="dark"] .score-good {
+  color: #d08a6a;
+}
+
+[data-theme="dark"] .score-poor {
+  color: #e06060;
+}
+
+[data-theme="dark"] .score-label {
+  color: var(--text-muted);
+}
+
+[data-theme="dark"] .section-title {
+  color: var(--text-title);
+  border-bottom-color: var(--border-card);
+}
+
+[data-theme="dark"] .experience-item {
+  background: rgba(255,255,255,0.04);
+}
+
+[data-theme="dark"] .exp-title {
+  color: var(--text-title);
+}
+
+[data-theme="dark"] .exp-period {
+  color: var(--text-muted);
+}
+
+[data-theme="dark"] .exp-position {
+  color: var(--text-body);
+}
+
+[data-theme="dark"] .exp-desc {
+  color: var(--text-body);
+}
+
+[data-theme="dark"] .issues-section {
+  border-top-color: var(--border-card);
+}
+
+[data-theme="dark"] .issue-item,
+[data-theme="dark"] .suggestion-item {
+  color: var(--text-body);
+  background: rgba(255,255,255,0.04);
+}
+
+[data-theme="dark"] .issue-item {
+  border-left-color: #e06060;
+}
+
+[data-theme="dark"] .suggestion-item {
+  border-left-color: #d08a6a;
+}
+
+[data-theme="dark"] .empty-experience {
+  color: var(--text-muted);
+}
 </style>

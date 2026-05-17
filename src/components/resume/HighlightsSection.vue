@@ -125,4 +125,26 @@ const highlights = computed(() => {
   color: #6c6a64;
   font-size: 14px;
 }
+
+[data-theme="dark"] .highlight-item {
+  background: rgba(255,255,255,0.04);
+  border-left-color: #d08a6a;
+}
+
+[data-theme="dark"] .highlight-icon svg,
+[data-theme="dark"] .highlight-icon .el-icon {
+  color: #d08a6a !important;
+}
+
+[data-theme="dark"] .highlight-title {
+  color: var(--text-title);
+}
+
+[data-theme="dark"] .highlight-desc {
+  color: var(--text-body);
+}
+
+[data-theme="dark"] .empty-highlights {
+  color: var(--text-muted);
+}
 </style>

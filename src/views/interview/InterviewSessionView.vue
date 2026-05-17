@@ -1158,7 +1158,7 @@ onBeforeUnmount(() => {
   display: inline-block;
   padding: 2px 6px;
   background: var(--bg-elevated);
-  border: 1px solid #e4e7ed;
+  border: 1px solid var(--border-card);
   border-radius: 4px;
   font-size: 11px;
 }
@@ -1249,26 +1249,64 @@ onBeforeUnmount(() => {
 }
 
 /* ===== 暗色模式适配 ===== */
-.difficulty-badge.difficulty-1 {
+[data-theme="dark"] .session-status-bar {
+  background: rgba(34, 34, 59, 0.98);
+  border-bottom-color: var(--border-card);
+  box-shadow: none;
+}
+
+[data-theme="dark"] .difficulty-badge.difficulty-1 {
   background: rgba(76, 175, 80, 0.15);
   color: #81c784;
 }
 
-.difficulty-badge.difficulty-2 {
+[data-theme="dark"] .difficulty-badge.difficulty-2 {
   background: rgba(255, 152, 0, 0.15);
   color: #ffb74d;
 }
 
-.difficulty-badge.difficulty-3 {
+[data-theme="dark"] .difficulty-badge.difficulty-3 {
   background: rgba(244, 67, 54, 0.15);
   color: #ef9a9a;
 }
 
-.status-dot {
+[data-theme="dark"] .status-dot {
   background: #81c784;
 }
 
-.status-indicator.ended .status-dot {
+[data-theme="dark"] .status-indicator.ended .status-dot {
   background: var(--text-muted);
+}
+
+[data-theme="dark"] .job-target-banner {
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-card);
+  border-left: 3px solid var(--orange-main);
+}
+
+[data-theme="dark"] .job-target-banner-title {
+  color: #FFB877;
+  margin-left: -3px;
+}
+
+[data-theme="dark"] .job-target-banner-desc {
+  color: var(--text-muted);
+}
+
+[data-theme="dark"] .empty-icon-wrapper {
+  background: linear-gradient(135deg, var(--orange-light-bg) 0%, rgba(255, 140, 66, 0.06) 100%);
+}
+
+[data-theme="dark"] .ended-notice {
+  background: rgba(0, 0, 0, 0.3);
+  border-top-color: var(--border-card);
+}
+
+[data-theme="dark"] .ended-notice .el-icon {
+  color: var(--color-success);
+}
+
+[data-theme="dark"] .message-feedback-card {
+  background: rgba(255, 140, 66, 0.06);
 }
 </style>

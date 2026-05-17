@@ -157,4 +157,53 @@ const gradeClass = computed(() => {
   line-height: 1.8;
   white-space: pre-wrap;
 }
+
+[data-theme="dark"] .score-section {
+  border-bottom-color: var(--border-card);
+}
+
+[data-theme="dark"] .score-value {
+  color: var(--text-title);
+}
+
+[data-theme="dark"] .score-label {
+  color: var(--text-muted);
+}
+
+[data-theme="dark"] .grade-excellent {
+  background: rgba(93,184,114,0.15);
+  color: #5db872;
+}
+
+[data-theme="dark"] .grade-good {
+  background: rgba(204,120,92,0.15);
+  color: #d08a6a;
+}
+
+[data-theme="dark"] .grade-average {
+  background: rgba(212,160,23,0.15);
+  color: #d4a017;
+}
+
+[data-theme="dark"] .grade-poor {
+  background: rgba(198,69,69,0.15);
+  color: #e06060;
+}
+
+[data-theme="dark"] .grade-default {
+  background: rgba(255,255,255,0.06);
+  color: var(--text-muted);
+}
+
+[data-theme="dark"] .grade-label {
+  color: var(--text-muted);
+}
+
+[data-theme="dark"] .summary-label {
+  color: var(--text-title);
+}
+
+[data-theme="dark"] .summary-content {
+  color: var(--text-body);
+}
 </style>

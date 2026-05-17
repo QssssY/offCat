@@ -2639,7 +2639,7 @@ onUnmounted(() => {
 
 /* ===== 暗色模式适配 ===== */
 [data-theme="dark"] .hero-section.hero-2 {
-  background: var(--orange-deep);
+  background: linear-gradient(135deg, #8a4a2a 0%, #5a2d1a 100%);
 }
 
 [data-theme="dark"] .hero-section.hero-3,
@@ -2723,6 +2723,33 @@ onUnmounted(() => {
   color: #e08080;
 }
 
+[data-theme="dark"] .grade-row.active {
+  background: rgba(255, 140, 66, 0.1);
+  box-shadow: 0 2px 12px rgba(255, 140, 66, 0.06);
+}
+
+[data-theme="dark"] .grade-marker {
+  background: rgba(255, 140, 66, 0.22);
+}
+
+[data-theme="dark"] .hero-glow {
+  background: radial-gradient(ellipse 80% 60% at 30% 20%, rgba(0,0,0,0.25) 0%, transparent 70%);
+}
+
+[data-theme="dark"] .parse-message {
+  color: var(--text-muted);
+}
+
+[data-theme="dark"] .tag-strength {
+  background: rgba(34, 197, 94, 0.08);
+  border-color: rgba(34, 197, 94, 0.15);
+}
+
+[data-theme="dark"] .tag-weakness {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.15);
+}
+
 /* ============================================
    入场动效 - Stagger Fade In
    ============================================ */
@@ -2755,5 +2782,30 @@ onUnmounted(() => {
   .result-content > * {
     animation: none;
   }
+}
+</style>
+
+<style>
+[data-theme="dark"] .job-match-panel .n-input {
+  --n-color: var(--bg-card) !important;
+  --n-text-color: var(--text-body) !important;
+  --n-border: 1px solid var(--border-card) !important;
+  --n-caret-color: var(--orange-main) !important;
+}
+
+[data-theme="dark"] .job-match-panel .n-input.n-input--textarea .n-input__textarea {
+  background-color: var(--bg-card) !important;
+  color: var(--text-body) !important;
+}
+
+[data-theme="dark"] .job-match-actions .n-button.n-button--secondary {
+  --n-color: rgba(255, 140, 66, 0.06) !important;
+  --n-text-color: var(--orange-main) !important;
+  --n-border: 1px solid var(--orange-main) !important;
+  --n-border-hover: 1px solid var(--orange-main) !important;
+}
+
+[data-theme="dark"] .job-match-actions .n-button.n-button--secondary:hover {
+  --n-color: rgba(255, 140, 66, 0.15) !important;
 }
 </style>

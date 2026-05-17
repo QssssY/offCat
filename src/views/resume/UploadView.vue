@@ -347,7 +347,7 @@ const retrySubmit = () => {
   align-items: center;
   gap: 6px;
   padding: 10px 12px;
-  background-color: #fef0f0;
+  background-color: var(--tag-bg-danger);
   border: 1px solid var(--orange-border);
   border-radius: 8px;
   margin-bottom: 16px;
@@ -395,8 +395,8 @@ const retrySubmit = () => {
   gap: 6px;
   margin-top: 12px;
   padding: 8px 12px;
-  background-color: #fef0f0;
-  border: 1px solid #fde2e2;
+  background-color: var(--tag-bg-danger);
+  border: 1px solid var(--border-card);
   border-radius: 6px;
   font-size: 13px;
   color: var(--color-danger);
@@ -437,7 +437,7 @@ const retrySubmit = () => {
   align-items: flex-start;
   gap: 16px;
   padding: 20px;
-  background-color: #fef0f0;
+  background-color: var(--tag-bg-danger);
   border: 1px solid var(--orange-border);
   border-radius: 8px;
 }

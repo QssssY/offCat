@@ -470,7 +470,7 @@ onMounted(async () => {
   align-items: center;
   gap: 12px;
   padding: 16px 20px;
-  background: linear-gradient(135deg, #fff3e8 0%, #fff8f3 100%);
+  background: linear-gradient(135deg, var(--orange-light-bg) 0%, var(--bg-page) 100%);
   border: 1px solid var(--orange-border);
   border-radius: 10px;
   margin-bottom: 24px;
@@ -589,8 +589,8 @@ onMounted(async () => {
 
 /* 标签样式模板（与管理端保持一致） */
 .tag-style-default {
-  background-color: #fdf1e6;
-  color: #a05a2c;
+  background-color: rgba(255, 140, 66, 0.12);
+  color: var(--orange-deep);
 }
 
 .tag-style-orange {
@@ -969,5 +969,57 @@ onMounted(async () => {
     width: 100%;
     padding: 14px 24px;
   }
+}
+
+/* ===== 暗色模式适配 ===== */
+[data-theme="dark"] .job-target-card {
+  background: var(--bg-elevated);
+}
+
+[data-theme="dark"] .job-target-body {
+  border-top-color: var(--border-card);
+}
+
+[data-theme="dark"] .job-target-tip {
+  color: #d0a07a;
+  background: rgba(255, 140, 66, 0.06);
+}
+
+[data-theme="dark"] .job-match-summary {
+  background: var(--bg-card);
+}
+
+[data-theme="dark"] .tag-style-blue {
+  color: #6bb0f0;
+}
+
+[data-theme="dark"] .tag-style-green {
+  color: #5cd487;
+}
+
+[data-theme="dark"] .tag-style-red {
+  color: #f08080;
+}
+
+[data-theme="dark"] .tag-style-purple {
+  color: #9d8be8;
+}
+
+[data-theme="dark"] .tag-style-gray {
+  color: #9ca3af;
+}
+
+[data-theme="dark"] .tag-style-outline {
+  background-color: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 140, 66, 0.3);
+  color: #ffb07a;
+}
+
+[data-theme="dark"] .tag-style-pill {
+  color: #ffb07a;
+}
+
+[data-theme="dark"] .tag-style-pink {
+  color: #f08a9e;
 }
 </style>

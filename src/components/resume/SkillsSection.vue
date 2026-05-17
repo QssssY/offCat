@@ -275,4 +275,55 @@ const getTagType = (index) => {
   color: #6c6a64;
   font-size: 14px;
 }
+
+[data-theme="dark"] .skills-score {
+  border-bottom-color: var(--border-card);
+}
+
+[data-theme="dark"] .score-circle {
+  background: #3a3835;
+  color: var(--text-title);
+}
+
+[data-theme="dark"] .score-circle::before {
+  background: var(--bg-card);
+}
+
+[data-theme="dark"] .score-number {
+  color: var(--text-title);
+}
+
+[data-theme="dark"] .score-unit {
+  color: var(--text-muted);
+}
+
+[data-theme="dark"] .score-label {
+  color: var(--text-title);
+}
+
+[data-theme="dark"] .score-comment {
+  color: var(--text-body);
+}
+
+[data-theme="dark"] .score-evaluation {
+  color: var(--text-body);
+}
+
+[data-theme="dark"] .section-label {
+  color: var(--text-title);
+}
+
+[data-theme="dark"] .tech-item {
+  color: var(--text-body);
+  background: rgba(255,255,255,0.06);
+  border-color: var(--border-card);
+}
+
+[data-theme="dark"] .description-content {
+  color: var(--text-body);
+}
+
+[data-theme="dark"] .empty-skills {
+  color: var(--text-muted);
+}
 </style>

@@ -1737,4 +1737,68 @@ onUnmounted(() => {
     height: 28px;
   }
 }
+
+/* ===== 暗色模式适配 ===== */
+[data-theme="dark"] .grade-row.active {
+  background: rgba(255, 140, 66, 0.1);
+  box-shadow: 0 2px 12px rgba(255, 140, 66, 0.06);
+}
+
+[data-theme="dark"] .grade-marker {
+  background: rgba(255, 140, 66, 0.22);
+}
+
+/* ===== 面试历史回放 暗色适配 ===== */
+[data-theme="dark"] .replay-round-marker {
+  background: rgba(255, 140, 66, 0.12);
+  border-color: rgba(255, 140, 66, 0.35);
+}
+
+[data-theme="dark"] .replay-round-toggle {
+  background: rgba(255, 140, 66, 0.06);
+  color: #e0b090;
+  border-color: rgba(255, 140, 66, 0.2);
+}
+
+[data-theme="dark"] .replay-block {
+  background: var(--bg-card);
+}
+
+[data-theme="dark"] .replay-block.answer {
+  background: rgba(46, 125, 90, 0.08);
+  border-color: rgba(46, 125, 90, 0.2);
+}
+
+[data-theme="dark"] .replay-block.feedback {
+  background: rgba(255, 140, 66, 0.06);
+  border-color: rgba(255, 140, 66, 0.2);
+}
+
+[data-theme="dark"] .replay-label {
+  color: #d0a07a;
+}
+
+[data-theme="dark"] .replay-block.answer .replay-label {
+  color: #5db892;
+}
+
+[data-theme="dark"] .replay-feedback-card {
+  background: var(--bg-card);
+}
+
+[data-theme="dark"] .round-review-speaker {
+  color: #d0a07a;
+}
+
+[data-theme="dark"] .round-review-speaker.candidate {
+  color: #5db892;
+}
+
+[data-theme="dark"] .round-review-label {
+  color: #d0a07a;
+}
+
+[data-theme="dark"] .round-review-block.warning {
+  color: #e8a040;
+}
 </style>
