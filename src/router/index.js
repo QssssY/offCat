@@ -144,6 +144,12 @@ const routes = [
     meta: { requiresAuth: true, useLayout: true }
   },
   {
+    path: '/settings',
+    name: 'Settings',
+    component: () => import('@/views/settings/SettingsView.vue'),
+    meta: { requiresAuth: true, useLayout: true }
+  },
+  {
     path: '/resume/upload',
     name: 'ResumeUpload',
     component: () => import('@/views/resume/UploadView.vue'),
