@@ -180,6 +180,7 @@ import { ArrowLeft, Delete } from '@element-plus/icons-vue'
 import { getNotifications, getUnreadCount, markAsRead, markAllAsRead, deleteNotification, batchDeleteNotifications } from '@/api/notification'
 import NotificationTypeIcon from '@/components/notification/NotificationTypeIcon.vue'
 import { formatNotificationTime, getNotificationTypeMeta, isAdminAnnouncementType } from '@/utils/notificationMeta'
+import { getSettingsPreferences } from '@/utils/settingsPreferences'
 
 const router = useRouter()
 
@@ -196,8 +197,9 @@ const total = ref(0)
 const unreadCount = ref(0)
 
 // 筛选条件
-const filterType = ref('')
-const filterReadStatus = ref('')
+const settingsPreferences = getSettingsPreferences()
+const filterType = ref(settingsPreferences.notificationDefaultType || '')
+const filterReadStatus = ref(settingsPreferences.notificationDefaultUnreadOnly ? 0 : '')
 
 // 全部已读按钮加载状态
 const markAllLoading = ref(false)

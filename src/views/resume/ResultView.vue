@@ -633,6 +633,7 @@ import SkillsSection from '@/components/resume/SkillsSection.vue'
 import WorkExperienceSection from '@/components/resume/WorkExperienceSection.vue'
 import RadarChart from '@/components/resume/RadarChart.vue'
 import RadarScorePanel from '@/components/resume/RadarScorePanel.vue'
+import { createResumePdfImagePages } from '@/utils/resumePdfPagination'
 const ResumeTemplate = defineAsyncComponent(() => import('@/components/resume/ResumeTemplate.vue'))
 
 const router = useRouter()
@@ -1264,37 +1265,26 @@ const exportResumePdf = async () => {
     const { default: jsPDF } = await import('jspdf')
     const filename = `${getExportFilename()}.pdf`
 
-    // A4 竖版尺寸（mm）
-    const pageW = 210
-    const pageH = 297
-    // PDF 不额外加边距，简历模板自身已有 10mm 内边距，避免双重边距导致空白过大
-    const margin = 0
-    const contentW = pageW - margin * 2
-    const contentH = pageH - margin * 2
-
     // 将 canvas 转为 JPEG 数据，质量 0.95 平衡清晰度与文件大小
     const imgData = canvas.toDataURL('image/jpeg', 0.95)
-    // 计算 canvas 的宽高比，按 A4 内容区宽度等比缩放
-    const imgRatio = canvas.width / canvas.height
-    let renderW = contentW
-    let renderH = renderW / imgRatio
-
-    // 若缩放后高度超出内容区，按高度适配
-    if (renderH > contentH) {
-      renderH = contentH
-      renderW = renderH * imgRatio
-    }
-
-    // 水平居中偏移
-    const offsetX = margin + (contentW - renderW) / 2
-
     const pdf = new jsPDF({
       unit: 'mm',
       format: 'a4',
       orientation: 'portrait',
     })
 
-    pdf.addImage(imgData, 'JPEG', offsetX, margin, renderW, renderH)
+    // PDF 不额外加边距，简历模板自身已有内边距；按页面宽度铺满后分页，避免长图被压窄。
+    const pages = createResumePdfImagePages({
+      canvasWidth: canvas.width,
+      canvasHeight: canvas.height,
+      margin: 0,
+    })
+    pages.forEach((page) => {
+      if (page.addPage) {
+        pdf.addPage()
+      }
+      pdf.addImage(imgData, 'JPEG', page.x, page.y, page.width, page.height)
+    })
     pdf.save(filename)
 
     message.success('PDF 已导出')
