@@ -7,8 +7,9 @@
 
 spring:
   profiles:
+    # 默认激活 dev 配置文件
+    # 可通过启动参数 --spring.profiles.active=prod 切换到生产环境
     default: dev
-  # 可通过 --spring.profiles.active=prod 切换到生产环境
   # ------------------------------------------
   # 数据源配置 - MySQL
   # ------------------------------------------
@@ -17,7 +18,7 @@ spring:
     url: jdbc:mysql://localhost:3306/ai_resume?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
     # 数据库密码：优先使用环境变量MYSQL_PASSWORD，默认值为123456（仅开发环境）
-    password: ${DB_PASSWORD:${MYSQL_PASSWORD:123456}}
+    password: ${MYSQL_PASSWORD:123456}
 
   # ------------------------------------------
   # Redis 配置 - 缓存和会话管理
@@ -54,7 +55,7 @@ spring:
     port: 5672
     username: guest
     # RabbitMQ密码：优先使用环境变量RABBITMQ_PASSWORD，默认值为guest（仅开发环境）
-    password: ${MQ_PASSWORD:${RABBITMQ_PASSWORD:guest}}
+    password: ${RABBITMQ_PASSWORD:guest}
     virtual-host: /
 
 # ------------------------------------------
@@ -85,8 +86,8 @@ logging:
 # JWT 配置 - 身份认证
 # ------------------------------------------
 jwt:
-  secret: ${JWT_SECRET:dev-secret-key-change-in-production-123456}
-  expiration: 14400000
+  secret: ai-resume-secret-key-2024-jwt-token-secret-for-authentication-production-use
+  expiration: 86400000
   header: Authorization
   prefix: "Bearer "
 
@@ -108,7 +109,7 @@ app:
     # AI 模式切换：
     # - mock: 使用模拟数据（开发调试用，不消耗 API 额度）
     # - real: 使用真实大模型 API
-    mode: real
+    mode: mock
 
     # AI 提供商：
     # - doubao: 豆包（火山引擎）
@@ -183,11 +184,11 @@ app:
     # 面试单轮对话最大输入token（设为1200，确保压缩能触发）
     interview-round-max: 1200
     # 面试评价报告最大输入token
-    interview-evaluation-max: 12000
+    interview-evaluation-max: 8000
     # 上下文窗口使用率阈值（超过则触发截断）
     context-window-ratio: 0.8
     # 默认模型最大上下文token
-    default-max-context-tokens: 16384
+    default-max-context-tokens: 8192
     # 是否启用输入压缩
     compression-enabled: true
     # 是否启用token限制保护
@@ -199,7 +200,7 @@ app:
     # 是否启用 AI 摘要（替代简单截断，提升压缩质量）
     ai-summary-enabled: true
     # AI 摘要请求超时时间（毫秒）
-    ai-summary-timeout-ms: 60000
+    ai-summary-timeout-ms: 30000
     # 评价报告保留最近完整对话的消息数
     evaluation-recent-messages-to-keep: 10
     # 重新摘要间隔（消息数），每累积这么多新消息后重新调用 AI 摘要，6=约3轮对话
