@@ -48,6 +48,17 @@ export function getResumeHistory(params = { pageNum: 1, pageSize: 10 }) {
 }
 
 /**
+ * 清理当前用户的全部简历诊断历史记录。
+ * @returns {Promise}
+ */
+export function clearResumeHistory() {
+  return request({
+    url: '/api/resume/history',
+    method: 'delete'
+  })
+}
+
+/**
  * 执行岗位 JD 对比分析
  * @param {{resumeTaskId: string|number, resumeText: string, jdText: string}} data - 分析请求参数
  * @returns {Promise}

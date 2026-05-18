@@ -234,6 +234,7 @@ import { useUserStore } from "@/stores/user";
 import { createInterviewSession, getInterviewJobRoles } from "@/api/interview";
 import { getResumeTask } from "@/api/resume";
 import { INTERVIEW_MODE_OPTIONS, STRING_TO_DIFFICULTY, FEEDBACK_MODE_OPTIONS } from "@/constants/interview";
+import { getSettingsPreferences } from "@/utils/settingsPreferences";
 
 const router = useRouter();
 const route = useRoute();
@@ -359,6 +360,62 @@ const onJobChange = (jobName) => {
   selectedRoleCode.value = job?.roleCode || "";
 };
 
+const applyMatchedJob = (matched) => {
+  selectedJob.value = matched?.label || "";
+  selectedRoleCode.value = matched?.roleCode || "";
+};
+
+const findJobOption = (jobValue) => {
+  if (!jobValue || jobOptions.value.length === 0) {
+    return null;
+  }
+  return jobOptions.value.find(
+    (opt) => opt.roleCode === jobValue || opt.label === jobValue
+  ) || null;
+};
+
+const applyStoredInterviewPreferences = () => {
+  const preferences = getSettingsPreferences();
+
+  if (difficultyOptions.some((item) => item.value === preferences.defaultInterviewDifficulty)) {
+    selectedDifficulty.value = preferences.defaultInterviewDifficulty;
+  }
+  if (modeOptions.some((item) => item.value === preferences.defaultInterviewMode)) {
+    selectedMode.value = preferences.defaultInterviewMode;
+  }
+  if (FEEDBACK_MODE_OPTIONS.some((item) => item.value === preferences.defaultFeedbackMode)) {
+    selectedFeedbackMode.value = preferences.defaultFeedbackMode;
+  }
+
+  // 默认岗位必须仍存在于当前启用岗位列表，避免本机旧缓存把入口页带到不可用配置。
+  const matchedJob = findJobOption(preferences.defaultInterviewJobRoleCode)
+    || findJobOption(preferences.defaultInterviewJobRole);
+  if (matchedJob) {
+    applyMatchedJob(matchedJob);
+  }
+};
+
+const applyRouteQueryPreferences = () => {
+  const q = route.query;
+  if (q.difficulty && ["primary", "intermediate", "advanced"].includes(q.difficulty)) {
+    selectedDifficulty.value = q.difficulty;
+  }
+  if (q.mode && modeOptions.some((item) => item.value === q.mode)) {
+    selectedMode.value = q.mode;
+  }
+  if (q.feedbackMode && FEEDBACK_MODE_OPTIONS.some((item) => item.value === q.feedbackMode)) {
+    selectedFeedbackMode.value = q.feedbackMode;
+  }
+  if (q.jobTargeted === "1") {
+    jobTargeted.value = true;
+  }
+  if (q.jobRole) {
+    // 路由参数来自“再来一次”等显式动作，优先级高于本机默认岗位；匹配失败时不回落默认岗位。
+    applyMatchedJob(null);
+    applyMatchedJob(findJobOption(q.jobRole));
+  }
+};
+
 const buildCreatePayload = () => {
   const payload = {
     jobRole: selectedJob.value,
@@ -419,27 +476,9 @@ onMounted(async () => {
   await fetchJobOptions();
   await fetchResumeTaskDetail();
 
-  // 从面试报告页"再来一次"时，预填上次面试配置
-  const q = route.query;
-  if (q.difficulty && ["primary", "intermediate", "advanced"].includes(q.difficulty)) {
-    selectedDifficulty.value = q.difficulty;
-  }
-  if (q.mode && modeOptions.some((item) => item.value === q.mode)) {
-    selectedMode.value = q.mode;
-  }
-  if (q.jobTargeted === "1") {
-    jobTargeted.value = true;
-  }
-  // 岗位需要匹配 jobOptions，确保选项已加载后再设置
-  if (q.jobRole && jobOptions.value.length > 0) {
-    const matched = jobOptions.value.find(
-      (opt) => opt.roleCode === q.jobRole || opt.label === q.jobRole
-    );
-    if (matched) {
-      selectedJob.value = matched.label;
-      selectedRoleCode.value = matched.roleCode || "";
-    }
-  }
+  applyStoredInterviewPreferences();
+  // 从面试报告页"再来一次"时，路由参数必须覆盖本机默认面试偏好。
+  applyRouteQueryPreferences();
 });
 </script>
 

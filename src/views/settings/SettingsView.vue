@@ -3,7 +3,7 @@
     <header class="settings-header">
       <div>
         <h1>设置中心</h1>
-        <p>管理账号、安全、显示和本机通知偏好。</p>
+        <p>管理账号、安全、面试偏好、隐私数据和本机显示通知偏好。</p>
       </div>
     </header>
 
@@ -62,11 +62,115 @@
           </div>
         </section>
 
+        <section v-show="activeSection === 'interview'" class="settings-panel" aria-labelledby="interview-title">
+          <div class="panel-heading">
+            <div>
+              <h2 id="interview-title">面试偏好</h2>
+              <p>设置进入模拟面试时优先带入的默认配置，偏好仅保存在当前浏览器。</p>
+            </div>
+          </div>
+
+          <div class="preference-list">
+            <div class="preference-row stacked">
+              <div>
+                <strong>默认面试岗位</strong>
+                <span>只在岗位仍处于启用状态时自动回填，避免旧岗位配置污染新会话。</span>
+              </div>
+              <el-select
+                v-model="interviewPreferenceForm.defaultInterviewJobRoleCode"
+                class="preference-select"
+                filterable
+                @change="handleDefaultJobChange"
+              >
+                <el-option label="不设默认岗位" value="" />
+                <el-option
+                  v-for="job in interviewJobOptions"
+                  :key="job.value"
+                  :label="job.label"
+                  :value="job.value"
+                />
+              </el-select>
+            </div>
+            <div class="preference-row stacked">
+              <div>
+                <strong>默认面试级别</strong>
+                <span>进入面试入口页时默认选中的难度级别。</span>
+              </div>
+              <el-select
+                v-model="interviewPreferenceForm.defaultInterviewDifficulty"
+                class="preference-select"
+                @change="handleInterviewPreferenceSave"
+              >
+                <el-option
+                  v-for="item in difficultyPreferenceOptions"
+                  :key="item.value"
+                  :label="item.label"
+                  :value="item.value"
+                />
+              </el-select>
+            </div>
+            <div class="preference-row stacked">
+              <div>
+                <strong>默认面试模式</strong>
+                <span>进入面试入口页时默认选中的面试官模式。</span>
+              </div>
+              <el-select
+                v-model="interviewPreferenceForm.defaultInterviewMode"
+                class="preference-select"
+                @change="handleInterviewPreferenceSave"
+              >
+                <el-option
+                  v-for="item in interviewModeOptions"
+                  :key="item.value"
+                  :label="item.label"
+                  :value="item.value"
+                />
+              </el-select>
+            </div>
+            <div class="preference-row stacked">
+              <div>
+                <strong>默认反馈模式</strong>
+                <span>进入面试入口页时默认选中的反馈节奏。</span>
+              </div>
+              <el-select
+                v-model="interviewPreferenceForm.defaultFeedbackMode"
+                class="preference-select"
+                @change="handleInterviewPreferenceSave"
+              >
+                <el-option
+                  v-for="item in feedbackModeOptions"
+                  :key="item.value"
+                  :label="item.label"
+                  :value="item.value"
+                />
+              </el-select>
+            </div>
+            <div class="preference-row stacked">
+              <div>
+                <strong>回复详略偏好</strong>
+                <span>用于记录你期望 AI 回复的详细程度；真正影响生成口径需后端后续接入。</span>
+              </div>
+              <el-select
+                v-model="interviewPreferenceForm.responseDetailPreference"
+                class="preference-select"
+                @change="handleInterviewPreferenceSave"
+              >
+                <el-option
+                  v-for="item in responseDetailOptions"
+                  :key="item.value"
+                  :label="item.label"
+                  :value="item.value"
+                />
+              </el-select>
+            </div>
+          </div>
+        </section>
+
         <section v-show="activeSection === 'security'" class="settings-panel" aria-labelledby="security-title">
           <div class="panel-heading">
             <div>
               <h2 id="security-title">账号安全</h2>
-              <p>修改登录密码和找回密码使用的安全问题。</p>
+              <p>修改登录密码、安全问题，并查看高风险账号操作状态。</p>
             </div>
           </div>
 
@@ -147,6 +251,136 @@
               </el-button>
             </el-form>
           </Transition>
+
+          <div class="danger-zone">
+            <div class="preference-row danger-row">
+              <div>
+                <strong>账号注销</strong>
+                <span>删除账号及关联数据属于合规高风险操作，确认后会清理当前账号的面试、简历和本机登录态。</span>
+              </div>
+              <el-button type="danger" plain :loading="accountDeleting" @click="handleAccountDeleteConfirm">
+                注销账号
+              </el-button>
+            </div>
+          </div>
+        </section>
+
+        <section v-show="activeSection === 'privacy'" class="settings-panel" aria-labelledby="privacy-title">
+          <div class="panel-heading">
+            <div>
+              <h2 id="privacy-title">隐私与数据</h2>
+              <p>查看账号数据概览，管理当前浏览器保存的本机设置缓存。</p>
+            </div>
+            <el-tooltip content="刷新数据" placement="top" :show-after="400">
+              <el-button
+                plain
+                circle
+                class="data-overview-refresh-btn"
+                :class="{ 'is-refreshing': growthOverviewLoading }"
+                :disabled="growthOverviewLoading"
+                @click="fetchGrowthOverview"
+              >
+                <el-icon><Refresh /></el-icon>
+              </el-button>
+            </el-tooltip>
+          </div>
+
+          <div class="info-grid data-overview-grid">
+            <div class="info-item">
+              <span>登录账号</span>
+              <strong>{{ userInfo?.username || '--' }}</strong>
+            </div>
+            <div class="info-item">
+              <span>当前身份</span>
+              <strong>{{ roleText }}</strong>
+            </div>
+            <div class="info-item">
+              <span>简历诊断次数</span>
+              <strong>{{ growthSummary.resumeDiagnosisCount }}</strong>
+            </div>
+            <div class="info-item">
+              <span>模拟面试次数</span>
+              <strong>{{ growthSummary.mockInterviewCount }}</strong>
+            </div>
+            <div class="info-item">
+              <span>JD 匹配次数</span>
+              <strong>{{ growthSummary.jobMatchCount }}</strong>
+            </div>
+            <div class="info-item">
+              <span>AI 润色次数</span>
+              <strong>{{ growthSummary.polishCount }}</strong>
+            </div>
+          </div>
+
+          <div v-if="growthOverviewError" class="inline-warning">
+            {{ growthOverviewError }}
+          </div>
+
+          <div class="preference-list">
+            <div class="preference-row">
+              <div>
+                <strong>清空本地缓存</strong>
+                <span>仅清理设置偏好、主题偏好和通知筛选缓存；不会清理用户登录态或管理端登录态。</span>
+              </div>
+              <el-button type="warning" plain @click="handleClearLocalCacheConfirm">
+                清空本地缓存
+              </el-button>
+            </div>
+            <div class="preference-row data-retention-row">
+              <div>
+                <strong>数据保留说明</strong>
+                <span>当前页面只管理浏览器本机偏好。账号数据、面试记录、简历诊断记录仍由服务端按现有策略保留；真实删除和自动清理待后端能力接入。</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section v-show="activeSection === 'dataManagement'" class="settings-panel" aria-labelledby="data-management-title">
+          <div class="panel-heading">
+            <div>
+              <h2 id="data-management-title">数据管理</h2>
+              <p>管理历史记录清理偏好；真实批量删除能力待后端接口接入。</p>
+            </div>
+          </div>
+
+          <div class="preference-list">
+            <div class="preference-row danger-row">
+              <div>
+                <strong>面试记录清理</strong>
+                <span>批量清理当前账号下的历史面试会话、聊天记录和岗位定向上下文。</span>
+              </div>
+              <el-button type="danger" plain :loading="interviewHistoryClearing" @click="handleInterviewHistoryClearConfirm">
+                清理记录
+              </el-button>
+            </div>
+            <div class="preference-row danger-row">
+              <div>
+                <strong>简历诊断清理</strong>
+                <span>批量清理当前账号下的简历诊断、JD 匹配、AI 润色记录和上传文件。</span>
+              </div>
+              <el-button type="danger" plain :loading="resumeHistoryClearing" @click="handleResumeHistoryClearConfirm">
+                清理记录
+              </el-button>
+            </div>
+            <div class="preference-row stacked">
+              <div>
+                <strong>面试记录保留天数</strong>
+                <span>{{ retentionPreferenceText }}</span>
+              </div>
+              <el-select
+                v-model="interviewPreferenceForm.interviewRetentionDays"
+                class="preference-select"
+                @change="handleInterviewPreferenceSave"
+              >
+                <el-option
+                  v-for="item in retentionDayOptions"
+                  :key="item.value"
+                  :label="item.label"
+                  :value="item.value"
+                />
+              </el-select>
+            </div>
+          </div>
         </section>
 
         <section v-show="activeSection === 'appearance'" class="settings-panel" aria-labelledby="appearance-title">
@@ -299,15 +533,23 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { Bell, Brush, Memo, Lock, Star, User } from '@element-plus/icons-vue'
-import { updatePassword, updateSecurityQuestion } from '@/api/auth'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Bell, Brush, DataAnalysis, FolderDelete, Memo, Lock, Refresh, Setting, Star, User } from '@element-plus/icons-vue'
+import { deleteAccount, updatePassword, updateSecurityQuestion } from '@/api/auth'
+import { getGrowthOverview } from '@/api/growth'
+import { clearInterviewHistory, getInterviewJobRoles } from '@/api/interview'
 import { getMembershipPlans } from '@/api/membership'
+import { clearResumeHistory } from '@/api/resume'
 import OnboardingGuide from '@/components/OnboardingGuide.vue'
+import { FEEDBACK_MODE_OPTIONS, INTERVIEW_MODE_OPTIONS } from '@/constants/interview'
 import { useThemeStore } from '@/stores/theme'
 import { useUserStore } from '@/stores/user'
 import { removeToken } from '@/utils/auth'
-import { getSettingsPreferences, saveSettingsPreferences } from '@/utils/settingsPreferences'
+import {
+  clearLocalSettingsCache,
+  getSettingsPreferences,
+  saveSettingsPreferences
+} from '@/utils/settingsPreferences'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -320,10 +562,16 @@ const passwordFormRef = ref(null)
 const securityFormRef = ref(null)
 const passwordSaving = ref(false)
 const securitySaving = ref(false)
+const accountDeleting = ref(false)
+const interviewHistoryClearing = ref(false)
+const resumeHistoryClearing = ref(false)
 
 const sections = [
   { key: 'profile', label: '账号资料', icon: User },
+  { key: 'interview', label: '面试偏好', icon: Setting },
   { key: 'security', label: '账号安全', icon: Lock },
+  { key: 'privacy', label: '隐私与数据', icon: DataAnalysis },
+  { key: 'dataManagement', label: '数据管理', icon: FolderDelete },
   { key: 'appearance', label: '外观偏好', icon: Brush },
   { key: 'notification', label: '通知偏好', icon: Bell },
   { key: 'onboarding', label: '新手引导', icon: Memo },
@@ -341,6 +589,10 @@ const displayName = computed(() => userInfo.value?.nickname || userInfo.value?.u
 const isVipUser = computed(() => userStore.isVip())
 const isAdmin = computed(() => userInfo.value?.role === 9)
 const membershipPlans = ref([])
+const interviewJobOptions = ref([])
+const growthOverview = ref(null)
+const growthOverviewLoading = ref(false)
+const growthOverviewError = ref('')
 
 const roleText = computed(() => {
   if (isAdmin.value) return '管理员'
@@ -398,9 +650,49 @@ const membershipPlanText = computed(() => {
 const passwordForm = ref({ oldPassword: '', newPassword: '', confirmPassword: '' })
 const securityForm = ref({ oldPassword: '', securityQuestion: '', securityAnswer: '' })
 const notificationForm = ref(getSettingsPreferences())
+const interviewPreferenceForm = ref(getSettingsPreferences())
 
 const themeChoice = ref(themeStore.followSystem ? 'system' : themeStore.manualTheme)
 const resolvedThemeText = computed(() => themeStore.resolvedTheme === 'dark' ? '暗色' : '亮色')
+
+const difficultyPreferenceOptions = [
+  { label: '初级', value: 'primary' },
+  { label: '中级', value: 'intermediate' },
+  { label: '高级', value: 'advanced' }
+]
+
+const interviewModeOptions = INTERVIEW_MODE_OPTIONS
+const feedbackModeOptions = FEEDBACK_MODE_OPTIONS
+const responseDetailOptions = [
+  { label: '简洁', value: 'concise' },
+  { label: '标准', value: 'standard' },
+  { label: '详细', value: 'detailed' }
+]
+const retentionDayOptions = [
+  { label: '不自动清理', value: 0 },
+  { label: '保留 30 天', value: 30 },
+  { label: '保留 90 天', value: 90 },
+  { label: '保留 180 天', value: 180 },
+  { label: '保留 365 天', value: 365 }
+]
+
+const growthSummary = computed(() => {
+  const summary = growthOverview.value?.summary || {}
+  return {
+    resumeDiagnosisCount: Number(summary.resumeDiagnosisCount ?? 0),
+    mockInterviewCount: Number(summary.mockInterviewCount ?? 0),
+    jobMatchCount: Number(summary.jobMatchCount ?? 0),
+    polishCount: Number(summary.polishCount ?? 0)
+  }
+})
+
+const retentionPreferenceText = computed(() => {
+  const days = Number(interviewPreferenceForm.value.interviewRetentionDays || 0)
+  if (!days) {
+    return '当前偏好为不自动清理。服务端自动清理能力待后端接入。'
+  }
+  return `当前浏览器记录偏好为保留 ${days} 天；真正自动清理历史记录需后端后续接入。`
+})
 
 const validateConfirmPassword = (rule, value, callback) => {
   if (value !== passwordForm.value.newPassword) {
@@ -441,6 +733,41 @@ const securityQuestionOptions = [
   '你高中学校的名称是什么？',
   '你最好的朋友叫什么名字？'
 ]
+
+const syncPreferenceForms = (preferences) => {
+  const nextPreferences = { ...preferences }
+  notificationForm.value = nextPreferences
+  interviewPreferenceForm.value = { ...nextPreferences }
+}
+
+const fetchInterviewJobOptions = async () => {
+  try {
+    const res = await getInterviewJobRoles()
+    const rawList = Array.isArray(res?.data) ? res.data : []
+    interviewJobOptions.value = rawList.map((item) => ({
+      label: item.roleName,
+      value: item.roleCode || item.roleName,
+      roleCode: item.roleCode || '',
+      roleName: item.roleName
+    }))
+  } catch {
+    interviewJobOptions.value = []
+  }
+}
+
+const fetchGrowthOverview = async () => {
+  growthOverviewLoading.value = true
+  growthOverviewError.value = ''
+  try {
+    const res = await getGrowthOverview()
+    growthOverview.value = res?.data || null
+  } catch (err) {
+    growthOverview.value = null
+    growthOverviewError.value = err?.message || '账号数据概览暂时无法加载，请稍后重试。'
+  } finally {
+    growthOverviewLoading.value = false
+  }
+}
 
 const resetPasswordForm = () => {
   passwordForm.value = { oldPassword: '', newPassword: '', confirmPassword: '' }
@@ -509,6 +836,97 @@ const handleSecuritySave = async () => {
   }
 }
 
+const handleAccountDelete = async (oldPassword) => {
+  accountDeleting.value = true
+  try {
+    await deleteAccount({ oldPassword })
+    ElMessage.success('账号已注销')
+    removeToken()
+    userStore.clearUserInfo()
+    router.push('/login')
+  } finally {
+    accountDeleting.value = false
+  }
+}
+
+const handleAccountDeleteConfirm = async () => {
+  try {
+    const { value } = await ElMessageBox.prompt(
+      '注销后将清理账号及关联业务数据。请输入当前密码确认操作。',
+      '账号注销确认',
+      {
+        confirmButtonText: '确认注销',
+        cancelButtonText: '取消',
+        type: 'error',
+        inputType: 'password',
+        inputPlaceholder: '当前密码',
+        inputValidator: (value) => Boolean(value && value.trim()) || '请输入当前密码'
+      }
+    )
+    await handleAccountDelete(value.trim())
+  } catch {
+    // 用户取消或接口失败时不清理登录态；接口失败的错误提示由请求层展示。
+  }
+}
+
+const handleInterviewHistoryClear = async () => {
+  interviewHistoryClearing.value = true
+  try {
+    const res = await clearInterviewHistory()
+    const deletedCount = Number(res?.data?.deletedCount ?? 0)
+    ElMessage.success(`已清理 ${deletedCount} 条面试记录`)
+    await fetchGrowthOverview()
+  } finally {
+    interviewHistoryClearing.value = false
+  }
+}
+
+const handleInterviewHistoryClearConfirm = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '将清理当前账号下的全部历史面试会话和聊天记录，操作不可恢复。',
+      '清理面试记录',
+      {
+        confirmButtonText: '确认清理',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    await handleInterviewHistoryClear()
+  } catch {
+    // 用户取消或接口失败时保留现有页面状态。
+  }
+}
+
+const handleResumeHistoryClear = async () => {
+  resumeHistoryClearing.value = true
+  try {
+    const res = await clearResumeHistory()
+    const deletedCount = Number(res?.data?.deletedCount ?? 0)
+    ElMessage.success(`已清理 ${deletedCount} 条简历诊断记录`)
+    await fetchGrowthOverview()
+  } finally {
+    resumeHistoryClearing.value = false
+  }
+}
+
+const handleResumeHistoryClearConfirm = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '将清理当前账号下的全部简历诊断、JD 匹配、AI 润色记录和上传文件，操作不可恢复。',
+      '清理简历诊断记录',
+      {
+        confirmButtonText: '确认清理',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    await handleResumeHistoryClear()
+  } catch {
+    // 用户取消或接口失败时保留现有页面状态。
+  }
+}
+
 const handleThemeChange = (value) => {
   themeChoice.value = value
   if (value === 'system') {
@@ -519,12 +937,50 @@ const handleThemeChange = (value) => {
 }
 
 const handleNotificationPreferenceSave = () => {
-  notificationForm.value = saveSettingsPreferences(notificationForm.value)
+  syncPreferenceForms(saveSettingsPreferences(notificationForm.value))
+}
+
+const handleInterviewPreferenceSave = () => {
+  syncPreferenceForms(saveSettingsPreferences(interviewPreferenceForm.value))
+}
+
+const handleDefaultJobChange = (value) => {
+  const matchedJob = interviewJobOptions.value.find((item) => item.value === value)
+  interviewPreferenceForm.value.defaultInterviewJobRole = matchedJob?.roleName || ''
+  interviewPreferenceForm.value.defaultInterviewJobRoleCode = matchedJob?.roleCode || ''
+  handleInterviewPreferenceSave()
+}
+
+const handleClearLocalCache = () => {
+  // 清理范围只覆盖本机设置缓存，不能触碰登录 token，避免“清缓存”变成隐式退出登录。
+  const defaults = clearLocalSettingsCache()
+  syncPreferenceForms(defaults)
+  themeChoice.value = 'light'
+  ElMessage.success('本地设置缓存已清空，登录状态已保留')
+}
+
+const handleClearLocalCacheConfirm = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '将清理设置偏好、主题偏好和通知筛选缓存，不会退出当前账号。',
+      '清空本地缓存',
+      {
+        confirmButtonText: '确认清空',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    handleClearLocalCache()
+  } catch {
+    // 用户取消清理时不需要额外提示，避免干扰设置页操作。
+  }
 }
 
 onMounted(async () => {
   const tasks = []
   if (!userStore.userInfo) tasks.push(userStore.fetchUserInfo())
+  tasks.push(fetchInterviewJobOptions())
+  tasks.push(fetchGrowthOverview())
   tasks.push(
     getMembershipPlans().then((res) => {
       membershipPlans.value = Array.isArray(res?.data) ? res.data : []
@@ -920,6 +1376,14 @@ onMounted(async () => {
   align-items: flex-start;
 }
 
+.preference-row.danger-row {
+  background: color-mix(in srgb, var(--bg-card) 92%, #f56c6c 8%);
+}
+
+.data-retention-row {
+  align-items: flex-start;
+}
+
 .preference-row strong,
 .preference-row span {
   display: block;
@@ -940,6 +1404,60 @@ onMounted(async () => {
 .notification-type-select {
   width: 220px;
   flex-shrink: 0;
+}
+
+.preference-select {
+  width: 260px;
+  flex-shrink: 0;
+}
+
+.danger-zone {
+  margin-top: 24px;
+  border: 1px solid color-mix(in srgb, var(--border-card) 72%, #f56c6c 28%);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.data-overview-refresh-btn {
+  transition: background-color 0.25s, border-color 0.25s, box-shadow 0.25s;
+}
+
+.data-overview-refresh-btn:hover {
+  border-color: var(--orange-main);
+  color: var(--orange-main);
+  box-shadow: 0 0 0 3px rgba(255, 140, 66, 0.1);
+}
+
+.data-overview-refresh-btn .el-icon {
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.data-overview-refresh-btn:hover .el-icon {
+  transform: rotate(60deg);
+}
+
+.data-overview-refresh-btn.is-refreshing .el-icon {
+  animation: data-overview-spin 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) infinite;
+}
+
+@keyframes data-overview-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.data-overview-grid {
+  margin-bottom: 18px;
+}
+
+.inline-warning {
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--orange-border);
+  border-radius: 10px;
+  background: var(--orange-light-bg);
+  color: var(--orange-deep);
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .quota-grid {
@@ -987,6 +1505,10 @@ onMounted(async () => {
   }
 
   .notification-type-select {
+    width: 100%;
+  }
+
+  .preference-select {
     width: 100%;
   }
 

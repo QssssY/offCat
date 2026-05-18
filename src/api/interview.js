@@ -107,3 +107,14 @@ export function getInterviewHistory(params = { pageNum: 1, pageSize: 5 }) {
     params
   })
 }
+
+/**
+ * 清理当前用户的全部面试历史记录。
+ * @returns {Promise}
+ */
+export function clearInterviewHistory() {
+  return request({
+    url: '/api/interview/history',
+    method: 'delete'
+  })
+}

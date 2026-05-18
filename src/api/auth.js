@@ -114,3 +114,17 @@ export function updateSecurityQuestion(data) {
     data
   })
 }
+
+/**
+ * 注销当前账号
+ * @param {Object} data - 注销确认参数
+ * @param {string} data.oldPassword - 当前登录密码
+ * @returns {Promise}
+ */
+export function deleteAccount(data) {
+  return request({
+    url: '/api/user/account/delete',
+    method: 'post',
+    data
+  })
+}
