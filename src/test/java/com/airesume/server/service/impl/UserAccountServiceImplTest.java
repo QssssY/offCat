@@ -8,6 +8,7 @@ import com.airesume.server.mapper.UserNotificationMapper;
 import com.airesume.server.mapper.UserOnboardingStateMapper;
 import com.airesume.server.mapper.UserQuotaMapper;
 import com.airesume.server.service.InterviewService;
+import com.airesume.server.service.NotificationService;
 import com.airesume.server.service.ResumeDiagnosisTaskService;
 import com.airesume.server.service.SysUserService;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,6 +31,7 @@ class UserAccountServiceImplTest {
     @Mock private PasswordEncoder passwordEncoder;
     @Mock private InterviewService interviewService;
     @Mock private ResumeDiagnosisTaskService resumeDiagnosisTaskService;
+    @Mock private NotificationService notificationService;
     @Mock private UserNotificationMapper userNotificationMapper;
     @Mock private UserQuotaMapper userQuotaMapper;
     @Mock private UserOnboardingStateMapper userOnboardingStateMapper;
@@ -44,6 +46,7 @@ class UserAccountServiceImplTest {
                 passwordEncoder,
                 interviewService,
                 resumeDiagnosisTaskService,
+                notificationService,
                 userNotificationMapper,
                 userQuotaMapper,
                 userOnboardingStateMapper);
