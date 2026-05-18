@@ -38,6 +38,12 @@ public class ReceivedInteractionVO {
     /** 回复总数 */
     private Integer totalReplies;
 
+    /** 收到的收藏列表（别人收藏了我的帖子） */
+    private List<FavoriteItem> favorites;
+
+    /** 收藏总数 */
+    private Integer totalFavorites;
+
     /**
      * 点赞条目
      */
@@ -89,6 +95,24 @@ public class ReceivedInteractionVO {
         private String replyContent;
         /** 被回复的原评论内容 */
         private String parentCommentContent;
+        @JsonSerialize(using = ToStringSerializer.class)
+        private Long postId;
+        private String postContent;
+        private String postCategory;
+        private LocalDateTime createTime;
+    }
+
+    /**
+     * 收藏条目（别人收藏了我的帖子）
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class FavoriteItem {
+        @JsonSerialize(using = ToStringSerializer.class)
+        private Long userId;
+        private String userName;
         @JsonSerialize(using = ToStringSerializer.class)
         private Long postId;
         private String postContent;

@@ -2,6 +2,7 @@ SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
 
 DROP TABLE IF EXISTS `community_comment`;
+DROP TABLE IF EXISTS `community_post_favorite`;
 DROP TABLE IF EXISTS `community_post_like`;
 DROP TABLE IF EXISTS `community_post`;
 DROP TABLE IF EXISTS `user_notification`;
@@ -420,6 +421,21 @@ CREATE TABLE `community_post_like` (
   CONSTRAINT `fk_community_post_like_post_id` FOREIGN KEY (`post_id`) REFERENCES `community_post` (`id`),
   CONSTRAINT `fk_community_post_like_user_id` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='社区帖子点赞表';
+
+CREATE TABLE `community_post_favorite` (
+  `id` BIGINT NOT NULL COMMENT '主键',
+  `post_id` BIGINT NOT NULL COMMENT '帖子ID',
+  `user_id` BIGINT NOT NULL COMMENT '收藏用户ID',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除标志',
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `uk_post_favorite_user` (`post_id`, `user_id`),
+  INDEX `idx_community_post_favorite_user_id` (`user_id`),
+  INDEX `idx_community_post_favorite_create_time` (`create_time`),
+  CONSTRAINT `fk_community_post_favorite_post_id` FOREIGN KEY (`post_id`) REFERENCES `community_post` (`id`),
+  CONSTRAINT `fk_community_post_favorite_user_id` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='社区帖子收藏表';
 
 INSERT INTO `membership_plan` (`id`, `plan_code`, `plan_name`, `description`, `price_amount`, `duration_days`, `resume_quota`, `interview_quota`, `status`, `sort`)
 VALUES

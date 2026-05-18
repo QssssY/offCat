@@ -54,6 +54,9 @@ public class CommunityController {
         if ("liked".equals(filter)) {
             log.info("[社区] 查询点赞过的帖子, userId: {}, pageNum: {}", userId, pageNum);
             result = communityService.listLikedPosts(userId, pageNum, pageSize);
+        } else if ("favorited".equals(filter)) {
+            log.info("[社区] 查询收藏的帖子, userId: {}, pageNum: {}", userId, pageNum);
+            result = communityService.listFavoritedPosts(userId, pageNum, pageSize);
         } else if ("commented".equals(filter)) {
             log.info("[社区] 查询评论过的帖子, userId: {}, pageNum: {}", userId, pageNum);
             result = communityService.listCommentedPosts(userId, pageNum, pageSize);
@@ -130,6 +133,23 @@ public class CommunityController {
         log.info("[社区] 切换点赞, userId: {}, postId: {}", userId, postId);
         boolean liked = communityService.toggleLike(userId, postId);
         return Result.success(liked);
+    }
+
+    /**
+     * 收藏/取消收藏（幂等操作）
+     *
+     * @param authentication 当前登录用户身份
+     * @param postId         帖子ID
+     * @return 操作后的收藏状态
+     */
+    @PostMapping("/posts/{postId}/favorite")
+    public Result<Boolean> toggleFavorite(
+            Authentication authentication,
+            @PathVariable Long postId) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("[社区] 切换收藏, userId: {}, postId: {}", userId, postId);
+        boolean favorited = communityService.toggleFavorite(userId, postId);
+        return Result.success(favorited);
     }
 
     /**
