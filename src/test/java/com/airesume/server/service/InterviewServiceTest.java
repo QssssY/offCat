@@ -339,12 +339,40 @@ class InterviewServiceTest {
         InterviewChatLog latestMessage = buildChatLog(99L, sessionId, "user", content, 5);
 
         when(interviewSessionRepository.findBySessionIdAndUserId(sessionId, userId)).thenReturn(Optional.of(session));
-        when(interviewMessageRepository.findFirstBySessionIdOrderByCreateTimeDesc(sessionId))
+        when(interviewMessageRepository.findFirstBySessionIdAndIsDeletedOrderByCreateTimeDesc(sessionId, 0))
                 .thenReturn(Optional.of(latestMessage));
 
         interviewService.saveUserMessage(sessionId, userId, content);
 
         verify(interviewMessageRepository, never()).save(any(InterviewChatLog.class));
+    }
+
+    @Test
+    void shouldClearOwnedInterviewHistoryWithRelatedRecords() {
+        Long userId = 123L;
+        List<String> sessionIds = List.of("session-a", "session-b");
+        when(interviewSessionRepository.findActiveSessionIdsByUserId(userId)).thenReturn(sessionIds);
+        when(interviewSessionRepository.logicalDeleteByUserId(eq(userId), any(LocalDateTime.class))).thenReturn(2);
+
+        int deletedCount = interviewService.clearHistory(userId);
+
+        assertEquals(2, deletedCount);
+        verify(interviewMessageRepository).logicalDeleteBySessionIdIn(eq(sessionIds), any(LocalDateTime.class));
+        verify(mockInterviewJobTargetService).logicalDeleteByUserId(userId);
+        verify(interviewSessionRepository).logicalDeleteByUserId(eq(userId), any(LocalDateTime.class));
+    }
+
+    @Test
+    void shouldReturnZeroWhenNoInterviewHistoryToClear() {
+        Long userId = 123L;
+        when(interviewSessionRepository.findActiveSessionIdsByUserId(userId)).thenReturn(List.of());
+
+        int deletedCount = interviewService.clearHistory(userId);
+
+        assertEquals(0, deletedCount);
+        verify(interviewMessageRepository, never()).logicalDeleteBySessionIdIn(any(), any());
+        verify(mockInterviewJobTargetService, never()).logicalDeleteByUserId(anyLong());
+        verify(interviewSessionRepository, never()).logicalDeleteByUserId(anyLong(), any());
     }
 
     @Test

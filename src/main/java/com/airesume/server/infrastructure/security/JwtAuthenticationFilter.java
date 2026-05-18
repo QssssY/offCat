@@ -1,5 +1,7 @@
 package com.airesume.server.infrastructure.security;
 
+import com.airesume.server.entity.SysUser;
+import com.airesume.server.service.SysUserService;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -25,6 +27,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtUtil jwtUtil;
     private final JwtProperties jwtProperties;
+    private final SysUserService sysUserService;
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
@@ -47,6 +50,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 Long userId = jwtUtil.getUserIdFromToken(token);
                 String username = jwtUtil.getUsernameFromToken(token);
                 Integer role = jwtUtil.getRoleFromToken(token);
+                SysUser user = sysUserService.getById(userId);
+                // 注销或禁用账号即使 token 未过期，也不能继续写入认证上下文。
+                if (user == null
+                        || Integer.valueOf(1).equals(user.getIsDeleted())
+                        || !Integer.valueOf(1).equals(user.getStatus())) {
+                    filterChain.doFilter(request, response);
+                    return;
+                }
 
                 String roleName = getRoleName(role);
                 UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(

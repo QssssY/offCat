@@ -397,6 +397,23 @@ public class InterviewService {
     }
 
     /**
+     * 清理当前用户的全部面试历史。
+     * 主记录按会话数计数，聊天记录和岗位定向上下文同步逻辑删除，避免历史页和详情页继续读到旧数据。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public int clearHistory(Long userId) {
+        List<String> sessionIds = interviewSessionRepository.findActiveSessionIdsByUserId(userId);
+        if (sessionIds == null || sessionIds.isEmpty()) {
+            return 0;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        interviewMessageRepository.logicalDeleteBySessionIdIn(sessionIds, now);
+        mockInterviewJobTargetService.logicalDeleteByUserId(userId);
+        return interviewSessionRepository.logicalDeleteByUserId(userId, now);
+    }
+
+    /**
      * 流式发送前统一拉取历史并校验状态。
      */
     public List<InterviewChatLog> getChatLogsForStream(String sessionId, Long userId) {
@@ -427,7 +444,7 @@ public class InterviewService {
 
         // 流式回答断线后可能重复请求同一条消息；若最新一条仍是相同用户消息，则直接跳过，避免重复落库。
         InterviewChatLog latestMessage = interviewMessageRepository
-                .findFirstBySessionIdOrderByCreateTimeDesc(sessionId)
+                .findFirstBySessionIdAndIsDeletedOrderByCreateTimeDesc(sessionId, 0)
                 .orElse(null);
         if (latestMessage != null
                 && InterviewConstants.ROLE_USER.equalsIgnoreCase(latestMessage.getMessageRole())

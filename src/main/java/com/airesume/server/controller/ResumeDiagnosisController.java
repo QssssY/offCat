@@ -9,6 +9,7 @@ import com.airesume.server.dto.resume.ResumeJobMatchAnalyzeRequest;
 import com.airesume.server.dto.resume.ResumeJobMatchAnalyzeResponse;
 import com.airesume.server.dto.resume.ResumePolishAnalyzeRequest;
 import com.airesume.server.dto.resume.ResumePolishAnalyzeResponse;
+import com.airesume.server.dto.user.DataCleanupResponse;
 import com.airesume.server.service.ResumeDiagnosisTaskService;
 import com.airesume.server.service.ResumeJobMatchService;
 import com.airesume.server.service.ResumePolishService;
@@ -21,6 +22,7 @@ import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -103,6 +105,17 @@ public class ResumeDiagnosisController {
         PageResult<ResumeDiagnosisHistoryResponse> history =
                 resumeDiagnosisTaskService.getHistoryByUserId(userId, pageNum, pageSize);
         return Result.success(history);
+    }
+
+    /**
+     * 清理当前用户的全部简历诊断历史及衍生记录。
+     */
+    @DeleteMapping("/history")
+    public Result<DataCleanupResponse> clearHistory(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("Clear resume history request, userId: {}", userId);
+        int deletedCount = resumeDiagnosisTaskService.clearHistory(userId);
+        return Result.success(new DataCleanupResponse(deletedCount));
     }
 
     /**

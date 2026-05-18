@@ -9,6 +9,8 @@ import com.airesume.server.dto.resume.ResumePolishAnalyzeResponse;
 import com.airesume.server.dto.resume.ResumeDiagnosisTaskResponse;
 import com.airesume.server.entity.ResumeDiagnosisTask;
 import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
+import com.airesume.server.mapper.ResumeJobMatchRecordMapper;
+import com.airesume.server.mapper.ResumePolishRecordMapper;
 import com.airesume.server.mq.DirectProcessRouter;
 import com.airesume.server.mq.ResumeDiagnosisProducer;
 import com.airesume.server.service.NotificationService;
@@ -55,6 +57,8 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
     private final NotificationService notificationService;
     private final ResumeJobMatchService resumeJobMatchService;
     private final ResumePolishService resumePolishService;
+    private final ResumeJobMatchRecordMapper resumeJobMatchRecordMapper;
+    private final ResumePolishRecordMapper resumePolishRecordMapper;
 
     /**
      * 手动构造器注入，@Lazy 打破 TaskServiceImpl ↔ DirectProcessRouter ↔ Processor ↔ TaskService 循环依赖
@@ -66,7 +70,9 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
             ResumeContentExtractor resumeContentExtractor,
             NotificationService notificationService,
             ResumeJobMatchService resumeJobMatchService,
-            ResumePolishService resumePolishService) {
+            ResumePolishService resumePolishService,
+            ResumeJobMatchRecordMapper resumeJobMatchRecordMapper,
+            ResumePolishRecordMapper resumePolishRecordMapper) {
         this.userQuotaService = userQuotaService;
         this.resumeDiagnosisProducer = resumeDiagnosisProducer;
         this.directProcessRouter = directProcessRouter;
@@ -74,6 +80,8 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
         this.notificationService = notificationService;
         this.resumeJobMatchService = resumeJobMatchService;
         this.resumePolishService = resumePolishService;
+        this.resumeJobMatchRecordMapper = resumeJobMatchRecordMapper;
+        this.resumePolishRecordMapper = resumePolishRecordMapper;
     }
 
     /**
@@ -483,5 +491,54 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
         }
         log.warn("孤儿任务回收完成, 共处理 {} 个任务", orphans.size());
         return orphans.size();
+    }
+
+    /**
+     * 清理当前用户的全部简历诊断历史。
+     * 先读取文件路径再逻辑删除主记录，确保上传文件清理不会因任务不可见而丢失路径来源。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "resume:task", allEntries = true)
+    public int clearHistory(Long userId) {
+        List<String> fileUrls = getBaseMapper().selectActiveFileUrlsByUserId(userId);
+        resumeJobMatchRecordMapper.logicalDeleteByUserId(userId);
+        resumePolishRecordMapper.logicalDeleteByUserId(userId);
+        int deletedCount = getBaseMapper().logicalDeleteByUserId(userId);
+
+        for (String fileUrl : fileUrls) {
+            deleteResumeFileIfExists(fileUrl);
+        }
+        return deletedCount;
+    }
+
+    /**
+     * 删除用户上传的简历文件。
+     * 文件路径必须解析到项目 uploads/resumes 目录内；文件不存在视为已经清理，不阻断数据库逻辑删除。
+     */
+    private void deleteResumeFileIfExists(String fileUrl) {
+        if (fileUrl == null || fileUrl.isBlank()) {
+            return;
+        }
+        Path uploadRoot = Paths.get(System.getProperty("user.dir"), "uploads", "resumes")
+                .toAbsolutePath()
+                .normalize();
+        String normalized = fileUrl.replace("\\", "/").trim();
+        String prefix = "/uploads/resumes/";
+        if (!normalized.startsWith(prefix)) {
+            throw new BusinessException("简历文件路径不合法");
+        }
+
+        Path resolvedPath = uploadRoot.resolve(normalized.substring(prefix.length())).normalize();
+        if (!resolvedPath.startsWith(uploadRoot)) {
+            throw new BusinessException("简历文件路径不合法");
+        }
+
+        try {
+            Files.deleteIfExists(resolvedPath);
+        } catch (Exception e) {
+            log.warn("删除简历上传文件失败, fileUrl: {}", fileUrl, e);
+            throw new BusinessException("简历文件清理失败");
+        }
     }
 }

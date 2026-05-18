@@ -120,7 +120,8 @@ public class GrowthServiceImpl implements GrowthService {
      */
     private List<InterviewSession> queryCompletedInterviewSessions(Long userId) {
         return interviewSessionRepository
-                .findTop10ByUserIdAndStatusAndComprehensiveScoreIsNotNullOrderByCreateTimeDesc(userId, INTERVIEW_STATUS_ENDED);
+                .findTop10ByUserIdAndStatusAndComprehensiveScoreIsNotNullAndIsDeletedOrderByCreateTimeDesc(
+                        userId, INTERVIEW_STATUS_ENDED, 0);
     }
 
     /**

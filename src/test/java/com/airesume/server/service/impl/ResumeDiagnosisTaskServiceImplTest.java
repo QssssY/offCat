@@ -1,16 +1,39 @@
 package com.airesume.server.service.impl;
 
 import com.airesume.server.common.exception.BusinessException;
+import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
+import com.airesume.server.mapper.ResumeJobMatchRecordMapper;
+import com.airesume.server.mapper.ResumePolishRecordMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
+@ExtendWith(MockitoExtension.class)
 class ResumeDiagnosisTaskServiceImplTest {
 
-    private final ResumeDiagnosisTaskServiceImpl service = new ResumeDiagnosisTaskServiceImpl(null, null, null, null, null, null, null);
+    @Mock private ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper;
+    @Mock private ResumeJobMatchRecordMapper resumeJobMatchRecordMapper;
+    @Mock private ResumePolishRecordMapper resumePolishRecordMapper;
+
+    private ResumeDiagnosisTaskServiceImpl service;
+
+    @BeforeEach
+    void setUp() {
+        service = new ResumeDiagnosisTaskServiceImpl(
+                null, null, null, null, null, null, null,
+                resumeJobMatchRecordMapper, resumePolishRecordMapper);
+        ReflectionTestUtils.setField(service, "baseMapper", resumeDiagnosisTaskMapper);
+    }
 
     @Test
     void sanitizeOriginalFilenameShouldStripPathTraversal() throws Exception {
@@ -92,5 +115,33 @@ class ResumeDiagnosisTaskServiceImplTest {
                 .getMethod("updateStatusToProcessing", Long.class);
         assertEquals(boolean.class, method.getReturnType(),
                 "updateStatusToProcessing must return boolean for claim check");
+    }
+
+    @Test
+    void shouldClearResumeHistoryAndRelatedRecords() {
+        Long userId = 123L;
+        when(resumeDiagnosisTaskMapper.selectActiveFileUrlsByUserId(userId)).thenReturn(List.of());
+        when(resumeDiagnosisTaskMapper.logicalDeleteByUserId(userId)).thenReturn(3);
+
+        int deletedCount = service.clearHistory(userId);
+
+        assertEquals(3, deletedCount);
+        verify(resumeJobMatchRecordMapper).logicalDeleteByUserId(userId);
+        verify(resumePolishRecordMapper).logicalDeleteByUserId(userId);
+        verify(resumeDiagnosisTaskMapper).logicalDeleteByUserId(userId);
+    }
+
+    @Test
+    void shouldRejectUnsafeResumeFilePathWhenClearingHistory() {
+        Long userId = 123L;
+        when(resumeDiagnosisTaskMapper.selectActiveFileUrlsByUserId(userId))
+                .thenReturn(List.of("/uploads/resumes/../../evil.pdf"));
+
+        BusinessException exception = assertThrows(BusinessException.class, () -> service.clearHistory(userId));
+
+        assertTrue(exception.getMessage().contains("路径不合法"));
+        verify(resumeJobMatchRecordMapper).logicalDeleteByUserId(userId);
+        verify(resumePolishRecordMapper).logicalDeleteByUserId(userId);
+        verify(resumeDiagnosisTaskMapper).logicalDeleteByUserId(userId);
     }
 }

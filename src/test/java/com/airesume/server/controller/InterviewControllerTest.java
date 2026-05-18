@@ -196,6 +196,17 @@ class InterviewControllerTest {
     }
 
     @Test
+    void clearHistoryShouldReturnDeletedCount() {
+        when(interviewService.clearHistory(1L)).thenReturn(2);
+
+        Result<com.airesume.server.dto.user.DataCleanupResponse> result = controller.clearHistory(authentication);
+
+        assertEquals(CODE_SUCCESS, result.getCode());
+        assertEquals(2, result.getData().getDeletedCount());
+        verify(interviewService).clearHistory(1L);
+    }
+
+    @Test
     void streamMessageShouldReturnEmitter() {
         String sessionId = "session-1";
         SendMessageRequest request = new SendMessageRequest();

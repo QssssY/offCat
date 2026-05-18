@@ -4,7 +4,10 @@ import com.airesume.server.entity.ResumeDiagnosisTask;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
+
+import java.util.List;
 
 /**
  * 简历诊断任务Mapper接口
@@ -32,4 +35,29 @@ public interface ResumeDiagnosisTaskMapper extends BaseMapper<ResumeDiagnosisTas
     int claimPendingTask(@Param("taskId") Long taskId,
                          @Param("pendingStatus") Integer pendingStatus,
                          @Param("processingStatus") Integer processingStatus);
+
+    /**
+     * 查询当前用户未删除的简历文件路径，用于清理服务端上传文件。
+     */
+    @Select("""
+            SELECT file_url
+            FROM resume_diagnosis_task
+            WHERE user_id = #{userId}
+              AND is_deleted = 0
+              AND file_url IS NOT NULL
+              AND file_url <> ''
+            """)
+    List<String> selectActiveFileUrlsByUserId(@Param("userId") Long userId);
+
+    /**
+     * 逻辑删除当前用户的简历诊断任务。
+     */
+    @Update("""
+            UPDATE resume_diagnosis_task
+            SET is_deleted = 1,
+                update_time = NOW()
+            WHERE user_id = #{userId}
+              AND is_deleted = 0
+            """)
+    int logicalDeleteByUserId(@Param("userId") Long userId);
 }

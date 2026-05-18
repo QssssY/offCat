@@ -9,6 +9,7 @@ import com.airesume.server.dto.interview.InterviewJobTargetContext;
 import com.airesume.server.dto.interview.InterviewSessionResponse;
 import com.airesume.server.dto.interview.SendMessageRequest;
 import com.airesume.server.dto.interview.SendMessageResponse;
+import com.airesume.server.dto.user.DataCleanupResponse;
 import com.airesume.server.entity.InterviewChatLog;
 import com.airesume.server.entity.InterviewSession;
 import com.airesume.server.entity.SysJobRole;
@@ -26,6 +27,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -228,6 +230,17 @@ public class InterviewController {
         log.info("获取面试历史, userId: {}, pageNum: {}, pageSize: {}", userId, pageNum, pageSize);
         PageResult<InterviewHistoryResponse> result = interviewService.getHistory(userId, pageNum, pageSize);
         return Result.success(result);
+    }
+
+    /**
+     * 清理当前用户的全部面试历史。
+     */
+    @DeleteMapping("/history")
+    public Result<DataCleanupResponse> clearHistory(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("清理面试历史, userId: {}", userId);
+        int deletedCount = interviewService.clearHistory(userId);
+        return Result.success(new DataCleanupResponse(deletedCount));
     }
 
     /**

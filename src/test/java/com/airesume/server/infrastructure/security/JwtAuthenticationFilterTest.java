@@ -1,5 +1,7 @@
 package com.airesume.server.infrastructure.security;
 
+import com.airesume.server.entity.SysUser;
+import com.airesume.server.service.SysUserService;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.FilterChain;
 import org.junit.jupiter.api.AfterEach;
@@ -29,6 +31,9 @@ class JwtAuthenticationFilterTest {
     @Mock
     private JwtProperties jwtProperties;
 
+    @Mock
+    private SysUserService sysUserService;
+
     @AfterEach
     void tearDown() {
         SecurityContextHolder.clearContext();
@@ -36,7 +41,7 @@ class JwtAuthenticationFilterTest {
 
     @Test
     void shouldAuthenticateAsyncDispatchRequest() throws Exception {
-        JwtAuthenticationFilter filter = new JwtAuthenticationFilter(jwtUtil, jwtProperties);
+        JwtAuthenticationFilter filter = new JwtAuthenticationFilter(jwtUtil, jwtProperties, sysUserService);
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/interview/session/123/message");
         request.setDispatcherType(DispatcherType.ASYNC);
         request.addHeader("Authorization", "Bearer valid-token");
@@ -49,6 +54,10 @@ class JwtAuthenticationFilterTest {
         when(jwtUtil.getUserIdFromToken("valid-token")).thenReturn(123L);
         when(jwtUtil.getUsernameFromToken("valid-token")).thenReturn("tester");
         when(jwtUtil.getRoleFromToken("valid-token")).thenReturn(0);
+        SysUser user = new SysUser();
+        user.setStatus(1);
+        user.setIsDeleted(0);
+        when(sysUserService.getById(123L)).thenReturn(user);
 
         filter.doFilter(request, response, filterChain);
 
@@ -60,7 +69,7 @@ class JwtAuthenticationFilterTest {
 
     @Test
     void shouldSkipErrorDispatchRequest() throws Exception {
-        JwtAuthenticationFilter filter = new JwtAuthenticationFilter(jwtUtil, jwtProperties);
+        JwtAuthenticationFilter filter = new JwtAuthenticationFilter(jwtUtil, jwtProperties, sysUserService);
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/interview/session/123/message");
         request.setDispatcherType(DispatcherType.ERROR);
         request.addHeader("Authorization", "Bearer ignored-token");
@@ -72,5 +81,30 @@ class JwtAuthenticationFilterTest {
         assertNull(SecurityContextHolder.getContext().getAuthentication());
         verify(filterChain).doFilter(request, response);
         verifyNoInteractions(jwtUtil);
+    }
+
+    @Test
+    void shouldRejectDisabledUserToken() throws Exception {
+        JwtAuthenticationFilter filter = new JwtAuthenticationFilter(jwtUtil, jwtProperties, sysUserService);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/interview/history");
+        request.addHeader("Authorization", "Bearer valid-token");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        FilterChain filterChain = mock(FilterChain.class);
+
+        when(jwtProperties.getHeader()).thenReturn("Authorization");
+        when(jwtProperties.getPrefix()).thenReturn("Bearer ");
+        when(jwtUtil.validateToken("valid-token")).thenReturn(true);
+        when(jwtUtil.getUserIdFromToken("valid-token")).thenReturn(123L);
+        when(jwtUtil.getUsernameFromToken("valid-token")).thenReturn("tester");
+        when(jwtUtil.getRoleFromToken("valid-token")).thenReturn(0);
+        SysUser user = new SysUser();
+        user.setStatus(0);
+        user.setIsDeleted(0);
+        when(sysUserService.getById(123L)).thenReturn(user);
+
+        filter.doFilter(request, response, filterChain);
+
+        assertNull(SecurityContextHolder.getContext().getAuthentication());
+        verify(filterChain).doFilter(request, response);
     }
 }

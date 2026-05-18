@@ -50,4 +50,10 @@ public interface MockInterviewJobTargetService extends IService<MockInterviewJob
      * 在面试结束后回写岗位定向反馈。
      */
     void updateFeedback(String sessionId, InterviewJobTargetedFeedback feedback);
+
+    /**
+     * 逻辑删除当前用户的岗位定向上下文。
+     * 用于面试记录清理和账号注销，不物理删除外键关联数据。
+     */
+    int logicalDeleteByUserId(Long userId);
 }

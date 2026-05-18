@@ -22,43 +22,50 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
     /**
      * 根据会话 ID 查询。
      */
-    Optional<InterviewSession> findBySessionId(String sessionId);
+    @Query("select s from InterviewSession s where s.sessionId = :sessionId and s.isDeleted = 0")
+    Optional<InterviewSession> findBySessionId(@Param("sessionId") String sessionId);
 
     /**
      * 根据会话 ID 和用户 ID 查询。
      */
-    Optional<InterviewSession> findBySessionIdAndUserId(String sessionId, Long userId);
+    @Query("select s from InterviewSession s where s.sessionId = :sessionId and s.userId = :userId and s.isDeleted = 0")
+    Optional<InterviewSession> findBySessionIdAndUserId(@Param("sessionId") String sessionId, @Param("userId") Long userId);
 
     /**
      * 根据用户 ID 查询所有会话（不分页）。
      */
-    List<InterviewSession> findByUserIdOrderByCreateTimeDesc(Long userId);
+    @Query("select s from InterviewSession s where s.userId = :userId and s.isDeleted = 0 order by s.createTime desc")
+    List<InterviewSession> findByUserIdOrderByCreateTimeDesc(@Param("userId") Long userId);
 
     /**
      * 根据用户 ID 分页查询会话。
      */
-    Page<InterviewSession> findByUserId(Long userId, Pageable pageable);
+    @Query("select s from InterviewSession s where s.userId = :userId and s.isDeleted = 0")
+    Page<InterviewSession> findByUserId(@Param("userId") Long userId, Pageable pageable);
 
     /**
      * 根据用户 ID 和状态查询。
      */
-    List<InterviewSession> findByUserIdAndStatusOrderByCreateTimeDesc(Long userId, Integer status);
+    @Query("select s from InterviewSession s where s.userId = :userId and s.status = :status and s.isDeleted = 0 order by s.createTime desc")
+    List<InterviewSession> findByUserIdAndStatusOrderByCreateTimeDesc(@Param("userId") Long userId, @Param("status") Integer status);
 
     /**
      * 根据用户 ID 统计会话数量。
      */
-    long countByUserId(Long userId);
+    @Query("select count(s) from InterviewSession s where s.userId = :userId and s.isDeleted = 0")
+    long countByUserId(@Param("userId") Long userId);
 
     /**
      * 根据用户 ID 和状态统计会话数量。
      */
-    long countByUserIdAndStatus(Long userId, Integer status);
+    @Query("select count(s) from InterviewSession s where s.userId = :userId and s.status = :status and s.isDeleted = 0")
+    long countByUserIdAndStatus(@Param("userId") Long userId, @Param("status") Integer status);
 
     /**
      * 更新会话状态。
      */
     @Modifying
-    @Query("UPDATE InterviewSession s SET s.status = :status, s.updateTime = :updateTime WHERE s.sessionId = :sessionId")
+    @Query("UPDATE InterviewSession s SET s.status = :status, s.updateTime = :updateTime WHERE s.sessionId = :sessionId AND s.isDeleted = 0")
     int updateStatus(
             @Param("sessionId") String sessionId,
             @Param("status") Integer status,
@@ -75,6 +82,7 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
              WHERE s.sessionId = :sessionId
                AND s.userId = :userId
                AND s.status = :expectedStatus
+               AND s.isDeleted = 0
             """)
     int updateStatusIfCurrentStatus(
             @Param("sessionId") String sessionId,
@@ -88,7 +96,7 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
      * 更新会话综合评分。
      */
     @Modifying
-    @Query("UPDATE InterviewSession s SET s.comprehensiveScore = :score, s.updateTime = :updateTime WHERE s.sessionId = :sessionId")
+    @Query("UPDATE InterviewSession s SET s.comprehensiveScore = :score, s.updateTime = :updateTime WHERE s.sessionId = :sessionId AND s.isDeleted = 0")
     int updateScore(
             @Param("sessionId") String sessionId,
             @Param("score") Integer score,
@@ -107,6 +115,7 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
                    s.updateTime = :updateTime
              WHERE s.sessionId = :sessionId
                AND (s.evaluationReport IS NULL OR s.evaluationReport = '')
+               AND s.isDeleted = 0
             """)
     int updateEvaluationReportIfAbsent(
             @Param("sessionId") String sessionId,
@@ -120,7 +129,7 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
      * 更新开场白生成状态。
      */
     @Modifying
-    @Query("UPDATE InterviewSession s SET s.openingGenerated = :openingGenerated, s.updateTime = :updateTime WHERE s.sessionId = :sessionId")
+    @Query("UPDATE InterviewSession s SET s.openingGenerated = :openingGenerated, s.updateTime = :updateTime WHERE s.sessionId = :sessionId AND s.isDeleted = 0")
     int updateOpeningGenerated(
             @Param("sessionId") String sessionId,
             @Param("openingGenerated") Integer openingGenerated,
@@ -131,5 +140,27 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
      * 查询用户已结束且有评分的面试会话（最近10条，按时间倒序）。
      * 用于个人成长中心的面试评分趋势展示。
      */
-    List<InterviewSession> findTop10ByUserIdAndStatusAndComprehensiveScoreIsNotNullOrderByCreateTimeDesc(Long userId, Integer status);
+    List<InterviewSession> findTop10ByUserIdAndStatusAndComprehensiveScoreIsNotNullAndIsDeletedOrderByCreateTimeDesc(
+            @Param("userId") Long userId,
+            @Param("status") Integer status,
+            @Param("isDeleted") Integer isDeleted);
+
+    /**
+     * 查询当前用户未删除的会话 ID，用于同步清理聊天记录和岗位定向上下文。
+     */
+    @Query("select s.sessionId from InterviewSession s where s.userId = :userId and s.isDeleted = 0")
+    List<String> findActiveSessionIdsByUserId(@Param("userId") Long userId);
+
+    /**
+     * 逻辑删除当前用户所有面试会话。
+     */
+    @Modifying
+    @Query("""
+            UPDATE InterviewSession s
+               SET s.isDeleted = 1,
+                   s.updateTime = :updateTime
+             WHERE s.userId = :userId
+               AND s.isDeleted = 0
+            """)
+    int logicalDeleteByUserId(@Param("userId") Long userId, @Param("updateTime") LocalDateTime updateTime);
 }

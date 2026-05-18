@@ -97,4 +97,12 @@ public interface ResumeDiagnosisTaskService extends IService<ResumeDiagnosisTask
      * @return 回收的任务数量
      */
     int recoverOrphanedTasks(int timeoutMinutes);
+
+    /**
+     * 清理当前用户的全部简历诊断历史及其衍生记录。
+     *
+     * @param userId 当前登录用户 ID
+     * @return 清理的简历诊断任务数量
+     */
+    int clearHistory(Long userId);
 }
