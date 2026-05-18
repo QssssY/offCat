@@ -22,7 +22,7 @@ export function getOnboardingStatus() {
 export function updateOnboardingStatus(data) {
   return request({
     url: '/api/user/onboarding/status',
-    method: 'post',
+    method: 'put',
     data
   })
 }

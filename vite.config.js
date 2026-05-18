@@ -2,8 +2,18 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
 
+/// <reference types="vitest" />
 export default defineConfig({
   plugins: [vue()],
+  test: {
+    environment: 'happy-dom',
+    include: ['src/**/*.{test,spec}.{js,ts}'],
+    server: {
+      deps: {
+        inline: ['element-plus']
+      }
+    }
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url))

@@ -51,7 +51,6 @@ async function loadTemplateStyle(id) {
     const styleModule = await import(`@/data/styles/${id}.css?raw`)
     templateStyle.value = styleModule.default
   } catch (e) {
-    console.warn(`加载模板样式失败: ${id}`, e)
     templateStyle.value = ''
   }
 }

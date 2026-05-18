@@ -104,6 +104,10 @@
               <span class="info-label">消息数</span>
               <span class="info-value">{{ item.messageCount || 0 }}</span>
             </div>
+            <div class="info-item" v-if="item.feedbackMode">
+              <span class="info-label">反馈</span>
+              <span class="info-value">{{ getFeedbackModeText(item) }}</span>
+            </div>
           </div>
         </div>
 
@@ -143,6 +147,7 @@ import { useRouter } from "vue-router";
 import { CircleClose } from "@element-plus/icons-vue";
 import { getInterviewHistory } from "@/api/interview";
 import InterviewEmpty from "@/components/empty/InterviewEmpty.vue";
+import { DIFFICULTY_TAG_MAP, getFeedbackModeLabel, getInterviewModeLabel } from '@/constants/interview'
 
 const router = useRouter();
 
@@ -153,17 +158,7 @@ const pageNum = ref(1);
 const pageSize = ref(5);
 const total = ref(0);
 
-const difficultyMap = {
-  1: { text: "初级", type: "success" },
-  2: { text: "中级", type: "warning" },
-  3: { text: "高级", type: "danger" },
-};
-
-const interviewModeMap = {
-  normal: "普通面试",
-  stress: "压力面试",
-  job_targeted: "岗位定向模拟",
-};
+const difficultyMap = DIFFICULTY_TAG_MAP
 
 const statusMap = {
   0: { text: "进行中", type: "warning" },
@@ -187,12 +182,13 @@ const getDifficultyText = (item) => item.difficultyDesc || difficultyMap[item.di
 const getDifficultyType = (item) => difficultyMap[item.difficulty]?.type || "info";
 const getModeText = (item) => {
   if (item?.jobTargeted) {
-    return item.interviewModeDesc || interviewModeMap.job_targeted;
+    return item.interviewModeDesc || getInterviewModeLabel("job_targeted");
   }
-  return item.interviewModeDesc || interviewModeMap[item.interviewMode] || "普通面试";
+  return item.interviewModeDesc || getInterviewModeLabel(item.interviewMode);
 };
 const getStatusText = (item) => item.statusDesc || statusMap[item.status]?.text || "未知";
 const getStatusType = (item) => statusMap[item.status]?.type || "info";
+const getFeedbackModeText = (item) => getFeedbackModeLabel(item?.feedbackMode);
 
 const formatTime = (timeStr) => {
   if (!timeStr) return "";

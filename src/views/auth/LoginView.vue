@@ -309,7 +309,8 @@ const registerRules = {
   ],
   password: [
     { required: true, message: "请输入密码", trigger: "blur" },
-    { min: 6, max: 100, message: "密码长度为 6-100 个字符", trigger: "blur" }
+    { min: 6, max: 100, message: "密码长度为 6-100 个字符", trigger: "blur" },
+    { pattern: /^(?=.*[a-zA-Z])(?=.*\d).+$/, message: "密码必须包含字母和数字", trigger: "blur" }
   ],
   confirmPassword: [
     { required: true, message: "请再次输入密码", trigger: "blur" },
@@ -390,6 +391,12 @@ const switchMode = (mode) => {
   forgotForm.confirmPassword = "";
 };
 
+const resolveSafeRedirect = (redirect) => {
+  if (typeof redirect !== "string") return "/";
+  if (!redirect.startsWith("/") || redirect.startsWith("//")) return "/";
+  return redirect;
+};
+
 const handleLogin = async () => {
   if (!loginFormRef.value) return;
   const isValid = await loginFormRef.value.validate().catch(() => false);
@@ -399,7 +406,7 @@ const handleLogin = async () => {
   try {
     await userStore.doLogin(loginForm);
     ElMessage.success("登录成功");
-    const redirect = typeof route.query.redirect === "string" ? route.query.redirect : "/";
+    const redirect = resolveSafeRedirect(route.query.redirect);
     router.push(redirect);
   } catch (err) {
     errorMessage.value = err.message || "登录失败，请检查用户名和密码";

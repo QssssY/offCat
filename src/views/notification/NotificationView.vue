@@ -1,5 +1,12 @@
 <template>
   <div class="notification-page">
+    <div class="page-back">
+      <el-button link @click="goHome" class="back-btn">
+        <el-icon><ArrowLeft /></el-icon>
+        返回首页
+      </el-button>
+    </div>
+
     <!-- 页面标题区 -->
     <div class="page-header">
       <div class="header-left">
@@ -27,6 +34,9 @@
         <el-option label="模拟面试" value="interview" />
         <el-option label="额度提醒" value="quota" />
         <el-option label="系统通知" value="system" />
+        <el-option label="活动公告" value="activity" />
+        <el-option label="版本公告" value="update" />
+        <el-option label="维护公告" value="maintenance" />
       </el-select>
       <el-select v-model="filterReadStatus" placeholder="已读状态" clearable size="small" @change="handleFilterChange">
         <el-option label="全部状态" value="" />
@@ -91,40 +101,18 @@
           />
 
           <!-- 类型图标 -->
-          <div class="item-icon" :class="`type-${item.type}`">
-            <svg v-if="item.type === 'resume'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-            </svg>
-            <svg v-else-if="item.type === 'polish'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M12 20h9" />
-              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-            </svg>
-            <svg v-else-if="item.type === 'interview'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-              <circle cx="9" cy="7" r="4" />
-            </svg>
-            <svg v-else-if="item.type === 'quota'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="8" x2="12" y2="12" />
-              <line x1="12" y1="16" x2="12.01" y2="16" />
-            </svg>
-            <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-              <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-            </svg>
-          </div>
+          <NotificationTypeIcon class="item-icon" :type="item.type" size="md" />
 
           <!-- 内容区 -->
           <div class="item-content">
             <div class="item-header">
               <span class="item-title">{{ item.title }}</span>
-              <el-tag :type="getTypeTagType(item.type)" size="small" effect="plain">
-                {{ getTypeLabel(item.type) }}
+              <el-tag :type="getNotificationTypeMeta(item.type).tagType" size="small" effect="plain">
+                {{ getNotificationTypeMeta(item.type).label }}
               </el-tag>
             </div>
             <p class="item-text">{{ item.content }}</p>
-            <span class="item-time">{{ formatTime(item.createTime) }}</span>
+            <span class="item-time">{{ formatNotificationTime(item.createTime) }}</span>
           </div>
 
           <!-- 未读标记 -->
@@ -150,23 +138,54 @@
           :page-size="pageSize"
           :total="total"
           :page-sizes="[5, 10, 20]"
-          layout="total, sizes, prev, pager, next"
+          :layout="isMobileLayout ? 'prev, pager, next' : 'total, sizes, prev, pager, next'"
           @current-change="handlePageChange"
           @size-change="handleSizeChange"
         />
       </div>
     </template>
+
+    <el-dialog
+      v-model="announcementDialogVisible"
+      class="announcement-dialog"
+      :show-close="true"
+      :append-to-body="true"
+    >
+      <template #header>
+        <div class="announcement-dialog-header" v-if="selectedAnnouncement">
+          <NotificationTypeIcon :type="selectedAnnouncement.type" size="sm" />
+          <div class="announcement-dialog-title-block">
+            <div class="announcement-dialog-title">{{ selectedAnnouncement.title }}</div>
+            <div class="announcement-dialog-meta">
+              <el-tag :type="getNotificationTypeMeta(selectedAnnouncement.type).tagType" size="small" effect="plain">
+                {{ getNotificationTypeMeta(selectedAnnouncement.type).label }}
+              </el-tag>
+              <span>{{ formatNotificationTime(selectedAnnouncement.createTime) }}</span>
+            </div>
+          </div>
+        </div>
+      </template>
+      <div class="announcement-dialog-content" v-if="selectedAnnouncement">
+        {{ selectedAnnouncement.content }}
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Delete } from '@element-plus/icons-vue'
+import { ArrowLeft, Delete } from '@element-plus/icons-vue'
 import { getNotifications, getUnreadCount, markAsRead, markAllAsRead, deleteNotification, batchDeleteNotifications } from '@/api/notification'
+import NotificationTypeIcon from '@/components/notification/NotificationTypeIcon.vue'
+import { formatNotificationTime, getNotificationTypeMeta, isAdminAnnouncementType } from '@/utils/notificationMeta'
 
 const router = useRouter()
+
+const goHome = () => {
+  router.push('/')
+}
 
 // 列表数据
 const notifications = ref([])
@@ -183,9 +202,18 @@ const filterReadStatus = ref('')
 // 全部已读按钮加载状态
 const markAllLoading = ref(false)
 
+// 响应式分页布局
+const isMobileLayout = ref(false)
+
+const updateLayout = () => {
+  isMobileLayout.value = window.innerWidth < 768
+}
+
 // 多选与批量删除
 const selectedIds = ref([])
 const deleteLoading = ref(false)
+const announcementDialogVisible = ref(false)
+const selectedAnnouncement = ref(null)
 
 /** 全选状态：当前页所有项均被选中 */
 const isAllSelected = computed(() =>
@@ -252,12 +280,9 @@ const handleFilterChange = () => {
  * 切换单条选中状态
  */
 const handleToggleSelect = (id) => {
-  const index = selectedIds.value.indexOf(id)
-  if (index === -1) {
-    selectedIds.value.push(id)
-  } else {
-    selectedIds.value.splice(index, 1)
-  }
+  selectedIds.value = selectedIds.value.includes(id)
+    ? selectedIds.value.filter(itemId => itemId !== id)
+    : [...selectedIds.value, id]
 }
 
 /**
@@ -345,23 +370,36 @@ const handlePageChange = (page) => {
   fetchNotifications()
 }
 
+const updateNotificationReadState = (id, readStatus, readTime) => {
+  notifications.value = notifications.value.map(item =>
+    item.id === id ? { ...item, readStatus, readTime } : item
+  )
+}
+
+const markNotificationReadOptimistically = (item) => {
+  if (item.readStatus !== 0) return
+
+  const readTime = new Date().toISOString()
+  updateNotificationReadState(item.id, 1, readTime)
+  unreadCount.value = Math.max(0, unreadCount.value - 1)
+
+  markAsRead(item.id).catch((e) => {
+    console.error('标记已读失败，回滚状态', e)
+    updateNotificationReadState(item.id, 0, item.readTime || null)
+    unreadCount.value += 1
+  })
+}
+
 /**
  * 点击单条通知，标记已读并跳转
  */
 const handleItemClick = async (item) => {
-  // 未读时标记已读
-  if (item.readStatus === 0) {
-    // 乐观更新 UI
-    item.readStatus = 1
-    item.readTime = new Date().toISOString()
-    unreadCount.value = Math.max(0, unreadCount.value - 1)
-    // 发送已读请求（不阻塞导航，失败时回滚 UI）
-    markAsRead(item.id).catch((e) => {
-      console.error('标记已读失败，回滚状态', e)
-      item.readStatus = 0
-      item.readTime = null
-      unreadCount.value += 1
-    })
+  markNotificationReadOptimistically(item)
+
+  if (isAdminAnnouncementType(item.type) && item.broadcastId) {
+    selectedAnnouncement.value = item
+    announcementDialogVisible.value = true
+    return
   }
 
   // 根据业务类型跳转
@@ -382,12 +420,10 @@ const handleMarkAllRead = async () => {
   try {
     await markAllAsRead()
     unreadCount.value = 0
-    notifications.value.forEach(item => {
-      if (item.readStatus === 0) {
-        item.readStatus = 1
-        item.readTime = new Date().toISOString()
-      }
-    })
+    const readTime = new Date().toISOString()
+    notifications.value = notifications.value.map(item => (
+      item.readStatus === 0 ? { ...item, readStatus: 1, readTime } : item
+    ))
     ElMessage.success('已全部标记为已读')
   } catch (e) {
     // 错误提示已由 axios 拦截器统一处理，此处不再重复
@@ -397,55 +433,33 @@ const handleMarkAllRead = async () => {
   }
 }
 
-/**
- * 通知类型标签样式
- */
-const getTypeTagType = (type) => {
-  const map = { resume: 'warning', polish: '', interview: 'success', quota: 'danger', system: 'info' }
-  return map[type] || 'info'
-}
-
-/**
- * 通知类型文本
- */
-const getTypeLabel = (type) => {
-  const map = { resume: '简历诊断', polish: 'AI润色', interview: '模拟面试', quota: '额度提醒', system: '系统' }
-  return map[type] || '通知'
-}
-
-/**
- * 格式化时间
- */
-const formatTime = (time) => {
-  if (!time) return ''
-  const date = new Date(time)
-  const now = new Date()
-  const diff = now - date
-  const minutes = Math.floor(diff / 60000)
-  const hours = Math.floor(diff / 3600000)
-  const days = Math.floor(diff / 86400000)
-
-  if (minutes < 1) return '刚刚'
-  if (minutes < 60) return `${minutes} 分钟前`
-  if (hours < 24) return `${hours} 小时前`
-  if (days < 7) return `${days} 天前`
-
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
 onMounted(() => {
+  updateLayout()
+  window.addEventListener('resize', updateLayout)
   fetchNotifications()
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', updateLayout)
 })
 </script>
 
 <style scoped>
 .notification-page {
   max-width: 800px;
+  width: 100%;
   margin: 0 auto;
   padding: 24px 16px;
+  box-sizing: border-box;
+}
+
+/* 返回按钮 */
+.page-back {
+  margin-bottom: 16px;
+}
+
+.back-btn {
+  color: var(--text-muted, #909399);
 }
 
 /* 页面标题区 */
@@ -509,9 +523,6 @@ onMounted(() => {
   animation: spin 0.6s linear infinite;
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
 
 /* 空状态 */
 .empty-state {
@@ -644,6 +655,21 @@ onMounted(() => {
   color: var(--text-muted);
 }
 
+.item-icon.type-activity {
+  background: rgba(230, 162, 60, 0.12);
+  color: #e6a23c;
+}
+
+.item-icon.type-update {
+  background: rgba(64, 158, 255, 0.1);
+  color: #409eff;
+}
+
+.item-icon.type-maintenance {
+  background: rgba(245, 108, 108, 0.1);
+  color: var(--color-danger);
+}
+
 /* 内容区 */
 .item-content {
   flex: 1;
@@ -668,9 +694,10 @@ onMounted(() => {
   color: var(--text-body, #666);
   margin: 0 0 6px;
   line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .item-time {
@@ -696,13 +723,23 @@ onMounted(() => {
 }
 
 /* 响应式 */
-@media (max-width: 600px) {
+@media (max-width: 767px) {
   .notification-page {
-    padding: 16px 12px;
+    padding: 12px;
   }
 
   .page-title {
     font-size: 18px;
+  }
+
+  .page-header {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .header-left {
+    flex-wrap: wrap;
+    gap: 8px;
   }
 
   .filter-bar {
@@ -715,13 +752,155 @@ onMounted(() => {
 
   .notification-item {
     padding: 12px;
+    overflow: hidden;
   }
 
-  .item-text {
-    white-space: normal;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
+  .item-header {
+    flex-wrap: wrap;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .item-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .item-delete-btn {
+    opacity: 1;
+  }
+
+  .batch-bar {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .pagination-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+  }
+
+}
+</style>
+
+<style>
+/* 公告弹窗 — 全局样式，因 append-to-body 需处理 teleport 的元素 */
+.announcement-dialog {
+  --el-dialog-width: 560px;
+}
+
+.announcement-dialog .el-dialog {
+  border-radius: 12px;
+  background: var(--bg-card);
+}
+
+.announcement-dialog .el-dialog__header {
+  padding: 22px 24px 14px;
+  margin-right: 38px;
+}
+
+.announcement-dialog .el-dialog__body {
+  padding: 0 24px 24px;
+}
+
+.announcement-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.announcement-dialog-title-block {
+  min-width: 0;
+}
+
+.announcement-dialog-title {
+  color: var(--text-title);
+  font-size: 18px;
+  line-height: 1.4;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.announcement-dialog-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.announcement-dialog-content {
+  max-height: 52vh;
+  overflow-y: auto;
+  padding: 18px;
+  border: 1px solid var(--border-card);
+  border-radius: 8px;
+  background: var(--bg-page);
+  color: var(--text-body);
+  font-size: 14px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 767px) {
+  .announcement-dialog {
+    --el-dialog-width: calc(100vw - 32px);
+  }
+
+  .announcement-dialog-header {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .announcement-dialog .el-dialog__header {
+    padding: 16px 16px 10px;
+    margin-right: 32px;
+  }
+
+  .announcement-dialog .el-dialog__body {
+    padding: 0 16px 16px;
+  }
+
+  .announcement-dialog-title {
+    font-size: 16px;
+  }
+
+  .announcement-dialog-content {
+    padding: 12px;
+    font-size: 13px;
+    max-height: 45vh;
+  }
+}
+
+@media (max-width: 480px) {
+  .announcement-dialog {
+    --el-dialog-width: 100vw;
+  }
+
+  .announcement-dialog .el-dialog {
+    border-radius: 0;
+  }
+
+  .announcement-dialog .el-dialog__header {
+    padding: 14px 14px 10px;
+    margin-right: 24px;
+  }
+
+  .announcement-dialog-title {
+    font-size: 15px;
+  }
+
+  .announcement-dialog-content {
+    padding: 10px;
+    font-size: 12px;
+    max-height: 40vh;
   }
 }
 </style>

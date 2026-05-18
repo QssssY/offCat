@@ -1,5 +1,12 @@
 <template>
   <div class="resume-result-view">
+    <div class="page-back">
+      <n-button quaternary size="tiny" @click="goToHistory" class="back-btn">
+        <svg width="16" height="16" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="24"><polyline points="160 208 80 128 160 48"/></svg>
+        返回历史记录
+      </n-button>
+    </div>
+
     <!-- 加载状态 -->
     <div v-if="loading" class="loading-section">
       <AiLoadingState
@@ -7,7 +14,6 @@
         :stages="resumeStages"
         :currentStageIndex="0"
         :showElapsedTime="true"
-        noCard
       />
     </div>
 
@@ -24,8 +30,8 @@
         <div class="error-title">加载失败</div>
         <div class="error-desc">{{ error }}</div>
         <div class="error-actions">
-          <el-button type="primary" @click="fetchTaskDetail">重试</el-button>
-          <el-button @click="goToUpload">返回上传</el-button>
+          <n-button type="primary" @click="fetchTaskDetail">重试</n-button>
+          <n-button ghost @click="goToUpload">返回上传</n-button>
         </div>
       </div>
     </div>
@@ -42,14 +48,14 @@
           <h3 class="timeout-title">诊断处理时间较长</h3>
           <p class="timeout-desc">系统仍在处理你的简历，你可以稍后在历史记录中查看结果。</p>
           <div class="timeout-actions">
-            <el-button type="primary" @click="router.push('/resume/history')">查看历史记录</el-button>
-            <el-button @click="startPolling">继续等待</el-button>
+            <n-button type="primary" @click="router.push('/resume/history')">查看历史记录</n-button>
+            <n-button ghost @click="startPolling">继续等待</n-button>
           </div>
         </div>
       </div>
 
       <!-- 等待/处理中状态：使用 AiLoadingState 组件 -->
-      <div v-else-if="isPending || isProcessing" class="loading-section">
+      <div v-else-if="isPending || isProcessing" class="generating-section">
         <AiLoadingState
           :title="isPending ? '任务排队中...' : 'AI 正在分析你的简历...'"
           :stages="resumeStages"
@@ -58,155 +64,141 @@
           :showElapsedTime="true"
           :showRefreshButton="true"
           :refreshLoading="refreshing"
-          noCard
           @refresh="fetchTaskDetail"
-        />
-        <div class="loading-nav-actions">
-          <el-button size="small" @click="goToHome">返回首页</el-button>
-          <el-button size="small" @click="goToUpload">继续上传</el-button>
-        </div>
+        >
+          <template #actions>
+            <n-button size="small" ghost @click="goToHome">返回首页</n-button>
+            <n-button size="small" ghost @click="goToUpload">继续上传</n-button>
+          </template>
+        </AiLoadingState>
       </div>
 
       <!-- Hero 诊断总览区（仅完成/失败时显示） -->
       <div v-if="isCompleted || isFailed" class="hero-section" :class="`hero-${task.status}`">
-        <div class="hero-left">
-          <div class="score-display">
+        <div class="hero-glow"></div>
+        <div class="hero-body">
+          <div class="hero-left">
             <template v-if="isCompleted && parsedResult?.overallEvaluation">
-              <div class="ring-wrapper">
-                <svg width="80" height="80" viewBox="0 0 80 80" class="ring-svg">
-                  <circle cx="40" cy="40" r="34" fill="none" stroke="#f3d8c7" stroke-width="6"/>
+              <div class="ring-wrapper hero-ring">
+                <svg width="88" height="88" viewBox="0 0 88 88" class="ring-svg">
+                  <circle cx="44" cy="44" r="37" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="5"/>
                   <circle
-                    cx="40" cy="40" r="34"
+                    cx="44" cy="44" r="37"
                     fill="none"
-                    stroke="#FF8C42"
-                    stroke-width="6"
+                    stroke="#ffffff"
+                    stroke-width="5"
                     stroke-linecap="round"
-                    :stroke-dasharray="`${(parsedResult.overallEvaluation.totalScore || 0) * 2.13} 213`"
-                    transform="rotate(-90 40 40)"
+                    :stroke-dasharray="`${(parsedResult.overallEvaluation.totalScore || 0) * 2.32} 232`"
+                    transform="rotate(-90 44 44)"
                   />
                 </svg>
-                <span class="ring-score">{{ parsedResult.overallEvaluation.totalScore || 0 }}</span>
+                <span class="ring-score hero-score">{{ parsedResult.overallEvaluation.totalScore || 0 }}</span>
               </div>
             </template>
             <template v-else>
-              <div class="ring-wrapper">
-                <svg width="80" height="80" viewBox="0 0 80 80" class="ring-svg">
-                  <circle cx="40" cy="40" r="34" fill="none" stroke="#f3d8c7" stroke-width="6"/>
+              <div class="ring-wrapper hero-ring">
+                <svg width="88" height="88" viewBox="0 0 88 88" class="ring-svg">
+                  <circle cx="44" cy="44" r="37" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="5"/>
                 </svg>
-                <span class="ring-score muted">{{ task.status === 3 ? '--' : '0' }}</span>
+                <span class="ring-score hero-score muted">{{ task.status === 3 ? '--' : '0' }}</span>
               </div>
             </template>
-          </div>
-          <div class="level-badge" :class="levelClass" v-if="isCompleted && parsedResult?.overallEvaluation">
-            {{ levelText }}
-          </div>
-        </div>
-        <div class="hero-right">
-          <div class="ai-summary" v-if="isCompleted && parsedResult?.overallEvaluation?.summary">
-            <div class="summary-label">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 2a10 10 0 1 0 10 10"/>
-                <path d="M12 6v6l4 2"/>
-              </svg>
-              AI 总评
+            <div class="level-badge" :class="levelClass" v-if="isCompleted && parsedResult?.overallEvaluation">
+              {{ levelText }}
             </div>
-            <p class="summary-text">{{ parsedResult.overallEvaluation.summary }}</p>
           </div>
-          <div class="status-row">
-            <span class="status-badge" :class="`status-${task.status}`">
-              <span class="status-dot"></span>
-              {{ statusText }}
-            </span>
-            <span class="update-time" v-if="task.updateTime">
-              {{ formatTime(task.updateTime) }}
-            </span>
-          </div>
-          <div v-if="parseModeLabel || task.parseMessage" class="parse-meta">
-            <el-tag v-if="parseModeLabel" size="small" effect="plain" class="parse-tag">
-              解析来源：{{ parseModeLabel }}
-            </el-tag>
-            <span v-if="task.parseMessage" class="parse-message">{{ task.parseMessage }}</span>
+          <div class="hero-right">
+            <div class="status-row">
+              <span class="claude-badge" :class="`badge-${task.status}`">
+                <span class="claude-badge-bar"></span>
+                {{ statusText }}
+              </span>
+              <span class="update-time" v-if="task.updateTime">
+                {{ formatTime(task.updateTime) }}
+              </span>
+            </div>
+            <div class="ai-summary" v-if="isCompleted && parsedResult?.overallEvaluation?.summary">
+              <div class="summary-label">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 2a10 10 0 1 0 10 10"/>
+                  <path d="M12 6v6l4 2"/>
+                </svg>
+                AI 总评
+              </div>
+              <p class="summary-text">{{ parsedResult.overallEvaluation.summary }}</p>
+            </div>
+            <div v-if="parseModeLabel || task.parseMessage" class="parse-meta">
+              <span class="parse-mode-pill">{{ parseModeLabel }}</span>
+              <span v-if="task.parseMessage" class="parse-message">{{ task.parseMessage }}</span>
+            </div>
           </div>
         </div>
       </div>
 
       <!-- KPI 指标仪表盘（仅完成时显示） -->
       <div v-if="isCompleted && parsedResult" class="kpi-section">
-        <div class="score-grid">
-          <!-- 综合评分 -->
-          <div class="card kpi-card">
-            <div class="card-label">综合评分</div>
-            <div class="ring-wrapper">
-              <svg width="72" height="72" viewBox="0 0 72 72" class="ring-svg">
-                <circle cx="36" cy="36" r="30" fill="none" stroke="#f3d8c7" stroke-width="5"/>
-                <circle
-                  cx="36" cy="36" r="30"
-                  fill="none"
-                  stroke="#FF8C42"
-                  stroke-width="5"
-                  stroke-linecap="round"
-                  :stroke-dasharray="`${(parsedResult.overallEvaluation?.totalScore || 0) * 1.88} 188`"
-                  transform="rotate(-90 36 36)"
-                />
-              </svg>
-              <span class="ring-score">{{ parsedResult.overallEvaluation?.totalScore || 0 }}</span>
+        <div class="kpi-header">
+          <h3 class="kpi-title">评分概览</h3>
+        </div>
+        <div class="kpi-grid">
+          <div class="kpi-cell">
+            <span class="kpi-label">工作经验 <span class="kpi-weight">占评分40%</span></span>
+            <div class="kpi-value-wrap">
+              <span class="kpi-value coral">{{ workScore || 0 }}</span>
+              <span class="kpi-unit">分</span>
             </div>
           </div>
-          <!-- 信息完整度 -->
-          <div class="card kpi-card">
-            <div class="card-label">信息完整度</div>
-            <div class="ring-wrapper">
-              <svg width="72" height="72" viewBox="0 0 72 72" class="ring-svg">
-                <circle cx="36" cy="36" r="30" fill="none" stroke="#f3d8c7" stroke-width="5"/>
-                <circle
-                  cx="36" cy="36" r="30"
-                  fill="none"
-                  stroke="#67C23A"
-                  stroke-width="5"
-                  stroke-linecap="round"
-                  :stroke-dasharray="`${(basicInfoEvaluation?.score || 0) * 1.88} 188`"
-                  transform="rotate(-90 36 36)"
-                />
-              </svg>
-              <span class="ring-score">{{ basicInfoEvaluation?.score || 0 }}</span>
+          <div class="kpi-cell">
+            <span class="kpi-label">项目经验 <span class="kpi-weight">占评分30%</span></span>
+            <div class="kpi-value-wrap">
+              <span class="kpi-value purple">{{ projectScore || 0 }}</span>
+              <span class="kpi-unit">分</span>
             </div>
           </div>
-          <!-- 技能得分 -->
-          <div class="card kpi-card">
-            <div class="card-label">技能得分</div>
-            <div class="ring-wrapper">
-              <svg width="72" height="72" viewBox="0 0 72 72" class="ring-svg">
-                <circle cx="36" cy="36" r="30" fill="none" stroke="#f3d8c7" stroke-width="5"/>
-                <circle
-                  cx="36" cy="36" r="30"
-                  fill="none"
-                  stroke="#409EFF"
-                  stroke-width="5"
-                  stroke-linecap="round"
-                  :stroke-dasharray="`${(skillScore || 0) * 1.88} 188`"
-                  transform="rotate(-90 36 36)"
-                />
-              </svg>
-              <span class="ring-score">{{ skillScore || 0 }}</span>
+          <div class="kpi-cell">
+            <span class="kpi-label">核心技能 <span class="kpi-weight">占评分15%</span></span>
+            <div class="kpi-value-wrap">
+              <span class="kpi-value blue">{{ skillScore || 0 }}</span>
+              <span class="kpi-unit">分</span>
             </div>
           </div>
-          <!-- 经验得分 -->
-          <div class="card kpi-card">
-            <div class="card-label">经验得分</div>
-            <div class="ring-wrapper">
-              <svg width="72" height="72" viewBox="0 0 72 72" class="ring-svg">
-                <circle cx="36" cy="36" r="30" fill="none" stroke="#f3d8c7" stroke-width="5"/>
-                <circle
-                  cx="36" cy="36" r="30"
-                  fill="none"
-                  stroke="#A855F7"
-                  stroke-width="5"
-                  stroke-linecap="round"
-                  :stroke-dasharray="`${(experienceScore || 0) * 1.88} 188`"
-                  transform="rotate(-90 36 36)"
-                />
-              </svg>
-              <span class="ring-score">{{ experienceScore || 0 }}</span>
+          <div class="kpi-cell">
+            <span class="kpi-label">基础信息 <span class="kpi-weight">占评分5%</span></span>
+            <div class="kpi-value-wrap">
+              <span class="kpi-value green">{{ basicInfoEvaluation?.score || 0 }}</span>
+              <span class="kpi-unit">分</span>
+            </div>
+          </div>
+          <div class="kpi-cell">
+            <span class="kpi-label">学历匹配 <span class="kpi-weight">占评分5%</span></span>
+            <div class="kpi-value-wrap">
+              <span class="kpi-value teal">{{ educationScore || 0 }}</span>
+              <span class="kpi-unit">分</span>
+            </div>
+          </div>
+          <div class="kpi-cell">
+            <span class="kpi-label">个人定位 <span class="kpi-weight">占评分5%</span></span>
+            <div class="kpi-value-wrap">
+              <span class="kpi-value gray">{{ positioningScore || 0 }}</span>
+              <span class="kpi-unit">分</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 评分参考表 -->
+      <div v-if="isCompleted && parsedResult" class="section-card grade-ref-card">
+        <div class="section-header">
+          <h3 class="section-title">评分参考</h3>
+        </div>
+        <div class="section-body">
+          <div class="grade-table">
+            <div v-for="g in gradeScale" :key="g.level" class="grade-row" :class="{ active: resumeLevel === g.level }">
+              <span class="grade-level" :class="'grade-' + g.level.toLowerCase()">{{ g.level }}</span>
+              <span class="grade-range">{{ g.range }}</span>
+              <span class="grade-label">{{ g.label }}</span>
+              <span class="grade-stage">{{ g.stage }}</span>
+              <span v-if="resumeLevel === g.level" class="grade-marker">你在此</span>
             </div>
           </div>
         </div>
@@ -216,18 +208,19 @@
       <div v-if="isCompleted && parsedResult" class="section-card">
         <div class="section-header">
           <div class="section-icon radar">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+            <svg width="18" height="18" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="24" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="128" cy="128" r="96"/>
+              <polyline points="128 56 128 120 168 156"/>
             </svg>
           </div>
           <h3 class="section-title">五维能力分析</h3>
         </div>
         <div class="section-body radar-layout">
           <div class="radar-left">
-            <RadarChart :scores="radarScores" />
+            <RadarChart :scores="radarScores" :labels="radarLabels" :keys="radarKeys" />
           </div>
           <div class="radar-right">
-            <RadarScorePanel :details="radarScoreDetails" />
+            <RadarScorePanel :details="radarScoreDetails" :dimensionConfig="radarDimensionConfig" />
           </div>
         </div>
       </div>
@@ -238,11 +231,15 @@
         <div class="section-card" v-if="parsedResult.skillEvaluation">
           <div class="section-header">
             <div class="section-icon skill">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
-              </svg>
-            </div>
-            <h3 class="section-title">技能情况</h3>
+            <svg width="18" height="18" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="24" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="128" cy="128" r="96"/>
+              <path d="M128 56v0a28 28 0 0 1 28 28v0a28 28 0 0 1-28 28"/>
+              <path d="M128 172v0a28 28 0 0 0 28 28v0a28 28 0 0 0 28-28v0"/>
+              <path d="M128 84v0a28 28 0 0 0-28 28v0"/>
+              <path d="M128 172v0a28 28 0 0 1-28 28v0a28 28 0 0 1-28-28v0"/>
+            </svg>
+          </div>
+          <h3 class="section-title">技能情况</h3>
           </div>
           <div class="section-body">
             <SkillsSection :data="parsedResult.skillEvaluation" />
@@ -253,11 +250,11 @@
         <div class="section-card" v-if="parsedResult.highlights?.length">
           <div class="section-header">
             <div class="section-icon highlight">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-              </svg>
-            </div>
-            <h3 class="section-title">亮点确认</h3>
+            <svg width="18" height="18" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="24" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M128 24l28 60 64 8-48 44 16 64-60-32-60 32 16-64-48-44 64-8z"/>
+            </svg>
+          </div>
+          <h3 class="section-title">亮点确认</h3>
           </div>
           <div class="section-body">
             <HighlightsSection :data="parsedResult.highlights" />
@@ -268,12 +265,12 @@
         <div class="section-card" v-if="basicInfoDetails">
           <div class="section-header">
             <div class="section-icon basic">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-                <circle cx="12" cy="7" r="4"/>
-              </svg>
-            </div>
-            <h3 class="section-title">基础信息完整度</h3>
+            <svg width="18" height="18" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="24" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="128" cy="112" r="40"/>
+              <path d="M208 216a80 80 0 0 0-160 0"/>
+            </svg>
+          </div>
+          <h3 class="section-title">基础信息完整度</h3>
           </div>
           <div class="section-body">
             <!-- 得分展示 -->
@@ -330,12 +327,12 @@
         <div class="section-card" v-if="workExperienceData">
           <div class="section-header">
             <div class="section-icon experience">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/>
-                <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
-              </svg>
-            </div>
-            <h3 class="section-title">工作与项目经验</h3>
+            <svg width="18" height="18" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="24" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="24" y="80" width="208" height="136" rx="16"/>
+              <path d="M168 216v-32a40 40 0 0 0-80 0v32"/>
+            </svg>
+          </div>
+          <h3 class="section-title">工作与项目经验</h3>
           </div>
           <div class="section-body">
             <WorkExperienceSection :data="workExperienceData" />
@@ -346,18 +343,62 @@
         <div class="section-card" v-if="parsedResult.optimizationSuggestions?.length">
           <div class="section-header">
             <div class="section-icon optimization">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-              </svg>
-            </div>
-            <h3 class="section-title">优化建议</h3>
+            <svg width="18" height="18" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="24" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M96 208H40a8 8 0 0 1-8-8V56a8 8 0 0 1 8-8h96l32 32v48"/>
+              <path d="M168 176l24-24 24 24"/>
+              <path d="M192 152v48a8 8 0 0 0 8 8h32"/>
+              <path d="M152 224h80"/>
+            </svg>
+          </div>
+          <h3 class="section-title">优化建议</h3>
           </div>
           <div class="section-body">
             <div class="suggestions-list">
               <div class="suggestion-item" v-for="(item, idx) in parsedResult.optimizationSuggestions" :key="idx">
-                <span class="suggestion-index">{{ idx + 1 }}</span>
+                <span class="suggestion-bar"></span>
                 <span class="suggestion-text">{{ item }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 个人定位 -->
+        <div class="section-card" v-if="positioningEval.score !== undefined">
+          <div class="section-header">
+            <div class="section-icon positioning">
+              <svg width="18" height="18" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="24" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M48 40h160a8 8 0 0 1 8 8v160a8 8 0 0 1-8 8H48a8 8 0 0 1-8-8V48a8 8 0 0 1 8-8z"/>
+                <path d="M72 88h112"/>
+                <path d="M72 128h96"/>
+                <path d="M72 168h64"/>
+              </svg>
+            </div>
+            <h3 class="section-title">个人定位</h3>
+          </div>
+          <div class="section-body">
+            <div class="score-with-evaluation">
+              <div class="score-row-left">
+                <span class="item-label">个人定位得分</span>
+                <span class="item-value">{{ positioningEval.score }}分</span>
+              </div>
+              <div v-if="positioningEval.evaluation" class="score-row-right">{{ positioningEval.evaluation }}</div>
+            </div>
+            <div class="detail-group" v-if="positioningEval.strengths?.length">
+              <div class="section-sub-title">加分项</div>
+              <div class="tag-list">
+                <span class="tag tag-strength" v-for="(item, i) in positioningEval.strengths" :key="i">{{ item }}</span>
+              </div>
+            </div>
+            <div class="detail-group" v-if="positioningEval.weaknesses?.length">
+              <div class="section-sub-title">扣分项</div>
+              <div class="tag-list">
+                <span class="tag tag-weakness" v-for="(item, i) in positioningEval.weaknesses" :key="i">{{ item }}</span>
+              </div>
+            </div>
+            <div class="suggestions-list" v-if="positioningEval.suggestions?.length">
+              <div class="suggestion-item" v-for="(s, i) in positioningEval.suggestions" :key="i">
+                <span class="suggestion-bar"></span>
+                <span class="suggestion-text">{{ s }}</span>
               </div>
             </div>
           </div>
@@ -367,16 +408,13 @@
         <div class="section-card" v-if="parsedResult.overallEvaluation">
           <div class="section-header">
             <div class="section-icon overall">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/>
-                <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/>
-                <path d="M4 22h16"/>
-                <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/>
-                <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/>
-                <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>
-              </svg>
-            </div>
-            <h3 class="section-title">AI 总体评价</h3>
+            <svg width="18" height="18" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="24" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="128" cy="120" r="64"/>
+              <path d="M128 72v48l24 24"/>
+              <path d="M176 192l16 40-64-24-64 24 16-40"/>
+            </svg>
+          </div>
+          <h3 class="section-title">AI 总体评价</h3>
           </div>
           <div class="section-body">
             <OverallEvaluation :data="parsedResult.overallEvaluation" />
@@ -388,7 +426,7 @@
       <div v-else-if="isCompleted && task.diagnosisResult" class="section-card fallback">
         <div class="section-header">
           <h3 class="section-title">诊断结果（原始数据）</h3>
-          <el-tag type="warning" size="small">未解析</el-tag>
+          <span class="parse-mode-pill warn">未解析</span>
         </div>
         <div class="section-body">
           <pre class="result-pre">{{ formatRawResult(task.diagnosisResult) }}</pre>
@@ -410,9 +448,11 @@
       <div v-if="isCompleted" class="section-card job-match-card">
         <div class="section-header">
           <div class="section-icon overall">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M3 3v18h18" />
-              <path d="M7 14l3-3 3 2 4-5" />
+            <svg width="18" height="18" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="24" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="40" y="168" width="40" height="48"/>
+              <rect x="108" y="112" width="40" height="104"/>
+              <rect x="176" y="56" width="40" height="160"/>
+              <line x1="216" y1="24" x2="176" y2="56"/>
             </svg>
           </div>
           <h3 class="section-title">岗位匹配分析</h3>
@@ -420,29 +460,28 @@
         <div class="section-body">
           <div class="job-match-intro">
             <p class="job-match-desc">输入目标岗位 JD，查看当前简历与岗位要求的匹配度、缺口与优化方向。</p>
-            <el-button type="primary" plain class="job-match-entry-btn" @click="toggleJobMatchPanel">
+            <n-button secondary class="job-match-entry-btn" @click="toggleJobMatchPanel">
               {{ jobMatchVisible ? '收起岗位匹配分析' : '岗位匹配分析' }}
-            </el-button>
+            </n-button>
           </div>
 
           <div v-if="jobMatchVisible" class="job-match-panel">
-            <el-input
-              v-model="jobDescriptionText"
+            <n-input
+              v-model:value="jobDescriptionText"
               type="textarea"
-              :rows="8"
-              resize="vertical"
-              maxlength="5000"
-              show-word-limit
+              :autosize="{ minRows: 6, maxRows: 12 }"
+              :maxlength="5000"
+              show-count
               placeholder="请粘贴岗位 JD 文本，本轮仅支持手动输入。"
             />
 
             <div class="job-match-actions">
-              <el-button type="primary" :loading="jobMatchLoading" @click="submitJobMatchAnalysis">
+              <n-button type="primary" :loading="jobMatchLoading" @click="submitJobMatchAnalysis">
                 {{ jobMatchLoading ? '分析中...' : '开始分析' }}
-              </el-button>
-              <el-button :loading="polishLoading" @click="triggerAiPolishPlaceholder">
+              </n-button>
+              <n-button secondary :loading="polishLoading" @click="triggerAiPolishPlaceholder">
                 {{ polishLoading ? '润色中...' : '去 AI 润色' }}
-              </el-button>
+              </n-button>
             </div>
 
             <div v-if="jobMatchResult" class="job-match-result">
@@ -488,14 +527,14 @@
               <div class="job-match-suggestions">
                 <div class="job-match-block-title">优化建议</div>
                 <div v-if="jobMatchResult.suggestions?.length" class="suggestions-list">
-                  <div
-                    v-for="(item, idx) in jobMatchResult.suggestions"
-                    :key="`job-suggestion-${idx}`"
-                    class="suggestion-item"
-                  >
-                    <span class="suggestion-index">{{ idx + 1 }}</span>
-                    <span class="suggestion-text">{{ item }}</span>
-                  </div>
+                    <div
+                      v-for="(item, idx) in jobMatchResult.suggestions"
+                      :key="`job-suggestion-${idx}`"
+                      class="suggestion-item"
+                    >
+                      <span class="suggestion-bar"></span>
+                      <span class="suggestion-text">{{ item }}</span>
+                    </div>
                 </div>
                 <div v-else class="job-match-empty">暂无优化建议</div>
               </div>
@@ -507,9 +546,10 @@
       <div v-if="isCompleted" ref="polishSectionRef" class="section-card polish-card">
         <div class="section-header">
           <div class="section-icon optimization">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M12 20h9" />
-              <path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4z" />
+            <svg width="18" height="18" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="24" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M200 216H40a8 8 0 0 1-8-8V56a8 8 0 0 1 8-8h96l32 32v128"/>
+              <path d="M168 176l24-24 24 24"/>
+              <path d="M192 152v48a8 8 0 0 0 8 8h32"/>
             </svg>
           </div>
           <h3 class="section-title">AI 简历润色</h3>
@@ -517,7 +557,7 @@
         <div class="section-body">
           <div v-if="polishResult" class="polish-result">
             <div class="polish-meta">
-              <el-tag type="success">{{ polishResult.sourceType || '仅基于简历' }}</el-tag>
+              <span class="parse-mode-pill">{{ polishResult.sourceType || '仅基于简历' }}</span>
               <span class="polish-time" v-if="polishResult.createTime">
                 {{ formatTime(polishResult.createTime) }}
               </span>
@@ -527,9 +567,9 @@
               <div class="polish-block-header">
                 <div class="job-match-block-title">润色后的简历内容</div>
                 <div class="polish-actions">
-                  <el-button size="small" @click="copyPolishedResume">复制内容</el-button>
-                  <el-button size="small" type="primary" :loading="pdfExporting" @click="exportResumePdf">导出 PDF</el-button>
-                  <el-button size="small" :loading="imageExporting" @click="exportResumeImage">导出图片</el-button>
+                  <n-button size="small" ghost @click="copyPolishedResume">复制内容</n-button>
+                  <n-button size="small" type="primary" :loading="pdfExporting" @click="exportResumePdf">导出 PDF</n-button>
+                  <n-button size="small" ghost :loading="imageExporting" @click="exportResumeImage">导出图片</n-button>
                 </div>
               </div>
               <div class="polish-edit-hint">
@@ -543,14 +583,14 @@
             <div class="polish-content-block">
               <div class="job-match-block-title">修改说明 / 优化说明</div>
               <div v-if="polishResult.modificationNotes?.length" class="suggestions-list">
-                <div
-                  v-for="(item, idx) in polishResult.modificationNotes"
-                  :key="`polish-note-${idx}`"
-                  class="suggestion-item"
-                >
-                  <span class="suggestion-index">{{ idx + 1 }}</span>
-                  <span class="suggestion-text">{{ item }}</span>
-                </div>
+                  <div
+                    v-for="(item, idx) in polishResult.modificationNotes"
+                    :key="`polish-note-${idx}`"
+                    class="suggestion-item"
+                  >
+                    <span class="suggestion-bar"></span>
+                    <span class="suggestion-text">{{ item }}</span>
+                  </div>
               </div>
               <div v-else class="job-match-empty">暂无修改说明</div>
             </div>
@@ -563,16 +603,15 @@
 
       <div class="action-section">
         <div class="action-group">
-          <el-button v-if="!isPending && !isProcessing" @click="goToHome" class="action-btn secondary">返回首页</el-button>
-          <el-button v-if="!isPending && !isProcessing" @click="goToUpload" class="action-btn secondary">继续上传</el-button>
-          <el-button
+          <n-button v-if="!isPending && !isProcessing" @click="goToHome" class="action-btn secondary">返回首页</n-button>
+          <n-button v-if="!isPending && !isProcessing" @click="goToUpload" class="action-btn secondary">继续上传</n-button>
+          <n-button
             v-if="isCompleted"
-            type="primary"
-            class="action-btn primary"
+            class="action-btn claude-primary"
             @click="goToInterview"
           >
             进入模拟面试
-          </el-button>
+          </n-button>
         </div>
       </div>
     </div>
@@ -584,7 +623,8 @@ import { ref, computed, nextTick, onMounted, onUnmounted, watch, defineAsyncComp
 import { useRouter, useRoute } from 'vue-router'
 import { analyzeResumeJobMatch, analyzeResumePolish, getResumeTask } from '@/api/resume'
 import { useUserStore } from '@/stores/user'
-import { ElMessage } from 'element-plus'
+import { NButton, NInput, useMessage } from 'naive-ui'
+const message = useMessage()
 
 import AiLoadingState from '@/components/common/AiLoadingState.vue'
 import OverallEvaluation from '@/components/resume/OverallEvaluation.vue'
@@ -695,19 +735,31 @@ const resumeLoadingMessages = [
 
 const levelClass = computed(() => {
   const score = parsedResult.value?.overallEvaluation?.totalScore || 0
-  if (score >= 80) return 'level-excellent'
-  if (score >= 60) return 'level-good'
-  if (score >= 40) return 'level-fair'
+  if (score >= 90) return 'level-excellent'
+  if (score >= 75) return 'level-good'
+  if (score >= 60) return 'level-fair'
   return 'level-poor'
 })
 
 const levelText = computed(() => {
   const score = parsedResult.value?.overallEvaluation?.totalScore || 0
-  if (score >= 80) return '优秀'
-  if (score >= 60) return '良好'
-  if (score >= 40) return '一般'
-  return '待提升'
+  if (score >= 90) return '顶尖'
+  if (score >= 75) return '优秀'
+  if (score >= 60) return '合格'
+  return '偏弱'
 })
+
+const resumeLevel = computed(() => {
+  return parsedResult.value?.overallEvaluation?.level || ''
+})
+
+const gradeScale = [
+  { level: 'S', range: '90-100', label: '顶尖', stage: '竞争力极强，岗位匹配度高，具备突出亮点和量化成果' },
+  { level: 'A', range: '75-89', label: '优秀', stage: '竞争力良好，经历扎实，有明确量化成果和专业度' },
+  { level: 'B', range: '60-74', label: '合格', stage: '基础达标，但缺乏亮点或量化成果，需提升关键经历' },
+  { level: 'C', range: '40-59', label: '偏弱', stage: '简历问题较多，经历描述空洞、结构混乱或信息缺失' },
+  { level: 'D', range: '<40', label: '问题严重', stage: '简历存在重大缺陷，需从零系统梳理经历和技能' },
+]
 
 const parseDiagnosisResult = (raw) => {
   if (!raw) return {}
@@ -738,10 +790,25 @@ const skillScore = computed(() => {
   return parsedDiagnosisResult.value?.skillEvaluation?.score || 0
 })
 
-const experienceScore = computed(() => {
-  const workScore = parsedDiagnosisResult.value?.workExperienceEvaluation?.score || 0
-  const projectScore = parsedDiagnosisResult.value?.projectExperienceEvaluation?.score || 0
-  return Math.round((workScore + projectScore) / 2)
+const workScore = computed(() => {
+  return parsedDiagnosisResult.value?.workExperienceEvaluation?.score || 0
+})
+
+const projectScore = computed(() => {
+  return parsedDiagnosisResult.value?.projectExperienceEvaluation?.score || 0
+})
+
+const educationScore = computed(() => {
+  const result = parsedDiagnosisResult.value
+  return result?.educationEvaluation?.score || computeEducationFallback(result) || 0
+})
+
+const positioningScore = computed(() => {
+  return parsedDiagnosisResult.value?.positioningEvaluation?.score || 0
+})
+
+const positioningEval = computed(() => {
+  return parsedDiagnosisResult.value?.positioningEvaluation || {}
 })
 
 const parsedResult = computed(() => {
@@ -757,6 +824,7 @@ const parsedResult = computed(() => {
       workExperienceEvaluation: result.workExperienceEvaluation || result.experience || {},
       projectExperienceEvaluation: result.projectExperienceEvaluation || result.projects || {},
       educationEvaluation: result.educationEvaluation || {},
+      positioningEvaluation: result.positioningEvaluation || {},
       optimizationSuggestions: result.optimizationSuggestions || result.suggestions || []
     }
   } catch (e) {
@@ -764,7 +832,7 @@ const parsedResult = computed(() => {
   }
 })
 
-// 五维雷达图数据：基本信息、岗位能力、工作经验、项目经历、教育背景
+// 六维雷达图数据
 const radarScores = computed(() => {
   const result = parsedDiagnosisResult.value
   if (!result) return {}
@@ -774,22 +842,38 @@ const radarScores = computed(() => {
     work: result.workExperienceEvaluation?.score || 0,
     project: result.projectExperienceEvaluation?.score || 0,
     education: result.educationEvaluation?.score || computeEducationFallback(result),
+    positioning: result.positioningEvaluation?.score || 0,
   }
 })
 
 // 教育评分兜底：当AI未返回educationEvaluation时，按权重反推
 const computeEducationFallback = (result) => {
+  if (!result) return 0
   const totalScore = result.overallEvaluation?.totalScore || 0
   const basic = result.basicInfoEvaluation?.score || 0
   const skill = result.skillEvaluation?.score || 0
   const work = result.workExperienceEvaluation?.score || 0
   const project = result.projectExperienceEvaluation?.score || 0
-  const weightedSum = basic * 0.1 + skill * 0.15 + work * 0.25 + project * 0.4
-  const eduScore = Math.round((totalScore - weightedSum) / 0.1)
+  const positioning = result.positioningEvaluation?.score || 0
+  const weightedSum = basic * 0.05 + skill * 0.15 + work * 0.40 + project * 0.30 + positioning * 0.05
+  const eduScore = Math.round((totalScore - weightedSum) / 0.05)
   return Math.max(0, Math.min(100, eduScore))
 }
 
 // 雷达图得分明细：直接使用 AI 返回的 strengths（加分项）和 weaknesses（扣分项）
+const radarKeys = ['basicInfo', 'skill', 'work', 'project', 'education', 'positioning']
+
+const radarLabels = ['基本信息', '岗位能力', '工作经验', '项目经历', '教育背景', '个人定位']
+
+const radarDimensionConfig = [
+  { key: 'basicInfo', label: '基本信息' },
+  { key: 'skill', label: '岗位能力' },
+  { key: 'work', label: '工作经验' },
+  { key: 'project', label: '项目经历' },
+  { key: 'education', label: '教育背景' },
+  { key: 'positioning', label: '个人定位' },
+]
+
 const radarScoreDetails = computed(() => {
   const r = parsedDiagnosisResult.value
   if (!r) return {}
@@ -806,6 +890,7 @@ const radarScoreDetails = computed(() => {
     work: extract(r.workExperienceEvaluation, 'work'),
     project: extract(r.projectExperienceEvaluation, 'project'),
     education: extract(r.educationEvaluation, 'education'),
+    positioning: extract(r.positioningEvaluation, 'positioning'),
   }
 })
 
@@ -890,7 +975,7 @@ const fetchTaskDetail = async (options = {}) => {
     if (task.value?.status === 2 && previousStatus !== 2 && !hasRefreshedUserInfo.value) {
       hasRefreshedUserInfo.value = true
       await userStore.fetchUserInfo()
-      ElMessage.success('简历诊断已完成')
+      message.success('简历诊断已完成')
     }
   } catch (err) {
     error.value = err.message || '获取任务详情失败，请稍后重试'
@@ -939,6 +1024,7 @@ const stopPolling = () => {
 
 const goToHome = () => router.push('/')
 const goToUpload = () => router.push('/resume/upload')
+const goToHistory = () => router.push('/resume/history')
 const goToInterview = () => {
   if (taskId.value) {
     router.push(`/interview/entry?resumeTaskId=${taskId.value}`)
@@ -991,7 +1077,7 @@ const recoverLatestPolishResultAfterTimeout = async () => {
 
 const triggerAiPolishPlaceholder = async () => {
   if (!task.value?.taskId) {
-    ElMessage.error('当前简历任务不存在')
+    message.error('当前简历任务不存在')
     return
   }
   polishLoading.value = true
@@ -1004,19 +1090,19 @@ const triggerAiPolishPlaceholder = async () => {
     const latestPolishResult = res?.data || res
     await applyLatestPolishResult(latestPolishResult)
     fetchTaskDetail()
-    ElMessage.success('AI 简历润色完成')
+    message.success('AI 简历润色完成')
   } catch (err) {
     if (err?.code === 'ECONNABORTED' || String(err?.message || '').includes('timeout')) {
       const recovered = await recoverLatestPolishResultAfterTimeout()
       if (recovered) {
-        ElMessage.success('AI 简历润色已完成，结果已同步展示')
+        message.success('AI 简历润色已完成，结果已同步展示')
         return
       }
-      ElMessage.warning('AI 润色请求超时，正在等待后端完成，请稍后刷新查看结果')
+      message.warning('AI 润色请求超时，正在等待后端完成，请稍后刷新查看结果')
       return
     }
     console.error('[AI 简历润色] 执行失败:', err)
-    ElMessage.error(err?.message || 'AI 简历润色失败，请稍后重试')
+    message.error(err?.message || 'AI 简历润色失败，请稍后重试')
   } finally {
     polishLoading.value = false
   }
@@ -1024,11 +1110,11 @@ const triggerAiPolishPlaceholder = async () => {
 
 const submitJobMatchAnalysis = async () => {
   if (!task.value?.taskId) {
-    ElMessage.error('当前简历任务不存在')
+    message.error('当前简历任务不存在')
     return
   }
   if (!jobDescriptionText.value.trim()) {
-    ElMessage.warning('请先输入岗位 JD 文本')
+    message.warning('请先输入岗位 JD 文本')
     return
   }
 
@@ -1043,7 +1129,7 @@ const submitJobMatchAnalysis = async () => {
     if (task.value) {
       task.value.latestJobMatchAnalysis = res.data
     }
-    ElMessage.success('岗位匹配分析完成')
+    message.success('岗位匹配分析完成')
   } catch (err) {
     console.error('[岗位匹配分析] 执行失败:', err)
   } finally {
@@ -1093,15 +1179,15 @@ const copyPolishedResume = async () => {
     polishResult.value?.polishedResumeText ||
     ''
   if (!editedText) {
-    ElMessage.warning('暂无可复制的内容')
+    message.warning('暂无可复制的内容')
     return
   }
   try {
     await navigator.clipboard.writeText(editedText)
-    ElMessage.success('已复制到剪贴板')
+    message.success('已复制到剪贴板')
   } catch (err) {
     console.error('[AI 润色] 复制失败:', err)
-    ElMessage.error('复制失败，请手动选择复制')
+    message.error('复制失败，请手动选择复制')
   }
 }
 
@@ -1162,7 +1248,7 @@ const captureResumeCanvas = async () => {
 // 直接截图嵌入可避免 html2pdf.js 分页解析导致的布局变形问题。
 const exportResumePdf = async () => {
   if (!resumeTemplateRef.value?.buildExportElement) {
-    ElMessage.warning('暂无可导出的润色内容')
+    message.warning('暂无可导出的润色内容')
     return
   }
 
@@ -1171,7 +1257,7 @@ const exportResumePdf = async () => {
   try {
     const canvas = await captureResumeCanvas()
     if (!canvas) {
-      ElMessage.warning('暂无可导出的润色内容')
+      message.warning('暂无可导出的润色内容')
       return
     }
 
@@ -1211,10 +1297,10 @@ const exportResumePdf = async () => {
     pdf.addImage(imgData, 'JPEG', offsetX, margin, renderW, renderH)
     pdf.save(filename)
 
-    ElMessage.success('PDF 已导出')
+    message.success('PDF 已导出')
   } catch (err) {
     console.error('[PDF导出] 失败:', err)
-    ElMessage.error('PDF 导出失败，请稍后重试')
+    message.error('PDF 导出失败，请稍后重试')
   } finally {
     pdfExporting.value = false
   }
@@ -1223,7 +1309,7 @@ const exportResumePdf = async () => {
 // 导出简历图片：复用截图 canvas，输出为 PNG 文件下载。
 const exportResumeImage = async () => {
   if (!resumeTemplateRef.value?.buildExportElement) {
-    ElMessage.warning('暂无可导出的润色内容')
+    message.warning('暂无可导出的润色内容')
     return
   }
 
@@ -1232,7 +1318,7 @@ const exportResumeImage = async () => {
   try {
     const canvas = await captureResumeCanvas()
     if (!canvas) {
-      ElMessage.warning('暂无可导出的润色内容')
+      message.warning('暂无可导出的润色内容')
       return
     }
 
@@ -1241,7 +1327,7 @@ const exportResumeImage = async () => {
     // canvas.toBlob 触发 PNG 下载
     canvas.toBlob((blob) => {
       if (!blob) {
-        ElMessage.error('图片生成失败')
+        message.error('图片生成失败')
         return
       }
       const url = URL.createObjectURL(blob)
@@ -1252,10 +1338,10 @@ const exportResumeImage = async () => {
       URL.revokeObjectURL(url)
     }, 'image/png')
 
-    ElMessage.success('简历图片已导出')
+    message.success('简历图片已导出')
   } catch (err) {
     console.error('[图片导出] 失败:', err)
-    ElMessage.error('图片导出失败，请稍后重试')
+    message.error('图片导出失败，请稍后重试')
   } finally {
     imageExporting.value = false
   }
@@ -1267,11 +1353,26 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* ============================================
+   4pt 间距系统
+   ============================================ */
 .resume-result-view {
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-xxl: 48px;
+
   min-height: 100%;
   background: var(--bg-page);
-  padding: 24px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  padding: var(--space-lg);
   box-sizing: border-box;
+  font-family: var(--font-body);
+  color: var(--text-body);
+  max-width: 960px;
+  margin: 0 auto;
 }
 
 /* ============================================
@@ -1285,13 +1386,13 @@ onUnmounted(() => {
 }
 
 .poll-timeout-card {
-  background: var(--bg-card, #ffffff);
-  border-radius: 20px;
+  background: var(--bg-card);
+  border-radius: 16px;
   padding: 48px 40px;
   text-align: center;
   max-width: 440px;
-  border: 1px solid var(--border-card, rgba(243, 216, 199, 0.5));
-  box-shadow: 0 4px 20px rgba(255, 140, 66, 0.08);
+  box-shadow: var(--shadow-card);
+  border: 1px solid var(--border-card);
 }
 
 .timeout-icon {
@@ -1322,20 +1423,26 @@ onUnmounted(() => {
 }
 
 /* ============================================
+   顶部返回栏
+   ============================================ */
+.page-back {
+  margin-bottom: 16px;
+}
+
+.back-btn {
+  color: var(--text-muted, #909399);
+}
+
+/* ============================================
    加载状态
    ============================================ */
-.loading-section {
+.loading-section,
+.generating-section {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: calc(100vh - 48px);
-  gap: 20px;
-}
-
-.loading-nav-actions {
-  display: flex;
-  gap: 12px;
+  min-height: 420px;
 }
 
 /* ============================================
@@ -1351,9 +1458,10 @@ onUnmounted(() => {
 .error-card {
   background: var(--bg-card);
   border-radius: 16px;
-  padding: 40px;
+  padding: var(--space-xl);
   text-align: center;
   max-width: 400px;
+  box-shadow: var(--shadow-card);
   border: 1px solid var(--border-card);
   box-sizing: border-box;
   overflow: hidden;
@@ -1364,16 +1472,18 @@ onUnmounted(() => {
 }
 
 .error-title {
-  font-size: 18px;
+  font-size: 1.25rem;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
   color: var(--text-title);
   margin-bottom: 8px;
 }
 
 .error-desc {
-  font-size: 14px;
+  font-size: 0.875rem;
   color: var(--text-body);
   margin-bottom: 24px;
+  line-height: 1.6;
 }
 
 .error-actions {
@@ -1386,68 +1496,145 @@ onUnmounted(() => {
    Hero 诊断总览区
    ============================================ */
 .hero-section {
-  background: var(--bg-card);
-  border-radius: 20px;
-  padding: 28px 32px;
-  margin-bottom: 20px;
-  border: 1px solid rgba(243, 216, 199, 0.5);
-  box-shadow: 0 4px 20px rgba(255, 140, 66, 0.06);
-  box-sizing: border-box;
+  position: relative;
+  border-radius: 12px;
+  margin-bottom: 24px;
   overflow: hidden;
-  display: flex;
-  gap: 32px;
-  align-items: flex-start;
 }
 
-.hero-section.hero-1 {
-  background: linear-gradient(135deg, #fff8f3 0%, #fff 100%);
+.hero-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 80% 60% at 30% 20%, rgba(255,255,255,0.15) 0%, transparent 70%);
+  z-index: 0;
+}
+
+.hero-section.hero-2 {
+  background: linear-gradient(135deg, var(--orange-main) 0%, var(--orange-deep) 100%);
+  color: #fff;
 }
 
 .hero-section.hero-3 {
-  background: linear-gradient(135deg, #fff0f0 0%, #fff 100%);
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  color: var(--text-body);
+}
+
+.hero-section.hero-3 .ring-svg circle {
+  stroke: var(--border-card) !important;
+}
+
+.hero-section.hero-3 .claude-badge {
+  color: var(--text-body);
+}
+
+.hero-section.hero-3 .update-time {
+  color: var(--text-muted);
+}
+
+.hero-section.hero-3 .parse-mode-pill {
+  background: var(--orange-light-bg);
+  color: var(--orange-deep);
+}
+
+.hero-section.hero-3 .parse-message {
+  color: var(--text-muted);
+}
+
+.hero-section.hero-3 .parse-message {
+  color: var(--text-muted);
+}
+
+.hero-section.hero-1 .claude-badge {
+  color: var(--text-body);
+}
+
+.hero-section.hero-1 .update-time {
+  color: var(--text-muted);
+}
+
+.hero-section.hero-1 .parse-mode-pill {
+  background: var(--orange-light-bg);
+  color: var(--orange-deep);
+}
+
+.hero-section.hero-1 .parse-message {
+  color: var(--text-muted);
+}
+
+.hero-section.hero-1 {
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  color: var(--text-body);
+}
+
+.hero-section.hero-1 .ring-svg circle {
+  stroke: var(--border-card) !important;
+}
+
+.hero-section.hero-1 .claude-badge {
+  color: var(--text-body);
+}
+
+.hero-body {
+  padding: 40px 44px;
+  display: flex;
+  gap: 40px;
+  align-items: flex-start;
+  position: relative;
+  z-index: 1;
 }
 
 .hero-left {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
-  min-width: 120px;
+  gap: 14px;
+  flex-shrink: 0;
 }
 
-.score-display {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
+.hero-ring .ring-score {
+  font-size: 28px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
 }
 
+.hero-ring .ring-score.muted {
+  color: var(--text-muted);
+}
+
+/* Level Badge - Claude badge-pill 风格 */
 .level-badge {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
-  padding: 5px 14px;
-  border-radius: 20px;
+  letter-spacing: 0.02em;
+  padding: 4px 14px;
+  border-radius: 9999px;
+  background: rgba(255,255,255,0.9);
+  color: var(--orange-deep);
   width: fit-content;
 }
 
 .level-excellent {
-  background: #E8F5E9;
-  color: #4CAF50;
+  background: rgba(255,255,255,0.9);
+  color: var(--color-success);
 }
 
 .level-good {
-  background: #FFF3E0;
-  color: #FF9800;
+  background: rgba(255,255,255,0.9);
+  color: var(--orange-deep);
 }
 
 .level-fair {
-  background: #FFF8E1;
-  color: #FFC107;
+  background: rgba(255,255,255,0.9);
+  color: var(--color-warning);
 }
 
 .level-poor {
-  background: #FFEBEE;
-  color: #F44336;
+  background: rgba(255,255,255,0.9);
+  color: var(--color-danger);
 }
 
 .hero-right {
@@ -1455,16 +1642,43 @@ onUnmounted(() => {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
 }
 
+/* Claude 状态 Badge - 左侧色条 + 无背景 */
+.claude-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.85);
+  line-height: 1.4;
+}
+
+.claude-badge-bar {
+  width: 3px;
+  height: 16px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.badge-0 .claude-badge-bar { background: var(--color-warning); }
+.badge-1 .claude-badge-bar { background: #79bbff; animation: claude-pulse 1.5s ease-in-out infinite; }
+.badge-2 .claude-badge-bar { background: var(--color-success); }
+.badge-3 .claude-badge-bar { background: var(--color-danger); }
+
+@keyframes claude-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* Hero 中的 AI 总评 */
 .ai-summary {
-  padding: 16px;
-  background: var(--bg-elevated);
+  padding: 20px 24px;
+  background: rgba(255,255,255,0.1);
   border-radius: 12px;
-  border-left: 4px solid var(--orange-main);
-  box-sizing: border-box;
-  overflow: hidden;
+  backdrop-filter: blur(8px);
 }
 
 .summary-label {
@@ -1472,18 +1686,21 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: var(--orange-main);
   font-weight: 500;
+  color: rgba(255,255,255,0.7);
   margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .summary-text {
   margin: 0;
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.7;
-  color: var(--text-title);
-  word-break: break-all;
+  color: #fff;
+  word-break: break-word;
   white-space: pre-wrap;
+  text-wrap: pretty;
 }
 
 .status-row {
@@ -1493,6 +1710,11 @@ onUnmounted(() => {
   flex-wrap: wrap;
 }
 
+.update-time {
+  font-size: 12px;
+  color: rgba(255,255,255,0.5);
+}
+
 .parse-meta {
   display: flex;
   align-items: center;
@@ -1500,77 +1722,21 @@ onUnmounted(() => {
   flex-wrap: wrap;
 }
 
-.parse-tag {
-  border-color: rgba(255, 140, 66, 0.35);
-  color: var(--orange-main);
+.parse-mode-pill {
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  padding: 2px 10px;
+  border-radius: 9999px;
+  background: rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.8);
 }
 
 .parse-message {
-  font-size: 13px;
-  line-height: 1.7;
-  color: var(--text-body);
-}
-
-.status-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  padding: 4px 12px;
-  border-radius: 20px;
-}
-
-.status-badge .status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-
-.status-0 {
-  background: #fdf6ec;
-  color: #e6a23c;
-}
-
-.status-0 .status-dot {
-  background: #e6a23c;
-}
-
-.status-1 {
-  background: #ecf5ff;
-  color: #409eff;
-}
-
-.status-1 .status-dot {
-  background: #409eff;
-  animation: pulse 1.5s ease-in-out infinite;
-}
-
-.status-2 {
-  background: #f0f9eb;
-  color: #67c23a;
-}
-
-.status-2 .status-dot {
-  background: #67c23a;
-}
-
-.status-3 {
-  background: #fef0f0;
-  color: #f56c6c;
-}
-
-.status-3 .status-dot {
-  background: #f56c6c;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
-
-.update-time {
-  font-size: 13px;
-  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  color: rgba(255,255,255,0.6);
 }
 
 /* ============================================
@@ -1594,136 +1760,258 @@ onUnmounted(() => {
   transform: translate(-50%, -50%);
   font-size: 22px;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   color: var(--text-title);
   pointer-events: none;
   white-space: nowrap;
 }
 
 .ring-score.muted {
-  color: var(--text-placeholder);
+  color: var(--text-muted);
 }
 
 /* ============================================
-   KPI 指标仪表盘
+   评分参考表
    ============================================ */
-.kpi-section {
-  margin-bottom: 20px;
+.grade-ref-card {
+  overflow: visible;
 }
 
-.score-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 16px;
-}
-
-.kpi-card {
-  background: var(--bg-card);
-  border-radius: 16px;
-  padding: 20px 16px;
+.grade-table {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  border: 1px solid rgba(243, 216, 199, 0.5);
-  box-shadow: 0 2px 12px rgba(255, 140, 66, 0.04);
-  box-sizing: border-box;
-  overflow: hidden;
+  gap: 6px;
 }
 
-.card-label {
-  font-size: 13px;
-  color: var(--text-body);
+.grade-row {
+  display: grid;
+  grid-template-columns: 40px 72px 96px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--orange-light-bg);
+  border: 1px solid transparent;
+  transition: all 0.2s;
+}
+
+.grade-row.active {
+  border-color: var(--orange-main);
+  background: #fff5ed;
+  box-shadow: 0 2px 12px rgba(255, 140, 66, 0.12);
+}
+
+.grade-level {
+  font-size: 18px;
+  font-weight: 800;
   text-align: center;
 }
 
+.grade-s { color: var(--color-success); }
+.grade-a { color: #409eff; }
+.grade-b { color: #e6a23c; }
+.grade-c { color: var(--text-muted); }
+.grade-d { color: var(--color-danger); }
+
+.grade-range {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-title);
+}
+
+.grade-label {
+  font-size: 13px;
+  color: var(--text-body);
+}
+
+.grade-stage {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.grade-marker {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--orange-main);
+  background: rgba(255, 140, 66, 0.12);
+  padding: 2px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
 /* ============================================
-   通用卡片区块
+   KPI 指标仪表盘 - Bento 风格
+   ============================================ */
+.kpi-section {
+  margin-bottom: var(--space-lg);
+}
+
+.kpi-header {
+  margin-bottom: var(--space-sm);
+}
+
+.kpi-title {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-sm);
+}
+
+.kpi-cell {
+  background: var(--bg-card);
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
+  border: 1px solid var(--border-card);
+}
+
+.kpi-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.kpi-weight {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-muted);
+  opacity: 0.65;
+}
+
+.kpi-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.kpi-value-wrap {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
+.kpi-value {
+  font-size: 32px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--text-title);
+}
+
+.kpi-value.coral { color: var(--orange-main); }
+.kpi-value.green { color: var(--color-success); }
+.kpi-value.blue { color: #5b8ec9; }
+.kpi-value.purple { color: #9b7bc8; }
+.kpi-value.teal { color: #4a9e9e; }
+.kpi-value.gray { color: var(--text-muted); }
+
+.kpi-unit {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+/* ============================================
+   通用卡片区块 - Claude 纯色分层风格
    ============================================ */
 .section-card {
   background: var(--bg-card);
-  border-radius: 16px;
-  margin-bottom: 16px;
-  border: 1px solid rgba(243, 216, 199, 0.5);
+  border-radius: 12px;
+  margin-bottom: 20px;
   overflow: hidden;
-  box-sizing: border-box;
+  box-shadow: var(--shadow-card);
+  border: 1px solid var(--border-card);
+  transition: box-shadow 0.2s;
+}
+
+.section-card:hover {
+  box-shadow: var(--shadow-hover);
+}
+
+.section-card:last-child {
+  margin-bottom: 24px;
 }
 
 .section-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 16px 20px;
-  background: linear-gradient(135deg, #fff8f3 0%, #fff 100%);
-  border-bottom: 1px solid rgba(243, 216, 199, 0.3);
-  box-sizing: border-box;
-  overflow: hidden;
+  gap: var(--space-sm);
+  padding: 14px 24px;
+  background: linear-gradient(135deg, var(--orange-light-bg) 0%, var(--bg-card) 100%);
+  border-bottom: 1px solid var(--border-card);
 }
 
 .section-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  background: transparent;
+  color: var(--orange-main);
 }
 
-.section-icon.overall {
-  background: #f0f9eb;
-  color: #67c23a;
+.section-icon svg {
+  stroke: var(--orange-main);
 }
 
-.section-icon.highlight {
-  background: #fff3e0;
-  color: #ff9800;
+.section-icon.overall svg,
+.section-icon.highlight svg,
+.section-icon.skill svg,
+.section-icon.basic svg,
+.section-icon.experience svg,
+.section-icon.optimization svg,
+.section-icon.radar svg {
+  stroke: var(--orange-main);
 }
 
-.section-icon.skill {
-  background: #ecf5ff;
-  color: #409eff;
-}
-
-.section-icon.basic {
-  background: #f3e8ff;
-  color: #a855f7;
-}
-
-.section-icon.experience {
-  background: #fff7ed;
-  color: #f97316;
-}
-
-.section-icon.optimization {
-  background: #f0f9eb;
-  color: #22c55e;
-}
-
-.section-icon.radar {
-  background: #fff7ed;
-  color: #f97316;
-}
+.section-icon.skill svg { stroke: #5b8ec9; }
+.section-icon.basic svg { stroke: #9b7bc8; }
+.section-icon.experience svg { stroke: #c8965b; }
+.section-icon.optimization svg { stroke: var(--color-success); }
+.section-icon.overall svg { stroke: var(--color-success); }
+.section-icon.highlight svg { stroke: #c8a05b; }
 
 .section-title {
   margin: 0;
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 600;
+  letter-spacing: -0.3px;
   color: var(--text-title);
+  text-wrap: balance;
 }
 
 .section-body {
-  padding: 20px;
-  box-sizing: border-box;
-  overflow: hidden;
+  padding: 24px;
+  padding-bottom: 28px;
 }
 
-/* 雷达图左右布局：左侧图表居中，右侧得分明细 */
+/* 雷达图左右布局 */
 .radar-layout {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 24px;
+  grid-template-columns: 1.3fr 0.7fr;
+  gap: 28px;
   align-items: center;
-  padding: 12px 20px;
+  padding: 8px 24px 16px;
 }
 
 .radar-left {
@@ -1752,9 +2040,7 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   padding: 8px 0;
-  border-bottom: 1px solid var(--border-divider);
-  box-sizing: border-box;
-  min-width: 0;
+  border-bottom: 1px solid var(--border-card);
 }
 
 .item-row:last-child {
@@ -1776,14 +2062,13 @@ onUnmounted(() => {
   text-align: right;
 }
 
-/* 得分 + 评价段落左右布局 */
 .score-with-evaluation {
   display: flex;
   align-items: flex-start;
   gap: 24px;
   margin-bottom: 16px;
   padding-bottom: 16px;
-  border-bottom: 1px solid var(--border-divider);
+  border-bottom: 1px solid var(--border-card);
 }
 
 .score-row-left {
@@ -1819,21 +2104,21 @@ onUnmounted(() => {
 
 .basic-items-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 10px;
-  margin-top: 12px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: var(--space-sm);
 }
 
 .basic-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 12px;
-  background: var(--bg-elevated);
-  border-radius: 8px;
-  box-sizing: border-box;
-  min-width: 0;
-  overflow: hidden;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-card);
+}
+
+.basic-item:last-child {
+  border-bottom: none;
 }
 
 .basic-item .label {
@@ -1849,56 +2134,94 @@ onUnmounted(() => {
   white-space: normal;
   line-height: 1.4;
   text-align: right;
-  min-width: 0;
 }
 
 .success {
-  color: #67c23a;
+  color: var(--color-success);
 }
 
 .warning {
-  color: #e6a23c;
+  color: var(--color-warning);
 }
 
+/* ============================================
+   标签列表 - 加分项/扣分项 标签风格
+   ============================================ */
+.section-sub-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-body);
+  margin-bottom: 8px;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: break-word;
+  white-space: normal;
+}
+
+.tag-strength {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--color-success);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.tag-weakness {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--color-danger);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+/* ============================================
+   建议列表 - 左竖线风格
+   ============================================ */
 .suggestions-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin-top: 12px;
+  gap: 4px;
+  margin-top: var(--space-sm);
 }
 
 .suggestion-item {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   align-items: flex-start;
-  padding: 10px 12px;
-  background: var(--bg-elevated);
-  border-radius: 8px;
-  box-sizing: border-box;
-  min-width: 0;
-  overflow: hidden;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-card);
 }
 
-.suggestion-index {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
+.suggestion-item:last-child {
+  border-bottom: none;
+}
+
+.suggestion-bar {
+  width: 3px;
+  min-height: 20px;
+  border-radius: 2px;
   background: var(--orange-main);
-  color: var(--bg-card);
-  font-size: 11px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   flex-shrink: 0;
+  margin-top: 4px;
 }
 
 .suggestion-text {
-  font-size: 13px;
-  color: var(--text-title);
-  line-height: 1.6;
-  word-break: break-all;
+  font-size: 14px;
+  color: var(--text-body);
+  line-height: 1.7;
+  word-break: break-word;
   white-space: normal;
+  flex: 1;
+  text-wrap: pretty;
 }
 
 /* ============================================
@@ -1907,18 +2230,17 @@ onUnmounted(() => {
 .failed-section {
   background: var(--bg-card);
   border-radius: 16px;
-  padding: 48px;
+  padding: 48px 36px;
   text-align: center;
   margin-bottom: 20px;
-  border: 1px solid #fde2e2;
-  box-sizing: border-box;
-  overflow: hidden;
+  box-shadow: var(--shadow-card);
+  border: 1px solid var(--border-card);
 }
 
 .failed-title {
   font-size: 18px;
   font-weight: 600;
-  color: #f56c6c;
+  color: var(--color-danger);
   margin: 16px 0 8px;
 }
 
@@ -1933,7 +2255,7 @@ onUnmounted(() => {
 .result-pre {
   font-size: 13px;
   color: var(--text-body);
-  background: var(--bg-elevated);
+  background: var(--orange-light-bg);
   padding: 16px;
   border-radius: 8px;
   overflow-x: auto;
@@ -1941,9 +2263,11 @@ onUnmounted(() => {
   word-break: break-word;
   margin: 0;
   line-height: 1.7;
-  box-sizing: border-box;
 }
 
+/* ============================================
+   岗位匹配分析
+   ============================================ */
 .job-match-card {
   margin-top: 20px;
 }
@@ -1964,8 +2288,8 @@ onUnmounted(() => {
 }
 
 .job-match-entry-btn {
-  border-color: var(--orange-main);
-  color: var(--orange-main);
+  border-color: var(--orange-main) !important;
+  color: var(--orange-main) !important;
 }
 
 .job-match-panel {
@@ -1988,28 +2312,29 @@ onUnmounted(() => {
 
 .job-match-score-card {
   padding: 18px 20px;
-  border-radius: 14px;
-  background: linear-gradient(135deg, #fff8f3 0%, #fff 100%);
-  border: 1px solid rgba(243, 216, 199, 0.7);
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--orange-light-bg) 0%, var(--bg-card) 100%);
+  border: 1px solid var(--orange-border);
 }
 
 .job-match-score-label {
   font-size: 13px;
-  color: var(--text-body);
+  color: var(--text-muted);
 }
 
 .job-match-score-value {
   margin-top: 8px;
-  font-size: 34px;
+  font-size: 36px;
   line-height: 1;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   color: var(--orange-main);
 }
 
 .job-match-summary {
   padding: 14px 18px;
   border-radius: 12px;
-  background: var(--bg-elevated);
+  background: var(--orange-light-bg);
   font-size: 13px;
   line-height: 1.7;
   color: var(--text-body);
@@ -2024,8 +2349,9 @@ onUnmounted(() => {
 .job-match-result-block,
 .job-match-suggestions {
   padding: 18px 20px;
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--bg-elevated);
+  border: 1px solid var(--border-card);
 }
 
 .job-match-block-title {
@@ -2038,29 +2364,28 @@ onUnmounted(() => {
 .job-match-tag-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
 }
 
 .job-match-tag {
   display: inline-flex;
   align-items: center;
-  min-height: 32px;
-  padding: 0 12px;
-  border-radius: 999px;
-  font-size: 13px;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 12px;
   font-weight: 500;
+  line-height: 28px;
 }
 
 .job-match-tag.matched {
-  background: #eef6f0;
-  color: #3d7a5a;
-  font-weight: 600;
+  background: rgba(93,184,114,0.12);
+  color: #3d8a5a;
 }
 
 .job-match-tag.missing {
-  background: #fce4ec;
-  color: #b71c1c;
-  font-weight: 600;
+  background: rgba(198,69,69,0.1);
+  color: #b53a3a;
 }
 
 .job-match-empty {
@@ -2069,6 +2394,9 @@ onUnmounted(() => {
   color: var(--text-muted);
 }
 
+/* ============================================
+   AI 简历润色
+   ============================================ */
 .polish-card {
   margin-top: 20px;
 }
@@ -2093,8 +2421,9 @@ onUnmounted(() => {
 
 .polish-content-block {
   padding: 18px 20px;
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--bg-elevated);
+  border: 1px solid var(--border-card);
 }
 
 .polish-block-header {
@@ -2123,21 +2452,13 @@ onUnmounted(() => {
   color: var(--text-body);
 }
 
-.polish-content-pre {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.8;
-  color: var(--text-title);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
 /* ============================================
-   底部操作区
+   底部操作区 - Claude 纯色按钮
    ============================================ */
 .action-section {
-  margin-top: 24px;
-  padding: 24px 0;
+  margin-top: var(--space-xl);
+  padding: var(--space-xl) 0;
+  border-top: 1px solid var(--border-card);
 }
 
 .action-group {
@@ -2148,84 +2469,154 @@ onUnmounted(() => {
 }
 
 .action-btn {
-  border-radius: 24px;
+  border-radius: 6px;
   padding: 10px 24px;
   font-size: 14px;
-  min-height: 42px;
-  box-sizing: border-box;
+  font-weight: 500;
+  min-height: 40px;
 }
 
 .action-btn.secondary {
   background: var(--bg-card);
-  border-color: var(--border-card);
+  border: 1px solid var(--border-card);
   color: var(--text-body);
 }
 
 .action-btn.secondary:hover {
+  background: var(--orange-light-bg);
   border-color: var(--orange-main);
   color: var(--orange-main);
 }
 
-.action-btn.primary {
-  background: linear-gradient(135deg, #FF8C42 0%, #FF7A30 100%);
+.action-btn.claude-primary {
+  background: linear-gradient(135deg, var(--orange-main) 0%, var(--orange-deep) 100%);
   border: none;
-  color: var(--bg-card);
+  color: #fff;
   box-shadow: 0 4px 16px rgba(255, 140, 66, 0.3);
 }
 
-.action-btn.primary:hover {
+.action-btn.claude-primary:hover {
   opacity: 0.9;
+  box-shadow: 0 6px 20px rgba(255, 140, 66, 0.4);
 }
 
 /* ============================================
    响应式
    ============================================ */
 @media (max-width: 1023px) {
-  .hero-section {
+  .hero-body {
     flex-direction: column;
     align-items: center;
     text-align: center;
-    padding: 24px;
+    padding: 28px;
   }
 
   .hero-left {
     flex-direction: row;
     gap: 20px;
   }
+
+  .status-row {
+    justify-content: center;
+  }
+
+  .parse-meta {
+    justify-content: center;
+  }
 }
 
 @media (max-width: 767px) {
   .resume-result-view {
-    padding: 16px;
+    padding: 12px;
   }
 
-  .hero-section {
+  .hero-body {
     padding: 20px;
+    gap: 24px;
+  }
+
+  .hero-left {
+    gap: 12px;
   }
 
   .ring-score {
     font-size: 18px;
   }
 
-  .score-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
+  .kpi-grid {
+    grid-template-columns: 1fr 1fr;
   }
 
-  .kpi-card {
-    padding: 16px 12px;
-  }
-
-  .section-header {
+  .kpi-cell {
     padding: 14px 16px;
   }
 
+  .kpi-value {
+    font-size: 24px;
+  }
+
+  .section-card {
+    overflow: visible;
+  }
+
+  .section-header {
+    padding: 12px 14px;
+  }
+
   .section-body {
-    padding: 16px;
+    padding: 14px;
+  }
+
+  .score-with-evaluation {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .score-row-left {
+    flex-direction: row;
+    gap: 8px;
+    min-width: auto;
+  }
+
+  .score-row-left .item-value {
+    font-size: 24px;
+  }
+
+  .grade-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    margin: 0 -14px;
+    padding: 0 14px;
+  }
+
+  .grade-row {
+    grid-template-columns: 32px 60px 80px 1fr auto;
+    gap: 8px;
+    padding: 8px 10px;
+  }
+
+  .grade-level {
+    font-size: 15px;
+  }
+
+  .grade-range {
+    font-size: 12px;
+  }
+
+  .grade-label {
+    font-size: 12px;
+  }
+
+  .grade-stage {
+    font-size: 11px;
   }
 
   .basic-items-grid {
     grid-template-columns: 1fr;
+  }
+
+  .radar-layout {
+    padding: 4px 14px 12px;
   }
 
   .job-match-result-grid {
@@ -2240,103 +2631,202 @@ onUnmounted(() => {
   .action-btn {
     width: 100%;
   }
+
+  .result-content {
+    overflow-x: hidden;
+  }
 }
 
 /* ===== 暗色模式适配 ===== */
-.level-excellent {
-  background: rgba(76, 175, 80, 0.15);
-  color: #81c784;
+[data-theme="dark"] .hero-section.hero-2 {
+  background: linear-gradient(135deg, #8a4a2a 0%, #5a2d1a 100%);
 }
 
-.level-good {
-  background: rgba(255, 152, 0, 0.15);
-  color: #ffb74d;
+[data-theme="dark"] .hero-section.hero-3,
+[data-theme="dark"] .hero-section.hero-1 {
+  background: var(--bg-card);
 }
 
-.level-fair {
-  background: rgba(255, 193, 7, 0.15);
-  color: #ffd54f;
+[data-theme="dark"] .hero-ring .ring-score {
+  color: var(--text-title);
 }
 
-.level-poor {
-  background: rgba(244, 67, 54, 0.15);
-  color: #ef9a9a;
+[data-theme="dark"] .ai-summary {
+  background: var(--orange-light-bg);
 }
 
-.status-0 {
-  background: rgba(230, 162, 60, 0.15);
-  color: #f0c060;
+[data-theme="dark"] .summary-text {
+  color: var(--text-title);
 }
 
-.status-1 {
-  background: rgba(64, 158, 255, 0.15);
-  color: #79bbff;
+[data-theme="dark"] .claude-badge {
+  color: var(--text-body);
 }
 
-.status-2 {
-  background: rgba(103, 194, 58, 0.15);
-  color: #95d06a;
+[data-theme="dark"] .update-time {
+  color: var(--text-muted);
 }
 
-.status-3 {
-  background: rgba(245, 108, 108, 0.15);
-  color: #f89898;
+[data-theme="dark"] .parse-mode-pill {
+  background: rgba(255,255,255,0.1);
+  color: var(--text-body);
 }
 
-.section-header {
-  background: linear-gradient(135deg, var(--bg-elevated) 0%, var(--bg-card) 100%);
+[data-theme="dark"] .level-badge {
+  background: rgba(255,255,255,0.08);
+  color: var(--text-title);
 }
 
-.section-icon.overall {
-  background: rgba(103, 194, 58, 0.15);
-  color: #81c784;
+[data-theme="dark"] .section-card {
+  background: var(--bg-card);
 }
 
-.section-icon.highlight {
-  background: rgba(255, 152, 0, 0.15);
-  color: #ffb74d;
+[data-theme="dark"] .section-header {
+  background: var(--orange-light-bg);
+  border-bottom-color: var(--border-card);
 }
 
-.section-icon.skill {
-  background: rgba(64, 158, 255, 0.15);
-  color: #79bbff;
+[data-theme="dark"] .kpi-cell {
+  background: var(--bg-card);
 }
 
-.section-icon.basic {
-  background: rgba(168, 85, 247, 0.15);
-  color: #c084fc;
+[data-theme="dark"] .kpi-grid {
+  background: var(--border-card);
 }
 
-.section-icon.experience {
-  background: rgba(249, 115, 22, 0.15);
-  color: #fb923c;
+[data-theme="dark"] .basic-items-grid {
+  background: var(--border-card);
 }
 
-.section-icon.optimization {
-  background: rgba(34, 197, 94, 0.15);
-  color: #4ade80;
+[data-theme="dark"] .basic-item {
+  background: var(--bg-card);
 }
 
-.section-icon.radar {
-  background: rgba(249, 115, 22, 0.15);
-  color: #fb923c;
+[data-theme="dark"] .job-match-score-card {
+  background: var(--orange-light-bg);
 }
 
-.kpi-card {
-  border-color: var(--border-card);
+[data-theme="dark"] .job-match-result-block,
+[data-theme="dark"] .job-match-suggestions,
+[data-theme="dark"] .job-match-summary,
+[data-theme="dark"] .polish-content-block {
+  background: var(--orange-light-bg);
 }
 
-.section-card {
-  border-color: var(--border-card);
+[data-theme="dark"] .job-match-tag.matched {
+  background: rgba(93,184,114,0.15);
+  color: #7dd899;
 }
 
-.job-match-tag.matched {
-  background: rgba(47, 155, 93, 0.15);
-  color: #6ee7a0;
+[data-theme="dark"] .job-match-tag.missing {
+  background: rgba(198,69,69,0.15);
+  color: #e08080;
 }
 
-.job-match-tag.missing {
-  background: rgba(217, 72, 65, 0.15);
-  color: #f87171;
+[data-theme="dark"] .grade-row.active {
+  background: rgba(255, 140, 66, 0.1);
+  box-shadow: 0 2px 12px rgba(255, 140, 66, 0.06);
+}
+
+[data-theme="dark"] .grade-marker {
+  background: rgba(255, 140, 66, 0.22);
+}
+
+[data-theme="dark"] .hero-glow {
+  background: radial-gradient(ellipse 80% 60% at 30% 20%, rgba(0,0,0,0.25) 0%, transparent 70%);
+}
+
+[data-theme="dark"] .parse-message {
+  color: var(--text-muted);
+}
+
+[data-theme="dark"] .tag-strength {
+  background: rgba(34, 197, 94, 0.08);
+  border-color: rgba(34, 197, 94, 0.15);
+}
+
+[data-theme="dark"] .tag-weakness {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.15);
+}
+
+/* ============================================
+   入场动效 - Stagger Fade In
+   ============================================ */
+@keyframes claude-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.result-content > * {
+  animation: claude-fade-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.result-content > *:nth-child(1) { animation-delay: 0s; }
+.result-content > *:nth-child(2) { animation-delay: 0.08s; }
+.result-content > *:nth-child(3) { animation-delay: 0.16s; }
+.result-content > *:nth-child(4) { animation-delay: 0.24s; }
+.result-content > *:nth-child(5) { animation-delay: 0.32s; }
+.result-content > *:nth-child(6) { animation-delay: 0.40s; }
+.result-content > *:nth-child(7) { animation-delay: 0.48s; }
+.result-content > *:nth-child(8) { animation-delay: 0.56s; }
+.result-content > *:nth-child(9) { animation-delay: 0.64s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .result-content > * {
+    animation: none;
+  }
+}
+</style>
+
+<style>
+[data-theme="dark"] .job-match-panel .n-input {
+  --n-color: var(--bg-card) !important;
+  --n-text-color: var(--text-body) !important;
+  --n-border: 1px solid var(--border-card) !important;
+  --n-caret-color: var(--orange-main) !important;
+}
+
+[data-theme="dark"] .job-match-panel .n-input.n-input--textarea .n-input__textarea {
+  background-color: var(--bg-card) !important;
+  color: var(--text-body) !important;
+}
+
+[data-theme="dark"] .job-match-actions .n-button.n-button--secondary {
+  --n-color: rgba(255, 140, 66, 0.06) !important;
+  --n-text-color: var(--orange-main) !important;
+  --n-border: 1px solid var(--orange-main) !important;
+  --n-border-hover: 1px solid var(--orange-main) !important;
+}
+
+[data-theme="dark"] .job-match-actions .n-button.n-button--secondary:hover {
+  --n-color: rgba(255, 140, 66, 0.15) !important;
+}
+
+[data-theme="dark"] .polish-actions .n-button.n-button--ghost {
+  --n-text-color: var(--orange-main) !important;
+  --n-border: 1px solid var(--orange-main) !important;
+  --n-border-hover: 1px solid var(--orange-main) !important;
+}
+
+[data-theme="dark"] .polish-actions .n-button.n-button--ghost:hover {
+  --n-color: rgba(255, 140, 66, 0.15) !important;
+}
+
+[data-theme="dark"] .polish-actions .n-button.n-button--primary-type {
+  --n-color: var(--orange-main) !important;
+  --n-text-color: #fff !important;
+  --n-border: 1px solid var(--orange-main) !important;
+  --n-border-hover: 1px solid var(--orange-deep) !important;
+}
+
+[data-theme="dark"] .polish-actions .n-button.n-button--primary-type:hover {
+  --n-color: var(--orange-deep) !important;
 }
 </style>

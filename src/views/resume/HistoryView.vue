@@ -112,7 +112,7 @@
           :page-size="pageSize"
           :page-sizes="[10, 20, 50]"
           :total="total"
-          layout="total, sizes, prev, pager, next, jumper"
+          :layout="isMobileLayout ? 'prev, pager, next' : 'total, sizes, prev, pager, next, jumper'"
           @size-change="handleSizeChange"
           @current-change="handleCurrentChange"
         />
@@ -122,7 +122,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import { Loading, CircleClose, Document } from "@element-plus/icons-vue";
 import { getResumeHistory, extractFileName } from "@/api/resume";
@@ -135,6 +135,13 @@ const router = useRouter();
 const loading = ref(true);
 const error = ref("");
 const historyList = ref([]);
+
+// 响应式分页布局
+const isMobileLayout = ref(false);
+
+const updateLayout = () => {
+  isMobileLayout.value = window.innerWidth < 768;
+};
 
 // 分页状态
 const pageNum = ref(1);
@@ -234,7 +241,13 @@ const goToUpload = () => {
 };
 
 onMounted(() => {
+  updateLayout();
+  window.addEventListener('resize', updateLayout);
   fetchHistory();
+});
+
+onUnmounted(() => {
+  window.removeEventListener('resize', updateLayout);
 });
 </script>
 
@@ -366,7 +379,7 @@ onMounted(() => {
 }
 
 .history-card {
-  background-color: var(--bg-card, #ffffff);
+  background: var(--bg-card, #ffffff);
   border: 1px solid var(--orange-border, #f3d8c7);
   border-radius: 12px;
   overflow: hidden;
@@ -405,11 +418,20 @@ onMounted(() => {
   .page-title {
     font-size: 20px;
   }
+  .history-card {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
   .file-name {
     max-width: 160px;
   }
   .create-time {
     font-size: 12px;
+  }
+  .pagination-section {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 12px 0;
   }
 }
 

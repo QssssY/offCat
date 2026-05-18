@@ -173,14 +173,17 @@
             {{ formatDateTime(row.createTime) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="410" fixed="right" align="center">
+        <el-table-column label="操作" width="500" fixed="right" align="center">
           <template #header>
             <div class="table-header">操作</div>
           </template>
           <template #default="{ row }">
             <div class="action-group">
               <el-button size="small" @click="openRightsDrawer(row)" class="action-btn view">
-                查看权益
+                权益详情
+              </el-button>
+              <el-button size="small" @click="openUserDataDrawer(row)" class="action-btn view">
+                用户数据
               </el-button>
               <el-button size="small" @click="openEditDialog(row)" class="action-btn edit">
                 编辑权益
@@ -214,26 +217,67 @@
       </div>
     </el-card>
 
-    <el-drawer v-model="rightsDrawerVisible" title="用户权益详情" size="480px" class="rights-drawer">
-      <el-skeleton v-if="rightsLoading" :rows="8" animated />
-      <el-descriptions v-else :column="1" border class="rights-descriptions">
-        <el-descriptions-item label="用户ID">{{ rightsData.userId }}</el-descriptions-item>
-        <el-descriptions-item label="用户名">{{ rightsData.username }}</el-descriptions-item>
-        <el-descriptions-item label="昵称">{{ rightsData.nickname || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="角色">{{ rightsData.roleDesc }}</el-descriptions-item>
-        <el-descriptions-item label="套餐编码">{{ rightsData.membershipPlanCode || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="会员到期">
-          {{ formatDateTime(rightsData.vipExpireTime) }}
-        </el-descriptions-item>
-        <el-descriptions-item label="会员有效">{{ rightsData.isVipActive ? '是' : '否' }}</el-descriptions-item>
-        <el-descriptions-item label="简历剩余额度">{{ rightsData.resumeQuota }}</el-descriptions-item>
-        <el-descriptions-item label="面试剩余额度">{{ rightsData.interviewQuota }}</el-descriptions-item>
-        <el-descriptions-item label="今日简历已用">{{ rightsData.dailyResumeUsed }}</el-descriptions-item>
-        <el-descriptions-item label="今日面试已用">{{ rightsData.dailyInterviewUsed }}</el-descriptions-item>
-        <el-descriptions-item label="累计简历已用">{{ rightsData.totalResumeUsed }}</el-descriptions-item>
-        <el-descriptions-item label="累计面试已用">{{ rightsData.totalInterviewUsed }}</el-descriptions-item>
-        <el-descriptions-item label="最近刷新日期">{{ rightsData.lastRefreshDate || '-' }}</el-descriptions-item>
-      </el-descriptions>
+    <el-drawer v-model="rightsDrawerVisible" title="用户详情" size="520px" class="rights-drawer">
+      <el-tabs v-model="activeUserTab">
+        <el-tab-pane label="权益详情" name="rights">
+          <el-skeleton v-if="rightsLoading" :rows="8" animated />
+          <el-descriptions v-else :column="1" border class="rights-descriptions">
+            <el-descriptions-item label="用户ID">{{ rightsData.userId }}</el-descriptions-item>
+            <el-descriptions-item label="用户名">{{ rightsData.username }}</el-descriptions-item>
+            <el-descriptions-item label="昵称">{{ rightsData.nickname || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="角色">{{ rightsData.roleDesc }}</el-descriptions-item>
+            <el-descriptions-item label="套餐编码">{{ rightsData.membershipPlanCode || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="会员到期">
+              {{ formatDateTime(rightsData.vipExpireTime) }}
+            </el-descriptions-item>
+            <el-descriptions-item label="会员有效">{{ rightsData.isVipActive ? '是' : '否' }}</el-descriptions-item>
+            <el-descriptions-item label="简历剩余额度">{{ rightsData.resumeQuota }}</el-descriptions-item>
+            <el-descriptions-item label="面试剩余额度">{{ rightsData.interviewQuota }}</el-descriptions-item>
+            <el-descriptions-item label="今日简历已用">{{ rightsData.dailyResumeUsed }}</el-descriptions-item>
+            <el-descriptions-item label="今日面试已用">{{ rightsData.dailyInterviewUsed }}</el-descriptions-item>
+            <el-descriptions-item label="累计简历已用">{{ rightsData.totalResumeUsed }}</el-descriptions-item>
+            <el-descriptions-item label="累计面试已用">{{ rightsData.totalInterviewUsed }}</el-descriptions-item>
+            <el-descriptions-item label="最近刷新日期">{{ rightsData.lastRefreshDate || '-' }}</el-descriptions-item>
+          </el-descriptions>
+        </el-tab-pane>
+        <el-tab-pane label="面试记录" name="interviews">
+          <el-skeleton v-if="userDataLoading" :rows="5" animated />
+          <template v-else-if="userInterviews.length === 0">
+            <el-empty description="暂无面试记录" />
+          </template>
+          <el-table v-else :data="userInterviews" stripe size="small">
+            <el-table-column prop="jobRole" label="岗位" width="100" />
+            <el-table-column prop="difficultyDesc" label="难度" width="60" />
+            <el-table-column prop="statusDesc" label="状态" width="70">
+              <template #default="{ row }">
+                <el-tag :type="row.statusDesc === '已结束' ? 'success' : 'warning'" size="small">{{ row.statusDesc }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="comprehensiveScore" label="评分" width="60" />
+            <el-table-column label="时间" width="160">
+              <template #default="{ row }">{{ formatDateTime(row.createTime) }}</template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+        <el-tab-pane label="简历诊断" name="resumeTasks">
+          <el-skeleton v-if="userDataLoading" :rows="5" animated />
+          <template v-else-if="userResumeTasks.length === 0">
+            <el-empty description="暂无简历诊断记录" />
+          </template>
+          <el-table v-else :data="userResumeTasks" stripe size="small">
+            <el-table-column prop="id" label="任务ID" width="80" />
+            <el-table-column prop="statusDesc" label="状态" width="80">
+              <template #default="{ row }">
+                <el-tag :type="row.statusDesc === '已完成' ? 'success' : row.statusDesc === '失败' ? 'danger' : 'warning'" size="small">{{ row.statusDesc }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="errorMsg" label="错误信息" min-width="150" show-overflow-tooltip />
+            <el-table-column label="时间" width="160">
+              <template #default="{ row }">{{ formatDateTime(row.createTime) }}</template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+      </el-tabs>
     </el-drawer>
 
     <el-dialog
@@ -438,8 +482,10 @@ import {
   updateAdminUserRights,
   updateAdminUserQuota,
   updateAdminUserStatus,
-  updateUsersBatchStatus
+  updateUsersBatchStatus,
+  normalizeUserId
 } from '@/api/admin/users'
+import { getAdminUserInterviews, getAdminUserResumeTasks } from '@/api/admin/userData'
 import {
   confirmAdminRiskAction,
   resolveAdminTableEmptyText,
@@ -545,19 +591,6 @@ const quotaRules = {
   totalResumeUsed: [{ validator: validateNonNegativeInteger, trigger: 'change' }],
   dailyInterviewUsed: [{ validator: validateNonNegativeInteger, trigger: 'change' }],
   dailyResumeUsed: [{ validator: validateNonNegativeInteger, trigger: 'change' }]
-}
-
-/**
- * 归一化 userId 为字符串。
- * 为什么这样做：
- * 1. 超长 ID 若走 Number 会丢失精度。
- * 2. 权益接口路径参数必须使用保真的原始字符串。
- * @param {string | number | null | undefined} userId
- * @returns {string}
- */
-const normalizeUserId = (userId) => {
-  if (userId === null || userId === undefined) return ''
-  return String(userId).trim()
 }
 
 /**
@@ -679,6 +712,41 @@ const matchedQuickFilterKey = computed(() => {
  * @param {string | null} value
  * @returns {string}
  */
+// 用户数据抽屉状态
+const activeUserTab = ref('rights')
+const currentDataUserId = ref('')
+const userDataLoading = ref(false)
+const userInterviews = ref([])
+const userResumeTasks = ref([])
+
+const openUserDataDrawer = async (row) => {
+  const userId = readUserId(row)
+  if (!userId) return
+  currentDataUserId.value = userId
+  activeUserTab.value = 'interviews'
+  rightsDrawerVisible.value = true
+  rightsLoading.value = false
+  await Promise.all([fetchUserInterviews(userId), fetchUserResumeTasks(userId)])
+}
+
+const fetchUserInterviews = async (userId) => {
+  userDataLoading.value = true
+  try {
+    const res = await getAdminUserInterviews(userId)
+    userInterviews.value = res?.data?.records || []
+  } catch { userInterviews.value = [] }
+  finally { userDataLoading.value = false }
+}
+
+const fetchUserResumeTasks = async (userId) => {
+  userDataLoading.value = true
+  try {
+    const res = await getAdminUserResumeTasks(userId)
+    userResumeTasks.value = res?.data?.records || []
+  } catch { userResumeTasks.value = [] }
+  finally { userDataLoading.value = false }
+}
+
 const formatDateTime = (value) => {
   if (!value) return '-'
   const date = new Date(value)
@@ -709,7 +777,7 @@ const fetchUserList = async () => {
     const list = Array.isArray(res?.data) ? res.data : []
     userList.value = list.map((item) => ({
       ...item,
-      _userId: normalizeUserId(item.id ?? item.userId)
+      _userId: normalizeUserId(item.userId ?? item.id)
     }))
   } catch (error) {
     showAdminError(error?.message || '加载用户列表失败')
@@ -1082,7 +1150,7 @@ const handleBatchDisable = async () => {
       impactHint: '封禁后这些用户将无法继续使用核心功能，请确认已完成风险评估。',
       type: 'warning'
     })
-    const ids = selectedUsers.value.map(item => item.id)
+    const ids = selectedUsers.value.map(item => readUserId(item))
     await updateUsersBatchStatus(ids, 0)
     showAdminSuccess(`成功封禁 ${ids.length} 个用户`)
     await fetchUserList()
@@ -1110,7 +1178,7 @@ const handleBatchEnable = async () => {
       impactHint: '解封后这些用户将恢复访问能力。',
       type: 'warning'
     })
-    const ids = selectedUsers.value.map(item => item.id)
+    const ids = selectedUsers.value.map(item => readUserId(item))
     await updateUsersBatchStatus(ids, 1)
     showAdminSuccess(`成功解封 ${ids.length} 个用户`)
     await fetchUserList()

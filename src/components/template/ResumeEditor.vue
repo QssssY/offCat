@@ -214,6 +214,7 @@
 
 <script setup>
 import { ref, nextTick } from 'vue'
+import { ElMessageBox } from 'element-plus'
 import { useTemplateEditorStore } from '@/stores/templateEditor.js'
 import SectionBasicInfo from './editor/SectionBasicInfo.vue'
 import SectionSummary from './editor/SectionSummary.vue'
@@ -274,22 +275,41 @@ function updateSkills(val) {
 }
 
 // 删除段落（带确认）
-function handleRemove(key) {
-  if (confirm('确定删除此段落吗？删除后可从"添加段落"重新添加。')) {
+async function handleRemove(key) {
+  try {
+    await ElMessageBox.confirm(
+      '确定删除此段落吗？删除后可从"添加段落"重新添加。',
+      '删除确认',
+      { confirmButtonText: '确定删除', cancelButtonText: '取消', type: 'warning' }
+    )
     store.removeSection(key)
     expandedKeys.value.delete(key)
+  } catch {
+    // 用户取消，不做任何操作
   }
 }
 
 // 添加段落（弹出自定义标题输入框）
-function handleAddSection(typeConfig) {
-  const title = prompt('请输入段落标题：', typeConfig.defaultTitle || typeConfig.label)
-  if (title === null) return // 用户取消
-  const finalTitle = title.trim() || typeConfig.defaultTitle || typeConfig.label
-  store.addSection(typeConfig, finalTitle)
-  // 自动展开新添加的段落
-  const newSec = store.sectionsConfig[store.sectionsConfig.length - 1]
-  if (newSec) expandedKeys.value.add(newSec.key)
+async function handleAddSection(typeConfig) {
+  try {
+    const { value } = await ElMessageBox.prompt(
+      '请输入段落标题：',
+      '添加段落',
+      {
+        confirmButtonText: '添加',
+        cancelButtonText: '取消',
+        inputValue: typeConfig.defaultTitle || typeConfig.label,
+        inputValidator: (val) => val && val.trim() ? true : '段落标题不能为空'
+      }
+    )
+    const finalTitle = value.trim() || typeConfig.defaultTitle || typeConfig.label
+    store.addSection(typeConfig, finalTitle)
+    // 自动展开新添加的段落
+    const newSec = store.sectionsConfig[store.sectionsConfig.length - 1]
+    if (newSec) expandedKeys.value.add(newSec.key)
+  } catch {
+    // 用户取消，不做任何操作
+  }
 }
 
 // 教育经历

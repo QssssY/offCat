@@ -1,7 +1,7 @@
 <template>
   <header class="app-header">
     <div class="header-left">
-      <img src="@/assets/logo.jpg" class="logo-img" />
+      <img src="@/assets/logo.jpg" class="logo-img" alt="Logo" />
       <span class="logo-text">智能模拟面试与简历诊断系统</span>
     </div>
 
@@ -49,6 +49,16 @@
         :class="{ active: isGrowthActive }"
       >
         成长中心
+      </router-link>
+
+      <!-- 已登录才显示 Offer 辅助 -->
+      <router-link
+        v-if="isLoggedIn"
+        to="/offer"
+        class="nav-link"
+        :class="{ active: isOfferActive }"
+      >
+        Offer 辅助
       </router-link>
 
       <!-- 已登录才显示历史记录下拉菜单 -->
@@ -152,6 +162,7 @@
       <template v-if="isLoggedIn">
         <!-- 消息通知铃铛 -->
         <el-popover
+          v-model:visible="notificationPopoverVisible"
           placement="bottom-end"
           :width="360"
           trigger="click"
@@ -207,29 +218,16 @@
                 :class="{ unread: item.readStatus === 0 }"
                 @click="handleNotificationRead(item)"
               >
-                <div class="panel-item-icon" :class="`type-${item.type}`">
-                  <svg v-if="item.type === 'resume'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                    <polyline points="14 2 14 8 20 8" />
-                  </svg>
-                  <svg v-else-if="item.type === 'polish'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M12 20h9" />
-                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-                  </svg>
-                  <svg v-else-if="item.type === 'interview'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                    <circle cx="9" cy="7" r="4" />
-                  </svg>
-                  <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="10" />
-                    <line x1="12" y1="8" x2="12" y2="12" />
-                    <line x1="12" y1="16" x2="12.01" y2="16" />
-                  </svg>
-                </div>
+                <NotificationTypeIcon class="panel-item-icon" :type="item.type" size="sm" />
                 <div class="panel-item-content">
-                  <div class="panel-item-title">{{ item.title }}</div>
+                  <div class="panel-item-title-row">
+                    <div class="panel-item-title">{{ item.title }}</div>
+                    <el-tag :type="getNotificationTypeMeta(item.type).tagType" size="small" effect="plain">
+                      {{ getNotificationTypeMeta(item.type).label }}
+                    </el-tag>
+                  </div>
                   <div class="panel-item-text">{{ item.content }}</div>
-                  <div class="panel-item-time">{{ formatNotifTime(item.createTime) }}</div>
+                  <div class="panel-item-time">{{ formatNotificationTime(item.createTime, { compact: true }) }}</div>
                 </div>
                 <div v-if="item.readStatus === 0" class="panel-item-dot"></div>
               </div>
@@ -241,10 +239,35 @@
           </div>
         </el-popover>
 
+      <el-dialog
+          v-model="announcementDialogVisible"
+          class="announcement-dialog"
+          :show-close="true"
+          :append-to-body="true"
+        >
+          <template #header>
+            <div class="announcement-dialog-header" v-if="selectedAnnouncement">
+              <NotificationTypeIcon :type="selectedAnnouncement.type" size="sm" />
+              <div class="announcement-dialog-title-block">
+                <div class="announcement-dialog-title">{{ selectedAnnouncement.title }}</div>
+                <div class="announcement-dialog-meta">
+                  <el-tag :type="getNotificationTypeMeta(selectedAnnouncement.type).tagType" size="small" effect="plain">
+                    {{ getNotificationTypeMeta(selectedAnnouncement.type).label }}
+                  </el-tag>
+                  <span>{{ formatNotificationTime(selectedAnnouncement.createTime) }}</span>
+                </div>
+              </div>
+            </div>
+          </template>
+          <div class="announcement-dialog-content" v-if="selectedAnnouncement">
+            {{ selectedAnnouncement.content }}
+          </div>
+        </el-dialog>
+
         <el-dropdown trigger="click" @command="handleCommand">
           <div class="avatar-wrapper avatar-sm">
             <div class="avatar-ring avatar-sm">
-              <img src="@/assets/user.png" class="avatar-img avatar-sm" />
+              <img src="@/assets/user.png" class="avatar-img avatar-sm" alt="用户头像" />
             </div>
           </div>
           <template #dropdown>
@@ -252,7 +275,7 @@
               <!-- 用户信息区 -->
               <div class="user-info-header">
                 <div class="user-info-avatar-wrapper">
-                  <img src="@/assets/user.png" />
+                  <img src="@/assets/user.png" alt="用户头像" />
                 </div>
                 <div class="user-info-content">
                   <div class="user-info-name">
@@ -399,6 +422,13 @@
           class="mobile-nav-link"
           @click="drawerVisible = false"
           >成长中心</router-link>
+        >
+        <router-link
+          v-if="isLoggedIn"
+          to="/offer"
+          class="mobile-nav-link"
+          @click="drawerVisible = false"
+          >Offer 辅助</router-link
         >
         <router-link
           v-if="isLoggedIn"
@@ -646,6 +676,8 @@ import { ElMessage } from "element-plus";
 import { removeToken } from "@/utils/auth";
 import { updateNickname, updatePassword, updateSecurityQuestion } from "@/api/auth";
 import { getNotifications, getUnreadCount, markAsRead, markAllAsRead, connectNotificationStream } from "@/api/notification";
+import NotificationTypeIcon from "@/components/notification/NotificationTypeIcon.vue";
+import { formatNotificationTime, getNotificationTypeMeta, isAdminAnnouncementType } from "@/utils/notificationMeta";
 
 const router = useRouter();
 const route = useRoute();
@@ -729,6 +761,9 @@ const notificationPopoverVisible = ref(false);
 const notificationLoading = ref(false);
 /** 全部已读加载状态 */
 const markAllReadLoading = ref(false);
+/** 公告详情弹窗状态 */
+const announcementDialogVisible = ref(false);
+const selectedAnnouncement = ref(null);
 /** 轮询定时器（SSE 断线降级方案） */
 let notificationTimer = null;
 /** SSE 连接控制器 */
@@ -754,7 +789,7 @@ const fetchUnreadCount = async () => {
 const fetchNotificationList = async () => {
   notificationLoading.value = true;
   try {
-    const res = await getNotifications({ page: 1, size: 10 });
+    const res = await getNotifications({ pageNum: 1, size: 10 });
     if (res.code === 200) {
       notificationList.value = res.data.records || [];
       unreadCount.value = Number(res.data.unreadCount) || 0;
@@ -764,6 +799,26 @@ const fetchNotificationList = async () => {
   } finally {
     notificationLoading.value = false;
   }
+};
+
+const updatePanelNotificationReadState = (id, readStatus, readTime) => {
+  notificationList.value = notificationList.value.map((item) =>
+    item.id === id ? { ...item, readStatus, readTime } : item
+  );
+};
+
+const markPanelNotificationReadOptimistically = (item) => {
+  if (item.readStatus !== 0) return;
+
+  const readTime = new Date().toISOString();
+  updatePanelNotificationReadState(item.id, 1, readTime);
+  unreadCount.value = Math.max(0, unreadCount.value - 1);
+
+  markAsRead(item.id).catch((e) => {
+    console.error("标记已读失败，回滚状态", e);
+    updatePanelNotificationReadState(item.id, 0, item.readTime || null);
+    unreadCount.value += 1;
+  });
 };
 
 /**
@@ -778,21 +833,15 @@ const handleNotificationOpen = () => {
  * 单条通知标记已读
  */
 const handleNotificationRead = async (item) => {
-  if (item.readStatus === 0) {
-    // 乐观更新 UI
-    item.readStatus = 1;
-    item.readTime = new Date().toISOString();
-    unreadCount.value = Math.max(0, unreadCount.value - 1);
-    // 发送已读请求（不阻塞导航，失败时回滚 UI）
-    markAsRead(item.id).catch((e) => {
-      console.error("标记已读失败，回滚状态", e);
-      item.readStatus = 0;
-      item.readTime = null;
-      unreadCount.value += 1;
-    });
-  }
-  // 关闭面板并跳转
+  markPanelNotificationReadOptimistically(item);
   notificationPopoverVisible.value = false;
+
+  if (isAdminAnnouncementType(item.type) && item.broadcastId) {
+    selectedAnnouncement.value = item;
+    announcementDialogVisible.value = true;
+    return;
+  }
+
   if (item.bizType === "resume_diagnosis" && item.bizId) {
     router.push(`/resume/result/${item.bizId}`);
   } else if (item.bizType === "resume_polish" && item.bizId) {
@@ -810,10 +859,10 @@ const handleMarkAllRead = async () => {
   try {
     await markAllAsRead();
     unreadCount.value = 0;
-    notificationList.value.forEach((item) => {
-      item.readStatus = 1;
-      item.readTime = new Date().toISOString();
-    });
+    const readTime = new Date().toISOString();
+    notificationList.value = notificationList.value.map((item) => (
+      item.readStatus === 0 ? { ...item, readStatus: 1, readTime } : item
+    ));
     ElMessage.success("已全部标记为已读");
   } catch {
     // 拦截器已弹出错误提示
@@ -830,23 +879,6 @@ const goToNotificationPage = () => {
   router.push("/notifications");
 };
 
-/**
- * 格式化通知时间
- */
-const formatNotifTime = (time) => {
-  if (!time) return "";
-  const date = new Date(time);
-  const now = new Date();
-  const diff = now - date;
-  const minutes = Math.floor(diff / 60000);
-  const hours = Math.floor(diff / 3600000);
-  if (minutes < 1) return "刚刚";
-  if (minutes < 60) return `${minutes}分钟前`;
-  if (hours < 24) return `${hours}小时前`;
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${month}-${day}`;
-};
 const username = computed(() => userStore.userInfo?.nickname || userStore.userInfo?.username || "用户");
 
 // 用户角色判定
@@ -891,6 +923,9 @@ const isTemplateActive = computed(() => route.path.startsWith("/templates"));
 
 // 成长中心激活状态
 const isGrowthActive = computed(() => route.path === "/growth");
+
+// Offer 辅助激活状态
+const isOfferActive = computed(() => route.path.startsWith("/offer"));
 
 // 历史记录父级激活状态
 const isHistoryActive = computed(() => {
@@ -1058,11 +1093,7 @@ watch(isLoggedIn, (loggedIn) => {
         }
         if (data.notification) {
           // 始终将新通知插入列表头部，确保打开面板时能看到
-          notificationList.value.unshift(data.notification);
-          // 保持列表不超过 10 条
-          if (notificationList.value.length > 10) {
-            notificationList.value.pop();
-          }
+          notificationList.value = [data.notification, ...notificationList.value].slice(0, 10);
         }
       },
       onUnreadCount(data) {
@@ -1072,7 +1103,6 @@ watch(isLoggedIn, (loggedIn) => {
       },
       onError() {
         // SSE 断线时降级为轮询（由外层统一管理定时器，此处仅记录日志）
-        console.warn("[SSE] 连接断开，降级为轮询模式");
       }
     });
     // 降级轮询：每 5 分钟同步一次（防止 SSE 丢失事件）
@@ -1633,9 +1663,6 @@ onUnmounted(() => {
   animation: spin 0.6s linear infinite;
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
 
 .panel-empty {
   display: flex;
@@ -1725,22 +1752,33 @@ onUnmounted(() => {
   min-width: 0;
 }
 
+.panel-item-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-bottom: 3px;
+}
+
 .panel-item-title {
   font-size: 13px;
   font-weight: 500;
   color: var(--text-title);
-  margin-bottom: 2px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
 
 .panel-item-text {
   font-size: 12px;
   color: var(--text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.45;
   margin-bottom: 2px;
 }
 
@@ -1799,14 +1837,19 @@ onUnmounted(() => {
   cursor: pointer;
   background: none;
   border: none;
-  transition: background-color 0.2s;
+  transition: background-color 0.2s, transform 0.15s;
   margin-right: 4px;
   color: var(--text-body);
+  -webkit-tap-highlight-color: transparent;
 }
 
 .theme-toggle:hover {
   background-color: var(--bg-page);
   color: var(--orange-main);
+}
+
+.theme-toggle:active {
+  transform: scale(0.88);
 }
 
 .theme-toggle svg {
@@ -1825,11 +1868,135 @@ onUnmounted(() => {
   cursor: pointer;
   width: 100%;
   text-align: left;
+  transition: transform 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.theme-toggle-mobile:active {
+  transform: scale(0.96);
 }
 
 .theme-toggle-mobile .theme-icon {
   width: 18px;
   height: 18px;
   flex-shrink: 0;
+}
+</style>
+
+<style>
+/* 公告弹窗 — 全局样式，因 append-to-body 需处理 teleport 的元素 */
+.announcement-dialog {
+  --el-dialog-width: 560px;
+}
+
+.announcement-dialog .el-dialog {
+  border-radius: 12px;
+  background: var(--bg-card);
+}
+
+.announcement-dialog .el-dialog__header {
+  padding: 22px 24px 14px;
+  margin-right: 38px;
+}
+
+.announcement-dialog .el-dialog__body {
+  padding: 0 24px 24px;
+}
+
+.announcement-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.announcement-dialog-title-block {
+  min-width: 0;
+}
+
+.announcement-dialog-title {
+  color: var(--text-title);
+  font-size: 18px;
+  line-height: 1.4;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.announcement-dialog-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.announcement-dialog-content {
+  max-height: 52vh;
+  overflow-y: auto;
+  padding: 18px;
+  border: 1px solid var(--border-card);
+  border-radius: 8px;
+  background: var(--bg-page);
+  color: var(--text-body);
+  font-size: 14px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 767px) {
+  .announcement-dialog {
+    --el-dialog-width: calc(100vw - 32px);
+  }
+
+  .announcement-dialog-header {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .announcement-dialog .el-dialog__header {
+    padding: 16px 16px 10px;
+    margin-right: 32px;
+  }
+
+  .announcement-dialog .el-dialog__body {
+    padding: 0 16px 16px;
+  }
+
+  .announcement-dialog-title {
+    font-size: 16px;
+  }
+
+  .announcement-dialog-content {
+    padding: 12px;
+    font-size: 13px;
+    max-height: 45vh;
+  }
+}
+
+@media (max-width: 480px) {
+  .announcement-dialog {
+    --el-dialog-width: 100vw;
+  }
+
+  .announcement-dialog .el-dialog {
+    border-radius: 0;
+  }
+
+  .announcement-dialog .el-dialog__header {
+    padding: 14px 14px 10px;
+    margin-right: 24px;
+  }
+
+  .announcement-dialog-title {
+    font-size: 15px;
+  }
+
+  .announcement-dialog-content {
+    padding: 10px;
+    font-size: 12px;
+    max-height: 40vh;
+  }
 }
 </style>

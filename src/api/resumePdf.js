@@ -19,9 +19,23 @@ function buildAuthConfig(extraConfig = {}) {
     headers.Authorization = `${getTokenType()} ${token}`
   }
 
-  return { headers, ...extraConfig }
-}
+  return axios.post('/api/resume/export-pdf', { html }, {
+    responseType: 'blob',
+    headers,
+    timeout: 60000,
+  }).then((res) => {
+    // 响应为 200，但 Blob 为空
+    if (!res.data || res.data.size === 0) {
+      throw new Error('服务端返回了空的 PDF 数据，请尝试重新登录后重试')
+    }
 
+    const contentType = (res.headers?.['content-type'] || '').toLowerCase()
+    // 如果 Content-Type 是文本或 JSON（说明服务端返回了错误），尝试读取
+    if (contentType.includes('text') || contentType.includes('json')) {
+      return res.data.text().then((text) => {
+        throw new Error(text || '服务端返回了非 PDF 内容')
+      })
+    }
 /**
  * 步骤一：调用后端生成 PDF
  *
@@ -34,34 +48,46 @@ function buildAuthConfig(extraConfig = {}) {
 export async function exportPdfFromHtml(html) {
   const config = buildAuthConfig({ timeout: 60000 })
 
-  return axios.post('/api/resume/export-pdf', { html }, config)
-    .then((res) => {
-      const { code, message, data } = res.data
-      if (code !== 200 || !data?.fileId) {
-        throw new Error(message || 'PDF 生成失败')
-      }
-      console.log('[PDF生成] 成功，fileId:', data.fileId, '大小:', (data.fileSize / 1024).toFixed(1), 'KB')
-      return data
-    })
-    .catch((err) => {
-      if (err.response) {
-        const { status, data } = err.response
+    return res.data
+  }).catch((err) => {
+    // 服务端返回了错误响应（非 2xx）
+    if (err.response) {
+      const { status, data, headers: resHeaders } = err.response
 
-        if (status === 401) {
-          removeToken()
-          const currentPath = router.currentRoute?.value?.fullPath || '/'
-          router.push({ path: '/login', query: { redirect: currentPath } })
-          throw new Error('登录已过期，请重新登录')
+      // 401 认证过期 → 清除 token 并跳转登录页
+      if (status === 401) {
+        removeToken()
+        const currentPath = router.currentRoute?.value?.fullPath || '/'
+        router.push({ path: '/login', query: { redirect: currentPath } })
+        throw new Error('登录已过期，请重新登录')
+      }
+
+      // 尝试从 blob 响应中读取服务端错误消息
+      if (data instanceof Blob) {
+        const ct = (resHeaders?.['content-type'] || '').toLowerCase()
+        if (ct.includes('text') || ct.includes('json')) {
+          return data.text().then((text) => {
+            let message = text
+            try {
+              const parsed = JSON.parse(text)
+              message = parsed.message || parsed.error || text
+            } catch (_) { /* 非 JSON 文本 */ }
+            throw new Error(message || `服务端返回错误状态码: ${status}`)
+          })
         }
-
-        if (data?.message) throw new Error(data.message)
-        throw new Error(`服务端错误 (${status})`)
       }
 
-      if (err.code === 'ECONNABORTED') throw new Error('PDF 生成请求超时，请稍后重试')
-      if (err.message === 'Network Error') throw new Error('网络连接失败，请检查网络后重试')
-      throw err
-    })
+      throw new Error(`服务端返回错误状态码: ${status}`)
+    }
+
+    if (err.code === 'ECONNABORTED') {
+      throw new Error('PDF 导出请求超时，请稍后重试')
+    }
+    if (err.message === 'Network Error') {
+      throw new Error('网络连接失败，请检查网络后重试')
+    }
+    throw err
+  })
 }
 
 /**
@@ -99,10 +125,14 @@ export function downloadPdfFile(fileId, fileName) {
 
 /**
  * 将 DOM 元素序列化为带内联 CSS 的完整 HTML 字符串。
+ * @param {HTMLElement} element - 克隆后的导出元素
+ * @param {string} cssText - 要内联的 CSS 文本
+ * @returns {string} 完整 HTML
  */
 export function serializeElementToHtml(element, cssText) {
   const clone = element.cloneNode(true)
 
+  /* 去掉 Vue scoped 属性残留（遍历所有后代，而非依赖无效的 CSS 属性选择器 [data-v-]） */
   clone.querySelectorAll('*').forEach((node) => {
     Array.from(node.attributes).forEach((attr) => {
       if (attr.name.startsWith('data-v-')) node.removeAttribute(attr.name)
@@ -112,14 +142,18 @@ export function serializeElementToHtml(element, cssText) {
     if (attr.name.startsWith('data-v-')) clone.removeAttribute(attr.name)
   })
 
+  /* 去掉 style 标签上的 scoped 属性 */
   clone.querySelectorAll('style').forEach((s) => {
     s.removeAttribute('scoped')
     s.removeAttribute('data-v-')
   })
 
+  /* 清除照片区域残留的无效 <img>（src 为空或 about:blank 的残留图片） */
   clone.querySelectorAll('.photo-frame img, .header-photo img').forEach((img) => {
     const src = img.getAttribute('src') || ''
-    if (!src || src === 'about:blank') img.remove()
+    if (!src || src === 'about:blank') {
+      img.remove()
+    }
   })
 
   return `<!DOCTYPE html>
@@ -134,7 +168,9 @@ export function serializeElementToHtml(element, cssText) {
 }
 
 /**
- * 清除 CSS 中的 [data-v-xxxxx] scoped 选择器后缀。
+ * 清除 CSS 中的 [data-v-xxxxx] scoped 选择器后缀，使选择器能在导出 HTML 中生效。
+ * @param {string} css
+ * @returns {string}
  */
 export function stripScopedSelectors(css) {
   return css.replace(/\[data-v-[a-f0-9]+\]/g, '')

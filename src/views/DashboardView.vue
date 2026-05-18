@@ -21,7 +21,7 @@
           <div class="identity-left">
             <div class="avatar-wrapper avatar-lg">
               <div class="avatar-ring avatar-lg">
-                <img src="@/assets/user.png" class="avatar-img avatar-lg" />
+                <img src="@/assets/user.png" class="avatar-img avatar-lg" alt="用户头像" />
               </div>
             </div>
             <div class="user-info">
@@ -696,8 +696,8 @@ const viewAllInterview = () => {
   width: 48px;
   height: 48px;
   border-radius: 50%;
-  background: #fef0f0;
-  color: #f56c6c;
+  background: var(--tag-bg-danger);
+  color: var(--color-danger);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -729,7 +729,8 @@ const viewAllInterview = () => {
 
 .identity-card {
   position: relative;
-  background: linear-gradient(135deg, #ff9a5c 0%, #ff8c42 40%, #e67a35 100%);
+  background: var(--el-color-primary);
+  background: linear-gradient(135deg, #ff9a5c 0%, var(--el-color-primary) 40%, var(--el-color-primary-dark-2) 100%);
   border-radius: 20px;
   padding: 28px 32px;
   color: #ffffff;
@@ -852,7 +853,7 @@ const viewAllInterview = () => {
   display: flex;
   align-items: center;
   box-shadow: 0 4px 20px rgba(255, 140, 66, 0.08);
-  border: 1px solid rgba(243, 216, 199, 0.5);
+  border: 1px solid var(--border-card);
 }
 
 .quota-item {
@@ -869,15 +870,15 @@ const viewAllInterview = () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #fff3e8 0%, #fff8f3 100%);
+  background: linear-gradient(135deg, var(--orange-light-bg) 0%, var(--bg-page) 100%);
 }
 
 .quota-item.resume .quota-icon-wrap {
-  background: linear-gradient(135deg, #fff3e8 0%, #ffe8d6 100%);
+  background: linear-gradient(135deg, var(--orange-light-bg) 0%, rgba(255, 140, 66, 0.08) 100%);
 }
 
 .quota-item.interview .quota-icon-wrap {
-  background: linear-gradient(135deg, #fff0e8 0%, #ffe0cc 100%);
+  background: linear-gradient(135deg, var(--orange-light-bg) 0%, rgba(255, 140, 66, 0.06) 100%);
 }
 
 .quota-icon {
@@ -971,23 +972,23 @@ const viewAllInterview = () => {
 }
 
 .stat-icon.resume {
-  background: linear-gradient(135deg, #fff3e8 0%, #ffe0c8 100%);
+  background: linear-gradient(135deg, var(--orange-light-bg) 0%, rgba(255, 140, 66, 0.08) 100%);
   color: var(--orange-deep);
 }
 
 .stat-icon.interview {
-  background: linear-gradient(135deg, #fff8f3 0%, #ffe8d6 100%);
+  background: linear-gradient(135deg, var(--orange-light-bg) 0%, rgba(255, 140, 66, 0.06) 100%);
   color: var(--orange-main);
 }
 
 .stat-icon.resume-left {
-  background: linear-gradient(135deg, #f0f9eb 0%, #d8f0d0 100%);
-  color: #67c23a;
+  background: var(--icon-bg-success);
+  color: var(--color-success);
 }
 
 .stat-icon.interview-left {
-  background: linear-gradient(135deg, #fdf6ec 0%, #f8e8d0 100%);
-  color: #e6a23c;
+  background: var(--icon-bg-warning);
+  color: var(--color-warning);
 }
 
 .stat-content {
@@ -1005,7 +1006,7 @@ const viewAllInterview = () => {
 
 .stat-label {
   font-size: 13px;
-  color: #909399;
+  color: var(--text-muted);
 }
 
 /* 成长中心入口卡片 */
@@ -1015,7 +1016,7 @@ const viewAllInterview = () => {
   gap: 16px;
   padding: 18px 24px;
   margin-bottom: 24px;
-  background: linear-gradient(135deg, #ff9a5c 0%, #ff8c42 40%, #e67a35 100%);
+  background: linear-gradient(135deg, #ff9a5c 0%, var(--el-color-primary) 40%, var(--el-color-primary-dark-2) 100%);
   border-radius: 16px;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -1078,7 +1079,7 @@ const viewAllInterview = () => {
   border-radius: 16px;
   padding: 24px;
   box-shadow: 0 2px 16px rgba(255, 140, 66, 0.06);
-  border: 1px solid rgba(243, 216, 199, 0.4);
+  border: 1px solid var(--border-card);
 }
 
 .column-header {
@@ -1207,7 +1208,7 @@ const viewAllInterview = () => {
 
 .record-time {
   font-size: 12px;
-  color: #909399;
+  color: var(--text-muted);
   margin-top: 2px;
 }
 
@@ -1225,18 +1226,18 @@ const viewAllInterview = () => {
 }
 
 .record-status-badge.status-processing {
-  background: #fdf6ec;
-  color: #e6a23c;
+  background: var(--tag-bg-warning);
+  color: var(--tag-text-warning);
 }
 
 .record-status-badge.status-pending {
   background: var(--bg-elevated);
-  color: #909399;
+  color: var(--color-info);
 }
 
 .record-status-badge.status-failed {
-  background: #fef0f0;
-  color: #f56c6c;
+  background: var(--tag-bg-danger);
+  color: var(--tag-text-danger);
 }
 
 .record-score-tag {
@@ -1244,7 +1245,7 @@ const viewAllInterview = () => {
   align-items: baseline;
   gap: 2px;
   padding: 4px 10px;
-  background: linear-gradient(135deg, #fff3e8 0%, #ffe0c8 100%);
+  background: linear-gradient(135deg, var(--orange-light-bg) 0%, rgba(255, 140, 66, 0.08) 100%);
   border-radius: 6px;
   flex-shrink: 0;
 }
@@ -1278,7 +1279,7 @@ const viewAllInterview = () => {
 
 .empty-text {
   font-size: 13px;
-  color: #909399;
+  color: var(--text-muted);
 }
 
 /* ============================================
@@ -1421,56 +1422,8 @@ const viewAllInterview = () => {
   }
 }
 
-/* ===== 暗色模式适配（通过 CSS 变量自动响应 [data-theme="dark"]） ===== */
+/* ===== 暗色模式适配 ===== */
 .quota-divider {
   background: linear-gradient(180deg, transparent 0%, var(--border-card) 50%, transparent 100%);
-}
-
-.stat-icon.resume {
-  background: linear-gradient(135deg, var(--orange-light-bg) 0%, rgba(255, 140, 66, 0.08) 100%);
-}
-
-.stat-icon.interview {
-  background: linear-gradient(135deg, var(--orange-light-bg) 0%, rgba(255, 140, 66, 0.06) 100%);
-}
-
-.stat-icon.resume-left {
-  background: linear-gradient(135deg, rgba(103, 194, 58, 0.2) 0%, rgba(103, 194, 58, 0.1) 100%);
-  color: var(--color-success);
-}
-
-.stat-icon.interview-left {
-  background: linear-gradient(135deg, rgba(230, 162, 60, 0.2) 0%, rgba(230, 162, 60, 0.1) 100%);
-  color: var(--color-warning);
-}
-
-.stat-label {
-  color: var(--text-muted);
-}
-
-.record-time {
-  color: var(--text-muted);
-}
-
-.empty-text {
-  color: var(--text-muted);
-}
-
-.record-status-badge.status-processing {
-  background: rgba(230, 162, 60, 0.15);
-  color: var(--color-warning);
-}
-
-.record-status-badge.status-pending {
-  color: var(--text-muted);
-}
-
-.record-status-badge.status-failed {
-  background: rgba(245, 108, 108, 0.15);
-  color: var(--color-danger);
-}
-
-.record-score-tag {
-  background: linear-gradient(135deg, var(--orange-light-bg) 0%, rgba(255, 140, 66, 0.08) 100%);
 }
 </style>

@@ -70,8 +70,8 @@ export function deleteAiEngine(id) {
  */
 export function deleteAiEngines(ids) {
   return adminRequest({
-    url: '/api/admin/ai-engines/batch',
-    method: 'delete',
+    url: '/api/admin/ai-engines/batch-delete',
+    method: 'post',
     data: ids
   })
 }

@@ -145,7 +145,7 @@ const getTagType = (index) => {
 
 <style scoped>
 .skills-section {
-  padding: 8px 0;
+  padding: 4px 0;
 }
 
 .skills-score {
@@ -154,7 +154,7 @@ const getTagType = (index) => {
   gap: 20px;
   margin-bottom: 24px;
   padding-bottom: 20px;
-  border-bottom: 1px solid var(--border-divider, #f0f0f0);
+  border-bottom: 1px solid #e6dfd8;
 }
 
 .score-circle {
@@ -166,29 +166,30 @@ const getTagType = (index) => {
   align-items: center;
   justify-content: center;
   position: relative;
-  background-color: var(--bg-card, #fff);
+  background: #efe9de;
+  color: #141413;
 }
 
 .score-circle::before {
   content: '';
   position: absolute;
-  inset: 6px;
-  background: var(--bg-card, #fff);
+  inset: 5px;
+  background: #faf9f5;
   border-radius: 50%;
 }
 
 .score-number {
   position: relative;
   font-size: 24px;
-  font-weight: 600;
-  color: var(--text-title, #303133);
+  font-weight: 700;
+  color: #141413;
   line-height: 1;
 }
 
 .score-unit {
   position: relative;
   font-size: 12px;
-  color: var(--text-muted, #909399);
+  color: #6c6a64;
   margin-top: 2px;
 }
 
@@ -199,20 +200,20 @@ const getTagType = (index) => {
 .score-label {
   font-size: 14px;
   font-weight: 500;
-  color: var(--text-title, #303133);
+  color: #141413;
   margin-bottom: 4px;
 }
 
 .score-comment {
   font-size: 13px;
-  color: var(--text-body, #606266);
+  color: #3d3d3a;
   line-height: 1.6;
 }
 
 .score-evaluation {
   margin-top: 8px;
   font-size: 13px;
-  color: var(--text-body, #606266);
+  color: #3d3d3a;
   line-height: 1.7;
   text-align: justify;
 }
@@ -226,14 +227,14 @@ const getTagType = (index) => {
 .section-label {
   font-size: 14px;
   font-weight: 500;
-  color: var(--text-title, #303133);
+  color: #141413;
   margin-bottom: 12px;
 }
 
 .skills-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 
 .skill-tag {
@@ -243,7 +244,7 @@ const getTagType = (index) => {
 .tech-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 8px;
 }
 
 .tech-item {
@@ -251,15 +252,16 @@ const getTagType = (index) => {
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: var(--text-body, #606266);
+  color: #3d3d3a;
   padding: 4px 10px;
-  background-color: var(--bg-elevated, #f5f7fa);
-  border-radius: 4px;
+  background: #faf9f5;
+  border-radius: 6px;
+  border: 1px solid #e6dfd8;
 }
 
 .description-content {
   font-size: 14px;
-  color: var(--text-body, #606266);
+  color: #3d3d3a;
   line-height: 1.8;
   white-space: pre-wrap;
 }
@@ -270,7 +272,58 @@ const getTagType = (index) => {
   align-items: center;
   gap: 8px;
   padding: 40px 0;
-  color: var(--text-muted, #909399);
+  color: #6c6a64;
   font-size: 14px;
+}
+
+[data-theme="dark"] .skills-score {
+  border-bottom-color: var(--border-card);
+}
+
+[data-theme="dark"] .score-circle {
+  background: #3a3835;
+  color: var(--text-title);
+}
+
+[data-theme="dark"] .score-circle::before {
+  background: var(--bg-card);
+}
+
+[data-theme="dark"] .score-number {
+  color: var(--text-title);
+}
+
+[data-theme="dark"] .score-unit {
+  color: var(--text-muted);
+}
+
+[data-theme="dark"] .score-label {
+  color: var(--text-title);
+}
+
+[data-theme="dark"] .score-comment {
+  color: var(--text-body);
+}
+
+[data-theme="dark"] .score-evaluation {
+  color: var(--text-body);
+}
+
+[data-theme="dark"] .section-label {
+  color: var(--text-title);
+}
+
+[data-theme="dark"] .tech-item {
+  color: var(--text-body);
+  background: rgba(255,255,255,0.06);
+  border-color: var(--border-card);
+}
+
+[data-theme="dark"] .description-content {
+  color: var(--text-body);
+}
+
+[data-theme="dark"] .empty-skills {
+  color: var(--text-muted);
 }
 </style>

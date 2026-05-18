@@ -52,12 +52,17 @@
 import { computed, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
+  Bell,
   ChatLineRound,
+  Coin,
+  Collection,
   DataAnalysis,
   Document,
+  List,
   Odometer,
   Setting,
   SwitchButton,
+  Trophy,
   User,
   UserFilled,
 } from "@element-plus/icons-vue";
@@ -83,7 +88,18 @@ const navGroups = computed(() => [
     groupKey: "operation",
     groupLabel: "运营管理",
     items: [
-      { path: "/admin/users", label: "用户权益", icon: UserFilled }
+      { path: "/admin/users", label: "用户权益", icon: UserFilled },
+      { path: "/admin/audit-logs", label: "审计日志", icon: List },
+      { path: "/admin/notifications", label: "通知公告", icon: Bell },
+      { path: "/admin/version-logs", label: "版本日志", icon: Collection }
+    ]
+  },
+  {
+    groupKey: "billing",
+    groupLabel: "商业管理",
+    items: [
+      { path: "/admin/membership/plans", label: "会员套餐", icon: Coin },
+      { path: "/admin/membership/orders", label: "订单管理", icon: Document }
     ]
   },
   {
@@ -92,7 +108,8 @@ const navGroups = computed(() => [
     items: [
       { path: "/admin/job-roles", label: "岗位配置", icon: Document },
       { path: "/admin/prompts", label: "Prompt 管理", icon: ChatLineRound },
-      { path: "/admin/ai-engines", label: "AI 引擎", icon: Setting }
+      { path: "/admin/ai-engines", label: "AI 引擎", icon: Setting },
+      { path: "/admin/growth-config", label: "成长配置", icon: Trophy }
     ]
   }
 ]);
@@ -269,6 +286,7 @@ const handleLogout = () => {
   min-width: 0;
   overflow-x: hidden;
 }
+
 
 @media (max-width: 768px) {
   .admin-header {

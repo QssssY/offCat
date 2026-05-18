@@ -2,57 +2,78 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 
 export const useThemeStore = defineStore('theme', () => {
-  // 用户选择的主题：'light' / 'dark' / 'system'
-  const theme = ref(localStorage.getItem('theme') || 'system')
+  const savedTheme = localStorage.getItem('theme')
+  const savedFollowSystem = localStorage.getItem('followSystem')
 
-  // 系统是否处于暗色模式
+  // 兼容旧版本：将 'system' 迁移为 followSystem + light
+  const needsMigration = savedTheme === 'system'
+  const manualTheme = ref(needsMigration ? 'light' : (savedTheme || 'light'))
+  const followSystem = ref(needsMigration ? true : (savedFollowSystem === 'true'))
+
+  if (needsMigration) {
+    localStorage.setItem('theme', manualTheme.value)
+    localStorage.setItem('followSystem', 'true')
+  }
+
   const systemDark = ref(window.matchMedia('(prefers-color-scheme: dark)').matches)
 
-  // 最终解析的主题：始终为 'light' 或 'dark'
   const resolvedTheme = computed(() => {
-    if (theme.value === 'system') {
+    if (followSystem.value) {
       return systemDark.value ? 'dark' : 'light'
     }
-    return theme.value
+    return manualTheme.value
   })
 
-  // 监听系统主题变化
   const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
   const onSystemThemeChange = (e) => {
     systemDark.value = e.matches
   }
   mediaQuery.addEventListener('change', onSystemThemeChange)
 
-  // 将主题应用到 DOM
   const applyTheme = (resolved) => {
     document.documentElement.setAttribute('data-theme', resolved)
   }
 
-  // 设置主题
-  const setTheme = (value) => {
-    theme.value = value
-    localStorage.setItem('theme', value)
+  const toggleTheme = () => {
+    if (followSystem.value) {
+      followSystem.value = false
+      manualTheme.value = systemDark.value ? 'light' : 'dark'
+    } else {
+      manualTheme.value = manualTheme.value === 'dark' ? 'light' : 'dark'
+    }
+    savePrefs()
     applyTheme(resolvedTheme.value)
   }
 
-  // 三态切换：system → dark → light → system
-  const toggleTheme = () => {
-    if (theme.value === 'system') {
-      setTheme('dark')
-    } else if (theme.value === 'dark') {
-      setTheme('light')
-    } else {
-      setTheme('system')
-    }
+  const setTheme = (val) => {
+    manualTheme.value = val
+    followSystem.value = false
+    savePrefs()
+    applyTheme(resolvedTheme.value)
   }
 
-  // 初始化：应用当前主题
+  const setFollowSystem = (val) => {
+    followSystem.value = val
+    if (val) {
+      manualTheme.value = resolvedTheme.value
+    }
+    savePrefs()
+    applyTheme(resolvedTheme.value)
+  }
+
+  const savePrefs = () => {
+    localStorage.setItem('theme', manualTheme.value)
+    localStorage.setItem('followSystem', followSystem.value.toString())
+  }
+
   applyTheme(resolvedTheme.value)
 
   return {
-    theme,
+    manualTheme,
     resolvedTheme,
+    followSystem,
     setTheme,
+    setFollowSystem,
     toggleTheme
   }
 })

@@ -8,6 +8,7 @@
           {{ difficultyText }}
         </span>
         <span class="mode-text">{{ modeText }}</span>
+        <span class="feedback-mode-text">{{ feedbackModeText }}</span>
       </div>
       <div class="status-bar-right">
         <span class="status-indicator" :class="{ ended: isEnded }">
@@ -89,13 +90,20 @@
                   <div class="message-content">
                     <div class="message-bubble assistant-bubble">
                       <span v-if="item.status === 'thinking'" class="thinking-indicator">
-                        <span class="thinking-text">思考中</span><span class="thinking-dots">...</span>
+                        <span class="thinking-text">面试官正在思考你的回答</span><span class="thinking-dots">...</span>
                       </span>
                       <span v-else-if="item.status === 'error'" class="error-text">回复失败，请重试</span>
                       <span v-else-if="item.status === 'streaming'" class="streaming-text">
-                        {{ item.displayContent }}<span class="typing-cursor">|</span>
+                        {{ getAssistantDisplay(item).mainContent }}<span class="typing-cursor">|</span>
                       </span>
-                      <span v-else class="done-text">{{ item.content || "" }}</span>
+                      <span v-else class="done-text">{{ getAssistantDisplay(item).mainContent }}</span>
+                    </div>
+                    <div
+                      v-if="getAssistantDisplay(item).feedbackContent"
+                      class="message-feedback-card"
+                    >
+                      <div class="feedback-card-title">上一题回答的反馈</div>
+                      <div class="feedback-card-body">{{ getAssistantDisplay(item).feedbackContent }}</div>
                     </div>
                     <div class="message-meta assistant-meta">
                       <span class="role-tag">面试官</span>
@@ -146,12 +154,12 @@
           <span class="input-hint"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> 发送</span>
           <el-button
             type="primary"
-            :loading="sending"
-            :disabled="!inputMessage.trim()"
+            :loading="replyLocked"
+            :disabled="replyLocked || !inputMessage.trim()"
             class="send-btn"
             @click="sendMessage"
           >
-            发送回答
+            {{ replyLocked ? 'AI 回复中...' : '发送回答' }}
           </el-button>
         </div>
       </div>
@@ -177,6 +185,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { getDifficultyLabel, getFeedbackModeLabel, getInterviewModeLabel } from '@/constants/interview'
 import {
   ArrowLeft,
   ChatDotSquare,
@@ -208,6 +217,9 @@ const sending = ref(false);
 const ending = ref(false);
 const showEndDialog = ref(false);
 const openingPending = ref(false);
+const replyLocked = ref(false);
+const feedbackMode = computed(() => sessionData.value?.feedbackMode || "after_interview");
+const feedbackModeText = computed(() => getFeedbackModeLabel(feedbackMode.value));
 let openingPollingTimer = null;
 
 const assistantAvatar = assistantAvatarImg;
@@ -222,8 +234,7 @@ const sessionStatusText = computed(() => {
 });
 
 const difficultyText = computed(() => {
-  const map = { 1: "初级", 2: "中级", 3: "高级" };
-  return map[sessionData.value?.difficulty] || "初级";
+  return getDifficultyLabel(sessionData.value?.difficulty, '初级')
 });
 
 const modeText = computed(() => {
@@ -233,7 +244,7 @@ const modeText = computed(() => {
   if (sessionData.value?.jobTargeted || sessionData.value?.interviewMode === "job_targeted") {
     return "岗位定向模拟";
   }
-  return sessionData.value?.interviewMode === "stress" ? "压力面试" : "普通面试";
+  return getInterviewModeLabel(sessionData.value?.interviewMode);
 });
 
 const jobTargetSummary = computed(() => {
@@ -252,6 +263,58 @@ const jobTargetSummary = computed(() => {
 });
 
 const chatLogs = computed(() => sessionData.value?.chatLogs || []);
+
+const stripFollowUpPrefix = (content = "") => {
+  return String(content || "").trim().replace(/^(追问|问题)[:：]\s*/u, "");
+};
+
+const trimPartialFeedbackStart = (content = "") => {
+  const text = String(content || "");
+  const fullStartIndex = text.search(/<FEEDBACK>/i);
+  if (fullStartIndex !== -1) {
+    return text.slice(0, fullStartIndex);
+  }
+
+  const upperText = text.toUpperCase();
+  const feedbackTag = "<FEEDBACK>";
+  const searchStart = Math.max(0, text.length - feedbackTag.length + 1);
+  for (let index = searchStart; index < text.length; index += 1) {
+    const tail = upperText.slice(index);
+    if (feedbackTag.startsWith(tail)) {
+      return text.slice(0, index);
+    }
+  }
+
+  return text;
+};
+
+const parseAssistantFeedback = (content = "") => {
+  const text = String(content || "");
+  const match = text.match(/<FEEDBACK>\s*([\s\S]*?)\s*<\/FEEDBACK>/i);
+  if (!match) {
+    return {
+      mainContent: stripFollowUpPrefix(trimPartialFeedbackStart(text)),
+      feedbackContent: "",
+    };
+  }
+  return {
+    mainContent: stripFollowUpPrefix(text.replace(match[0], "")),
+    feedbackContent: match[1].replace(/^本题反馈[:：]\s*/u, "").trim(),
+  };
+};
+
+const getAssistantDisplay = (item) => {
+  const source = item?.status === "streaming"
+    ? item.displayContent || ""
+    : item?.content || item?.displayContent || "";
+  if (feedbackMode.value !== "immediate") {
+    return {
+      mainContent: source,
+      feedbackContent: "",
+    };
+  }
+  return parseAssistantFeedback(source);
+};
 
 const groupedChatLogs = computed(() => {
   const logs = chatLogs.value;
@@ -346,7 +409,6 @@ const startOpeningPolling = () => {
         return;
       }
     } catch (err) {
-      console.warn("轮询开场白状态失败:", err.message);
     }
     openingPollingTimer = setTimeout(poll, 3000);
   };
@@ -428,16 +490,19 @@ const startTypingMachine = (tempMsgId) => {
         msg.content = msg.rawContent;
         msg.status = "done";
       }
+      replyLocked.value = false;
+      sending.value = false;
     }
   }, TYPE_INTERVAL_MS);
 };
 
 const sendMessage = async () => {
   const content = inputMessage.value.trim();
-  if (!content || !sessionId.value || !sessionData.value) {
+  if (!content || !sessionId.value || !sessionData.value || replyLocked.value) {
     return;
   }
 
+  replyLocked.value = true;
   sending.value = true;
   const tempMsgId = `temp-${Date.now()}`;
   const now = new Date().toISOString();
@@ -463,10 +528,9 @@ const sendMessage = async () => {
   scrollToBottom();
 
   // SSE 流断线重连：最多重试 3 次，保留已累积的文本内容
-  const MAX_RECONNECT = 3;
+  const MAX_RECONNECT = 0;
   let reconnectAttempt = 0;
   let streamSucceeded = false;
-
   startTypingMachine(tempMsgId);
 
   const applyStreamPayload = (payload) => {
@@ -508,7 +572,6 @@ const sendMessage = async () => {
       try {
         applyFn(JSON.parse(jsonStr));
       } catch (parseError) {
-        console.warn("[interview-stream] SSE parse failed:", jsonStr, parseError);
       }
     }
     return sseBuffer;
@@ -534,7 +597,7 @@ const sendMessage = async () => {
         const token = getToken();
         const response = await streamInterviewMessage(
           sessionId.value,
-          { sessionId: sessionId.value, content },
+          { sessionId: sessionId.value, content, feedbackMode: feedbackMode.value },
           token
         );
 
@@ -577,7 +640,6 @@ const sendMessage = async () => {
           msg.rawContent = "";
           msg.pendingContent = "";
         }
-        console.warn(`[interview-stream] SSE 断流，第 ${reconnectAttempt} 次重连...`);
         await new Promise((r) => setTimeout(r, 1000));
       }
     }
@@ -590,10 +652,12 @@ const sendMessage = async () => {
         sessionData.value.chatLogs[msgIndex].status = "error";
       }
     }
-  } finally {
+    replyLocked.value = false;
     sending.value = false;
   }
 };
+
+
 
 const endInterview = () => {
   showEndDialog.value = true;
@@ -697,6 +761,7 @@ onBeforeUnmount(() => {
 }
 
 .mode-text,
+.feedback-mode-text,
 .status-indicator {
   font-size: 13px;
   color: var(--text-body);
@@ -779,15 +844,6 @@ onBeforeUnmount(() => {
   color: var(--text-muted);
 }
 
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 .loading-content {
   display: flex;
   flex-direction: column;
@@ -800,14 +856,6 @@ onBeforeUnmount(() => {
   animation: spin 1s linear infinite;
 }
 
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
 
 .loading-text {
   font-size: 14px;
@@ -905,6 +953,31 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(243, 216, 199, 0.6);
   color: var(--text-title);
   border-top-left-radius: 4px;
+}
+
+.message-feedback-card {
+  margin-top: 10px;
+  padding: 12px 14px;
+  max-width: 100%;
+  border: 1px solid rgba(255, 140, 66, 0.22);
+  border-left: 3px solid var(--orange-main);
+  border-radius: 8px;
+  background: rgba(255, 248, 244, 0.96);
+  color: var(--text-body);
+  line-height: 1.65;
+}
+
+.feedback-card-title {
+  margin-bottom: 6px;
+  color: var(--orange-main);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.feedback-card-body {
+  font-size: 13px;
+  white-space: pre-line;
+  word-break: break-word;
 }
 
 .user-bubble {
@@ -1068,6 +1141,7 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid rgba(243, 216, 199, 0.3);
@@ -1076,13 +1150,15 @@ onBeforeUnmount(() => {
 .input-hint {
   font-size: 12px;
   color: var(--text-muted);
+  margin-left: auto;
+  white-space: nowrap;
 }
 
 .input-hint kbd {
   display: inline-block;
   padding: 2px 6px;
   background: var(--bg-elevated);
-  border: 1px solid #e4e7ed;
+  border: 1px solid var(--border-card);
   border-radius: 4px;
   font-size: 11px;
 }
@@ -1131,7 +1207,8 @@ onBeforeUnmount(() => {
     gap: 12px;
   }
 
-  .mode-text {
+  .mode-text,
+  .feedback-mode-text {
     display: none;
   }
 
@@ -1156,29 +1233,80 @@ onBeforeUnmount(() => {
     padding: 12px;
     border-radius: 12px;
   }
+
+  .input-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .input-hint {
+    display: none;
+  }
+
+  .send-btn {
+    width: 100%;
+  }
 }
 
 /* ===== 暗色模式适配 ===== */
-.difficulty-badge.difficulty-1 {
+[data-theme="dark"] .session-status-bar {
+  background: rgba(34, 34, 59, 0.98);
+  border-bottom-color: var(--border-card);
+  box-shadow: none;
+}
+
+[data-theme="dark"] .difficulty-badge.difficulty-1 {
   background: rgba(76, 175, 80, 0.15);
   color: #81c784;
 }
 
-.difficulty-badge.difficulty-2 {
+[data-theme="dark"] .difficulty-badge.difficulty-2 {
   background: rgba(255, 152, 0, 0.15);
   color: #ffb74d;
 }
 
-.difficulty-badge.difficulty-3 {
+[data-theme="dark"] .difficulty-badge.difficulty-3 {
   background: rgba(244, 67, 54, 0.15);
   color: #ef9a9a;
 }
 
-.status-dot {
+[data-theme="dark"] .status-dot {
   background: #81c784;
 }
 
-.status-indicator.ended .status-dot {
+[data-theme="dark"] .status-indicator.ended .status-dot {
   background: var(--text-muted);
+}
+
+[data-theme="dark"] .job-target-banner {
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-card);
+  border-left: 3px solid var(--orange-main);
+}
+
+[data-theme="dark"] .job-target-banner-title {
+  color: #FFB877;
+  margin-left: -3px;
+}
+
+[data-theme="dark"] .job-target-banner-desc {
+  color: var(--text-muted);
+}
+
+[data-theme="dark"] .empty-icon-wrapper {
+  background: linear-gradient(135deg, var(--orange-light-bg) 0%, rgba(255, 140, 66, 0.06) 100%);
+}
+
+[data-theme="dark"] .ended-notice {
+  background: rgba(0, 0, 0, 0.3);
+  border-top-color: var(--border-card);
+}
+
+[data-theme="dark"] .ended-notice .el-icon {
+  color: var(--color-success);
+}
+
+[data-theme="dark"] .message-feedback-card {
+  background: rgba(255, 140, 66, 0.06);
 }
 </style>

@@ -25,14 +25,13 @@ const layoutComponent = computed(() => {
 })
 
 onMounted(async () => {
-  const token = localStorage.getItem('token') || getToken()
+  const token = getToken()
 
   if (!token) return
 
   try {
     await userStore.fetchUserInfo()
   } catch (err) {
-    localStorage.removeItem('token')
     removeToken()
     userStore.clearUserInfo()
   }

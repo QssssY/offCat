@@ -252,7 +252,6 @@ async function nextStep() {
     currentStep.value = nextIndex
   } catch (err) {
     // API 失败不阻塞用户操作，仍然允许前进
-    console.warn('[Onboarding] 更新进度失败:', err)
     currentStep.value = nextIndex
   } finally {
     loading.value = false
@@ -281,7 +280,6 @@ async function skipGuide() {
       status: 'skipped'
     })
   } catch (err) {
-    console.warn('[Onboarding] 跳过引导失败:', err)
   } finally {
     loading.value = false
     dialogVisible.value = false
@@ -300,7 +298,6 @@ async function completeGuide() {
       status: 'completed'
     })
   } catch (err) {
-    console.warn('[Onboarding] 完成引导失败:', err)
   } finally {
     loading.value = false
     dialogVisible.value = false
@@ -617,11 +614,6 @@ async function completeGuide() {
   }
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
 
 /* 遮罩层淡入淡出 */
 .onboarding-fade-enter-active {

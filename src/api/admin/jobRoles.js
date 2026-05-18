@@ -71,8 +71,8 @@ export function deleteJobRole(id) {
  */
 export function deleteJobRoles(ids) {
   return adminRequest({
-    url: '/api/admin/job-roles/batch',
-    method: 'delete',
+    url: '/api/admin/job-roles/batch-delete',
+    method: 'post',
     data: ids
   })
 }

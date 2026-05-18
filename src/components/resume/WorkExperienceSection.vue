@@ -188,7 +188,7 @@ const getScoreClass = (score) => {
 
 <style scoped>
 .work-experience-section {
-  padding: 8px 0;
+  padding: 4px 0;
 }
 
 .scores-overview {
@@ -197,13 +197,13 @@ const getScoreClass = (score) => {
   gap: 40px;
   margin-bottom: 24px;
   padding-bottom: 20px;
-  border-bottom: 1px solid var(--border-divider, #f0f0f0);
+  border-bottom: 1px solid #e6dfd8;
 }
 
 .score-evaluation {
   flex-basis: 100%;
   font-size: 13px;
-  color: var(--text-body, #606266);
+  color: #3d3d3a;
   line-height: 1.7;
   text-align: justify;
 }
@@ -214,26 +214,27 @@ const getScoreClass = (score) => {
 
 .score-value {
   font-size: 36px;
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1;
   margin-bottom: 8px;
 }
 
 .score-excellent {
-  color: var(--color-success, #67c23a);
+  color: #5db872;
 }
 
 .score-good {
-  color: var(--color-warning, #e6a23c);
+  color: #cc785c;
 }
 
 .score-poor {
-  color: var(--color-danger, #f56c6c);
+  color: #c64545;
 }
 
 .score-label {
-  font-size: 13px;
-  color: var(--text-muted, #909399);
+  font-size: 12px;
+  color: #6c6a64;
+  letter-spacing: 0.03em;
 }
 
 .experience-list {
@@ -243,17 +244,17 @@ const getScoreClass = (score) => {
 .section-title {
   font-size: 15px;
   font-weight: 500;
-  color: var(--text-title, #303133);
+  color: #141413;
   margin-bottom: 16px;
   padding-bottom: 8px;
-  border-bottom: 1px solid var(--border-divider, #f0f0f0);
+  border-bottom: 1px solid #e6dfd8;
 }
 
 .experience-item {
   padding: 16px;
-  background-color: var(--bg-elevated, #f5f7fa);
-  border-radius: 4px;
-  margin-bottom: 12px;
+  background: #faf9f5;
+  border-radius: 8px;
+  margin-bottom: 10px;
 }
 
 .exp-header {
@@ -266,23 +267,23 @@ const getScoreClass = (score) => {
 .exp-title {
   font-size: 15px;
   font-weight: 500;
-  color: var(--text-title, #303133);
+  color: #141413;
 }
 
 .exp-period {
   font-size: 13px;
-  color: var(--text-muted, #909399);
+  color: #6c6a64;
 }
 
 .exp-position {
   font-size: 14px;
-  color: var(--text-body, #606266);
+  color: #3d3d3a;
   margin-bottom: 8px;
 }
 
 .exp-desc {
   font-size: 13px;
-  color: var(--text-body, #606266);
+  color: #3d3d3a;
   line-height: 1.6;
 }
 
@@ -300,7 +301,7 @@ const getScoreClass = (score) => {
 .issues-section {
   margin-top: 24px;
   padding-top: 20px;
-  border-top: 1px solid var(--border-divider, #f0f0f0);
+  border-top: 1px solid #e6dfd8;
 }
 
 .issues-list,
@@ -319,16 +320,17 @@ const getScoreClass = (score) => {
   align-items: flex-start;
   gap: 8px;
   padding: 10px 12px;
-  background-color: #fef0f0;
-  border-radius: 4px;
+  background: #faf9f5;
+  border-radius: 8px;
   margin-bottom: 8px;
+  border-left: 3px solid #c64545;
   font-size: 13px;
-  color: var(--text-body, #606266);
+  color: #3d3d3a;
   line-height: 1.5;
 }
 
 .suggestion-item {
-  background-color: #ecf5ff;
+  border-left-color: #cc785c;
 }
 
 .issue-item:last-child,
@@ -342,7 +344,78 @@ const getScoreClass = (score) => {
   align-items: center;
   gap: 8px;
   padding: 40px 0;
-  color: var(--text-muted, #909399);
+  color: #6c6a64;
   font-size: 14px;
+}
+
+[data-theme="dark"] .scores-overview {
+  border-bottom-color: var(--border-card);
+}
+
+[data-theme="dark"] .score-evaluation {
+  color: var(--text-body);
+}
+
+[data-theme="dark"] .score-excellent {
+  color: #5db872;
+}
+
+[data-theme="dark"] .score-good {
+  color: #d08a6a;
+}
+
+[data-theme="dark"] .score-poor {
+  color: #e06060;
+}
+
+[data-theme="dark"] .score-label {
+  color: var(--text-muted);
+}
+
+[data-theme="dark"] .section-title {
+  color: var(--text-title);
+  border-bottom-color: var(--border-card);
+}
+
+[data-theme="dark"] .experience-item {
+  background: rgba(255,255,255,0.04);
+}
+
+[data-theme="dark"] .exp-title {
+  color: var(--text-title);
+}
+
+[data-theme="dark"] .exp-period {
+  color: var(--text-muted);
+}
+
+[data-theme="dark"] .exp-position {
+  color: var(--text-body);
+}
+
+[data-theme="dark"] .exp-desc {
+  color: var(--text-body);
+}
+
+[data-theme="dark"] .issues-section {
+  border-top-color: var(--border-card);
+}
+
+[data-theme="dark"] .issue-item,
+[data-theme="dark"] .suggestion-item {
+  color: var(--text-body);
+  background: rgba(255,255,255,0.04);
+}
+
+[data-theme="dark"] .issue-item {
+  border-left-color: #e06060;
+}
+
+[data-theme="dark"] .suggestion-item {
+  border-left-color: #d08a6a;
+}
+
+[data-theme="dark"] .empty-experience {
+  color: var(--text-muted);
 }
 </style>

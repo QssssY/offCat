@@ -152,14 +152,12 @@ export function connectNotificationStream({ onNotification, onUnreadCount, onErr
           const delay = reconnectDelay;
           // 下次延迟翻倍，封顶 60s
           reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY);
-          console.log(`[SSE] ${delay / 1000}s 后尝试第 ${reconnectAttempts} 次重连...`);
           reconnectTimer = setTimeout(() => {
             if (!controller.signal.aborted) {
               connect();
             }
           }, delay);
         } else if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-          console.warn('[SSE] 已达最大重连次数，停止重连');
         }
         if (onError) onError(e);
       }

@@ -71,27 +71,32 @@ const highlights = computed(() => {
 
 <style scoped>
 .highlights-section {
-  padding: 8px 0;
+  padding: 4px 0;
 }
 
 .highlights-list {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 8px;
 }
 
 .highlight-item {
   display: flex;
   gap: 12px;
   padding: 12px 16px;
-  background-color: #f0f9eb;
-  border-radius: 4px;
-  border-left: 3px solid var(--color-success, #67c23a);
+  background: #faf9f5;
+  border-radius: 8px;
+  border-left: 3px solid #cc785c;
 }
 
 .highlight-icon {
   flex-shrink: 0;
   padding-top: 2px;
+}
+
+.highlight-icon svg,
+.highlight-icon .el-icon {
+  color: #cc785c !important;
 }
 
 .highlight-content {
@@ -101,13 +106,13 @@ const highlights = computed(() => {
 .highlight-title {
   font-size: 14px;
   font-weight: 500;
-  color: var(--text-title, #303133);
+  color: #141413;
   margin-bottom: 4px;
 }
 
 .highlight-desc {
   font-size: 13px;
-  color: var(--text-body, #606266);
+  color: #3d3d3a;
   line-height: 1.6;
 }
 
@@ -117,7 +122,29 @@ const highlights = computed(() => {
   align-items: center;
   gap: 8px;
   padding: 40px 0;
-  color: var(--text-muted, #909399);
+  color: #6c6a64;
   font-size: 14px;
+}
+
+[data-theme="dark"] .highlight-item {
+  background: rgba(255,255,255,0.04);
+  border-left-color: #d08a6a;
+}
+
+[data-theme="dark"] .highlight-icon svg,
+[data-theme="dark"] .highlight-icon .el-icon {
+  color: #d08a6a !important;
+}
+
+[data-theme="dark"] .highlight-title {
+  color: var(--text-title);
+}
+
+[data-theme="dark"] .highlight-desc {
+  color: var(--text-body);
+}
+
+[data-theme="dark"] .empty-highlights {
+  color: var(--text-muted);
 }
 </style>

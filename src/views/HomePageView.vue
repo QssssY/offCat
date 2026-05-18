@@ -297,16 +297,60 @@
         </div>
       </div>
     </section>
+
+    <section class="version-section" v-if="versionLogs.length > 0">
+      <div class="version-header">
+        <h3 class="version-title">最近更新</h3>
+        <router-link to="/version-logs" class="version-more">更多动态 →</router-link>
+      </div>
+      <div class="version-list">
+        <article
+          v-for="log in versionLogs"
+          :key="log.id"
+          class="version-item"
+        >
+          <div class="version-tag-wrapper">
+            <el-tag
+              size="small"
+              :type="log.type === 'major' ? 'danger' : log.type === 'minor' ? 'warning' : 'info'"
+              class="version-tag"
+            >
+              v{{ log.version }}
+            </el-tag>
+          </div>
+          <div class="version-info">
+            <h4 class="version-item-title" :title="log.title">{{ log.title }}</h4>
+            <p class="version-item-desc">{{ truncate(log.content, 150) }}</p>
+            <time class="version-item-time">{{ formatDate(log.publishedAt) }}</time>
+          </div>
+        </article>
+      </div>
+    </section>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from "vue";
+
+const truncate = (text, maxLen = 150) => {
+  if (!text || text.length <= maxLen) return text;
+  return text.slice(0, maxLen).replace(/\s+\S*$/, "") + "...";
+};
 import { useRouter } from "vue-router";
+import { getLatestVersionLogs } from "@/api/versionLog";
 import { isLoggedIn } from "@/utils/auth";
 import { getPublicStats } from "@/api/stats";
 
 const router = useRouter();
+
+const versionLogs = ref([]);
+
+const formatDate = (dateStr) => {
+  if (!dateStr) return ''
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return dateStr
+  return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`
+}
 
 // 平台统计数据
 const statsLoading = ref(true);
@@ -325,6 +369,10 @@ const formatCount = (num) => {
 };
 
 onMounted(async () => {
+  try {
+    const versionRes = await getLatestVersionLogs(3)
+    versionLogs.value = versionRes?.data || []
+  } catch { versionLogs.value = [] }
   try {
     const res = await getPublicStats();
     if (res.data) {
@@ -908,6 +956,108 @@ const handleInterview = () => {
 
   .hero-visual {
     display: none;
+  }
+
+  .version-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+.version-section {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 48px 24px 80px;
+}
+
+.version-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.version-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-title);
+  margin: 0;
+}
+
+.version-more {
+  font-size: 14px;
+  color: var(--orange-main);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.2s;
+}
+
+.version-more:hover {
+  color: var(--orange-deep);
+}
+
+.version-list {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.version-item {
+  display: flex;
+  gap: 14px;
+  padding: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: 12px;
+  transition: all 0.3s ease;
+  min-width: 0;
+  box-shadow: var(--shadow-card);
+}
+
+.version-item:hover {
+  border-color: var(--orange-border);
+  box-shadow: var(--shadow-hover);
+}
+
+.version-tag-wrapper {
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+
+.version-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.version-item-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-title);
+  margin: 0 0 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.version-item-desc {
+  font-size: 13px;
+  color: var(--text-body);
+  margin: 0 0 8px;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.version-item-time {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+@media (max-width: 1024px) {
+  .version-list {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 </style>

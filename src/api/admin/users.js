@@ -8,7 +8,7 @@ import adminRequest from '@/utils/adminRequest'
  * @param {string | number} userId
  * @returns {string}
  */
-const normalizeUserId = (userId) => {
+export const normalizeUserId = (userId) => {
   if (userId === null || userId === undefined) return ''
   return String(userId).trim()
 }
@@ -117,6 +117,6 @@ export function updateUsersBatchStatus(ids, status) {
   return adminRequest({
     url: '/api/admin/users/batch/status',
     method: 'put',
-    data: { ids, isActive: status }
+    data: { ids: ids.map((id) => normalizeUserId(id)), isActive: status }
   })
 }

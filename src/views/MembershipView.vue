@@ -640,7 +640,7 @@ onMounted(async () => {
   max-width: 560px;
   font-size: 14px;
   line-height: 1.75;
-  color: #8a7666;
+  color: var(--text-muted);
 }
 
 /* ========================
@@ -656,13 +656,13 @@ onMounted(async () => {
 .quota-card {
   padding: 18px 18px 16px;
   border-radius: 16px;
-  background: linear-gradient(180deg, #fffaf6 0%, #ffffff 100%);
-  border: 1px solid rgba(243, 216, 199, 0.5);
+  background: linear-gradient(180deg, var(--bg-page) 0%, var(--bg-card) 100%);
+  border: 1px solid var(--border-card);
 }
 
 .quota-label {
   font-size: 13px;
-  color: #9b8a7c;
+  color: var(--text-muted);
 }
 
 .quota-value {
@@ -797,14 +797,14 @@ onMounted(async () => {
 
 .benefit-text {
   font-size: 13px;
-  color: #7a6a5a;
+  color: var(--text-muted);
   line-height: 1.5;
 }
 
 /* 场景说明：制造"有人适合"的感知 */
 .plan-scene {
   font-size: 13px;
-  color: #9b8a7c;
+  color: var(--text-muted);
   line-height: 1.6;
   padding: 0 2px;
 }
@@ -821,10 +821,10 @@ onMounted(async () => {
 .action-status {
   padding: 10px 14px;
   border-radius: 10px;
-  background: linear-gradient(135deg, #fff3e5 0%, #fff8f2 100%);
-  border: 1px solid rgba(255, 140, 66, 0.22);
+  background: linear-gradient(135deg, var(--orange-light-bg) 0%, var(--bg-page) 100%);
+  border: 1px solid var(--orange-border);
   font-size: 13px;
-  color: #d56e2f;
+  color: var(--orange-deep);
   line-height: 1.5;
   text-align: center;
 }
@@ -845,7 +845,7 @@ onMounted(async () => {
 .metric-label {
   display: block;
   font-size: 12px;
-  color: #9b8a7c;
+  color: var(--text-muted);
 }
 
 .metric-value {
@@ -886,7 +886,7 @@ onMounted(async () => {
 .empty-desc {
   margin-top: 8px;
   font-size: 14px;
-  color: #8e7c6d;
+  color: var(--text-muted);
 }
 
 /* ========================

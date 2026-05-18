@@ -4,12 +4,23 @@
     <meta charset="UTF-8">
     <link rel="icon" type="image/svg+xml" href="/vite.svg">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <title>智能模拟面试与简历诊断系统</title>
-    <!-- 防闪烁脚本：在 CSS 加载前同步应用主题，避免暗色模式下白色闪烁 -->
+    <!-- 防闪烁脚本：在 CSS 加载前同步应用主题 -->
     <script>
       (function() {
         var t = localStorage.getItem('theme');
-        var dark = t === 'dark' || (!t && matchMedia('(prefers-color-scheme:dark)').matches);
+        var fs = localStorage.getItem('followSystem');
+        var dark;
+        if (fs === 'true') {
+          dark = matchMedia('(prefers-color-scheme:dark)').matches;
+        } else if (t === 'system') {
+          dark = matchMedia('(prefers-color-scheme:dark)').matches;
+        } else {
+          dark = t === 'dark';
+        }
         if (dark) document.documentElement.setAttribute('data-theme', 'dark');
       })();
     </script>

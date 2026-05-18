@@ -7,7 +7,7 @@
         <span class="footer-copyright">&copy; {{ currentYear }} All rights reserved.</span>
       </div>
       <div class="footer-right">
-        <a href="mailto:1795845968@qq.com" class="footer-link">联系我们</a>
+        <a :href="`mailto:${contactEmail}`" class="footer-link">联系我们</a>
         <span class="footer-dot">&middot;</span>
         <a href="#" class="footer-link" @click.prevent>隐私政策</a>
         <span class="footer-dot">&middot;</span>
@@ -18,7 +18,8 @@
 </template>
 
 <script setup>
-const currentYear = new Date().getFullYear();
+const currentYear = new Date().getFullYear()
+const contactEmail = import.meta.env.VITE_CONTACT_EMAIL || '1795845968@qq.com'
 </script>
 
 <style scoped>

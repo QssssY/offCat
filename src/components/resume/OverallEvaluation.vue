@@ -80,16 +80,18 @@ const gradeClass = computed(() => {
 }
 
 .score-value {
-  font-size: 48px;
-  font-weight: 600;
-  color: var(--color-info, #409eff);
+  font-size: 44px;
+  font-weight: 700;
+  color: #141413;
   line-height: 1;
   margin-bottom: 8px;
 }
 
 .score-label {
-  font-size: 13px;
-  color: var(--text-muted, #909399);
+  font-size: 12px;
+  color: #6c6a64;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 
 .grade-section {
@@ -100,41 +102,42 @@ const gradeClass = computed(() => {
 }
 
 .grade-badge {
-  padding: 8px 24px;
-  border-radius: 4px;
-  font-size: 20px;
+  padding: 6px 20px;
+  border-radius: 9999px;
+  font-size: 18px;
   font-weight: 600;
   margin-bottom: 8px;
 }
 
 .grade-excellent {
-  background-color: #f0f9eb;
-  color: var(--color-success, #67c23a);
+  background: rgba(93,184,114,0.12);
+  color: #3d8a5a;
 }
 
 .grade-good {
-  background-color: #ecf5ff;
-  color: var(--color-info, #409eff);
+  background: rgba(204,120,92,0.12);
+  color: #a9583e;
 }
 
 .grade-average {
-  background-color: #fdf6ec;
-  color: var(--color-warning, #e6a23c);
+  background: rgba(212,160,23,0.12);
+  color: #b58a14;
 }
 
 .grade-poor {
-  background-color: #fef0f0;
-  color: var(--color-danger, #f56c6c);
+  background: rgba(198,69,69,0.1);
+  color: #b53a3a;
 }
 
 .grade-default {
-  background-color: var(--bg-elevated, #f5f7fa);
-  color: var(--text-body, #606266);
+  background: #efe9de;
+  color: #6c6a64;
 }
 
 .grade-label {
-  font-size: 13px;
-  color: var(--text-muted, #909399);
+  font-size: 12px;
+  color: #6c6a64;
+  letter-spacing: 0.03em;
 }
 
 .summary-section {
@@ -144,14 +147,63 @@ const gradeClass = computed(() => {
 .summary-label {
   font-size: 14px;
   font-weight: 500;
-  color: var(--text-title, #303133);
+  color: #141413;
   margin-bottom: 10px;
 }
 
 .summary-content {
   font-size: 14px;
-  color: var(--text-body, #606266);
+  color: #3d3d3a;
   line-height: 1.8;
   white-space: pre-wrap;
+}
+
+[data-theme="dark"] .score-section {
+  border-bottom-color: var(--border-card);
+}
+
+[data-theme="dark"] .score-value {
+  color: var(--text-title);
+}
+
+[data-theme="dark"] .score-label {
+  color: var(--text-muted);
+}
+
+[data-theme="dark"] .grade-excellent {
+  background: rgba(93,184,114,0.15);
+  color: #5db872;
+}
+
+[data-theme="dark"] .grade-good {
+  background: rgba(204,120,92,0.15);
+  color: #d08a6a;
+}
+
+[data-theme="dark"] .grade-average {
+  background: rgba(212,160,23,0.15);
+  color: #d4a017;
+}
+
+[data-theme="dark"] .grade-poor {
+  background: rgba(198,69,69,0.15);
+  color: #e06060;
+}
+
+[data-theme="dark"] .grade-default {
+  background: rgba(255,255,255,0.06);
+  color: var(--text-muted);
+}
+
+[data-theme="dark"] .grade-label {
+  color: var(--text-muted);
+}
+
+[data-theme="dark"] .summary-label {
+  color: var(--text-title);
+}
+
+[data-theme="dark"] .summary-content {
+  color: var(--text-body);
 }
 </style>

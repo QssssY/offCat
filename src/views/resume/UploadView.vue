@@ -22,7 +22,7 @@
             <div class="upload-text">
               <div class="upload-title">点击或拖拽文件到此处上传</div>
               <div class="upload-hint">
-                支持文本型 PDF 与图片型/扫描型 PDF，文件大小不超过 10MB
+                支持文本型 PDF 与图片型/扫描型 PDF，文件大小不超过 5MB
               </div>
             </div>
           </div>
@@ -47,7 +47,7 @@
           <div class="req-title">文件要求</div>
           <ul class="req-list">
             <li>文件格式：仅支持 <strong>PDF</strong></li>
-            <li>文件大小：不超过 10MB</li>
+            <li>文件大小：不超过 5MB</li>
             <li>支持文本型 PDF，也支持图片型/扫描型 PDF</li>
           </ul>
           <div class="req-warning">
@@ -120,7 +120,7 @@ import { isLoggedIn } from '@/utils/auth'
 const router = useRouter()
 
 const acceptedFormats = '.pdf'
-const maxFileSize = 10 * 1024 * 1024
+const maxFileSize = 5 * 1024 * 1024
 
 const selectedFile = ref(null)
 const fileError = ref('')
@@ -152,7 +152,7 @@ const validateFile = (file) => {
   }
 
   if (file.size > maxFileSize) {
-    fileError.value = '文件大小不能超过 10MB'
+    fileError.value = '文件大小不能超过 5MB'
     return false
   }
 
@@ -347,7 +347,7 @@ const retrySubmit = () => {
   align-items: center;
   gap: 6px;
   padding: 10px 12px;
-  background-color: #fef0f0;
+  background-color: var(--tag-bg-danger);
   border: 1px solid var(--orange-border);
   border-radius: 8px;
   margin-bottom: 16px;
@@ -395,8 +395,8 @@ const retrySubmit = () => {
   gap: 6px;
   margin-top: 12px;
   padding: 8px 12px;
-  background-color: #fef0f0;
-  border: 1px solid #fde2e2;
+  background-color: var(--tag-bg-danger);
+  border: 1px solid var(--border-card);
   border-radius: 6px;
   font-size: 13px;
   color: var(--color-danger);
@@ -437,7 +437,7 @@ const retrySubmit = () => {
   align-items: flex-start;
   gap: 16px;
   padding: 20px;
-  background-color: #fef0f0;
+  background-color: var(--tag-bg-danger);
   border: 1px solid var(--orange-border);
   border-radius: 8px;
 }

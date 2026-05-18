@@ -75,6 +75,16 @@ ol {
   --color-danger: #F56C6C;
   --color-info: #909399;
 
+  /* 状态标签 Token */
+  --tag-bg-warning: #fdf6ec;
+  --tag-bg-danger: #fef0f0;
+  --tag-text-warning: #e6a23c;
+  --tag-text-danger: #f56c6c;
+
+  /* 图标背景 Token */
+  --icon-bg-success: linear-gradient(135deg, #f0f9eb 0%, #d8f0d0 100%);
+  --icon-bg-warning: linear-gradient(135deg, #fdf6ec 0%, #f8e8d0 100%);
+
   /* 滚动条 Token */
   --scrollbar-track: #FFF8F3;
   --scrollbar-thumb: #FFD7BF;
@@ -150,20 +160,36 @@ ol {
   --color-danger: #F56C6C;
   --color-info: #909399;
 
+  /* 状态标签 Token */
+  --tag-bg-warning: rgba(230, 162, 60, 0.15);
+  --tag-bg-danger: rgba(245, 108, 108, 0.15);
+  --tag-text-warning: #e6a23c;
+  --tag-text-danger: #f56c6c;
+
+  /* 图标背景 Token */
+  --icon-bg-success: linear-gradient(135deg, rgba(103, 194, 58, 0.2) 0%, rgba(103, 194, 58, 0.1) 100%);
+  --icon-bg-warning: linear-gradient(135deg, rgba(230, 162, 60, 0.2) 0%, rgba(230, 162, 60, 0.1) 100%);
+
   /* 滚动条 */
   --scrollbar-track: #1a1a2e;
   --scrollbar-thumb: #3A3A50;
   --scrollbar-thumb-hover: #FF8C42;
 }
 
-/* 主题切换过渡动画 */
-html, body {
-  transition: background-color 0.3s ease, color 0.3s ease;
+/* 主题切换过渡：作用于所有变色属性，让暗黑模式切换更平滑
+   仅在有 [data-theme] 时才启用，避免初始化时的额外开销 */
+html[data-theme] *,
+html[data-theme] *::before,
+html[data-theme] *::after {
+  transition-property: background-color, border-color, box-shadow, color;
+  transition-duration: 0.2s;
+  transition-timing-function: ease;
 }
 
-/* 对动画敏感的用户关闭过渡 */
 @media (prefers-reduced-motion: reduce) {
-  html, body {
+  html[data-theme] *,
+  html[data-theme] *::before,
+  html[data-theme] *::after {
     transition: none;
   }
 }
@@ -596,6 +622,11 @@ html, body {
 .user-dropdown-menu .logout-item:hover {
   background: var(--bg-page) !important;
   color: #d4564a !important;
+}
+
+/* 共享旋转动画 */
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 /* Element Plus 卡片覆盖 */

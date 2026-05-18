@@ -70,8 +70,8 @@ export function deletePrompt(id) {
  */
 export function deletePrompts(ids) {
   return adminRequest({
-    url: '/api/admin/prompts/batch',
-    method: 'delete',
+    url: '/api/admin/prompts/batch-delete',
+    method: 'post',
     data: ids
   })
 }

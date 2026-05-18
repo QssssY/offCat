@@ -375,7 +375,7 @@ onMounted(() => {
   width: 48px;
   height: 48px;
   border-radius: 14px;
-  background: linear-gradient(135deg, #fff3e8 0%, #ffe0c8 100%);
+  background: linear-gradient(135deg, var(--orange-light-bg) 0%, rgba(255, 140, 66, 0.08) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -422,9 +422,6 @@ onMounted(() => {
   animation: spin 0.8s linear infinite;
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
 
 /* 全量无数据状态 */
 .empty-full-state {
@@ -450,7 +447,7 @@ onMounted(() => {
   width: 80px;
   height: 80px;
   border-radius: 20px;
-  background: linear-gradient(135deg, #fef0f0 0%, #fde2e2 100%);
+  background: linear-gradient(135deg, var(--tag-bg-danger) 0%, rgba(245, 108, 108, 0.08) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -552,18 +549,18 @@ onMounted(() => {
 }
 
 .resume-icon {
-  background: linear-gradient(135deg, #fff3e8 0%, #ffe0c8 100%);
+  background: linear-gradient(135deg, var(--orange-light-bg) 0%, rgba(255, 140, 66, 0.08) 100%);
   color: var(--orange-deep);
 }
 
 .interview-icon {
-  background: linear-gradient(135deg, #fff8f3 0%, #ffe8d6 100%);
+  background: linear-gradient(135deg, var(--orange-light-bg) 0%, rgba(255, 140, 66, 0.06) 100%);
   color: var(--orange-main);
 }
 
 .count-icon {
-  background: linear-gradient(135deg, #f0f9eb 0%, #d8f0d0 100%);
-  color: #67c23a;
+  background: var(--icon-bg-success);
+  color: var(--color-success);
 }
 
 .summary-value {
@@ -695,12 +692,12 @@ onMounted(() => {
 }
 
 .keyword-tag.matched {
-  background: #f0f9eb;
-  color: #67c23a;
+  background: rgba(103, 194, 58, 0.15);
+  color: var(--color-success);
 }
 
 .keyword-tag.missing {
-  background: #fef0f0;
+  background: var(--tag-bg-danger);
   color: var(--color-danger);
 }
 
@@ -865,7 +862,7 @@ onMounted(() => {
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #fff3e8 0%, #ffe0c8 100%);
+  background: linear-gradient(135deg, var(--orange-light-bg) 0%, rgba(255, 140, 66, 0.08) 100%);
   color: var(--orange-main);
   font-size: 12px;
   font-weight: 600;

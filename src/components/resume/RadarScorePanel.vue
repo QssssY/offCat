@@ -133,18 +133,18 @@ const scoreLevelClass = (score) => {
 .score-panel {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
 }
 
 .score-item {
   border-radius: 8px;
-  background: var(--bg-elevated, #fafbfc);
+  background: #faf9f5;
   overflow: hidden;
   transition: background 0.2s;
 }
 
 .score-item--open {
-  background: var(--bg-elevated, #f5f7fa);
+  background: #f5f0e8;
 }
 
 .score-item-header {
@@ -157,7 +157,7 @@ const scoreLevelClass = (score) => {
 }
 
 .score-item-header:hover {
-  background: rgba(0, 0, 0, 0.02);
+  background: rgba(204,120,92,0.04);
 }
 
 .score-item-left {
@@ -171,18 +171,17 @@ const scoreLevelClass = (score) => {
 .score-item-label {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text-title, #2f2f2f);
+  color: #141413;
   white-space: nowrap;
   min-width: 62px;
   flex-shrink: 0;
 }
 
-/* 得分进度条 */
 .score-bar-track {
   flex: 1;
   height: 6px;
   border-radius: 3px;
-  background: var(--border-divider, #e8ecef);
+  background: #e6dfd8;
   overflow: hidden;
 }
 
@@ -193,15 +192,15 @@ const scoreLevelClass = (score) => {
 }
 
 .score-bar-fill.score-high {
-  background: linear-gradient(90deg, #67c23a, #95d475);
+  background: #5db872;
 }
 
 .score-bar-fill.score-medium {
-  background: linear-gradient(90deg, #e6a23c, #f0c78a);
+  background: #cc785c;
 }
 
 .score-bar-fill.score-low {
-  background: linear-gradient(90deg, #f56c6c, #f89898);
+  background: #c64545;
 }
 
 .score-item-right {
@@ -219,19 +218,19 @@ const scoreLevelClass = (score) => {
 }
 
 .score-item-value.score-high {
-  color: var(--color-success, #67c23a);
+  color: #5db872;
 }
 
 .score-item-value.score-medium {
-  color: var(--color-warning, #e6a23c);
+  color: #cc785c;
 }
 
 .score-item-value.score-low {
-  color: var(--color-danger, #f56c6c);
+  color: #c64545;
 }
 
 .score-arrow {
-  color: var(--text-placeholder, #aaa);
+  color: #8e8b82;
   transition: transform 0.2s;
   flex-shrink: 0;
 }
@@ -240,7 +239,6 @@ const scoreLevelClass = (score) => {
   transform: rotate(180deg);
 }
 
-/* 展开区域 */
 .score-item-body {
   padding: 0 14px 12px;
 }
@@ -259,11 +257,11 @@ const scoreLevelClass = (score) => {
 }
 
 .score-detail-title--plus {
-  color: var(--color-success, #67c23a);
+  color: #5db872;
 }
 
 .score-detail-title--minus {
-  color: var(--color-danger, #f56c6c);
+  color: #c64545;
 }
 
 .score-detail-list {
@@ -280,7 +278,7 @@ const scoreLevelClass = (score) => {
 }
 
 .score-detail-item--plus {
-  color: #4a7c3a;
+  color: #3d8a5a;
 }
 
 .score-detail-item--plus::before {
@@ -288,7 +286,7 @@ const scoreLevelClass = (score) => {
   position: absolute;
   left: 2px;
   font-weight: 700;
-  color: var(--color-success, #67c23a);
+  color: #5db872;
 }
 
 .score-detail-item--minus {
@@ -300,12 +298,12 @@ const scoreLevelClass = (score) => {
   position: absolute;
   left: 2px;
   font-weight: 700;
-  color: var(--color-danger, #f56c6c);
+  color: #c64545;
 }
 
 .score-detail-empty {
   font-size: 12px;
-  color: var(--text-placeholder, #aaa);
+  color: #8e8b82;
   padding: 4px 0;
 }
 </style>

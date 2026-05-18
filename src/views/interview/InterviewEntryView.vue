@@ -77,6 +77,22 @@
         </div>
 
         <div class="config-item">
+          <div class="config-label">反馈模式</div>
+          <div class="config-control pill-control">
+            <div
+              v-for="fm in FEEDBACK_MODE_OPTIONS"
+              :key="fm.value"
+              class="pill-button"
+              :class="{ active: selectedFeedbackMode === fm.value }"
+              @click="selectedFeedbackMode = fm.value"
+            >
+              <span class="pill-label">{{ fm.label }}</span>
+              <span class="pill-hint">{{ fm.hint }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="config-item">
           <div class="config-label">岗位定向模拟</div>
           <div class="job-target-card">
             <div class="job-target-header">
@@ -181,7 +197,7 @@
             @click="handleStart"
           >
             <span v-if="creating" class="btn-text">正在创建面试...</span>
-            <span v-else>{{ jobTargeted ? "开始岗位定向模拟" : "开始普通模拟面试" }}</span>
+            <span v-else>{{ startButtonText }}</span>
           </el-button>
         </div>
       </div>
@@ -217,6 +233,7 @@ import { ElMessage } from "element-plus";
 import { useUserStore } from "@/stores/user";
 import { createInterviewSession, getInterviewJobRoles } from "@/api/interview";
 import { getResumeTask } from "@/api/resume";
+import { INTERVIEW_MODE_OPTIONS, STRING_TO_DIFFICULTY, FEEDBACK_MODE_OPTIONS } from "@/constants/interview";
 
 const router = useRouter();
 const route = useRoute();
@@ -227,6 +244,7 @@ const selectedJob = ref("");
 const selectedRoleCode = ref("");
 const selectedDifficulty = ref("primary");
 const selectedMode = ref("normal");
+const selectedFeedbackMode = ref("after_interview");
 const creating = ref(false);
 
 // 岗位定向状态统一收敛在入口页，便于清楚区分普通模拟与岗位定向模拟。
@@ -243,20 +261,18 @@ const difficultyOptions = [
   { label: "高级", value: "advanced", hint: "深度能力" },
 ];
 
-const modeOptions = [
-  { label: "普通面试", value: "normal", hint: "标准流程" },
-  { label: "压力面试", value: "stress", hint: "高压情境" },
-];
+const modeOptions = INTERVIEW_MODE_OPTIONS;
 
-const difficultyMap = {
-  primary: 1,
-  intermediate: 2,
-  advanced: 3,
-};
+const difficultyMap = STRING_TO_DIFFICULTY;
 
 const hasLatestJobMatch = computed(() => Boolean(latestJobMatchAnalysis.value));
 const matchedKeywords = computed(() => latestJobMatchAnalysis.value?.matchedKeywords || []);
 const missingKeywords = computed(() => latestJobMatchAnalysis.value?.missingKeywords || []);
+const startButtonText = computed(() => {
+  // 开始按钮按当前模式动态回显，避免用户选择人设后仍显示“普通模拟面试”。
+  const modeLabel = modeOptions.find((item) => item.value === selectedMode.value)?.label || "模拟面试";
+  return jobTargeted.value ? `开始岗位定向 · ${modeLabel}` : `开始${modeLabel}`;
+});
 
 // 标签样式模板映射（与管理端 AdminJobRoleView.vue 保持一致）
 const tagStyleTemplateOptions = [
@@ -349,6 +365,7 @@ const buildCreatePayload = () => {
     jobRoleCode: selectedRoleCode.value,
     difficulty: difficultyMap[selectedDifficulty.value],
     interviewMode: selectedMode.value,
+    feedbackMode: selectedFeedbackMode.value,
     // 普通模拟面试也允许携带关联简历任务，便于后端优先复用明确的简历上下文。
     resumeTaskId: resumeTaskId.value || undefined,
   };
@@ -407,7 +424,7 @@ onMounted(async () => {
   if (q.difficulty && ["primary", "intermediate", "advanced"].includes(q.difficulty)) {
     selectedDifficulty.value = q.difficulty;
   }
-  if (q.mode && ["normal", "stress"].includes(q.mode)) {
+  if (q.mode && modeOptions.some((item) => item.value === q.mode)) {
     selectedMode.value = q.mode;
   }
   if (q.jobTargeted === "1") {
@@ -453,7 +470,7 @@ onMounted(async () => {
   align-items: center;
   gap: 12px;
   padding: 16px 20px;
-  background: linear-gradient(135deg, #fff3e8 0%, #fff8f3 100%);
+  background: linear-gradient(135deg, var(--orange-light-bg) 0%, var(--bg-page) 100%);
   border: 1px solid var(--orange-border);
   border-radius: 10px;
   margin-bottom: 24px;
@@ -572,8 +589,8 @@ onMounted(async () => {
 
 /* 标签样式模板（与管理端保持一致） */
 .tag-style-default {
-  background-color: #fdf1e6;
-  color: #a05a2c;
+  background-color: rgba(255, 140, 66, 0.12);
+  color: var(--orange-deep);
 }
 
 .tag-style-orange {
@@ -635,7 +652,7 @@ onMounted(async () => {
 }
 
 .pill-button {
-  min-width: 96px;
+  min-width: 116px;
   height: 44px;
   padding: 0 20px;
   border: 1px solid var(--border-card);
@@ -937,9 +954,72 @@ onMounted(async () => {
     padding: 20px 16px;
   }
 
+  .pill-control {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .pill-button {
+    min-width: 0;
+    padding: 0 10px;
+  }
+
   .start-section .el-button {
     width: 100%;
     padding: 14px 24px;
   }
+}
+
+/* ===== 暗色模式适配 ===== */
+[data-theme="dark"] .job-target-card {
+  background: var(--bg-elevated);
+}
+
+[data-theme="dark"] .job-target-body {
+  border-top-color: var(--border-card);
+}
+
+[data-theme="dark"] .job-target-tip {
+  color: #d0a07a;
+  background: rgba(255, 140, 66, 0.06);
+}
+
+[data-theme="dark"] .job-match-summary {
+  background: var(--bg-card);
+}
+
+[data-theme="dark"] .tag-style-blue {
+  color: #6bb0f0;
+}
+
+[data-theme="dark"] .tag-style-green {
+  color: #5cd487;
+}
+
+[data-theme="dark"] .tag-style-red {
+  color: #f08080;
+}
+
+[data-theme="dark"] .tag-style-purple {
+  color: #9d8be8;
+}
+
+[data-theme="dark"] .tag-style-gray {
+  color: #9ca3af;
+}
+
+[data-theme="dark"] .tag-style-outline {
+  background-color: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 140, 66, 0.3);
+  color: #ffb07a;
+}
+
+[data-theme="dark"] .tag-style-pill {
+  color: #ffb07a;
+}
+
+[data-theme="dark"] .tag-style-pink {
+  color: #f08a9e;
 }
 </style>

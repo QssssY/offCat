@@ -19,11 +19,11 @@ export const useUserStore = defineStore('user', () => {
 
     if (!vipExpireTime) return false
 
-    return (role === 'vip' || role === 1) && new Date(vipExpireTime) > new Date()
+    return role === 1 && new Date(vipExpireTime) > new Date()
   }
 
   const fetchUserInfo = async () => {
-    const token = localStorage.getItem('token') || getToken()
+    const token = getToken()
 
     if (!token) return
 
@@ -45,7 +45,6 @@ export const useUserStore = defineStore('user', () => {
       const { token: tokenStr, tokenType } = res.data
 
       setToken(tokenStr, tokenType)
-      localStorage.setItem('token', tokenStr)
       await fetchUserInfo()
 
       return res
@@ -55,7 +54,6 @@ export const useUserStore = defineStore('user', () => {
   }
 
   const doLogout = () => {
-    localStorage.removeItem('token')
     removeToken()
     clearUserInfo()
   }

@@ -40,7 +40,7 @@ export function getInterviewJobRoles() {
 /**
  * 发送面试消息。
  * @param {string} sessionId - 会话 ID
- * @param {{content: string}} data - 消息参数
+ * @param {{content: string, feedbackMode?: string}} data - 消息参数，feedbackMode 控制每题反馈或面完复盘
  * @returns {Promise}
  */
 export function sendInterviewMessage(sessionId, data) {
@@ -54,7 +54,7 @@ export function sendInterviewMessage(sessionId, data) {
 /**
  * 发送面试消息并获取流式回复。
  * @param {string} sessionId - 会话 ID
- * @param {{content: string}} data - 消息参数
+ * @param {{content: string, feedbackMode?: string}} data - 消息参数，feedbackMode 控制每题反馈或面完复盘
  * @param {string} token - 登录 token
  * @returns {Promise<Response>}
  */
