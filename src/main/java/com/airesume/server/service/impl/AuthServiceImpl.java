@@ -235,6 +235,7 @@ public class AuthServiceImpl implements AuthService {
                 .status(user.getStatus())
                 .membershipPlanCode(user.getMembershipPlanCode())
                 .vipExpireTime(user.getVipExpireTime())
+                .createTime(user.getCreateTime())
                 .resumeQuota(resumeQuota)
                 .interviewQuota(interviewQuota)
                 .vipDailyResumeQuota(vipDailyResumeQuota)

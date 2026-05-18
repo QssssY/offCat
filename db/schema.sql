@@ -3,6 +3,7 @@ SET FOREIGN_KEY_CHECKS = 0;
 
 DROP TABLE IF EXISTS `user_notification`;
 DROP TABLE IF EXISTS `user_onboarding_state`;
+DROP TABLE IF EXISTS `user_settings`;
 DROP TABLE IF EXISTS `membership_order`;
 DROP TABLE IF EXISTS `membership_plan`;
 DROP TABLE IF EXISTS `interview_chat_log`;
@@ -63,6 +64,21 @@ CREATE TABLE `user_quota` (
   INDEX `idx_user_quota_create_time` (`create_time`),
   CONSTRAINT `fk_user_quota_user_id` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='User quota table';
+
+CREATE TABLE `user_settings` (
+  `id` BIGINT NOT NULL COMMENT 'Primary key',
+  `user_id` BIGINT NOT NULL COMMENT 'User id',
+  `interview_retention_days` INT NOT NULL DEFAULT 0 COMMENT 'Interview history retention days, 0 means disabled',
+  `resume_retention_days` INT NOT NULL DEFAULT 0 COMMENT 'Resume diagnosis retention days, 0 means disabled',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Create time',
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Update time',
+  `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT 'Logical delete flag',
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `uk_user_settings_user_id` (`user_id`),
+  INDEX `idx_user_settings_interview_retention` (`interview_retention_days`, `is_deleted`),
+  INDEX `idx_user_settings_resume_retention` (`resume_retention_days`, `is_deleted`),
+  CONSTRAINT `fk_user_settings_user_id` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='User settings table';
 
 CREATE TABLE `membership_plan` (
   `id` BIGINT NOT NULL COMMENT 'Primary key',
@@ -215,6 +231,7 @@ CREATE TABLE `resume_diagnosis_task` (
   INDEX `idx_resume_task_status` (`status`),
   INDEX `idx_resume_task_create_time` (`create_time`),
   INDEX `idx_resume_task_user_status` (`user_id`, `status`),
+  INDEX `idx_resume_task_retention_cleanup` (`user_id`, `status`, `is_deleted`, `create_time`),
   CONSTRAINT `fk_resume_task_user_id` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Resume diagnosis task table';
 
@@ -282,6 +299,7 @@ CREATE TABLE `interview_session` (
   INDEX `idx_interview_session_interview_mode` (`interview_mode`),
   INDEX `idx_interview_session_create_time` (`create_time`),
   INDEX `idx_interview_session_user_status` (`user_id`, `status`),
+  INDEX `idx_interview_session_retention_cleanup` (`user_id`, `status`, `is_deleted`, `create_time`),
   CONSTRAINT `fk_interview_session_user_id` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Interview session table';
 

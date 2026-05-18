@@ -50,13 +50,46 @@ class UserAccountServiceImplTest {
     }
 
     @Test
+    void shouldGetCurrentSecurityQuestionForAccountDeletion() {
+        Long userId = 123L;
+        SysUser user = new SysUser();
+        user.setId(userId);
+        user.setSecurityQuestion("你的出生城市是哪里？");
+        user.setSecurityAnswer("encoded-answer");
+        user.setIsDeleted(0);
+
+        when(sysUserService.getById(userId)).thenReturn(user);
+
+        String question = service.getCurrentSecurityQuestion(userId);
+
+        verify(sysUserService).getById(userId);
+        org.junit.jupiter.api.Assertions.assertEquals("你的出生城市是哪里？", question);
+    }
+
+    @Test
+    void shouldRejectSecurityQuestionLookupWhenNotConfigured() {
+        Long userId = 123L;
+        SysUser user = new SysUser();
+        user.setId(userId);
+        user.setIsDeleted(0);
+
+        when(sysUserService.getById(userId)).thenReturn(user);
+
+        assertThrows(BusinessException.class, () -> service.getCurrentSecurityQuestion(userId));
+    }
+
+    @Test
     void shouldRejectWrongPasswordWhenDeletingAccount() {
         Long userId = 123L;
         AccountDeleteRequest request = new AccountDeleteRequest();
         request.setOldPassword("wrong");
+        request.setConfirmPassword("wrong");
+        request.setSecurityAnswer("answer");
         SysUser user = new SysUser();
         user.setId(userId);
         user.setPassword("encoded");
+        user.setSecurityQuestion("question");
+        user.setSecurityAnswer("encoded-answer");
         user.setStatus(1);
         user.setIsDeleted(0);
 
@@ -70,18 +103,71 @@ class UserAccountServiceImplTest {
     }
 
     @Test
-    void shouldDeleteAccountAndRelatedData() {
+    void shouldRejectWhenConfirmPasswordDoesNotMatchWhenDeletingAccount() {
         Long userId = 123L;
         AccountDeleteRequest request = new AccountDeleteRequest();
         request.setOldPassword("password");
+        request.setConfirmPassword("different");
+        request.setSecurityAnswer("answer");
         SysUser user = new SysUser();
         user.setId(userId);
         user.setPassword("encoded");
+        user.setSecurityQuestion("question");
+        user.setSecurityAnswer("encoded-answer");
+        user.setStatus(1);
+        user.setIsDeleted(0);
+
+        when(sysUserService.getById(userId)).thenReturn(user);
+
+        assertThrows(BusinessException.class, () -> service.deleteAccount(userId, request));
+
+        verify(passwordEncoder, never()).matches(anyString(), anyString());
+        verify(interviewService, never()).clearHistory(anyLong());
+    }
+
+    @Test
+    void shouldRejectWrongSecurityAnswerWhenDeletingAccount() {
+        Long userId = 123L;
+        AccountDeleteRequest request = new AccountDeleteRequest();
+        request.setOldPassword("password");
+        request.setConfirmPassword("password");
+        request.setSecurityAnswer("wrong-answer");
+        SysUser user = new SysUser();
+        user.setId(userId);
+        user.setPassword("encoded");
+        user.setSecurityQuestion("question");
+        user.setSecurityAnswer("encoded-answer");
         user.setStatus(1);
         user.setIsDeleted(0);
 
         when(sysUserService.getById(userId)).thenReturn(user);
         when(passwordEncoder.matches("password", "encoded")).thenReturn(true);
+        when(passwordEncoder.matches("wrong-answer", "encoded-answer")).thenReturn(false);
+
+        assertThrows(BusinessException.class, () -> service.deleteAccount(userId, request));
+
+        verify(interviewService, never()).clearHistory(anyLong());
+        verify(sysUserMapper, never()).anonymizeDeletedUser(anyLong(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void shouldDeleteAccountAndRelatedData() {
+        Long userId = 123L;
+        AccountDeleteRequest request = new AccountDeleteRequest();
+        request.setOldPassword("password");
+        request.setConfirmPassword("password");
+        request.setSecurityAnswer("answer");
+        SysUser user = new SysUser();
+        user.setId(userId);
+        user.setPassword("encoded");
+        user.setSecurityQuestion("question");
+        user.setSecurityAnswer("encoded-answer");
+        user.setStatus(1);
+        user.setIsDeleted(0);
+
+        when(sysUserService.getById(userId)).thenReturn(user);
+        when(passwordEncoder.matches("password", "encoded")).thenReturn(true);
+        when(passwordEncoder.matches("answer", "encoded-answer")).thenReturn(true);
         when(passwordEncoder.encode(anyString())).thenReturn("deleted-password");
         when(interviewService.clearHistory(userId)).thenReturn(2);
         when(resumeDiagnosisTaskService.clearHistory(userId)).thenReturn(3);

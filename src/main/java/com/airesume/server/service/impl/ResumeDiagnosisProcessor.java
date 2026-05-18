@@ -168,7 +168,17 @@ public class ResumeDiagnosisProcessor {
         source.setSummary(defaultString(source.getSummary()));
         source.setStrengths(defaultStringList(source.getStrengths()));
         source.setWeaknesses(defaultStringList(source.getWeaknesses()));
+        int totalScore = source.getTotalScore() == null ? 0 : source.getTotalScore();
+        source.setLevel(resolveLevel(totalScore));
         return source;
+    }
+
+    private String resolveLevel(int totalScore) {
+        if (totalScore >= 90) return "S";
+        if (totalScore >= 75) return "A";
+        if (totalScore >= 60) return "B";
+        if (totalScore >= 40) return "C";
+        return "D";
     }
 
     private ResumeDiagnosisResult.BasicInfoEvaluation normalizeBasicInfoEvaluation(

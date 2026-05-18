@@ -152,6 +152,24 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
     List<String> findActiveSessionIdsByUserId(@Param("userId") Long userId);
 
     /**
+     * 分批查询超过保留期的已结束面试会话。
+     * 自动清理跳过进行中的会话，避免定时任务打断用户正在使用的面试流程。
+     */
+    @Query("""
+            select s.sessionId
+            from InterviewSession s
+            where s.userId = :userId
+              and s.status = :status
+              and s.createTime < :cutoffTime
+              and s.isDeleted = 0
+            order by s.createTime asc
+            """)
+    List<String> findExpiredSessionIds(@Param("userId") Long userId,
+                                       @Param("status") Integer status,
+                                       @Param("cutoffTime") LocalDateTime cutoffTime,
+                                       Pageable pageable);
+
+    /**
      * 逻辑删除当前用户所有面试会话。
      */
     @Modifying
@@ -163,4 +181,18 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
                AND s.isDeleted = 0
             """)
     int logicalDeleteByUserId(@Param("userId") Long userId, @Param("updateTime") LocalDateTime updateTime);
+
+    /**
+     * 逻辑删除指定会话，用于自动保留期清理的小批量处理。
+     */
+    @Modifying
+    @Query("""
+            UPDATE InterviewSession s
+               SET s.isDeleted = 1,
+                   s.updateTime = :updateTime
+             WHERE s.sessionId in :sessionIds
+               AND s.isDeleted = 0
+            """)
+    int logicalDeleteBySessionIdIn(@Param("sessionIds") List<String> sessionIds,
+                                   @Param("updateTime") LocalDateTime updateTime);
 }

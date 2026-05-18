@@ -13,6 +13,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.net.SocketTimeoutException;
 
@@ -137,5 +138,27 @@ class ResumeDiagnosisProcessorTest {
         verify(resumeContentExtractor, never()).extract(anyString());
         verify(resumeAiService, never()).diagnose(anyString());
         verify(quotaService, never()).refundResumeQuota(anyLong());
+    }
+
+    @Test
+    void normalizeOverallEvaluationShouldFallbackToDWhenTotalScoreMissing() {
+        ResumeDiagnosisProcessor processor = new ResumeDiagnosisProcessor(
+                mock(ResumeDiagnosisTaskService.class),
+                mock(ResumeContentExtractor.class),
+                mock(ResumeAiService.class),
+                mock(ResumeInfoExtractor.class),
+                objectMapper,
+                mock(UserQuotaService.class),
+                mock(NotificationService.class));
+        ResumeDiagnosisResult.OverallEvaluation source = ResumeDiagnosisResult.OverallEvaluation.builder()
+                .level("S - 优秀")
+                .build();
+
+        ResumeDiagnosisResult.OverallEvaluation result = ReflectionTestUtils.invokeMethod(
+                processor,
+                "normalizeOverallEvaluation",
+                source);
+
+        assertEquals("D", result.getLevel());
     }
 }

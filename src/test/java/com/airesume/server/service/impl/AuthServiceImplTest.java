@@ -180,6 +180,7 @@ class AuthServiceImplTest {
             user.setStatus(1);
             user.setMembershipPlanCode("NORMAL");
             user.setVipExpireTime(null);
+            user.setCreateTime(java.time.LocalDateTime.of(2026, 5, 18, 10, 0));
 
             UserQuota quota = new UserQuota();
             quota.setDailyResumeUsed(0);
@@ -198,6 +199,7 @@ class AuthServiceImplTest {
             assertEquals("测试用户", response.getNickname());
             assertEquals(0, response.getRole());
             assertEquals(1, response.getStatus());
+            assertEquals(java.time.LocalDateTime.of(2026, 5, 18, 10, 0), response.getCreateTime());
             assertEquals(5, response.getResumeQuota());
             assertEquals(3, response.getInterviewQuota());
         }

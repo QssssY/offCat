@@ -129,15 +129,15 @@ public class MockDiagnosisResultGenerator {
      */
     private String getLevel(int score) {
         if (score >= 90) {
-            return "S - 优秀";
-        } else if (score >= 80) {
-            return "A - 良好";
-        } else if (score >= 70) {
-            return "B - 中等";
+            return "S";
+        } else if (score >= 75) {
+            return "A";
         } else if (score >= 60) {
-            return "C - 及格";
+            return "B";
+        } else if (score >= 40) {
+            return "C";
         } else {
-            return "D - 需改进";
+            return "D";
         }
     }
 }
