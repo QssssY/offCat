@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.io.Serializable;
 import java.time.LocalDate;
 
 /**
@@ -14,7 +15,9 @@ import java.time.LocalDate;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class DashboardTrendResponse {
+public class DashboardTrendResponse implements Serializable {
+
+    private static final long serialVersionUID = 1L;
 
     /**
      * 趋势日期。

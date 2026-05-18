@@ -1,33 +1,48 @@
 package com.airesume.server.controller;
 
-import com.airesume.server.common.constants.InterviewConstants;
-import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.PageResult;
 import com.airesume.server.common.result.Result;
-import com.airesume.server.dto.interview.*;
+import com.airesume.server.dto.interview.CreateSessionRequest;
+import com.airesume.server.dto.interview.InterviewHistoryResponse;
+import com.airesume.server.dto.interview.InterviewJobRoleResponse;
+import com.airesume.server.dto.interview.InterviewJobTargetContext;
+import com.airesume.server.dto.interview.InterviewSessionResponse;
+import com.airesume.server.dto.interview.SendMessageRequest;
+import com.airesume.server.dto.interview.SendMessageResponse;
 import com.airesume.server.entity.InterviewChatLog;
 import com.airesume.server.entity.InterviewSession;
 import com.airesume.server.entity.SysJobRole;
-import com.airesume.server.mapper.InterviewChatLogMapper;
 import com.airesume.server.service.InterviewAiService;
 import com.airesume.server.service.InterviewService;
 import com.airesume.server.service.MockInterviewJobTargetService;
 import com.airesume.server.service.SysJobRoleService;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.reactivestreams.Publisher;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.validation.annotation.Validated;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
 
 import java.util.List;
-import org.reactivestreams.Publisher;
+import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * 模拟面试控制器
+ * 模拟面试控制器。
  */
 @RestController
+@Validated
 @RequestMapping("/api/interview")
 @RequiredArgsConstructor
 @Slf4j
@@ -35,16 +50,13 @@ public class InterviewController {
 
     private final InterviewService interviewService;
     private final InterviewAiService interviewAiService;
-    private final InterviewChatLogMapper interviewChatLogMapper;
     private final SysJobRoleService sysJobRoleService;
     private final MockInterviewJobTargetService mockInterviewJobTargetService;
+    @Qualifier("aiAsyncExecutor")
+    private final Executor aiAsyncExecutor;
 
     /**
-     * 查询当前启用的面试岗位选项
-     *
-     * 作用：
-     * 用户端面试岗位不能再由前端写死，必须统一读取后台配置。
-     * 这里只返回启用岗位，保证用户侧只看到管理员允许使用的选项。
+     * 查询当前启用的面试岗位选项。
      */
     @GetMapping("/job-roles")
     public Result<List<InterviewJobRoleResponse>> getJobRoles() {
@@ -55,22 +67,21 @@ public class InterviewController {
     }
 
     /**
-     * 创建面试会话
+     * 创建面试会话。
      */
     @PostMapping("/session")
     public Result<InterviewSessionResponse> createSession(
             @RequestBody @Validated CreateSessionRequest request,
             Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
-        log.info("创建面试会话, userId: {}, 岗位: {}, 难度: {}, 模式: {}",
-                userId, request.getJobRole(), request.getDifficulty(), request.getInterviewMode());
+        log.info("创建面试会话, userId: {}, 岗位: {}, 难度: {}, 模式: {}, feedbackMode: {}",
+                userId, request.getJobRole(), request.getDifficulty(), request.getInterviewMode(), request.getFeedbackMode());
         InterviewSessionResponse response = interviewService.createSession(userId, request);
         return Result.success(response);
     }
 
     /**
-     * 发送消息（流式回复）
-     * 使用SSE实现流式输出
+     * 发送消息并通过 SSE 返回流式回复。
      */
     @PostMapping("/session/{sessionId}/message/stream")
     public ResponseBodyEmitter streamMessage(
@@ -78,82 +89,94 @@ public class InterviewController {
             @RequestBody @Validated SendMessageRequest request,
             Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
-        log.info("收到流式消息请求, userId: {}, sessionId: {}", userId, sessionId);
+        log.info("收到流式消息请求, userId: {}, sessionId: {}, requestFeedbackMode: {}",
+                userId, sessionId, request.getFeedbackMode());
 
         ResponseBodyEmitter emitter = new ResponseBodyEmitter(120_000L);
+        AtomicBoolean streamClosed = new AtomicBoolean(false);
+        registerStreamLifecycleCallbacks(sessionId, emitter, streamClosed);
 
         Authentication authenticationForThread = authentication;
-
-        new Thread(() -> {
-            if (authenticationForThread != null) {
-                SecurityContextHolder.getContext().setAuthentication(authenticationForThread);
-            }
-            StringBuilder fullReply = new StringBuilder();
+        aiAsyncExecutor.execute(() -> {
             try {
+                if (authenticationForThread != null) {
+                    SecurityContextHolder.getContext().setAuthentication(authenticationForThread);
+                }
+                if (shouldSkipClosedStream(sessionId, streamClosed)) {
+                    return;
+                }
+
+                StringBuilder fullReply = new StringBuilder();
                 List<InterviewChatLog> chatLogs = interviewService.getChatLogsForStream(sessionId, userId);
-                List<InterviewAiService.ChatMessageItem> history = chatLogs.stream()
+                if (shouldSkipClosedStream(sessionId, streamClosed)) {
+                    return;
+                }
+
+                List<InterviewAiService.ChatMessageItem> history = chatLogs == null
+                        ? List.of()
+                        : chatLogs.stream()
                         .map(log -> new InterviewAiService.ChatMessageItem(log.getMessageRole(), log.getContent()))
                         .toList();
 
                 interviewService.validateSessionForStream(sessionId, userId);
+                if (shouldSkipClosedStream(sessionId, streamClosed)) {
+                    return;
+                }
 
-                // 二次传入 userId，让服务层在落库前再次校验会话终态。
+                // 先落用户消息，再让服务层按会话归属继续完成流式问答。
                 interviewService.saveUserMessage(sessionId, userId, request.getContent());
+                if (shouldSkipClosedStream(sessionId, streamClosed)) {
+                    return;
+                }
 
                 InterviewSession session = interviewService.getSessionByOwner(sessionId, userId);
-                String userMessage = request.getContent();
                 String jobRoleCode = session != null ? session.getJobRoleCode() : null;
                 Integer difficulty = session != null ? session.getDifficulty() : null;
-                // 流式问答也要补齐岗位定向上下文，保证与非流式链路一致。
+                String interviewMode = session != null ? session.getInterviewMode() : null;
                 InterviewJobTargetContext jobTargetContext =
                         mockInterviewJobTargetService.getSessionContext(userId, sessionId);
                 if (jobTargetContext == null) {
-                    // 普通模拟面试未单独落库上下文时，回退到最近一次简历诊断，避免 AI 忽略简历。
                     jobTargetContext = mockInterviewJobTargetService.resolveLatestResumeContext(userId);
                 }
+                String resolvedFeedbackMode = interviewService.resolveFeedbackMode(request.getFeedbackMode(), session);
+                log.info("流式面试消息配置解析完成, sessionId: {}, requestFeedbackMode: {}, sessionFeedbackMode: {}, resolvedFeedbackMode: {}",
+                        sessionId, request.getFeedbackMode(), session == null ? null : session.getFeedbackMode(), resolvedFeedbackMode);
 
                 Publisher<String> publisher = interviewAiService.generateReplyStream(
                         sessionId,
                         history,
-                        userMessage,
+                        request.getContent(),
                         jobRoleCode,
                         difficulty,
-                        jobTargetContext
+                        jobTargetContext,
+                        resolvedFeedbackMode,
+                        interviewMode
                 );
-
                 interviewService.subscribeAndWriteStream(sessionId, emitter, publisher, fullReply);
-
-            } catch (BusinessException e) {
-                try {
-                    emitter.send("event: error\ndata: " + e.getMessage() + "\n\n");
-                } catch (Exception ex) {
-                    log.error("发送错误事件失败", ex);
-                }
-                try {
-                    emitter.completeWithError(e);
-                } catch (Exception ex) {
-                    log.error("完成emitter失败", ex);
-                }
             } catch (Exception e) {
-                log.error("流式处理异常, sessionId: {}", sessionId, e);
-                try {
-                    emitter.send("event: error\ndata: 系统异常: " + e.getMessage() + "\n\n");
-                } catch (Exception ex) {
-                    log.error("发送异常事件失败", ex);
+                if (!streamClosed.get()) {
+                    log.error("流式处理异常, sessionId: {}", sessionId, e);
+                    try {
+                        emitter.send("event: error\ndata: 系统异常，请稍后重试\n\n");
+                    } catch (Exception sendError) {
+                        log.error("发送流式错误事件失败, sessionId: {}", sessionId, sendError);
+                    }
+                    try {
+                        emitter.completeWithError(e);
+                    } catch (Exception completeError) {
+                        log.error("关闭流式连接失败, sessionId: {}", sessionId, completeError);
+                    }
                 }
-                try {
-                    emitter.completeWithError(e);
-                } catch (Exception ex) {
-                    log.error("完成emitter失败", ex);
-                }
+            } finally {
+                SecurityContextHolder.clearContext();
             }
-        }, "sse-interview-" + sessionId).start();
+        });
 
         return emitter;
     }
 
     /**
-     * 发送消息
+     * 发送消息。
      */
     @PostMapping("/session/{sessionId}/message")
     public Result<SendMessageResponse> sendMessage(
@@ -161,13 +184,14 @@ public class InterviewController {
             @RequestBody @Validated SendMessageRequest request,
             Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
-        log.info("发送消息, userId: {}, sessionId: {}", userId, sessionId);
+        log.info("发送消息, userId: {}, sessionId: {}, requestFeedbackMode: {}",
+                userId, sessionId, request.getFeedbackMode());
         SendMessageResponse response = interviewService.sendMessage(userId, sessionId, request);
         return Result.success(response);
     }
 
     /**
-     * 获取会话详情
+     * 获取会话详情。
      */
     @GetMapping("/session/{sessionId}")
     public Result<InterviewSessionResponse> getSessionDetail(
@@ -180,7 +204,7 @@ public class InterviewController {
     }
 
     /**
-     * 结束面试
+     * 结束面试。
      */
     @PostMapping("/session/{sessionId}/end")
     public Result<Void> endSession(
@@ -193,12 +217,12 @@ public class InterviewController {
     }
 
     /**
-     * 获取面试历史（分页）
+     * 获取分页历史记录。
      */
     @GetMapping("/history")
     public Result<PageResult<InterviewHistoryResponse>> getHistory(
-            @RequestParam(defaultValue = "1") Integer pageNum,
-            @RequestParam(defaultValue = "5") Integer pageSize,
+            @RequestParam(defaultValue = "1") @Min(1) Integer pageNum,
+            @RequestParam(defaultValue = "5") @Min(1) @Max(value = 100, message = "每页最多 100 条") Integer pageSize,
             Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         log.info("获取面试历史, userId: {}, pageNum: {}, pageSize: {}", userId, pageNum, pageSize);
@@ -207,8 +231,7 @@ public class InterviewController {
     }
 
     /**
-     * 获取面试历史（不分页，兼容旧版）
-     * @deprecated 请使用分页接口 GET /api/interview/history
+     * 获取不分页历史记录，兼容旧版本。
      */
     @Deprecated
     @GetMapping("/history/all")
@@ -216,7 +239,38 @@ public class InterviewController {
         Long userId = (Long) authentication.getPrincipal();
         log.warn("调用已废弃接口 GET /api/interview/history/all, userId: {}", userId);
         List<InterviewHistoryResponse> list = interviewService.getAllHistory(userId);
+        if (list.size() > 100) {
+            list = list.subList(0, 100);
+        }
         return Result.success(list);
+    }
+
+    /**
+     * 浏览器断开、超时或主动完成后，都要尽快终止后续 AI 链路。
+     */
+    private void registerStreamLifecycleCallbacks(String sessionId,
+                                                  ResponseBodyEmitter emitter,
+                                                  AtomicBoolean streamClosed) {
+        emitter.onTimeout(() -> {
+            if (streamClosed.compareAndSet(false, true)) {
+                log.info("流式面试连接超时，停止后续处理, sessionId: {}", sessionId);
+                emitter.complete();
+            }
+        });
+        emitter.onCompletion(() -> streamClosed.set(true));
+        emitter.onError(error -> {
+            if (streamClosed.compareAndSet(false, true)) {
+                log.warn("流式面试连接异常关闭, sessionId: {}", sessionId, error);
+            }
+        });
+    }
+
+    private boolean shouldSkipClosedStream(String sessionId, AtomicBoolean streamClosed) {
+        if (!streamClosed.get()) {
+            return false;
+        }
+        log.info("流式面试连接已关闭，跳过剩余处理, sessionId: {}", sessionId);
+        return true;
     }
 
     private InterviewJobRoleResponse buildInterviewJobRoleResponse(SysJobRole jobRole) {

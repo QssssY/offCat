@@ -7,6 +7,7 @@ import com.airesume.server.mapper.UserNotificationMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
@@ -72,13 +73,16 @@ public class NotificationService {
             notification.setContent(content);
             notification.setBizType(bizType);
             notification.setBizId(bizId);
+            if ("broadcast".equals(bizType) && bizId != null) {
+                notification.setBroadcastId(Long.valueOf(bizId));
+            }
             notification.setReadStatus(0);
             userNotificationMapper.insert(notification);
             log.info("通知创建成功, userId: {}, type: {}, title: {}", userId, type, title);
             // 通过 SSE 实时推送给用户
             sendNotificationToUser(userId, notification);
         } catch (Exception e) {
-            log.error("创建通知失败，不影响主业务, userId: {}, type: {}, error: {}", userId, type, e.getMessage());
+            log.error("创建通知失败，不影响主业务, userId: {}, type: {}", userId, type, e);
         }
     }
 
@@ -253,22 +257,29 @@ public class NotificationService {
     public SseEmitter registerEmitter(Long userId) {
         // 超时设为 30 分钟，每 30 秒心跳保活
         SseEmitter emitter = new SseEmitter(30 * 60 * 1000L);
-        emitterMap.put(userId, emitter);
+        SseEmitter previousEmitter = emitterMap.put(userId, emitter);
+        if (previousEmitter != null) {
+            try {
+                previousEmitter.complete();
+            } catch (Exception e) {
+                log.debug("[SSE] 关闭旧连接失败, userId: {}", userId, e);
+            }
+        }
 
         // 启动心跳调度（仅首次连接时启动，后续连接共享同一调度器）
         startHeartbeatIfNeeded();
 
         // 连接完成或超时时清理
         emitter.onCompletion(() -> {
-            emitterMap.remove(userId);
+            emitterMap.remove(userId, emitter);
             log.info("[SSE] 连接完成, userId: {}", userId);
         });
         emitter.onTimeout(() -> {
-            emitterMap.remove(userId);
+            emitterMap.remove(userId, emitter);
             log.info("[SSE] 连接超时, userId: {}", userId);
         });
         emitter.onError(e -> {
-            emitterMap.remove(userId);
+            emitterMap.remove(userId, emitter);
             log.warn("[SSE] 连接异常, userId: {}, error: {}", userId, e.getMessage());
         });
 
@@ -276,6 +287,8 @@ public class NotificationService {
         try {
             emitter.send(SseEmitter.event().name("connected").data("ok"));
         } catch (IOException e) {
+            emitterMap.remove(userId, emitter);
+            emitter.completeWithError(e);
             log.warn("[SSE] 发送连接确认失败, userId: {}", userId);
         }
 
@@ -322,7 +335,7 @@ public class NotificationService {
             log.info("[SSE] 推送通知成功, userId: {}, notificationId: {}", userId, notification.getId());
         } catch (IOException e) {
             log.warn("[SSE] 推送通知失败，清理连接, userId: {}, error: {}", userId, e.getMessage());
-            emitterMap.remove(userId);
+            emitterMap.remove(userId, emitter);
         }
     }
 
@@ -343,7 +356,7 @@ public class NotificationService {
                     .data(Map.of("unreadCount", unreadCount)));
         } catch (IOException e) {
             log.warn("[SSE] 推送未读数失败，清理连接, userId: {}, error: {}", userId, e.getMessage());
-            emitterMap.remove(userId);
+            emitterMap.remove(userId, emitter);
         }
     }
 
@@ -379,9 +392,22 @@ public class NotificationService {
                 emitter.send(":\n\n");
             } catch (IOException e) {
                 log.warn("[SSE] 心跳发送失败，清理连接, userId: {}, error: {}", userId, e.getMessage());
-                emitterMap.remove(userId);
+                emitterMap.remove(userId, emitter);
             }
         });
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        heartbeatScheduler.shutdownNow();
+        emitterMap.forEach((userId, emitter) -> {
+            try {
+                emitter.complete();
+            } catch (Exception e) {
+                log.debug("[SSE] Close emitter during shutdown failed, userId: {}", userId, e);
+            }
+        });
+        emitterMap.clear();
     }
 
     /**
@@ -395,6 +421,7 @@ public class NotificationService {
                 .content(entity.getContent())
                 .bizType(entity.getBizType())
                 .bizId(entity.getBizId())
+                .broadcastId(entity.getBroadcastId())
                 .readStatus(entity.getReadStatus())
                 .readTime(entity.getReadTime())
                 .createTime(entity.getCreateTime())

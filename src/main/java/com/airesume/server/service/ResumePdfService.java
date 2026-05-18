@@ -9,6 +9,11 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 简历 PDF 生成服务
@@ -36,6 +41,8 @@ public class ResumePdfService {
 
         Path tempHtml = null;
         Path tempPdf = null;
+        ExecutorService outputReaderExecutor = null;
+        Process process = null;
 
         try {
             // 创建临时 HTML 文件
@@ -54,23 +61,45 @@ public class ResumePdfService {
             log.info("使用 Chrome 路径: {}", chromePath);
 
             // 构建 Chrome 命令
-            ProcessBuilder pb = new ProcessBuilder(
-                    chromePath,
-                    "--headless",
-                    "--no-sandbox",
-                    "--disable-gpu",
-                    "--disable-dev-shm-usage",
-                    "--print-to-pdf=" + tempPdf.toAbsolutePath(),
-                    "--print-to-pdf-no-header",
-                    tempHtml.toAbsolutePath().toString()
-            );
+            List<String> command = new ArrayList<>();
+            command.add(chromePath);
+            command.add("--headless");
+            if (pdfConfig.isNoSandboxEnabled()) {
+                command.add("--no-sandbox");
+            }
+            command.add("--disable-gpu");
+            command.add("--disable-dev-shm-usage");
+            command.add("--disable-background-networking");
+            command.add("--disable-extensions");
+            command.add("--disable-sync");
+            command.add("--print-to-pdf=" + tempPdf.toAbsolutePath());
+            command.add("--print-to-pdf-no-header");
+            command.add(tempHtml.toAbsolutePath().toString());
+            ProcessBuilder pb = new ProcessBuilder(command);
 
             pb.redirectErrorStream(true);
-            Process process = pb.start();
+            process = pb.start();
 
-            // 读取输出（避免阻塞）
-            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            int exitCode = process.waitFor();
+            // 在独立线程中读取进程输出，避免 readAllBytes 阻塞导致 waitFor 超时无效
+            Process capturedProcess = process;
+            outputReaderExecutor = java.util.concurrent.Executors.newSingleThreadExecutor();
+            Future<String> outputFuture = outputReaderExecutor.submit(
+                    () -> new String(capturedProcess.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
+            );
+            boolean finished = process.waitFor(60, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                outputFuture.cancel(true);
+                throw new PdfGenerationException("Chrome 执行超时（60秒），已强制终止", null);
+            }
+            String output;
+            try {
+                output = outputFuture.get(5, TimeUnit.SECONDS);
+            } catch (java.util.concurrent.TimeoutException | java.util.concurrent.ExecutionException readEx) {
+                String reason = readEx.getCause() != null ? readEx.getCause().getMessage() : readEx.getMessage();
+                throw new PdfGenerationException("读取 Chrome 输出失败: " + reason, readEx);
+            }
+            int exitCode = process.exitValue();
 
             if (exitCode != 0) {
                 log.error("Chrome 执行失败，退出码: {}, 输出: {}", exitCode, output);
@@ -89,6 +118,13 @@ public class ResumePdfService {
             log.error("PDF 生成失败", e);
             throw new PdfGenerationException("PDF 生成失败: " + e.getMessage(), e);
         } finally {
+            // 确保进程和线程池被释放，防止资源泄漏
+            if (process != null) {
+                process.destroy();
+            }
+            if (outputReaderExecutor != null) {
+                outputReaderExecutor.shutdownNow();
+            }
             // 清理临时文件
             deleteTempFile(tempHtml);
             deleteTempFile(tempPdf);
@@ -131,16 +167,22 @@ public class ResumePdfService {
         // 尝试从 PATH 中查找
         String os = System.getProperty("os.name").toLowerCase();
         String chromeCommand = os.contains("win") ? "chrome.exe" : "google-chrome";
+        Process p = null;
         try {
             ProcessBuilder pb = new ProcessBuilder("where", chromeCommand);
             pb.redirectErrorStream(true);
-            Process p = pb.start();
+            p = pb.start();
             String result = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
             if (p.waitFor() == 0 && !result.isEmpty()) {
                 return result.split("\n")[0].trim();
             }
         } catch (Exception e) {
             // 忽略，继续尝试其他方式
+        } finally {
+            // 确保进程资源被释放，防止进程泄漏
+            if (p != null) {
+                p.destroy();
+            }
         }
 
         return null;

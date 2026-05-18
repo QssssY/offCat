@@ -1,11 +1,15 @@
 package com.airesume.server.controller;
 
+import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.Result;
 import com.airesume.server.dto.notification.NotificationListResponse;
 import com.airesume.server.service.NotificationService;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -17,6 +21,7 @@ import java.util.Map;
  * 提供通知列表查询、未读数量、标记已读等接口
  */
 @Slf4j
+@Validated
 @RestController
 @RequestMapping("/api/user/notifications")
 @RequiredArgsConstructor
@@ -37,13 +42,13 @@ public class NotificationController {
     @GetMapping
     public Result<NotificationListResponse> listNotifications(
             Authentication authentication,
-            @RequestParam(defaultValue = "1") Integer pageNum,
-            @RequestParam(defaultValue = "5") Integer size,
+            @RequestParam(defaultValue = "1") @Min(1) Integer pageNum,
+            @RequestParam(defaultValue = "5") @Min(1) @Max(100) Integer size,
             @RequestParam(required = false) Integer readStatus,
             @RequestParam(required = false) String type) {
         Long userId = (Long) authentication.getPrincipal();
         // 限制每页大小上限，避免恶意大查询
-        int safeSize = Math.min(size, 100);
+        int safeSize = Math.min(Math.max(size, 1), 100);
         log.info("[通知] 查询通知列表, userId: {}, pageNum: {}, size: {}", userId, pageNum, safeSize);
         NotificationListResponse response = notificationService.listNotifications(userId, pageNum, safeSize, readStatus, type);
         return Result.success(response);
@@ -119,6 +124,9 @@ public class NotificationController {
         Long userId = (Long) authentication.getPrincipal();
         if (ids == null || ids.isEmpty()) {
             return Result.success();
+        }
+        if (ids.size() > 100) {
+            throw new BusinessException("批量删除最多支持100条");
         }
         int safeSize = Math.min(ids.size(), 100);
         List<Long> safeIds = ids.subList(0, safeSize);

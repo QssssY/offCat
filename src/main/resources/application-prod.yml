@@ -1,0 +1,52 @@
+# 生产环境配置 - 所有敏感值必须通过环境变量注入
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD}
+  rabbitmq:
+    host: ${MQ_HOST}
+    port: ${MQ_PORT:5672}
+    username: ${MQ_USER:guest}
+    password: ${MQ_PASSWORD}
+    virtual-host: /
+
+# JWT 配置 - 生产环境必须通过环境变量设置密钥
+jwt:
+  secret: ${JWT_SECRET}
+  expiration: 86400000
+  header: Authorization
+  prefix: "Bearer "
+
+# 日志配置 - 生产环境使用 INFO 级别
+logging:
+  level:
+    com.airesume.server: info
+    org.springframework.security: warn
+
+# MyBatis-Plus 配置
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+    map-underscore-to-camel-case: true
+
+# AI 配置 - 通过环境变量注入
+app:
+  ai:
+    mode: ${AI_MODE:real}
+    provider: ${AI_PROVIDER:deepseek}
+    base-url: ${AI_BASE_URL}
+    model: ${AI_MODEL}
+    thinking-mode: ${AI_THINKING_MODE:none}
+  interview:
+    mode: ${INTERVIEW_MODE:real}
+    provider: ${INTERVIEW_PROVIDER:deepseek}
+    base-url: ${INTERVIEW_BASE_URL}
+    model: ${INTERVIEW_MODEL}
+    thinking-mode: ${INTERVIEW_THINKING_MODE:none}

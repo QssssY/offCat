@@ -106,8 +106,9 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
                    s.status = :targetStatus,
                    s.updateTime = :updateTime
              WHERE s.sessionId = :sessionId
+               AND (s.evaluationReport IS NULL OR s.evaluationReport = '')
             """)
-    int updateEvaluationReport(
+    int updateEvaluationReportIfAbsent(
             @Param("sessionId") String sessionId,
             @Param("score") Integer score,
             @Param("evaluationReport") String evaluationReport,

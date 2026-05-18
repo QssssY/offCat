@@ -29,7 +29,7 @@ public class CreateSessionRequest {
     private Integer difficulty;
 
     /**
-     * 面试模式：normal-普通面试，stress-压力面试
+     * 面试模式：normal-普通面试，stress-压力面试，也支持固定面试官人设。
      */
     private String interviewMode;
 
@@ -58,4 +58,10 @@ public class CreateSessionRequest {
      * 指定复用的岗位 JD 对比分析记录 ID。
      */
     private String jobMatchRecordId;
+
+    /**
+     * 反馈模式：immediate-每题即时反馈，after_interview-面完统一复盘
+     * 创建时选定后存入会话表，会话详情和历史记录中返回。
+     */
+    private String feedbackMode;
 }

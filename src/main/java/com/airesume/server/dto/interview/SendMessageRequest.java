@@ -20,4 +20,10 @@ public class SendMessageRequest {
      */
     @NotBlank(message = "消息内容不能为空")
     private String content;
+
+    /**
+     * 反馈模式：after_interview-面完统一复盘；immediate-每题即时反馈。
+     * 不作为会话配置落库，仅影响本次 AI 回复口径。
+     */
+    private String feedbackMode;
 }

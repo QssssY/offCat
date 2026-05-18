@@ -13,6 +13,7 @@ import com.airesume.server.dto.admin.HotJobRoleResponse;
 import com.airesume.server.dto.admin.MonitorOverviewResponse;
 import com.airesume.server.entity.InterviewSession;
 import com.airesume.server.entity.ResumeDiagnosisTask;
+import org.springframework.cache.annotation.Cacheable;
 import com.airesume.server.entity.SysAiEngineConfig;
 import com.airesume.server.entity.SysJobRole;
 import com.airesume.server.entity.SysPrompt;
@@ -94,6 +95,7 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
     }
 
     @Override
+    @Cacheable(value = "admin:dashboardTrends", key = "#startDate + ':' + #endDate", unless = "#result == null || #result.isEmpty()")
     public List<DashboardTrendResponse> getDashboardTrends(LocalDate startDate, LocalDate endDate) {
         DateRange range = resolveDateRange(startDate, endDate, DateRangeDefault.LAST_7_DAYS);
         List<DashboardTrendResponse> trends = new ArrayList<>();

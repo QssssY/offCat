@@ -6,6 +6,8 @@ import com.airesume.server.config.AiTokenLimitConfig;
 import com.airesume.server.dto.resume.ResumeJobMatchAnalyzeResponse;
 import com.airesume.server.dto.resume.ResumePolishAiResult;
 import com.airesume.server.entity.SysAiEngineConfig;
+import com.airesume.server.service.AiCircuitBreaker;
+import com.airesume.server.service.AiCredentialCrypto;
 import com.airesume.server.service.ResumeAiService;
 import com.airesume.server.service.SysAiEngineConfigService;
 import com.airesume.server.service.SysPromptService;
@@ -31,6 +33,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.text.Normalizer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -38,6 +41,8 @@ import java.util.regex.Pattern;
 @Slf4j
 @ConditionalOnProperty(name = "app.ai.mode", havingValue = "real")
 public class ResumeAiServiceImpl implements ResumeAiService {
+
+    private static final String RESUME_AI_BREAKER = "resume-ai";
 
     private final RestClient restClient;
     private final String provider;
@@ -52,6 +57,8 @@ public class ResumeAiServiceImpl implements ResumeAiService {
     private final SysAiEngineConfigService sysAiEngineConfigService;
     private final ObjectMapper objectMapper;
     private final AiTokenLimitConfig tokenLimitConfig;
+    private final AiCircuitBreaker aiCircuitBreaker;
+    private final AiCredentialCrypto aiCredentialCrypto;
     private static final Pattern POLISHED_TEXT_PATTERN = Pattern.compile(
             "\"polishedResumeText\"\\s*:\\s*\"(.*?)\"\\s*,\\s*\"modificationNotes\"",
             Pattern.DOTALL);
@@ -61,6 +68,15 @@ public class ResumeAiServiceImpl implements ResumeAiService {
     private static final Pattern QUOTED_TEXT_PATTERN = Pattern.compile(
             "\"((?:\\\\.|[^\"\\\\])*)\"",
             Pattern.DOTALL);
+    private static final List<String> POLISH_SECTION_TITLES = List.of(
+            "个人信息", "教育背景", "实习经历", "工作经历", "项目经历", "专业技能", "校园经历", "荣誉证书", "个人评价");
+    private static final List<String> RESUME_START_KEYS = List.of(
+            "个人信息", "教育背景", "实习经历", "工作经历", "项目经历", "专业技能", "荣誉证书", "个人评价");
+    private static final Pattern POLISH_SECTION_TITLE_PATTERN = Pattern.compile(
+            "(个人信息|教育背景|实习经历|工作经历|项目经历|专业技能|校园经历|荣誉证书|个人评价)(?=[:：\\s]|$)");
+    private static final Pattern TRAILING_METADATA_PATTERN = Pattern.compile(
+            "\\s*(?:\\(String\\)|\\(LocalDateTime\\)|\\(Integer\\)|<==\\s*Updates:|仅基于简历\\(String\\)|\\[(?=\")|\\{(?=\"))",
+            Pattern.CASE_INSENSITIVE);
 
     public ResumeAiServiceImpl(
             @Value("${app.ai.provider:doubao}") String provider,
@@ -72,7 +88,9 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             ObjectMapper objectMapper,
             AiTokenLimitConfig tokenLimitConfig,
             RestClient.Builder restClientBuilder,
-            WebClient.Builder webClientBuilder) {
+            WebClient.Builder webClientBuilder,
+            AiCircuitBreaker aiCircuitBreaker,
+            AiCredentialCrypto aiCredentialCrypto) {
         this.provider = provider == null ? "doubao" : provider.toLowerCase();
         this.model = model;
         this.configuredBaseUrl = configuredBaseUrl;
@@ -83,6 +101,8 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         this.tokenLimitConfig = tokenLimitConfig;
         this.restClientBuilder = restClientBuilder;
         this.webClientBuilder = webClientBuilder;
+        this.aiCircuitBreaker = aiCircuitBreaker;
+        this.aiCredentialCrypto = aiCredentialCrypto;
         this.resolvedBaseUrl = resolveBaseUrl(this.provider, configuredBaseUrl);
         this.endpoint = getEndpoint();
         this.restClient = restClientBuilder
@@ -231,21 +251,23 @@ public class ResumeAiServiceImpl implements ResumeAiService {
 
         try {
             // 使用 exchange 获取完整响应，便于捕获非 JSON 格式的错误响应。
-            org.springframework.http.ResponseEntity<ResponseBody> responseEntity = runtimeRestClient.post()
+            org.springframework.http.ResponseEntity<String> responseEntity = aiCircuitBreaker.execute(RESUME_AI_BREAKER, () -> runtimeRestClient.post()
                     .uri(runtimeConfig.endpoint())
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                    .accept(MediaType.APPLICATION_JSON)
                     .body(request)
                     .retrieve()
                     .onStatus(status -> status.is4xxClientError() || status.is5xxServerError(), (req, resp) -> {
                         String errorBody = "";
                         try {
                             errorBody = new String(resp.getBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-                        } catch (Exception ignored) {
+                        } catch (Exception readEx) {
+                            log.debug("读取 API 错误响应体失败: {}", readEx.getMessage());
                         }
                         throw new RuntimeException("API 返回 HTTP " + resp.getStatusCode().value() + ": " + errorBody);
                     })
-                    .toEntity(ResponseBody.class);
-            ResponseBody response = responseEntity.getBody();
+                    .toEntity(String.class));
+            ResponseBody response = tryReadResponseBody(responseEntity.getBody());
             if (response == null || response.choices == null || response.choices.isEmpty()) {
                 throw new RuntimeException("多模态识别返回内容为空");
             }
@@ -272,109 +294,6 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                         + "建议在管理端增大引擎超时时间，或降低 OCR DPI 配置减小图片体积", e);
             }
             throw new RuntimeException("多模态识别失败: " + e.getMessage(), e);
-        }
-    }
-
-    private String diagnoseLegacy(String resumeText) {
-        long startTime = System.currentTimeMillis();
-        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
-        String tag = runtimeConfig.provider().toUpperCase();
-        if (resumeText == null || resumeText.isBlank()) {
-            throw new IllegalArgumentException("简历文本不能为空");
-        }
-        String apiKey = runtimeConfig.apiKey();
-        if (apiKey == null || apiKey.isBlank()) {
-            throw new IllegalStateException("请在管理端配置简历 AI 密钥，或设置环境变量 "
-                    + getEnvKeyName(runtimeConfig.provider()) + " / API_KEY");
-        }
-        // 【Token 优化】步骤1：压缩简历文本（去除冗余空白、重复内容、章节优化）
-        String compressedResume = compressResumeIfEnabled(resumeText, tag);
-        String systemPrompt = resolveSystemPrompt(tag);
-        String userPrompt = buildCompactDiagnosisUserPrompt(compressedResume);
-
-        // 【Token 优化】步骤2：预估输入 token 数（系统 Prompt + 用户 Prompt）
-        int systemTokens = TokenEstimator.estimateTokens(systemPrompt);
-        int userTokens = TokenEstimator.estimateTokens(userPrompt);
-        int totalTokens = systemTokens + userTokens;
-        log.info("[{}] 简历诊断调用, 原始简历长度: {}, 压缩后长度: {}, 预估token: {}(system:{}, user:{})",
-                tag, resumeText.length(), compressedResume.length(), totalTokens, systemTokens, userTokens);
-
-        // 【Token 优化】步骤3：若启用 token 限制且超过阈值，自动截断简历文本
-        if (tokenLimitConfig.isTokenLimitEnabled()) {
-            int maxTokens = tokenLimitConfig.getResumeDiagnosisMax();
-            if (totalTokens > maxTokens) {
-                log.warn("[{}] 简历诊断token预估({})超过限制({})，自动截断简历文本", tag, totalTokens, maxTokens);
-                // 为简历文本分配剩余 token 空间（总限制 - 系统 Prompt - 500 字安全余量）
-                int resumeMaxTokens = maxTokens - systemTokens - 500;
-                compressedResume = TokenEstimator.safeTruncate(compressedResume, Math.max(500, resumeMaxTokens));
-                userPrompt = buildUserPrompt(compressedResume);
-                userTokens = TokenEstimator.estimateTokens(userPrompt);
-                totalTokens = systemTokens + userTokens;
-                log.info("[{}] 截断后预估token: {}(system:{}, user:{})", tag, totalTokens, systemTokens, userTokens);
-            }
-        }
-        RequestBody request = new RequestBody();
-        request.model = runtimeConfig.model();
-        request.messages = List.of(
-                new Message("system", systemPrompt),
-                new Message("user", userPrompt));
-        request.thinking = buildThinkingConfig(runtimeConfig.model(), runtimeConfig.thinkingMode());
-        try {
-            log.info("[{}] ═══════════════════════════════════════════════", tag);
-            log.info("[{}] ║  简历诊断请求参数验证  ║", tag);
-            log.info("[{}] ═══════════════════════════════════════════════", tag);
-            log.info("[{}] 请求地址: {}{}", tag, runtimeConfig.baseUrl(), runtimeConfig.endpoint());
-            log.info("[{}] model: {}", tag, runtimeConfig.model());
-            log.info("[{}] 配置来源: {}", tag, runtimeConfig.source());
-            if (request.thinking != null) {
-                log.info("[{}] thinking.type: {}", tag, request.thinking.type);
-            } else {
-                log.info("[{}] thinking: 未设置", tag);
-            }
-            log.info("[{}] ═══════════════════════════════════════════════", tag);
-            RestClient.Builder builder = restClientBuilder
-                    .baseUrl(runtimeConfig.baseUrl())
-                    .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json");
-            // 【超时保障】默认 3 分钟，DB 配置值取较大者，确保大型思考模型有足够响应时间。
-            int readTimeout = 180_000;
-            if (runtimeConfig.timeoutMs() != null && runtimeConfig.timeoutMs() > 0) {
-                readTimeout = Math.max(runtimeConfig.timeoutMs(), 120_000);
-            }
-            SimpleClientHttpRequestFactory customFactory = new SimpleClientHttpRequestFactory();
-            customFactory.setConnectTimeout(10000);
-            customFactory.setReadTimeout(readTimeout);
-            builder = builder.requestFactory(customFactory);
-            log.info("[{}] HTTP 超时配置: connectTimeout=10000ms, readTimeout={}ms ({}秒)",
-                    tag, readTimeout, readTimeout / 1000);
-            RestClient runtimeRestClient = builder.build();
-            long aiStartTime = System.currentTimeMillis();
-            log.info("[{}] >>> HTTP POST {}{}, 发出时间: {}",
-                    tag, runtimeConfig.baseUrl(), runtimeConfig.endpoint(),
-                    java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss.SSS")));
-            ResponseBody response = runtimeRestClient.post()
-                    .uri(runtimeConfig.endpoint())
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
-                    .body(request)
-                    .retrieve()
-                    .body(ResponseBody.class);
-            long aiElapsed = System.currentTimeMillis() - aiStartTime;
-            log.info("[{}] <<< 响应到达, 耗时: {}ms ({}分{}秒), choices: {}",
-                    tag, aiElapsed, aiElapsed / 60000, (aiElapsed / 1000) % 60,
-                    response == null ? "null" : (response.choices == null ? "null" : response.choices.size()));
-            if (response == null || response.choices == null || response.choices.isEmpty()) {
-                throw new RuntimeException("AI 返回内容为空");
-            }
-            String result = extractResponseText(response.choices.get(0).message.content);
-            long elapsed = System.currentTimeMillis() - startTime;
-            long elapsedSec = elapsed / 1000;
-            log.info("[{}] 简历诊断成功, responseLength: {}, 总耗时: {}ms ({}分{}秒)",
-                    tag, result == null ? 0 : result.length(), elapsed, elapsedSec / 60, elapsedSec % 60);
-            return extractJsonFromResponse(result);
-        } catch (Exception e) {
-            long elapsed = System.currentTimeMillis() - startTime;
-            long elapsedSec = elapsed / 1000;
-            log.error("[{}] 简历诊断失败, 耗时: {}ms ({}分{}秒)", tag, elapsed, elapsedSec / 60, elapsedSec % 60, e);
-            throw new RuntimeException("AI 简历诊断失败: " + e.getMessage(), e);
         }
     }
 
@@ -414,22 +333,26 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             RestClient.Builder builder = restClientBuilder
                     .baseUrl(runtimeConfig.baseUrl())
                     .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json");
-            // 【超时保障】默认 3 分钟，DB 配置值取较大者，确保大型思考模型有足够响应时间。
-            int readTimeout = 180_000;
+            // 【超时保障】默认 5 分钟，DB 配置值取较大者，确保大型思考模型有足够响应时间。
+            int readTimeout = 300_000;
             if (runtimeConfig.timeoutMs() != null && runtimeConfig.timeoutMs() > 0) {
-                readTimeout = Math.max(runtimeConfig.timeoutMs(), 120_000);
+                readTimeout = Math.max(runtimeConfig.timeoutMs(), 300_000);
             }
             SimpleClientHttpRequestFactory customFactory = new SimpleClientHttpRequestFactory();
             customFactory.setConnectTimeout(10000);
             customFactory.setReadTimeout(readTimeout);
             builder = builder.requestFactory(customFactory);
             RestClient runtimeRestClient = builder.build();
-            ResponseBody response = runtimeRestClient.post()
-                    .uri(runtimeConfig.endpoint())
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
-                    .body(request)
-                    .retrieve()
-                    .body(ResponseBody.class);
+            String responseText = aiCircuitBreaker.execute(
+                    RESUME_AI_BREAKER,
+                    () -> runtimeRestClient.post()
+                            .uri(runtimeConfig.endpoint())
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                            .accept(MediaType.APPLICATION_JSON)
+                            .body(request)
+                            .retrieve()
+                            .body(String.class));
+            ResponseBody response = tryReadResponseBody(responseText);
             if (response == null || response.choices == null || response.choices.isEmpty()) {
                 throw new RuntimeException("AI 返回内容为空");
             }
@@ -491,7 +414,8 @@ public class ResumeAiServiceImpl implements ResumeAiService {
 
     private String callDiagnosisStream(RuntimeAiConfig runtimeConfig, String apiKey, DiagnosisPrompt prompt,
             String tag, int retryCount) {
-        int readTimeout = resolveReadTimeoutMs(runtimeConfig.timeoutMs(), 180_000);
+        // 【超时保障】默认 5 分钟，确保流式响应有足够时间
+        int readTimeout = resolveReadTimeoutMs(runtimeConfig.timeoutMs(), 300_000);
         StreamRequestBody request = new StreamRequestBody(runtimeConfig.model(), List.of(
                 new Message("system", prompt.systemPrompt()),
                 new Message("user", prompt.userPrompt())), true);
@@ -503,13 +427,15 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .build();
 
-        Flux<String> rawLineFlux = runtimeWebClient.post()
-                .uri(runtimeConfig.endpoint())
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
-                .bodyValue(request)
-                .retrieve()
-                .bodyToFlux(String.class)
-                .timeout(Duration.ofMillis(readTimeout));
+        Flux<String> rawLineFlux = aiCircuitBreaker.executeFlux(
+                RESUME_AI_BREAKER,
+                () -> runtimeWebClient.post()
+                        .uri(runtimeConfig.endpoint())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                        .bodyValue(request)
+                        .retrieve()
+                        .bodyToFlux(String.class)
+                        .timeout(Duration.ofMillis(readTimeout)));
 
         StringBuilder content = new StringBuilder();
         int lineNo = 0;
@@ -559,7 +485,8 @@ public class ResumeAiServiceImpl implements ResumeAiService {
 
     private String callDiagnosisNonStream(RuntimeAiConfig runtimeConfig, String apiKey, DiagnosisPrompt prompt,
             String tag, int retryCount) {
-        int readTimeout = resolveReadTimeoutMs(runtimeConfig.timeoutMs(), 180_000);
+        // 【超时保障】默认 5 分钟，确保非流式响应有足够时间
+        int readTimeout = resolveReadTimeoutMs(runtimeConfig.timeoutMs(), 300_000);
         RequestBody request = new RequestBody();
         request.model = runtimeConfig.model();
         request.messages = List.of(
@@ -574,12 +501,16 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                 .requestFactory(buildRequestFactory(readTimeout))
                 .build();
 
-        ResponseBody response = runtimeRestClient.post()
-                .uri(runtimeConfig.endpoint())
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
-                .body(request)
-                .retrieve()
-                .body(ResponseBody.class);
+        String responseText = aiCircuitBreaker.execute(
+                RESUME_AI_BREAKER,
+                () -> runtimeRestClient.post()
+                        .uri(runtimeConfig.endpoint())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                        .accept(MediaType.APPLICATION_JSON)
+                        .body(request)
+                        .retrieve()
+                        .body(String.class));
+        ResponseBody response = tryReadResponseBody(responseText);
 
         if (response == null || response.choices == null || response.choices.isEmpty()) {
             throw new EmptyAiResponseException("AI 非流式返回内容为空");
@@ -658,6 +589,37 @@ public class ResumeAiServiceImpl implements ResumeAiService {
     /**
      * 兼容 OpenAI 风格多模态返回：content 可能是字符串，也可能是内容块数组。
      */
+    private String executeAiRequestForText(RestClient runtimeRestClient, String endpoint, String apiKey, RequestBody request)
+            throws Exception {
+        String rawText = aiCircuitBreaker.execute(
+                RESUME_AI_BREAKER,
+                () -> runtimeRestClient.post()
+                        .uri(endpoint)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                        .accept(MediaType.APPLICATION_JSON)
+                        .body(request)
+                        .retrieve()
+                        .body(String.class));
+        if (rawText == null || rawText.isBlank()) {
+            throw new RuntimeException("AI 返回内容为空");
+        }
+
+        rawText = rawText.trim();
+        ResponseBody response = tryReadResponseBody(rawText);
+        if (response != null && response.choices != null && !response.choices.isEmpty()) {
+            return extractResponseText(response.choices.get(0).message.content);
+        }
+        return rawText;
+    }
+
+    private ResponseBody tryReadResponseBody(String rawText) {
+        try {
+            return objectMapper.readValue(rawText, ResponseBody.class);
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
     private String extractResponseText(Object content) {
         if (content == null) {
             return "";
@@ -790,10 +752,10 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                 角色：跨行业资深职业顾问。任务：严格诊断简历问题。
                 原则：1)根据简历实际岗位方向评价，不预设技术岗标准 2)优点缺点都直说 3)项目必须有业务价值+量化成果 4)学历放宽但项目要硬。
                 评分标准：S(90+)顶尖 A(75-89)优秀 B(60-74)合格 C(40-59)偏弱 D(<40)问题严重。多数简历应在B-C区间，仅真正出色者得A以上。
-                权重：基本信息10% 岗位核心能力15% 工作25% 项目40% 教育10%。
+                权重：工作经验40% 项目经历30% 核心技能15% 基础信息5% 教育背景5% 个人定位5%。
                 跨行业原则：按岗位方向评价核心能力，不默认技术标准。与岗位无关的字段不扣分。
                 规则：只返回JSON，无额外文本；JSON完整闭合；缺信息返回null/空数组；basicInfoDetails从原文提取真实值。
-                得分明细规则：每个维度（basicInfoEvaluation、skillEvaluation、workExperienceEvaluation、projectExperienceEvaluation、educationEvaluation）必须包含strengths和weaknesses数组，strengths列出2-4条加分项（做得好的具体方面），weaknesses列出2-4条扣分项（需要改进的具体方面及扣分原因），每项一句话简洁具体，不得为空数组。
+                得分明细规则：每个维度（basicInfoEvaluation、skillEvaluation、workExperienceEvaluation、projectExperienceEvaluation、educationEvaluation、positioningEvaluation）必须包含strengths和weaknesses数组，strengths列出2-4条加分项（做得好的具体方面），weaknesses列出2-4条扣分项（需要改进的具体方面及扣分原因），每项一句话简洁具体，不得为空数组。
                 """;
     }
 
@@ -812,6 +774,10 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                         4.简历结构：逻辑是否清晰，有无错别字/排版问题。
                         5.每个维度的strengths列出该维度的加分项（做得好的地方），weaknesses列出扣分项（需要改进的地方），每项一句话，简洁具体。
                         6.除overallEvaluation外，每个维度必须包含evaluation字段：一段80-150字的评价文本，结构为"先说明分数由来→列出主要加分项→列出主要扣分项→给出改进建议"，语气专业客观，不要泛泛而谈。
+                        7.highlights至少输出3条确定性的简历亮点，最多7条；亮点需有简历原文证据支撑，如量化成果、技术亮点、项目成就等；表达自信明确，不使用模糊措辞。
+                        8.个人定位维度（positioningEvaluation）评估职业定位清晰度、核心竞争力突出程度、职业叙事连贯性与差异化亮点等。
+                        9.每个维度的suggestions至少输出3条建议，最多7条；必须针对具体问题给出可执行的改进方向。
+                        10.optimizationSuggestions至少输出5条核心优化建议，最多8条；按优先级排列，优先写最关键的问题。
 
                         summary要求：写一份300-400字的"评判官视角"总体评价，采用连贯的自然段落叙述，不使用模块编号或小标题。具体规则：
                         1.内容维度：覆盖岗位匹配度（一句话定位竞争力层级）→经历深度（实习>项目>教育优先级，无实习则提升项目权重，均无则转向教育背景）→技能可信度（是否具体到工具/场景/效果）→核心改进方向（优先级明确的2-3条建议）。
@@ -821,14 +787,15 @@ public class ResumeAiServiceImpl implements ResumeAiService {
 
                         返回JSON格式(不要额外文本)：
                         {"overallEvaluation":{"totalScore":0-100,"level":"S/A/B/C/D","summary":"按上方summary要求填写","strengths":["整体优势1","整体优势2"],"weaknesses":["整体不足1","整体不足2"]},
-                        "highlights":["亮点1"],
-                        "basicInfoEvaluation":{"score":0-100,"hasName":true/false,"hasPhone":true/false,"hasEmail":true/false,"hasGithub":true/false,"hasBlog":true/false,"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1"]},
+                        "highlights":["亮点1","亮点2","亮点3"],
+                        "basicInfoEvaluation":{"score":0-100,"hasName":true/false,"hasPhone":true/false,"hasEmail":true/false,"hasGithub":true/false,"hasBlog":true/false,"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1","建议2","建议3"]},
                         "basicInfoDetails":{"name":"","email":"","phone":"","location":"","currentCompany":"","github":"","blog":""},
                         "skillEvaluation":{"score":0-100,"skillList":[""],"evaluation":"80-150字评价文本","strengths":[""],"weaknesses":[""],"suggestions":[""]},
                         "workExperienceEvaluation":{"score":0-100,"totalYears":0,"companyCount":0,"hasQuantifiableResults":true/false,"experiences":[{"company":"","position":"","duration":"","highlights":[""]}],"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":[""]},
                         "projectExperienceEvaluation":{"score":0-100,"projectCount":0,"hasTechStack":true/false,"hasResponsibilities":true/false,"projects":[{"name":"","role":"","techStack":"","highlights":[""]}],"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":[""]},
                         "educationEvaluation":{"score":0-100,"degree":"","school":"","major":"","hasRelevantMajor":true/false,"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":[""]},
-                        "optimizationSuggestions":["建议1"]}
+                        "positioningEvaluation":{"score":0-100,"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1"]},
+                        "optimizationSuggestions":["建议1","建议2","建议3","建议4","建议5"]}
                         """;
     }
 
@@ -849,6 +816,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                           "workExperienceEvaluation":{"score":0,"totalYears":0,"companyCount":0,"hasQuantifiableResults":false,"experiences":[],"evaluation":"","strengths":[],"weaknesses":[],"suggestions":[]},
                           "projectExperienceEvaluation":{"score":0,"projectCount":0,"hasTechStack":false,"hasResponsibilities":false,"projects":[],"evaluation":"","strengths":[],"weaknesses":[],"suggestions":[]},
                           "educationEvaluation":{"score":0,"degree":"","school":"","major":"","hasRelevantMajor":false,"evaluation":"","strengths":[],"weaknesses":[],"suggestions":[]},
+                          "positioningEvaluation":{"score":0,"evaluation":"","strengths":[],"weaknesses":[],"suggestions":[]},
                           "optimizationSuggestions":[]
                         }
                         """;
@@ -969,7 +937,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             }
             String dbBaseUrl = normalizeConfigValue(activeConfig.getBaseUrl());
             runtimeBaseUrl = resolveBaseUrl(runtimeProvider, dbBaseUrl != null ? dbBaseUrl : configuredBaseUrl);
-            String dbApiKey = normalizeConfigValue(activeConfig.getApiKey());
+            String dbApiKey = normalizeConfigValue(aiCredentialCrypto.decrypt(activeConfig.getApiKey()));
             if (dbApiKey != null) {
                 runtimeApiKey = dbApiKey;
             } else {
@@ -1041,13 +1009,13 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                 角色：跨行业资深职业顾问。任务：严格诊断简历问题。
                 原则：1)根据简历实际岗位方向评价，不预设技术岗标准 2)优点缺点都直说 3)项目必须有业务价值和量化成果 4)学历可以放宽，但经历必须真实可信。
                 评分标准：S(90+)顶尖 A(75-89)优秀 B(60-74)合格 C(40-59)偏弱 D(<40)问题严重。多数简历应落在B-C区间，仅真正出色者得A以上。
-                权重：基本信息10% 岗位核心能力15% 工作25% 项目40% 教育10%。
+                权重：工作经验40% 项目经历30% 核心技能15% 基础信息5% 教育背景5% 个人定位5%。
                 规则：只返回JSON，不要额外文本；JSON必须完整闭合；缺信息返回null或空数组；basicInfoDetails必须从原文提取真实值。
                 输出约束：
                 1. 每个维度的 strengths 和 weaknesses 各输出1-3条，必须简洁具体，不得为空数组。
                 2. 除 overallEvaluation 外，每个维度的 evaluation 控制在50-90字。
                 3. overallEvaluation.summary 控制在180-260字，使用1个自然段。
-                4. optimizationSuggestions 输出2-4条，优先写最关键的问题。
+                4. optimizationSuggestions 输出5-8条，优先写最关键的问题。
                 """;
     }
 
@@ -1068,36 +1036,29 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                         3. 与岗位无关的字段直接填 false，不扣分。
                         4. 简历结构：逻辑、错别字、排版问题都要指出。
                         5. 每个维度的 strengths 和 weaknesses 各输出1-3条，每条一句话。
-                        6. 除 overallEvaluation 外，每个维度必须包含 evaluation，长度50-90字，结构为“分数由来 + 主要优点 + 主要问题 + 改进建议”。
+                        6. 除 overallEvaluation 外，每个维度必须包含 evaluation，长度50-90字，结构为"分数由来 + 主要优点 + 主要问题 + 改进建议"。
+                        7. highlights至少输出3条确定性的简历亮点，最多7条；亮点需有简历原文证据支撑，如量化成果、技术亮点、项目成就等；表达自信明确，不使用模糊措辞。
+                        8. 个人定位维度（positioningEvaluation）评估职业定位清晰度、核心竞争力突出程度、职业叙事连贯性与差异化亮点等。
+                        9. 每个维度的suggestions至少输出3条建议，最多7条；必须针对具体问题给出可执行的改进方向。
+                        10. optimizationSuggestions至少输出5条核心优化建议，最多8条；按优先级排列。
 
                         summary要求：
                         1. 写一段180-260字的总体评价，不使用编号或小标题。
                         2. 内容覆盖岗位匹配度、经历深度、技能可信度、最关键改进方向。
-                        3. 语气客观正式，使用“该简历”“候选人”“呈现”“缺乏”等表达。
+                        3. 语气客观正式，使用"该简历""候选人""呈现""缺乏"等表达。
 
                         返回JSON格式(不要额外文本)：
                         {"overallEvaluation":{"totalScore":0-100,"level":"S/A/B/C/D","summary":"180-260字总体评价","strengths":["整体优势1"],"weaknesses":["整体不足1"]},
-                        "highlights":["亮点1"],
-                        "basicInfoEvaluation":{"score":0-100,"hasName":true/false,"hasPhone":true/false,"hasEmail":true/false,"hasGithub":true/false,"hasBlog":true/false,"evaluation":"50-90字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1"]},
+                        "highlights":["亮点1","亮点2","亮点3"],
+                        "basicInfoEvaluation":{"score":0-100,"hasName":true/false,"hasPhone":true/false,"hasEmail":true/false,"hasGithub":true/false,"hasBlog":true/false,"evaluation":"50-90字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1","建议2","建议3"]},
                         "basicInfoDetails":{"name":"","email":"","phone":"","location":"","currentCompany":"","github":"","blog":""},
-                        "skillEvaluation":{"score":0-100,"skillList":[""],"evaluation":"50-90字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1"]},
-                        "workExperienceEvaluation":{"score":0-100,"totalYears":0,"companyCount":0,"hasQuantifiableResults":true/false,"experiences":[{"company":"","position":"","duration":"","highlights":[""]}],"evaluation":"50-90字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1"]},
-                        "projectExperienceEvaluation":{"score":0-100,"projectCount":0,"hasTechStack":true/false,"hasResponsibilities":true/false,"projects":[{"name":"","role":"","techStack":"","highlights":[""]}],"evaluation":"50-90字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1"]},
-                        "educationEvaluation":{"score":0-100,"degree":"","school":"","major":"","hasRelevantMajor":true/false,"evaluation":"50-90字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1"]},
-                        "optimizationSuggestions":["建议1","建议2"]}
+                        "skillEvaluation":{"score":0-100,"skillList":[""],"evaluation":"50-90字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1","建议2","建议3"]},
+                        "workExperienceEvaluation":{"score":0-100,"totalYears":0,"companyCount":0,"hasQuantifiableResults":true/false,"experiences":[{"company":"","position":"","duration":"","highlights":[""]}],"evaluation":"50-90字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1","建议2","建议3"]},
+                        "projectExperienceEvaluation":{"score":0-100,"projectCount":0,"hasTechStack":true/false,"hasResponsibilities":true/false,"projects":[{"name":"","role":"","techStack":"","highlights":[""]}],"evaluation":"50-90字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1","建议2","建议3"]},
+                        "educationEvaluation":{"score":0-100,"degree":"","school":"","major":"","hasRelevantMajor":true/false,"evaluation":"50-90字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1","建议2","建议3"]},
+                        "positioningEvaluation":{"score":0-100,"evaluation":"50-90字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1","建议2","建议3"]},
+                        "optimizationSuggestions":["建议1","建议2","建议3","建议4","建议5"]}
                         """;
-    }
-
-    private String getDefaultSystemPrompt() {
-        return """
-                角色：跨行业资深职业顾问。任务：严格诊断简历问题。
-                原则：1)根据简历实际岗位方向评价，不预设技术岗标准 2)优点缺点都直说 3)项目必须有业务价值+量化成果 4)学历放宽但项目要硬。
-                评分标准：S(90+)顶尖 A(75-89)优秀 B(60-74)合格 C(40-59)偏弱 D(<40)问题严重。多数简历应在B-C区间，仅真正出色者得A以上。
-                权重：基本信息10% 岗位核心能力15% 工作25% 项目40% 教育10%。
-                跨行业原则：按岗位方向评价核心能力，不默认技术标准。与岗位无关的字段不扣分。
-                规则：只返回JSON，无额外文本；JSON完整闭合；缺信息返回null/空数组；basicInfoDetails从原文提取真实值。
-                得分明细规则：每个维度（basicInfoEvaluation、skillEvaluation、workExperienceEvaluation、projectExperienceEvaluation、educationEvaluation）必须包含strengths和weaknesses数组，strengths列出2-4条加分项（做得好的具体方面），weaknesses列出2-4条扣分项（需要改进的具体方面及扣分原因），每项一句话简洁具体，不得为空数组。
-                """;
     }
 
     private String buildUserPrompt(String resumeText) {
@@ -1115,6 +1076,10 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                         4.简历结构：逻辑是否清晰，有无错别字/排版问题。
                         5.每个维度的strengths列出该维度的加分项（做得好的地方），weaknesses列出扣分项（需要改进的地方），每项一句话，简洁具体。
                         6.除overallEvaluation外，每个维度必须包含evaluation字段：一段80-150字的评价文本，结构为"先说明分数由来→列出主要加分项→列出主要扣分项→给出改进建议"，语气专业客观，不要泛泛而谈。
+                        7.highlights至少输出3条确定性的简历亮点，最多7条；亮点需有简历原文证据支撑，如量化成果、技术亮点、项目成就等；表达自信明确，不使用模糊措辞。
+                        8.个人定位维度（positioningEvaluation）评估职业定位清晰度、核心竞争力突出程度、职业叙事连贯性与差异化亮点等。
+                        9.每个维度的suggestions至少输出3条建议，最多7条；必须针对具体问题给出可执行的改进方向。
+                        10.optimizationSuggestions至少输出5条核心优化建议，最多8条；按优先级排列，优先写最关键的问题。
 
                         summary要求：写一份300-400字的"评判官视角"总体评价，采用连贯的自然段落叙述，不使用模块编号或小标题。具体规则：
                         1.内容维度：覆盖岗位匹配度（一句话定位竞争力层级）→经历深度（实习>项目>教育优先级，无实习则提升项目权重，均无则转向教育背景）→技能可信度（是否具体到工具/场景/效果）→核心改进方向（优先级明确的2-3条建议）。
@@ -1124,14 +1089,15 @@ public class ResumeAiServiceImpl implements ResumeAiService {
 
                         返回JSON格式(不要额外文本)：
                         {"overallEvaluation":{"totalScore":0-100,"level":"S/A/B/C/D","summary":"按上方summary要求填写","strengths":["整体优势1","整体优势2"],"weaknesses":["整体不足1","整体不足2"]},
-                        "highlights":["亮点1"],
-                        "basicInfoEvaluation":{"score":0-100,"hasName":true/false,"hasPhone":true/false,"hasEmail":true/false,"hasGithub":true/false,"hasBlog":true/false,"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1"]},
+                        "highlights":["亮点1","亮点2","亮点3"],
+                        "basicInfoEvaluation":{"score":0-100,"hasName":true/false,"hasPhone":true/false,"hasEmail":true/false,"hasGithub":true/false,"hasBlog":true/false,"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1","建议2","建议3"]},
                         "basicInfoDetails":{"name":"","email":"","phone":"","location":"","currentCompany":"","github":"","blog":""},
                         "skillEvaluation":{"score":0-100,"skillList":[""],"evaluation":"80-150字评价文本","strengths":[""],"weaknesses":[""],"suggestions":[""]},
                         "workExperienceEvaluation":{"score":0-100,"totalYears":0,"companyCount":0,"hasQuantifiableResults":true/false,"experiences":[{"company":"","position":"","duration":"","highlights":[""]}],"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":[""]},
                         "projectExperienceEvaluation":{"score":0-100,"projectCount":0,"hasTechStack":true/false,"hasResponsibilities":true/false,"projects":[{"name":"","role":"","techStack":"","highlights":[""]}],"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":[""]},
                         "educationEvaluation":{"score":0-100,"degree":"","school":"","major":"","hasRelevantMajor":true/false,"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":[""]},
-                        "optimizationSuggestions":["建议1"]}
+                        "positioningEvaluation":{"score":0-100,"evaluation":"80-150字评价文本","strengths":["加分项"],"weaknesses":["扣分项"],"suggestions":["建议1","建议2","建议3"]},
+                        "optimizationSuggestions":["建议1","建议2","建议3","建议4","建议5"]}
                         """;
     }
 
@@ -1147,33 +1113,39 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException("请先配置简历 AI 密钥");
         }
-        // 【Token 优化】步骤1：压缩简历文本和 JD 文本
-        String compressedResume = compressResumeIfEnabled(resumeText, tag);
-        String compressedJd = (jdText != null && !jdText.isBlank())
+        // 润色优先保留原始简历结构，只在超限时再降级压缩，避免把时间/章节语义压坏。
+        String preparedResume = resumeText;
+        String preparedJd = (jdText != null && !jdText.isBlank())
                 ? AiInputCompressor.toStructuredFormat(jdText, AiInputCompressor.ContentType.JD)
                 : jdText;
-        String systemPrompt = buildResumePolishSystemPromptV2();
-        String userPrompt = buildResumePolishUserPromptV2(compressedResume, compressedJd, latestJobMatchAnalysis);
+        String systemPrompt = buildResumePolishSystemPrompt();
+        String userPrompt = buildResumePolishUserPrompt(preparedResume, preparedJd, latestJobMatchAnalysis);
 
         // 【Token 优化】步骤2：预估输入 token 数
         int systemTokens = TokenEstimator.estimateTokens(systemPrompt);
         int userTokens = TokenEstimator.estimateTokens(userPrompt);
         int totalTokens = systemTokens + userTokens;
         log.info("[{}] AI 简历润色调用, 原始简历长度: {}, 压缩后: {}, JD长度: {}, 压缩后: {}, 预估token: {}(system:{}, user:{})",
-                tag, resumeText.length(), compressedResume.length(),
+                tag, resumeText.length(), preparedResume.length(),
                 jdText == null ? 0 : jdText.length(),
-                compressedJd == null ? 0 : compressedJd.length(),
+                preparedJd == null ? 0 : preparedJd.length(),
                 totalTokens, systemTokens, userTokens);
 
-        // 【Token 优化】步骤3：若超过润色专用 token 限制，自动截断
+        // 超限时再逐级压缩，尽量先保留原始排版结构。
         if (tokenLimitConfig.isTokenLimitEnabled()) {
-            // 使用简历润色专用的 token 限制（polishResumeMax），与诊断限制分离
             int maxTokens = tokenLimitConfig.getPolishResumeMax();
             if (totalTokens > maxTokens) {
-                log.warn("[{}] 简历润色token预估({})超过限制({})，自动截断", tag, totalTokens, maxTokens);
+                log.warn("[{}] 简历润色 token 预估({})超过限制({})，开始降级压缩输入", tag, totalTokens, maxTokens);
+                preparedResume = compressResumeIfEnabled(resumeText, tag);
+                userPrompt = buildResumePolishUserPrompt(preparedResume, preparedJd, latestJobMatchAnalysis);
+                userTokens = TokenEstimator.estimateTokens(userPrompt);
+                totalTokens = systemTokens + userTokens;
+                log.info("[{}] 压缩简历后预估token: {}(system:{}, user:{})", tag, totalTokens, systemTokens, userTokens);
+            }
+            if (totalTokens > maxTokens) {
                 int resumeMaxTokens = maxTokens - systemTokens - 500;
-                compressedResume = TokenEstimator.safeTruncate(compressedResume, Math.max(500, resumeMaxTokens));
-                userPrompt = buildResumePolishUserPromptV2(compressedResume, compressedJd, latestJobMatchAnalysis);
+                preparedResume = TokenEstimator.safeTruncate(preparedResume, Math.max(500, resumeMaxTokens));
+                userPrompt = buildResumePolishUserPrompt(preparedResume, preparedJd, latestJobMatchAnalysis);
                 userTokens = TokenEstimator.estimateTokens(userPrompt);
                 totalTokens = systemTokens + userTokens;
                 log.info("[{}] 截断后预估token: {}(system:{}, user:{})", tag, totalTokens, systemTokens, userTokens);
@@ -1189,26 +1161,18 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             RestClient.Builder builder = restClientBuilder
                     .baseUrl(runtimeConfig.baseUrl())
                     .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json");
-            // 【超时保障】默认 3 分钟，DB 配置值取较大者，确保大型思考模型有足够响应时间。
-            int readTimeout = 180_000;
+            // 【超时保障】默认 5 分钟，DB 配置值取较大者，确保大型思考模型有足够响应时间。
+            int readTimeout = 300_000;
             if (runtimeConfig.timeoutMs() != null && runtimeConfig.timeoutMs() > 0) {
-                readTimeout = Math.max(runtimeConfig.timeoutMs(), 120_000);
+                readTimeout = Math.max(runtimeConfig.timeoutMs(), 300_000);
             }
             SimpleClientHttpRequestFactory customFactory = new SimpleClientHttpRequestFactory();
             customFactory.setConnectTimeout(10000);
             customFactory.setReadTimeout(readTimeout);
             builder = builder.requestFactory(customFactory);
             RestClient runtimeRestClient = builder.build();
-            ResponseBody response = runtimeRestClient.post()
-                    .uri(runtimeConfig.endpoint())
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
-                    .body(request)
-                    .retrieve()
-                    .body(ResponseBody.class);
-            if (response == null || response.choices == null || response.choices.isEmpty()) {
-                throw new RuntimeException("AI 润色返回内容为空");
-            }
-            String result = extractJsonFromResponse(extractResponseText(response.choices.get(0).message.content));
+            String responseText = executeAiRequestForText(runtimeRestClient, runtimeConfig.endpoint(), apiKey, request);
+            String result = extractJsonFromResponse(responseText);
             return parseResumePolishAiResult(result);
         } catch (Exception e) {
             log.error("[{}] AI 简历润色失败", tag, e);
@@ -1222,39 +1186,79 @@ public class ResumeAiServiceImpl implements ResumeAiService {
      */
     private String buildResumePolishSystemPromptV2() {
         return """
-                角色：中文求职简历优化顾问。
-                任务：在不编造任何信息的前提下，把原始简历改写成更适合单页正式投递、且便于前端模板稳定渲染的纯文本简历。
+                你是一名资深中文简历优化顾问，负责把原始简历整理为稳定、可解析、适合模板填充的纯文本简历正文。
 
-                强制规则：
-                1. 只能返回 JSON，禁止输出 JSON 之外的解释、Markdown、代码块。
-                2. JSON 结构固定为 {"polishedResumeText":"...","modificationNotes":["..."]}。
-                3. polishedResumeText 必须是纯文本简历，不要使用 Markdown 标题、表格、额外说明文字。
-                4. 章节标题只能从以下集合中选择，并按该顺序输出存在内容的章节：
+                严格要求：
+                1. 只允许基于原始简历事实润色，不得编造公司、岗位、项目、学历、证书、成绩、时间或量化结果。
+                2. polishedResumeText 只能包含一份完整简历正文，绝不能输出两份简历、摘要块、调试说明、字段解释、类型标注、时间戳、来源说明或 modificationNotes 内容。
+                3. 只能输出纯文本正文，不要 Markdown，不要代码块，不要 JSON 之外的额外说明。
+                4. 章节标题必须且只能使用以下标准标题，并且每个标题独占一行：
                    个人信息
                    教育背景
-                   实习经历 或 工作经历（二选一）
+                   实习经历
+                   工作经历
                    项目经历
                    专业技能
                    校园经历
                    荣誉证书
                    个人评价
-                5. 严禁额外发明近义标题，例如：基本信息、求职意向、专业能力、核心优势、教学实践、科研与实践经历、项目成果、技术资质、职业优势等；这些内容必须并入上述标准章节内部。
-                6. 个人信息区格式必须稳定：
-                   第一行只写姓名；
-                   第二行写求职方向/目标岗位，没有则省略；
-                   后续行只写联系方式与基础信息，每行 1-2 项，可使用“ | ”连接；
-                   不要写“AI润色简历”等字样，不要提及照片占位。
-                7. 如果原始简历中同时出现科研、教学实践、课程实践、校内实践、项目成果、技能证书等内容，必须按语义拆入标准章节：
-                   科研课题/建模/开发项目/产品项目 -> 项目经历
-                   实习/工作/任职/助教岗位职责 -> 实习经历或工作经历
-                   校内实践/课程实践/社团/学生工作/教学辅助 -> 校园经历
-                   奖项/证书/资质 -> 荣誉证书
-                8. 教育背景需根据内容自适应篇幅：
-                   985/211/双一流/重点院校/硕博/高匹配专业可以适当展开；
-                   学校普通或信息价值较低时，只保留关键信息，不堆砌描述。
-                9. 经历描述优先采用“动作 + 方法 + 结果”表达，突出岗位相关能力与成果，但绝对不能虚构经历、技术栈、数据或奖项。
-                10. 删除原文中的占位说明、可补充提示、AI 生成提示、排版备注等非正式投递内容。
-                11. modificationNotes 至少输出 3 条，说明本次结构归一、内容取舍和表达优化原因。
+                5. 不要输出“摘要”章节；如果原文有摘要信息，只能吸收进其他合适章节，不能单独输出摘要标题或顶部摘要块。
+                6. 同一章节只输出一次，不要重复章节，不要在正文后再次输出另一份结构化简历。
+                7. 教育、实习、工作、项目的标题行优先使用稳定分隔格式：
+                   学校 | 专业/状态 | 学历/年级 | 时间
+                   公司 | 岗位 | 时间
+                   项目 | 角色 | 时间
+                8. 荣誉证书一项一行；证书不要混入专业技能。
+                9. 个人评价只保留一个章节，内容精炼、真实、岗位相关。
+
+                返回格式：
+                {
+                  "polishedResumeText": "润色后的完整简历纯文本正文",
+                  "modificationNotes": [
+                    "说明改了什么，以及为什么这样改",
+                    "说明改了什么，以及为什么这样改",
+                    "说明改了什么，以及为什么这样改"
+                  ]
+                }
+                """;
+    }
+
+    private String buildResumePolishSystemPrompt() {
+        return """
+                你是一名资深中文简历优化顾问，负责把原始简历整理为稳定、可解析、适合模板填充的纯文本简历正文。
+
+                严格要求：
+                1. 只允许基于原始简历事实润色，不得编造公司、岗位、项目、学历、证书、成绩、时间或量化结果。
+                2. polishedResumeText 只能包含一份完整简历正文，绝不能输出两份简历、摘要块、调试说明、字段解释、类型标注、时间戳、来源说明或 modificationNotes 内容。
+                3. 只能输出纯文本正文，不要 Markdown，不要代码块，不要 JSON 之外的额外说明。
+                4. 章节标题必须且只能使用以下标准标题，并且每个标题独占一行：
+                   个人信息
+                   教育背景
+                   实习经历
+                   工作经历
+                   项目经历
+                   专业技能
+                   校园经历
+                   荣誉证书
+                   个人评价
+                5. 不要输出“摘要”章节；如果原文有摘要信息，只能吸收进其他合适章节，不能单独输出摘要标题或顶部摘要块。
+                6. 同一章节只输出一次，不要重复章节，不要在正文后再次输出另一份结构化简历。
+                7. 教育、实习、工作、项目的标题行优先使用稳定分隔格式：
+                   学校 | 专业/状态 | 学历/年级 | 时间
+                   公司 | 岗位 | 时间
+                   项目 | 角色 | 时间
+                8. 荣誉证书一项一行；证书不要混入专业技能。
+                9. 个人评价只保留一个章节，内容精炼、真实、岗位相关。
+
+                返回格式：
+                {
+                  "polishedResumeText": "润色后的完整简历纯文本正文",
+                  "modificationNotes": [
+                    "说明改了什么，以及为什么这样改",
+                    "说明改了什么，以及为什么这样改",
+                    "说明改了什么，以及为什么这样改"
+                  ]
+                }
                 """;
     }
 
@@ -1265,16 +1269,17 @@ public class ResumeAiServiceImpl implements ResumeAiService {
     private String buildResumePolishUserPromptV2(String resumeText, String jdText,
             ResumeJobMatchAnalyzeResponse latestJobMatchAnalysis) {
         StringBuilder builder = new StringBuilder();
-        builder.append("请对以下简历进行润色优化，并严格输出标准化章节。\n");
+        builder.append("请对以下简历进行润色优化，并严格输出一份可直接用于模板填充的纯文本简历正文。\n");
         builder.append("【原始简历】\n").append(resumeText).append("\n\n");
+
         if (jdText != null && !jdText.isBlank()) {
             builder.append("【目标岗位 JD】\n").append(jdText).append("\n\n");
         }
+
         if (latestJobMatchAnalysis != null) {
             builder.append("【最近一次岗位匹配分析】\n");
             builder.append("匹配度评分：").append(latestJobMatchAnalysis.getMatchScore()).append("\n");
             builder.append("已匹配关键词：").append(latestJobMatchAnalysis.getMatchedKeywords()).append("\n");
-            // 过滤无效的泛化关键词，避免误导简历润色方向。
             List<String> filteredMissing = latestJobMatchAnalysis.getMissingKeywords() == null
                     ? List.of()
                     : latestJobMatchAnalysis.getMissingKeywords().stream()
@@ -1283,15 +1288,58 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             builder.append("缺失关键词：").append(filteredMissing).append("\n");
             builder.append("优化建议：").append(latestJobMatchAnalysis.getSuggestions()).append("\n\n");
         }
+
         builder.append("""
-                请输出更适合投递的版本，并满足以下要求：
-                1. 对标题体系做归一化，只保留标准章节标题，不得保留原文中的近义标题。
-                2. 如果原文出现“科研与实践”“教学实践”“课程实践”“项目成果”“技术资质”“职业优势”等表达，请按语义并入标准章节，而不是原样保留成大标题。
-                3. 如果教育背景竞争力强，可以适度展开院校与学术亮点；如果教育背景普通，则保持简洁，把篇幅优先给更有说服力的经历与成果。
-                4. 如果提供了 JD，请优先突出与 JD 最相关的能力、经历与成果，但不能杜撰。
-                5. 如果缺少实习/工作经历，不要硬编；可将校内实践、课程实践、科研项目分别整理到“校园经历”或“项目经历”。
-                6. 所有经历内容保持简洁专业，避免空泛套话，避免“负责开发”“参与项目”这类没有方法和结果支撑的弱表达。
-                7. modificationNotes 至少输出 3 条，且要让用户看懂你做了哪些结构和表达层面的调整。
+                请输出更适合求职投递的版本，并满足以下要求：
+                1. polishedResumeText 只能输出一份完整正文，不要重复简历，不要在正文后再输出另一份结构化版本。
+                2. 章节标题必须独占一行，且只能使用：个人信息、教育背景、实习经历、工作经历、项目经历、专业技能、校园经历、荣誉证书、个人评价。
+                3. 不要输出“摘要”标题，不要把摘要放在顶部，不要输出 modificationNotes 到正文。
+                4. 教育/实习/工作/项目标题行优先使用带竖线的稳定格式：
+                   学校 | 专业/状态 | 学历/年级 | 时间
+                   公司 | 岗位 | 时间
+                   项目 | 角色 | 时间
+                5. 荣誉证书一项一行，证书不要混入专业技能。
+                6. 尽量用“能力/动作/结果”方式重写经历描述；如果提供了 JD，请体现更强的岗位针对性。
+                7. modificationNotes 至少输出 3 条，必须能让用户理解改动原因。
+                """);
+        return builder.toString();
+    }
+
+    private String buildResumePolishUserPrompt(String resumeText, String jdText,
+            ResumeJobMatchAnalyzeResponse latestJobMatchAnalysis) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("请对以下简历进行润色优化，并严格输出一份可直接用于模板填充的纯文本简历正文。\n");
+        builder.append("【原始简历】\n").append(resumeText).append("\n\n");
+
+        if (jdText != null && !jdText.isBlank()) {
+            builder.append("【目标岗位 JD】\n").append(jdText).append("\n\n");
+        }
+
+        if (latestJobMatchAnalysis != null) {
+            builder.append("【最近一次岗位匹配分析】\n");
+            builder.append("匹配度评分：").append(latestJobMatchAnalysis.getMatchScore()).append("\n");
+            builder.append("已匹配关键词：").append(latestJobMatchAnalysis.getMatchedKeywords()).append("\n");
+            List<String> filteredMissing = latestJobMatchAnalysis.getMissingKeywords() == null
+                    ? List.of()
+                    : latestJobMatchAnalysis.getMissingKeywords().stream()
+                            .filter(kw -> kw != null && !kw.isBlank() && !kw.equalsIgnoreCase("JD"))
+                            .toList();
+            builder.append("缺失关键词：").append(filteredMissing).append("\n");
+            builder.append("优化建议：").append(latestJobMatchAnalysis.getSuggestions()).append("\n\n");
+        }
+
+        builder.append("""
+                请输出更适合求职投递的版本，并满足以下要求：
+                1. polishedResumeText 只能输出一份完整正文，不要重复简历，不要在正文后再输出另一份结构化版本。
+                2. 章节标题必须独占一行，且只能使用：个人信息、教育背景、实习经历、工作经历、项目经历、专业技能、校园经历、荣誉证书、个人评价。
+                3. 不要输出“摘要”标题，不要把摘要放在顶部，不要输出 modificationNotes 到正文。
+                4. 教育/实习/工作/项目标题行优先使用带竖线的稳定格式：
+                   学校 | 专业/状态 | 学历/年级 | 时间
+                   公司 | 岗位 | 时间
+                   项目 | 角色 | 时间
+                5. 荣誉证书一项一行，证书不要混入专业技能。
+                6. 尽量用“能力/动作/结果”方式重写经历描述；如果提供了 JD，请体现更强的岗位针对性。
+                7. modificationNotes 至少输出 3 条，必须能让用户理解改动原因。
                 """);
         return builder.toString();
     }
@@ -1314,7 +1362,10 @@ public class ResumeAiServiceImpl implements ResumeAiService {
 
     private ResumePolishAiResult parseResumePolishAiResult(String rawJson) throws Exception {
         try {
-            return objectMapper.readValue(rawJson, ResumePolishAiResult.class);
+            ResumePolishAiResult strictResult = objectMapper.readValue(rawJson, ResumePolishAiResult.class);
+            if (isValidPolishResult(strictResult)) {
+                return normalizePolishResult(strictResult);
+            }
         } catch (Exception ex) {
             log.warn("AI 润色结果严格 JSON 解析失败，进入容错解析。rawPreview: {}",
                     buildRawPreview(rawJson), ex);
@@ -1323,18 +1374,55 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         if (rootNode != null) {
             ResumePolishAiResult jsonNodeResult = new ResumePolishAiResult();
             jsonNodeResult.setPolishedResumeText(readTextNode(rootNode, "polishedResumeText"));
-            jsonNodeResult.setModificationNotes(readTextListNode(rootNode, "modificationNotes"));
+            jsonNodeResult.setModificationNotes(readPrimaryModificationNotes(rootNode));
             if (isValidPolishResult(jsonNodeResult)) {
-                return jsonNodeResult;
+                return normalizePolishResult(jsonNodeResult);
             }
         }
         ResumePolishAiResult regexFallbackResult = new ResumePolishAiResult();
         regexFallbackResult.setPolishedResumeText(extractPolishedResumeText(rawJson));
         regexFallbackResult.setModificationNotes(extractModificationNotes(rawJson));
         if (isValidPolishResult(regexFallbackResult)) {
-            return regexFallbackResult;
+            return normalizePolishResult(regexFallbackResult);
         }
         throw new IllegalStateException("AI 润色结果解析失败，返回内容不是可用的结构化结果");
+    }
+
+    private ResumePolishAiResult normalizePolishResult(ResumePolishAiResult result) {
+        ResumePolishAiResult normalized = new ResumePolishAiResult();
+        normalized.setPolishedResumeText(sanitizePolishedResumeText(result.getPolishedResumeText()));
+        normalized.setModificationNotes(normalizeModificationNotes(result.getModificationNotes(), normalized.getPolishedResumeText()));
+        return normalized;
+    }
+
+    private String readPrimaryPolishText(JsonNode rootNode) {
+        String polishedText = readTextNode(rootNode, "polishedResumeText");
+        if (!polishedText.isBlank()) {
+            return polishedText;
+        }
+        return firstNonBlankField(rootNode,
+                "resumeText", "optimizedResumeText", "optimizedResume", "resume", "content", "text", "result");
+    }
+
+    private List<String> readPrimaryModificationNotes(JsonNode rootNode) {
+        List<String> notes = readTextListNode(rootNode, "modificationNotes");
+        if (!notes.isEmpty()) {
+            return notes;
+        }
+        notes = readTextListNode(rootNode, "notes");
+        if (!notes.isEmpty()) {
+            return notes;
+        }
+        notes = readTextListNode(rootNode, "suggestions");
+        if (!notes.isEmpty()) {
+            return notes;
+        }
+        notes = readTextListNode(rootNode, "reasons");
+        if (!notes.isEmpty()) {
+            return notes;
+        }
+        String summary = readTextNode(rootNode, "summary");
+        return summary.isBlank() ? List.of() : List.of(summary);
     }
 
     private JsonNode tryReadJsonNode(String rawJson) {
@@ -1365,7 +1453,8 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         try {
             return objectMapper.readValue("[" + notesBody + "]", new TypeReference<List<String>>() {
             });
-        } catch (Exception ignored) {
+        } catch (Exception parseEx) {
+            log.debug("JSON 解析 notes 失败，回退到正则提取: {}", parseEx.getMessage());
         }
         List<String> notes = new ArrayList<>();
         Matcher quotedTextMatcher = QUOTED_TEXT_PATTERN.matcher(notesBody);
@@ -1405,6 +1494,349 @@ public class ResumeAiServiceImpl implements ResumeAiService {
 
     private String normalizePolishText(String text) {
         return text == null ? "" : text.trim();
+    }
+
+    private String sanitizePolishedResumeText(String text) {
+        if (text == null) {
+            return "";
+        }
+
+        String sanitized = text.replace("\r\n", "\n")
+                .replace('\r', '\n')
+                .replace("\uFEFF", "")
+                .trim();
+        sanitized = Normalizer.normalize(sanitized, Normalizer.Form.NFKC);
+
+        if (sanitized.startsWith("```json")) {
+            sanitized = sanitized.substring(7).trim();
+        } else if (sanitized.startsWith("```")) {
+            sanitized = sanitized.substring(3).trim();
+        }
+        if (sanitized.endsWith("```")) {
+            sanitized = sanitized.substring(0, sanitized.length() - 3).trim();
+        }
+
+        sanitized = sanitized.replaceFirst("(?m)^AI润色简历\\s*$\\n?", "");
+        sanitized = sanitized.replaceFirst("(?m)^个人简历\\s*$\\n?", "");
+        sanitized = sanitized.replaceFirst("(?m)^求职简历\\s*$\\n?", "");
+        sanitized = sanitized.replaceFirst("(?m)^简历\\s*$\\n?", "");
+        sanitized = sanitized.replaceAll("(?m)^#{1,6}\\s*", "");
+        sanitized = stripLeadingSummaryBlock(sanitized);
+        sanitized = normalizeInlineSectionTitles(sanitized);
+        sanitized = keepFirstResumeBody(sanitized);
+        sanitized = stripTrailingPolishMetadata(sanitized);
+        sanitized = sanitized.replaceAll("\n{3,}", "\n\n");
+        return sanitized.trim();
+    }
+
+    private String sanitizeAndNormalizePolishedResumeText(String text) {
+        String sanitized = sanitizePolishedResumeText(text);
+        if (sanitized.isBlank()) {
+            return sanitized;
+        }
+        sanitized = sanitized.replaceAll("(?m)^[-*•]\\s+(?=个人信息|教育背景|实习经历|工作经历|项目经历|专业技能|校园经历|荣誉证书|个人评价)", "");
+        sanitized = normalizePolishedResumeLayout(sanitized);
+        sanitized = sanitized.replaceAll("\n{3,}", "\n\n");
+        return sanitized.trim();
+    }
+
+    private String stripLeadingSummaryBlock(String text) {
+        List<String> keptLines = new ArrayList<>();
+        boolean skipSummary = false;
+
+        for (String rawLine : text.split("\n")) {
+            String line = rawLine == null ? "" : rawLine.trim();
+            if (line.isEmpty()) {
+                continue;
+            }
+
+            String cleanLine = stripTrailingMetadataFromLine(line);
+            if (cleanLine.isBlank()) {
+                continue;
+            }
+
+            if ("摘要".equals(cleanLine) || cleanLine.startsWith("摘要：") || cleanLine.startsWith("摘要:")) {
+                skipSummary = true;
+                continue;
+            }
+
+            if (skipSummary && isResumeSectionTitle(cleanLine)) {
+                skipSummary = false;
+            }
+
+            if (skipSummary) {
+                continue;
+            }
+
+            keptLines.add(cleanLine);
+        }
+
+        return String.join("\n", keptLines);
+    }
+
+    private String normalizeInlineSectionTitles(String text) {
+        String normalized = text;
+        for (String title : POLISH_SECTION_TITLES) {
+            normalized = normalized.replaceAll("(?<!\\n)" + Pattern.quote(title) + "(?=[:：\\s])", "\n" + title);
+            normalized = normalized.replaceAll(Pattern.quote(title) + "\\s*[：:]", title + "\n");
+        }
+        return normalized.replaceAll("\n{3,}", "\n\n").trim();
+    }
+
+    private String keepFirstResumeBody(String text) {
+        List<String> keptLines = new ArrayList<>();
+        List<String> seenSectionOrder = new ArrayList<>();
+        boolean startedResumeBody = false;
+
+        for (String rawLine : text.split("\n")) {
+            String line = rawLine == null ? "" : rawLine.trim();
+            if (line.isEmpty()) {
+                if (!keptLines.isEmpty() && !keptLines.get(keptLines.size() - 1).isEmpty()) {
+                    keptLines.add("");
+                }
+                continue;
+            }
+
+            String cleanLine = stripTrailingMetadataFromLine(line);
+            if (cleanLine.isBlank()) {
+                continue;
+            }
+
+            String sectionTitle = normalizeSectionTitle(cleanLine);
+            if (!sectionTitle.isBlank()) {
+                if (startedResumeBody && RESUME_START_KEYS.contains(sectionTitle) && seenSectionOrder.contains(sectionTitle)) {
+                    break;
+                }
+                startedResumeBody = startedResumeBody || RESUME_START_KEYS.contains(sectionTitle);
+                if (!seenSectionOrder.contains(sectionTitle)) {
+                    seenSectionOrder.add(sectionTitle);
+                }
+                if (!keptLines.isEmpty() && !keptLines.get(keptLines.size() - 1).isEmpty()) {
+                    keptLines.add("");
+                }
+                keptLines.add(sectionTitle);
+                continue;
+            }
+
+            keptLines.add(cleanLine);
+        }
+
+        while (!keptLines.isEmpty() && keptLines.get(keptLines.size() - 1).isEmpty()) {
+            keptLines.remove(keptLines.size() - 1);
+        }
+
+        return String.join("\n", keptLines);
+    }
+
+    private String stripTrailingPolishMetadata(String text) {
+        List<String> keptLines = new ArrayList<>();
+
+        for (String rawLine : text.split("\n")) {
+            String line = rawLine == null ? "" : rawLine.trim();
+            if (line.isEmpty()) {
+                if (!keptLines.isEmpty() && !keptLines.get(keptLines.size() - 1).isEmpty()) {
+                    keptLines.add("");
+                }
+                continue;
+            }
+
+            if (looksLikeTrailingResumeMetadata(line)) {
+                break;
+            }
+
+            String cleanLine = stripTrailingMetadataFromLine(line);
+            if (cleanLine.isBlank()) {
+                continue;
+            }
+            keptLines.add(cleanLine);
+        }
+
+        while (!keptLines.isEmpty() && keptLines.get(keptLines.size() - 1).isEmpty()) {
+            keptLines.remove(keptLines.size() - 1);
+        }
+
+        return String.join("\n", keptLines);
+    }
+
+    private String stripTrailingMetadataFromLine(String line) {
+        if (line == null || line.isBlank()) {
+            return "";
+        }
+        Matcher matcher = TRAILING_METADATA_PATTERN.matcher(line);
+        if (!matcher.find()) {
+            return line.trim();
+        }
+        return line.substring(0, matcher.start()).trim().replaceAll("[,，;；]+$", "").trim();
+    }
+
+    private boolean looksLikeTrailingResumeMetadata(String line) {
+        String normalized = line == null ? "" : line.trim();
+        if (normalized.isEmpty()) {
+            return false;
+        }
+        return normalized.startsWith("[")
+                || normalized.startsWith("{")
+                || normalized.contains("仅基于简历(String)")
+                || normalized.contains("(LocalDateTime)")
+                || normalized.contains("(Integer)")
+                || normalized.contains("(String),")
+                || normalized.startsWith("<== Updates:");
+    }
+
+    private boolean isResumeSectionTitle(String line) {
+        return !normalizeSectionTitle(line).isBlank();
+    }
+
+    private String normalizePolishedResumeLayout(String text) {
+        List<String> normalizedLines = new ArrayList<>();
+        String currentSection = "";
+
+        for (String rawLine : text.split("\n")) {
+            String line = rawLine == null ? "" : rawLine.trim();
+            if (line.isEmpty()) {
+                if (!normalizedLines.isEmpty() && !normalizedLines.get(normalizedLines.size() - 1).isEmpty()) {
+                    normalizedLines.add("");
+                }
+                continue;
+            }
+
+            String sectionTitle = normalizeSectionTitle(line);
+            if (!sectionTitle.isBlank()) {
+                if (!normalizedLines.isEmpty() && !normalizedLines.get(normalizedLines.size() - 1).isEmpty()) {
+                    normalizedLines.add("");
+                }
+                normalizedLines.add(sectionTitle);
+                currentSection = sectionTitle;
+                continue;
+            }
+
+            if (isSkillsOrHonorSection(currentSection) && line.contains("|")) {
+                for (String item : line.split("\\|")) {
+                    String normalizedItem = normalizeBulletItem(item);
+                    if (!normalizedItem.isBlank()) {
+                        normalizedLines.add("- " + normalizedItem);
+                    }
+                }
+                continue;
+            }
+
+            if (shouldMoveLeadingDate(currentSection, line)) {
+                line = moveLeadingDateToTail(line);
+            }
+
+            normalizedLines.add(line);
+        }
+
+        while (!normalizedLines.isEmpty() && normalizedLines.get(normalizedLines.size() - 1).isEmpty()) {
+            normalizedLines.remove(normalizedLines.size() - 1);
+        }
+
+        return String.join("\n", normalizedLines);
+    }
+
+    private String normalizeSectionTitle(String line) {
+        String normalized = line.replaceAll("^[\\[【(（]+", "")
+                .replaceAll("[\\]】)）:：\\s]+$", "")
+                .trim();
+
+        if (normalized.equals("个人信息") || normalized.equals("基本信息")) {
+            return "个人信息";
+        }
+        if (normalized.equals("教育背景") || normalized.equals("教育经历") || normalized.equals("学历背景")) {
+            return "教育背景";
+        }
+        if (normalized.equals("实习经历") || normalized.equals("实习经验")) {
+            return "实习经历";
+        }
+        if (normalized.equals("工作经历") || normalized.equals("工作经验") || normalized.equals("职业经历")) {
+            return "工作经历";
+        }
+        if (normalized.equals("项目经历") || normalized.equals("项目经验") || normalized.equals("项目成果")) {
+            return "项目经历";
+        }
+        if (normalized.equals("专业技能") || normalized.equals("专业能力") || normalized.equals("核心技能")
+                || normalized.equals("技能清单") || normalized.equals("技能特长")) {
+            return "专业技能";
+        }
+        if (normalized.equals("校园经历") || normalized.equals("校内经历") || normalized.equals("学生工作")
+                || normalized.equals("社团经历")) {
+            return "校园经历";
+        }
+        if (normalized.equals("荣誉证书") || normalized.equals("荣誉奖项") || normalized.equals("证书资质")
+                || normalized.equals("技术资质") || normalized.equals("技能证书") || normalized.equals("获奖情况")) {
+            return "荣誉证书";
+        }
+        if (normalized.equals("个人评价") || normalized.equals("自我评价") || normalized.equals("职业优势")
+                || normalized.equals("个人优势") || normalized.equals("个人总结") || normalized.equals("专业能力总结")) {
+            return "个人评价";
+        }
+        return "";
+    }
+
+    private boolean isSkillsOrHonorSection(String sectionTitle) {
+        return "专业技能".equals(sectionTitle) || "荣誉证书".equals(sectionTitle);
+    }
+
+    private boolean shouldMoveLeadingDate(String sectionTitle, String line) {
+        if (!"教育背景".equals(sectionTitle)
+                && !"实习经历".equals(sectionTitle)
+                && !"工作经历".equals(sectionTitle)
+                && !"项目经历".equals(sectionTitle)
+                && !"校园经历".equals(sectionTitle)) {
+            return false;
+        }
+        if (line.contains("|") || line.startsWith("- ") || line.startsWith("* ") || line.startsWith("•")) {
+            return false;
+        }
+        return line.matches("^(\\d{2,4}[./-]\\d{1,2}(?:\\s*[-~至]\\s*\\d{2,4}[./-]\\d{1,2})?)\\s+.+$");
+    }
+
+    private String moveLeadingDateToTail(String line) {
+        Matcher matcher = Pattern
+                .compile("^(\\d{2,4}[./-]\\d{1,2}(?:\\s*[-~至]\\s*\\d{2,4}[./-]\\d{1,2})?)\\s+(.+)$")
+                .matcher(line);
+        if (!matcher.matches()) {
+            return line;
+        }
+
+        String date = matcher.group(1).replaceAll("\\s+", "");
+        String rest = matcher.group(2).trim().replaceAll("\\s{2,}", " ");
+        String[] parts = rest.split("\\s+");
+        if (parts.length >= 2) {
+            String main = parts[0];
+            String sub = rest.substring(main.length()).trim();
+            return main + " | " + sub + " | " + date;
+        }
+        return rest + " | " + date;
+    }
+
+    private String normalizeBulletItem(String item) {
+        return item == null ? "" : item.trim()
+                .replaceFirst("^[-*•\\s]+", "")
+                .replaceAll("\\s{2,}", " ")
+                .trim();
+    }
+
+    private List<String> normalizeModificationNotes(List<String> notes, String polishedResumeText) {
+        List<String> normalized = new ArrayList<>();
+        if (notes != null) {
+            for (String note : notes) {
+                String item = normalizeSingleNote(note);
+                if (!item.isBlank()) {
+                    normalized.add(item);
+                }
+            }
+        }
+        if (!normalized.isEmpty()) {
+            return normalized;
+        }
+        if (polishedResumeText == null || polishedResumeText.isBlank()) {
+            return List.of();
+        }
+        return List.of(
+                "已保留原简历中的有效事实信息，并统一整理为更适合投递的结构。",
+                "已清理占位说明、冗余表述和不稳定排版内容，减少模板渲染异常。",
+                "已优先突出岗位相关经历、技能和结果表达，便于招聘方快速阅读。");
     }
 
     private String normalizeSingleNote(String note) {
@@ -1502,9 +1934,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
     private boolean isValidPolishResult(ResumePolishAiResult result) {
         return result != null
                 && result.getPolishedResumeText() != null
-                && !result.getPolishedResumeText().isBlank()
-                && result.getModificationNotes() != null
-                && !result.getModificationNotes().isEmpty();
+                && !result.getPolishedResumeText().isBlank();
     }
 
     private String buildRawPreview(String rawJson) {

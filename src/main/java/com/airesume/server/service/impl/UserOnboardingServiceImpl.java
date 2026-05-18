@@ -95,8 +95,17 @@ public class UserOnboardingServiceImpl extends ServiceImpl<UserOnboardingStateMa
         UserOnboardingState existingState = getStateByUserAndKey(userId, guideKey);
 
         if (existingState == null) {
-            // 首次记录，创建新状态
-            createNewState(userId, guideKey, newStatus, currentStep);
+            // 首次记录，创建新状态（处理并发请求的唯一索引冲突）
+            try {
+                createNewState(userId, guideKey, newStatus, currentStep);
+            } catch (org.springframework.dao.DuplicateKeyException e) {
+                // 并发请求导致唯一索引冲突，重新查询并更新
+                log.debug("引导状态记录并发创建冲突，重新查询更新, userId: {}, guideKey: {}", userId, guideKey);
+                existingState = getStateByUserAndKey(userId, guideKey);
+                if (existingState != null) {
+                    updateExistingState(existingState, newStatus, currentStep);
+                }
+            }
             return;
         }
 

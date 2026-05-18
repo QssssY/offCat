@@ -1,5 +1,6 @@
 package com.airesume.server.dto.resume;
 
+import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
 /**
@@ -11,6 +12,7 @@ public class ResumeJobMatchAnalyzeRequest {
     /**
      * 简历诊断任务 ID。
      */
+    @NotBlank(message = "简历诊断任务ID不能为空")
     private String resumeTaskId;
 
     /**

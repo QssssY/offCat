@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import java.io.IOException;
 
 @Slf4j
 @RestControllerAdvice
@@ -57,6 +59,19 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.OK)
     public void handleAsyncRequestTimeoutException(AsyncRequestTimeoutException e) {
         log.debug("SSE 异步请求超时，连接已清理");
+    }
+
+    @ExceptionHandler(IOException.class)
+    @ResponseStatus(HttpStatus.OK)
+    public void handleIOException(IOException e) {
+        log.warn("SSE 连接已断开: {}", e.getMessage());
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    @ResponseStatus(HttpStatus.PAYLOAD_TOO_LARGE)
+    public Result<Void> handleMaxUploadSizeExceededException(MaxUploadSizeExceededException e) {
+        log.warn("上传文件大小超限: {}", e.getMessage());
+        return Result.error(ResultCode.PARAM_ERROR.getCode(), "文件大小不能超过 5MB");
     }
 
     @ExceptionHandler(Exception.class)

@@ -1,5 +1,6 @@
 package com.airesume.server.controller;
 
+import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.PageResult;
 import com.airesume.server.common.result.Result;
 import com.airesume.server.dto.resume.ResumeDiagnosisHistoryResponse;
@@ -11,10 +12,14 @@ import com.airesume.server.dto.resume.ResumePolishAnalyzeResponse;
 import com.airesume.server.service.ResumeDiagnosisTaskService;
 import com.airesume.server.service.ResumeJobMatchService;
 import com.airesume.server.service.ResumePolishService;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -24,14 +29,27 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.Locale;
+import java.util.Set;
+
 /**
  * 简历诊断控制器。
  */
 @Slf4j
+@Validated
 @RestController
 @RequestMapping("/api/resume")
 @RequiredArgsConstructor
 public class ResumeDiagnosisController {
+
+    private static final Set<String> ALLOWED_CONTENT_TYPES = Set.of(
+            "application/pdf",
+            "application/msword",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/octet-stream"
+    );
+
+    private static final Set<String> ALLOWED_FILE_EXTENSIONS = Set.of(".pdf", ".doc", ".docx");
 
     private final ResumeDiagnosisTaskService resumeDiagnosisTaskService;
     private final ResumeJobMatchService resumeJobMatchService;
@@ -43,6 +61,13 @@ public class ResumeDiagnosisController {
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Result<String> uploadResume(@RequestParam("file") MultipartFile file,
                                        Authentication authentication) {
+        if (file.isEmpty()) {
+            throw new BusinessException("上传文件不能为空");
+        }
+        if (!isAllowedResumeFile(file)) {
+            throw new BusinessException("仅支持 PDF、DOC、DOCX 格式的文件");
+        }
+
         Long userId = (Long) authentication.getPrincipal();
         log.info("Upload resume request, userId: {}, fileName: {}, fileSize: {}",
                 userId, file.getOriginalFilename(), file.getSize());
@@ -69,8 +94,8 @@ public class ResumeDiagnosisController {
      */
     @GetMapping("/history")
     public Result<PageResult<ResumeDiagnosisHistoryResponse>> getHistory(
-            @RequestParam(defaultValue = "1") Integer pageNum,
-            @RequestParam(defaultValue = "10") Integer pageSize,
+            @RequestParam(defaultValue = "1") @Min(1) Integer pageNum,
+            @RequestParam(defaultValue = "10") @Min(1) @Max(value = 100, message = "每页最多100条") Integer pageSize,
             Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         log.info("Get history request, userId: {}, pageNum: {}, pageSize: {}", userId, pageNum, pageSize);
@@ -85,7 +110,7 @@ public class ResumeDiagnosisController {
      */
     @PostMapping("/job-match/analyze")
     public Result<ResumeJobMatchAnalyzeResponse> analyzeJobMatch(
-            @RequestBody ResumeJobMatchAnalyzeRequest request,
+            @Valid @RequestBody ResumeJobMatchAnalyzeRequest request,
             Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         log.info("Analyze job match request, userId: {}, resumeTaskId: {}", userId, request.getResumeTaskId());
@@ -99,12 +124,27 @@ public class ResumeDiagnosisController {
      */
     @PostMapping("/polish/analyze")
     public Result<ResumePolishAnalyzeResponse> analyzeResumePolish(
-            @RequestBody ResumePolishAnalyzeRequest request,
+            @Valid @RequestBody ResumePolishAnalyzeRequest request,
             Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         log.info("Analyze resume polish request, userId: {}, resumeTaskId: {}", userId, request.getResumeTaskId());
 
         ResumePolishAnalyzeResponse response = resumePolishService.analyzeResumePolish(userId, request);
         return Result.success("AI 简历润色完成", response);
+    }
+
+    private boolean isAllowedResumeFile(MultipartFile file) {
+        String contentType = file.getContentType();
+        if (contentType != null && ALLOWED_CONTENT_TYPES.contains(contentType.toLowerCase(Locale.ROOT))) {
+            return true;
+        }
+
+        String fileName = file.getOriginalFilename();
+        if (fileName == null) {
+            return false;
+        }
+
+        String lowerCaseFileName = fileName.toLowerCase(Locale.ROOT);
+        return ALLOWED_FILE_EXTENSIONS.stream().anyMatch(lowerCaseFileName::endsWith);
     }
 }

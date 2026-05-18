@@ -22,6 +22,13 @@ public class UserListResponse {
     private Long id;
 
     /**
+     * 用户ID字符串
+     *
+     * 作用：前端批量操作和查询必须使用字符串，避免超长 Long 在浏览器侧丢失精度。
+     */
+    private String userId;
+
+    /**
      * 用户名
      */
     private String username;

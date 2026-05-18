@@ -11,6 +11,7 @@ import com.airesume.server.service.ResumeAiService;
 import com.airesume.server.service.ResumeContentExtractor;
 import com.airesume.server.service.ResumeJobMatchService;
 import com.airesume.server.service.resume.ResumeParseResult;
+import com.airesume.server.util.TextNormalizeUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -18,6 +19,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,13 +42,18 @@ public class ResumeJobMatchServiceImpl extends ServiceImpl<ResumeJobMatchRecordM
     private final ObjectMapper objectMapper;
     private final ResumeAiService resumeAiService;
 
+    /** 注入代理对象，确保 @Transactional 自调用生效 */
+    @Lazy
+    @Autowired
+    private ResumeJobMatchServiceImpl self;
+
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public ResumeJobMatchAnalyzeResponse analyzeJobMatch(Long userId, ResumeJobMatchAnalyzeRequest request) {
+        // 阶段1：加载任务、校验输入（非事务）
         Long resumeTaskId = parseResumeTaskId(request.getResumeTaskId());
         ResumeDiagnosisTask task = loadOwnedTask(userId, resumeTaskId);
 
-        String jdText = normalizeText(request.getJdText());
+        String jdText = TextNormalizeUtil.normalizeText(request.getJdText());
         if (jdText.isBlank()) {
             throw new BusinessException("岗位 JD 文本不能为空");
         }
@@ -55,9 +63,22 @@ public class ResumeJobMatchServiceImpl extends ServiceImpl<ResumeJobMatchRecordM
             throw new BusinessException("简历文本不能为空");
         }
 
+        // 阶段2：AI 调用（非事务）— 不持有数据库连接
         String aiResultJson = resumeAiService.diagnoseJobMatch(resumeText, jdText);
         ResumeJobMatchAnalyzeResponse response = parseAiResult(aiResultJson, resumeTaskId);
 
+        // 阶段3：保存结果（事务内）
+        self.saveJobMatchRecord(userId, resumeTaskId, resumeText, jdText, response);
+
+        return response;
+    }
+
+    /**
+     * 事务内操作：保存岗位匹配分析结果
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void saveJobMatchRecord(Long userId, Long resumeTaskId, String resumeText, String jdText,
+                                   ResumeJobMatchAnalyzeResponse response) {
         ResumeJobMatchRecord record = new ResumeJobMatchRecord();
         record.setUserId(userId);
         record.setResumeTaskId(resumeTaskId);
@@ -69,7 +90,6 @@ public class ResumeJobMatchServiceImpl extends ServiceImpl<ResumeJobMatchRecordM
 
         response.setAnalysisId(String.valueOf(record.getId()));
         response.setCreateTime(record.getCreateTime());
-        return response;
     }
 
     @Override
@@ -127,17 +147,17 @@ public class ResumeJobMatchServiceImpl extends ServiceImpl<ResumeJobMatchRecordM
      * 文本优先级：前端显式传入 > 任务缓存文本 > 统一解析链路。
      */
     private String resolveResumeText(ResumeDiagnosisTask task, String requestResumeText) {
-        String resumeText = normalizeText(requestResumeText);
+        String resumeText = TextNormalizeUtil.normalizeText(requestResumeText);
         if (!resumeText.isBlank()) {
             return resumeText;
         }
 
-        resumeText = normalizeText(task.getResumeText());
+        resumeText = TextNormalizeUtil.normalizeText(task.getResumeText());
         if (!resumeText.isBlank()) {
             return resumeText;
         }
 
-        return normalizeText(parseAndCacheResume(task).getText());
+        return TextNormalizeUtil.normalizeText(parseAndCacheResume(task).getText());
     }
 
     /**
@@ -222,18 +242,6 @@ public class ResumeJobMatchServiceImpl extends ServiceImpl<ResumeJobMatchRecordM
         } catch (NumberFormatException e) {
             throw new BusinessException("简历诊断任务 ID 格式不正确");
         }
-    }
-
-    private String normalizeText(String text) {
-        if (text == null) {
-            return "";
-        }
-        return text.replace("\r\n", "\n")
-                .replace('\r', '\n')
-                .replace('\t', ' ')
-                .replaceAll("[\\u200B-\\u200F\\uFEFF]", "")
-                .replaceAll(" {2,}", " ")
-                .trim();
     }
 
     private String toAnalysisJson(ResumeJobMatchAnalyzeResponse response) {

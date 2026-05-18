@@ -72,6 +72,47 @@ public class ResumeDiagnosisResult {
     private EducationEvaluation educationEvaluation;
 
     /**
+     * 个人定位评价
+     */
+    @JsonProperty("positioningEvaluation")
+    private PositioningEvaluation positioningEvaluation;
+
+    /**
+     * 个人定位评价内部类
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class PositioningEvaluation {
+        @JsonProperty("score")
+        private Integer score;
+
+        @JsonProperty("hasSummary")
+        private Boolean hasSummary;
+
+        @JsonProperty("hasClearPositioning")
+        private Boolean hasClearPositioning;
+
+        @JsonProperty("evaluation")
+        @Builder.Default
+        private String evaluation = "";
+
+        @JsonProperty("strengths")
+        @Builder.Default
+        private List<String> strengths = List.of();
+
+        @JsonProperty("weaknesses")
+        @Builder.Default
+        private List<String> weaknesses = List.of();
+
+        @JsonProperty("suggestions")
+        @Builder.Default
+        private List<String> suggestions = List.of();
+    }
+
+    /**
      * 优化建议列表
      */
     @JsonProperty("optimizationSuggestions")

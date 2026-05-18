@@ -34,6 +34,9 @@ public class NotificationVO {
     /** 关联业务ID */
     private String bizId;
 
+    /** 关联系统公告ID */
+    private Long broadcastId;
+
     /** 已读状态: 0未读 1已读 */
     private Integer readStatus;
 

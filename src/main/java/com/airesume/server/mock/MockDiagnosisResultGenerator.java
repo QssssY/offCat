@@ -9,7 +9,6 @@ import org.springframework.stereotype.Component;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.Random;
 
 /**
  * 模拟诊断结果生成器
@@ -21,7 +20,7 @@ import java.util.Random;
 public class MockDiagnosisResultGenerator {
 
     private final ObjectMapper objectMapper;
-    private final Random random = new Random();
+    // 使用 ThreadLocalRandom.current() 替代共享 Random 实例，避免多线程竞争
 
     /**
      * 生成模拟的简历诊断结果
@@ -37,20 +36,20 @@ public class MockDiagnosisResultGenerator {
 
             // 1. 基本信息评估
             ObjectNode basicInfo = objectMapper.createObjectNode();
-            basicInfo.put("score", random.nextInt(20) + 70);
+            basicInfo.put("score", java.util.concurrent.ThreadLocalRandom.current().nextInt(20) + 70);
             basicInfo.put("hasName", true);
             basicInfo.put("hasPhone", true);
             basicInfo.put("hasEmail", true);
-            basicInfo.put("hasGithub", random.nextBoolean());
-            basicInfo.put("hasBlog", random.nextBoolean());
+            basicInfo.put("hasGithub", java.util.concurrent.ThreadLocalRandom.current().nextBoolean());
+            basicInfo.put("hasBlog", java.util.concurrent.ThreadLocalRandom.current().nextBoolean());
             result.set("basicInfo", basicInfo);
 
             // 2. 工作经历评估
             ObjectNode workExperience = objectMapper.createObjectNode();
-            workExperience.put("score", random.nextInt(30) + 60);
-            workExperience.put("totalYears", random.nextInt(10) + 1);
-            workExperience.put("companyCount", random.nextInt(4) + 1);
-            workExperience.put("hasQuantifiableResults", random.nextBoolean());
+            workExperience.put("score", java.util.concurrent.ThreadLocalRandom.current().nextInt(30) + 60);
+            workExperience.put("totalYears", java.util.concurrent.ThreadLocalRandom.current().nextInt(10) + 1);
+            workExperience.put("companyCount", java.util.concurrent.ThreadLocalRandom.current().nextInt(4) + 1);
+            workExperience.put("hasQuantifiableResults", java.util.concurrent.ThreadLocalRandom.current().nextBoolean());
             ArrayNode suggestions1 = objectMapper.createArrayNode();
             suggestions1.add("建议增加更多量化成果描述");
             suggestions1.add("工作经历时间线清晰，继续保持");
@@ -59,8 +58,8 @@ public class MockDiagnosisResultGenerator {
 
             // 3. 项目经验评估
             ObjectNode projectExperience = objectMapper.createObjectNode();
-            projectExperience.put("score", random.nextInt(25) + 65);
-            projectExperience.put("projectCount", random.nextInt(5) + 1);
+            projectExperience.put("score", java.util.concurrent.ThreadLocalRandom.current().nextInt(25) + 65);
+            projectExperience.put("projectCount", java.util.concurrent.ThreadLocalRandom.current().nextInt(5) + 1);
             projectExperience.put("hasTechStack", true);
             projectExperience.put("hasResponsibilities", true);
             ArrayNode suggestions2 = objectMapper.createArrayNode();
@@ -70,20 +69,32 @@ public class MockDiagnosisResultGenerator {
 
             // 4. 技能清单评估
             ObjectNode skills = objectMapper.createObjectNode();
-            skills.put("score", random.nextInt(15) + 75);
+            skills.put("score", java.util.concurrent.ThreadLocalRandom.current().nextInt(15) + 75);
             List<String> mockSkills = Arrays.asList("Java", "Spring Boot", "MySQL", "Redis", "Git", "Docker");
             ArrayNode skillList = objectMapper.createArrayNode();
-            int skillCount = random.nextInt(4) + 3;
+            int skillCount = java.util.concurrent.ThreadLocalRandom.current().nextInt(4) + 3;
             for (int i = 0; i < skillCount; i++) {
                 skillList.add(mockSkills.get(i % mockSkills.size()));
             }
             skills.set("skillList", skillList);
             result.set("skills", skills);
 
-            // 5. 总体评价
+            // 5. 个人定位评估
+            ObjectNode positioning = objectMapper.createObjectNode();
+            positioning.put("score", java.util.concurrent.ThreadLocalRandom.current().nextInt(25) + 65);
+            positioning.put("hasSummary", java.util.concurrent.ThreadLocalRandom.current().nextBoolean());
+            positioning.put("hasClearPositioning", java.util.concurrent.ThreadLocalRandom.current().nextBoolean());
+            ArrayNode positioningSuggestions = objectMapper.createArrayNode();
+            positioningSuggestions.add("建议增加个人总结/职业目标描述");
+            positioningSuggestions.add("核心竞争力描述需更突出");
+            positioning.set("suggestions", positioningSuggestions);
+            result.set("positioningEvaluation", positioning);
+
+            // 6. 总体评价
             ObjectNode overall = objectMapper.createObjectNode();
             int totalScore = (basicInfo.get("score").asInt() + workExperience.get("score").asInt()
-                    + projectExperience.get("score").asInt() + skills.get("score").asInt()) / 4;
+                    + projectExperience.get("score").asInt() + skills.get("score").asInt()
+                    + positioning.get("score").asInt()) / 5;
             overall.put("totalScore", totalScore);
             overall.put("level", getLevel(totalScore));
             ArrayNode highlights = objectMapper.createArrayNode();

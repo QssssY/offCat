@@ -1,5 +1,6 @@
 package com.airesume.server.service.impl;
 
+import com.airesume.server.common.constants.InterviewConstants;
 import com.airesume.server.dto.interview.InterviewEvaluationReport;
 import com.airesume.server.dto.interview.InterviewJobTargetContext;
 import com.airesume.server.mock.MockInterviewService;
@@ -15,7 +16,7 @@ import reactor.core.scheduler.Schedulers;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Random;
+import java.util.Map;
 
 /**
  * Mock 模式下的模拟面试 AI 服务实现。
@@ -29,7 +30,7 @@ public class MockInterviewAiServiceImpl implements InterviewAiService {
 
     private final MockInterviewService mockInterviewService;
     private final ObjectMapper objectMapper;
-    private final Random random = new Random();
+    // 使用 ThreadLocalRandom.current() 替代共享 Random 实例，避免多线程竞争
 
     @Override
     public String generateOpening(String jobRole, String jobRoleCode, Integer difficulty,
@@ -41,23 +42,28 @@ public class MockInterviewAiServiceImpl implements InterviewAiService {
 
     @Override
     public String generateReply(String sessionId, List<ChatMessageItem> history, String userMessage,
-                                String jobRoleCode, Integer difficulty, InterviewJobTargetContext jobTargetContext) {
+                                String jobRoleCode, Integer difficulty, InterviewJobTargetContext jobTargetContext,
+                                String feedbackMode, String interviewMode) {
         log.info("[MOCK] 生成面试官回复, sessionId: {}, historySize: {}, targeted: {}",
                 sessionId, history == null ? 0 : history.size(),
                 jobTargetContext != null && Boolean.TRUE.equals(jobTargetContext.getJobTargeted()));
         int messageCount = history == null ? 0 : history.size();
-        return mockInterviewService.generateMockReply(sessionId, userMessage, messageCount, jobTargetContext);
+        String reply = mockInterviewService.generateMockReply(sessionId, userMessage, messageCount, jobTargetContext);
+        return applyStructuredImmediateFeedback(applyPersona(reply, interviewMode), feedbackMode);
     }
 
     @Override
     public Publisher<String> generateReplyStream(String sessionId, List<ChatMessageItem> history, String userMessage,
                                                  String jobRoleCode, Integer difficulty,
-                                                 InterviewJobTargetContext jobTargetContext) {
+                                                 InterviewJobTargetContext jobTargetContext,
+                                                 String feedbackMode, String interviewMode) {
         log.info("[MOCK] 流式生成面试官回复, sessionId: {}, historySize: {}, targeted: {}",
                 sessionId, history == null ? 0 : history.size(),
                 jobTargetContext != null && Boolean.TRUE.equals(jobTargetContext.getJobTargeted()));
         int messageCount = history == null ? 0 : history.size();
-        String fullReply = mockInterviewService.generateMockReply(sessionId, userMessage, messageCount, jobTargetContext);
+        String fullReply = applyStructuredImmediateFeedback(
+                applyPersona(mockInterviewService.generateMockReply(sessionId, userMessage, messageCount, jobTargetContext), interviewMode),
+                feedbackMode);
 
         return Flux.<String>create(sink -> {
             for (int i = 0; i < fullReply.length(); i++) {
@@ -76,6 +82,39 @@ public class MockInterviewAiServiceImpl implements InterviewAiService {
             }
             sink.complete();
         }).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /**
+     * Mock 模式下按固定人设补充语气，保证本地联调能直接看出不同面试官风格。
+     */
+    private String applyPersona(String reply, String interviewMode) {
+        if (com.airesume.server.common.constants.InterviewConstants.MODE_BIG_COMPANY_HR.equalsIgnoreCase(interviewMode)) {
+            return "从 HR 面试角度，我会更关注你的动机、协作和行为案例。"
+                    + (reply == null ? "" : "\n\n" + reply);
+        }
+        if (com.airesume.server.common.constants.InterviewConstants.MODE_TECH_LEADER.equalsIgnoreCase(interviewMode)) {
+            return "从技术 Leader 角度，我会继续追问技术细节、架构取舍和个人贡献。"
+                    + (reply == null ? "" : "\n\n" + reply);
+        }
+        if (com.airesume.server.common.constants.InterviewConstants.MODE_FOREIGN_INTERVIEWER.equalsIgnoreCase(interviewMode)) {
+            return "Let's continue in English. Please keep your answer structured and concise."
+                    + (reply == null ? "" : "\n\n" + reply);
+        }
+        return reply;
+    }
+
+    /**
+     * Mock 模式下也按即时反馈开关补一段短反馈，便于前端和本地联调直接看到差异。
+     */
+    private String applyStructuredImmediateFeedback(String reply, String feedbackMode) {
+        if (!com.airesume.server.common.constants.InterviewConstants.FEEDBACK_MODE_IMMEDIATE.equalsIgnoreCase(feedbackMode)) {
+            return reply;
+        }
+        String safeReply = reply == null ? "" : reply.trim();
+        if (safeReply.contains("<FEEDBACK>")) {
+            return safeReply;
+        }
+        return safeReply + "\n\n<FEEDBACK>\n本题反馈：你的回答方向是对的，但案例细节还不够具体，可以补充场景、个人动作和结果。\n</FEEDBACK>";
     }
 
     @Override
@@ -107,32 +146,54 @@ public class MockInterviewAiServiceImpl implements InterviewAiService {
         log.info("[MOCK] 生成结构化评价报告, sessionId: {}, jobRole: {}, targeted: {}",
                 sessionId, jobRole, targeted);
 
-        int baseScore = 60 + random.nextInt(26);
-        int jobMatchScore = targeted ? 65 + random.nextInt(21) : 60 + random.nextInt(16);
+        int baseScore = 60 + java.util.concurrent.ThreadLocalRandom.current().nextInt(26);
+        int jobMatchScore = targeted ? 65 + java.util.concurrent.ThreadLocalRandom.current().nextInt(21) : 60 + java.util.concurrent.ThreadLocalRandom.current().nextInt(16);
+
+        InterviewEvaluationReport.DimensionScore technicalDepth = buildDimensionScore(baseScore - 5);
+        InterviewEvaluationReport.DimensionScore projectExpression = buildProjectExpressionScore(baseScore, jobTargetContext);
+        InterviewEvaluationReport.DimensionScore communication = buildDimensionScore(baseScore + 5);
+        InterviewEvaluationReport.DimensionScore problemSolving = buildDimensionScore(baseScore - 3);
+        InterviewEvaluationReport.DimensionScore pressureResistance = buildPressureScore(interviewMode, baseScore);
+        InterviewEvaluationReport.DimensionScore jobMatch = buildJobMatchScore(jobMatchScore, targeted, jobTargetContext);
+
+        Map<String, Double> weights = InterviewConstants.getDimensionWeights(difficulty);
+        double weightedScore = 0;
+        if (technicalDepth.getScore() != null) weightedScore += technicalDepth.getScore() * weights.get("technicalDepth");
+        if (projectExpression.getScore() != null) weightedScore += projectExpression.getScore() * weights.get("projectExpression");
+        if (communication.getScore() != null) weightedScore += communication.getScore() * weights.get("communication");
+        if (problemSolving.getScore() != null) weightedScore += problemSolving.getScore() * weights.get("problemSolving");
+        if (pressureResistance.getScore() != null) weightedScore += pressureResistance.getScore() * weights.get("pressureResistance");
+        if (jobMatch.getScore() != null) weightedScore += jobMatch.getScore() * weights.get("jobMatch");
+        int finalScore = (int) Math.round(weightedScore);
 
         return InterviewEvaluationReport.builder()
-                .overallScore(baseScore)
-                .level(calculateLevel(baseScore))
-                .finalVerdict(buildFinalVerdict(baseScore))
-                .summary(buildSummary(baseScore, jobRole, targeted))
-                .strengths(buildStrengths(baseScore, jobTargetContext))
-                .weaknesses(buildWeaknesses(baseScore, jobTargetContext))
-                .criticalIssues(buildCriticalIssues(baseScore))
+                .overallScore(finalScore)
+                .level(calculateLevel(finalScore))
+                .finalVerdict(buildFinalVerdict(finalScore))
+                .summary(buildSummary(finalScore, jobRole, targeted))
+                .strengths(buildStrengths(finalScore, jobTargetContext))
+                .weaknesses(buildWeaknesses(finalScore, jobTargetContext))
+                .criticalIssues(buildCriticalIssues(finalScore))
                 .questionPerformance(buildQuestionPerformance(history))
-                .technicalDepth(buildDimensionScore(baseScore - 5))
-                .communication(buildDimensionScore(baseScore + 5))
-                .problemSolving(buildDimensionScore(baseScore - 3))
-                .pressureResistance(buildPressureScore(interviewMode, baseScore))
-                .jobMatch(buildJobMatchScore(jobMatchScore, targeted, jobTargetContext))
-                .hireRecommendation(calculateHireRecommendation(baseScore))
-                .improvementSuggestions(buildImprovementSuggestions(baseScore, jobTargetContext))
-                .redFlags(buildRedFlags(baseScore))
-                .missingCompetencies(buildMissingCompetencies(baseScore, jobTargetContext))
-                .inflationRisk(buildInflationRisk(baseScore))
-                .answerAuthenticity(buildAnswerAuthenticity(baseScore))
-                .interviewPerformanceTags(buildPerformanceTags(baseScore, targeted))
-                .passProbability(baseScore)
-                .rejectionReasons(buildRejectionReasons(baseScore))
+                .roundReviews(buildRoundReviews(history))
+                .followUpLossPoints(buildFollowUpLossPoints(finalScore))
+                .commonLossPatterns(buildCommonLossPatterns(finalScore))
+                .immediateActions(buildImmediateActions(jobTargetContext))
+                .technicalDepth(technicalDepth)
+                .projectExpression(projectExpression)
+                .communication(communication)
+                .problemSolving(problemSolving)
+                .pressureResistance(pressureResistance)
+                .jobMatch(jobMatch)
+                .hireRecommendation(calculateHireRecommendation(finalScore))
+                .improvementSuggestions(buildImprovementSuggestions(finalScore, jobTargetContext))
+                .redFlags(buildRedFlags(finalScore))
+                .missingCompetencies(buildMissingCompetencies(finalScore, jobTargetContext))
+                .inflationRisk(buildInflationRisk(finalScore))
+                .answerAuthenticity(buildAnswerAuthenticity(finalScore))
+                .interviewPerformanceTags(buildPerformanceTags(finalScore, targeted))
+                .passProbability(finalScore)
+                .rejectionReasons(buildRejectionReasons(finalScore))
                 .build();
     }
 
@@ -254,7 +315,7 @@ public class MockInterviewAiServiceImpl implements InterviewAiService {
                 continue;
             }
 
-            int score = 60 + random.nextInt(26);
+            int score = 60 + java.util.concurrent.ThreadLocalRandom.current().nextInt(26);
             performances.add(InterviewEvaluationReport.QuestionPerformance.builder()
                     .question(trimText(currentQuestion, 100))
                     .answer(trimText(item.content(), 100))
@@ -266,6 +327,113 @@ public class MockInterviewAiServiceImpl implements InterviewAiService {
             questionCount++;
         }
         return performances;
+    }
+
+    /**
+     * 生成 V2 逐轮复盘。
+     * Mock 模式无法做真实语义分析，因此基于问答顺序给出可联调的回放式结构。
+     */
+    private List<InterviewEvaluationReport.RoundReview> buildRoundReviews(List<ChatMessageItem> history) {
+        List<InterviewEvaluationReport.RoundReview> reviews = new ArrayList<>();
+        if (history == null || history.isEmpty()) {
+            return reviews;
+        }
+
+        String currentQuestion = null;
+        int roundNo = 1;
+        for (ChatMessageItem item : history) {
+            if ("assistant".equalsIgnoreCase(item.role()) && reviews.size() < 5) {
+                currentQuestion = item.content();
+                continue;
+            }
+            if (!"user".equalsIgnoreCase(item.role()) || currentQuestion == null || reviews.size() >= 5) {
+                continue;
+            }
+
+            int score = 60 + java.util.concurrent.ThreadLocalRandom.current().nextInt(26);
+            reviews.add(InterviewEvaluationReport.RoundReview.builder()
+                    .roundNo(roundNo)
+                    .question(trimText(currentQuestion, 120))
+                    .answer(trimText(item.content(), 120))
+                    .score(score)
+                    .replayAnalysis(score >= 75
+                            ? "这一轮回答结构较完整，能够围绕问题给出基本判断，但仍可以补充更多可验证的项目细节。"
+                            : "这一轮回答偏概念化，缺少清晰场景、个人动作和结果证据，追问时容易被继续深挖。")
+                    .missedFollowUp(score >= 75
+                            ? "追问时可以进一步补充边界条件和取舍依据。"
+                            : "追问到细节时没有给出足够具体的案例和量化结果。")
+                    .nextPractice("用 STAR 结构重写本轮回答，确保包含场景、动作、结果和复盘。")
+                    .build());
+            currentQuestion = null;
+            roundNo++;
+        }
+        return reviews;
+    }
+
+    /**
+     * 生成追问失分点，用于前端验证深度报告的追问分析展示。
+     */
+    private List<String> buildFollowUpLossPoints(int score) {
+        List<String> points = new ArrayList<>();
+        points.add("被追问实现细节时，回答容易停留在结论，没有展开关键步骤。");
+        if (score < 80) {
+            points.add("面对连续追问时缺少边界条件说明，容易显得经验沉淀不足。");
+        }
+        if (score < 70) {
+            points.add("追问到项目收益或结果时，缺少可量化证据支撑。");
+        }
+        return points;
+    }
+
+    /**
+     * 归纳本次面试的共性失分模式，帮助用户知道优先改哪类问题。
+     */
+    private List<String> buildCommonLossPatterns(int score) {
+        List<String> patterns = new ArrayList<>();
+        patterns.add("回答中多次出现抽象判断，缺少具体业务场景。");
+        if (score < 80) {
+            patterns.add("项目表达没有稳定覆盖背景、动作、结果三要素。");
+        }
+        if (score < 70) {
+            patterns.add("技术问题缺少边界、取舍和失败案例复盘。");
+        }
+        return patterns;
+    }
+
+    /**
+     * 生成三条立即行动建议，保持与真实 AI 报告的字段语义一致。
+     */
+    private List<String> buildImmediateActions(InterviewJobTargetContext context) {
+        List<String> actions = new ArrayList<>();
+        actions.add("明天选 1 个核心项目，用 STAR 结构写出 2 分钟口述稿并录音复听。");
+        actions.add("整理 3 个被追问最多的技术点，每个补充边界条件、失败场景和取舍理由。");
+        if (context != null && context.getMissingKeywords() != null && !context.getMissingKeywords().isEmpty()) {
+            actions.add("围绕缺失关键词“" + context.getMissingKeywords().get(0) + "”补 1 个项目证据或学习案例。");
+        } else {
+            actions.add("把本次最低分问题重答一遍，要求回答里至少出现 1 个量化结果。");
+        }
+        return actions;
+    }
+
+    /**
+     * 构建项目表达维度评分，单独反映项目案例是否讲清楚。
+     */
+    private InterviewEvaluationReport.DimensionScore buildProjectExpressionScore(int baseScore,
+                                                                                 InterviewJobTargetContext context) {
+        int score = Math.max(0, Math.min(100, baseScore - 2));
+        List<String> weaknesses = new ArrayList<>();
+        if (score < 80) {
+            weaknesses.add("项目案例的动作和结果还可以更具体。");
+        }
+        if (context != null && context.getMissingKeywords() != null && !context.getMissingKeywords().isEmpty()) {
+            weaknesses.add("项目表达与目标岗位缺失能力项的映射还不够清晰。");
+        }
+        return InterviewEvaluationReport.DimensionScore.builder()
+                .score(score)
+                .comment(score >= 80 ? "项目表达较完整，能支撑能力判断" : "项目表达基本可理解，但证据密度不足")
+                .strengths(List.of("能围绕已有项目经历组织回答"))
+                .weaknesses(weaknesses)
+                .build();
     }
 
     /**

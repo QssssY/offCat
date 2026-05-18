@@ -10,24 +10,25 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
 
 /**
  * PDF 原生文本提取服务。
- * 仅负责文件校验、页级文本提取和文本清洗，不再直接判定图片型 PDF 失败。
+ * 仅负责文件校验、页级文本提取和文本清洗，不直接决定是否回退 OCR 或多模态。
  */
 @Service
 @Slf4j
 public class PdfTextExtractor {
 
+    private static final String RESUME_UPLOAD_PREFIX = "/uploads/resumes/";
     private static final Pattern MULTI_SPACE = Pattern.compile("\\s{2,}");
     private static final Pattern ZERO_WIDTH = Pattern.compile("[\\u200B-\\u200F\\uFEFF]");
 
     /**
      * 提取整份 PDF 的原生文本。
-     * 如果整份文档完全没有原生文本，则仍然抛出异常，由上层决定是否回退 OCR / 多模态。
      *
      * @param fileUrl 文件访问路径
      * @return 清洗后的整份文本
@@ -37,13 +38,12 @@ public class PdfTextExtractor {
         if (documentText.getText().isBlank()) {
             throw new PdfExtractionException("PDF 原生文本提取结果为空");
         }
-        log.info("PDF 原生文本提取完成, fileUrl: {}, charCount: {}", fileUrl, documentText.getText().length());
+        log.info("PDF native text extracted, fileUrl: {}, charCount: {}", fileUrl, documentText.getText().length());
         return documentText.getText();
     }
 
     /**
      * 提取整份 PDF 的页级文本结果。
-     * 统一解析层会基于页级结果判断哪些页面继续走多模态或 OCR。
      *
      * @param fileUrl 文件访问路径
      * @return 页级文本与整份合并文本
@@ -60,10 +60,10 @@ public class PdfTextExtractor {
     }
 
     /**
-     * 从已加载的 PDDocument 提取页级文本，避免调用方重复加载文件。
+     * 从已加载的 PDDocument 提取页级文本，避免重复加载文件。
      *
-     * @param absolutePath 文件绝对路径，仅用于结果记录
-     * @param document 已打开的 PDDocument，由调用方管理生命周期
+     * @param absolutePath 文件绝对路径，仅用于日志记录
+     * @param document 已打开的 PDF 文档
      * @return 页级文本与整份合并文本
      */
     public PdfDocumentText extractDocument(String absolutePath, PDDocument document) {
@@ -87,7 +87,6 @@ public class PdfTextExtractor {
 
     /**
      * 统一清洗提取结果。
-     * 原生文本、多模态和 OCR 三条链路都复用这套清洗规则。
      *
      * @param raw 原始文本
      * @return 清洗后的文本
@@ -122,14 +121,28 @@ public class PdfTextExtractor {
     }
 
     /**
-     * 统一把上传路径转换为本地绝对路径。
+     * 统一把上传路径转换为项目内可访问的本地绝对路径。
      */
     public String resolveAbsolutePath(String fileUrl) {
-        String normalized = fileUrl.replace("\\", "/");
-        if (normalized.startsWith("/")) {
-            return System.getProperty("user.dir") + normalized;
+        if (fileUrl == null || fileUrl.isBlank()) {
+            throw new PdfExtractionException("PDF file path is empty");
         }
-        return normalized;
+
+        String normalized = fileUrl.replace("\\", "/").trim();
+        if (!normalized.startsWith(RESUME_UPLOAD_PREFIX)) {
+            throw new PdfExtractionException("Illegal PDF file path: " + normalized);
+        }
+
+        // 只允许读取简历上传目录内的文件，防止通过伪造路径越界读取任意系统文件。
+        Path uploadRoot = Paths.get(System.getProperty("user.dir"), "uploads", "resumes")
+                .toAbsolutePath()
+                .normalize();
+        String relativePath = normalized.substring(RESUME_UPLOAD_PREFIX.length());
+        Path resolvedPath = uploadRoot.resolve(relativePath).normalize();
+        if (!resolvedPath.startsWith(uploadRoot)) {
+            throw new PdfExtractionException("Illegal PDF file path: " + normalized);
+        }
+        return resolvedPath.toString();
     }
 
     /**
@@ -138,10 +151,10 @@ public class PdfTextExtractor {
     private void validateFile(String absolutePath) {
         Path path = Path.of(absolutePath);
         if (!Files.exists(path)) {
-            throw new PdfExtractionException("PDF 文件不存在: " + absolutePath);
+            throw new PdfExtractionException("PDF file does not exist: " + absolutePath);
         }
         if (!Files.isReadable(path)) {
-            throw new PdfExtractionException("PDF 文件不可读: " + absolutePath);
+            throw new PdfExtractionException("PDF file is not readable: " + absolutePath);
         }
     }
 

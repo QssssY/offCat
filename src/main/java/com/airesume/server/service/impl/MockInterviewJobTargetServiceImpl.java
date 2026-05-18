@@ -16,6 +16,7 @@ import com.airesume.server.service.MockInterviewJobTargetService;
 import com.airesume.server.service.ResumeContentExtractor;
 import com.airesume.server.service.ResumeJobMatchService;
 import com.airesume.server.service.resume.ResumeParseResult;
+import com.airesume.server.util.TextNormalizeUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -62,7 +63,7 @@ public class MockInterviewJobTargetServiceImpl
         }
 
         Long jobMatchRecordId = parseOptionalLong(request.getJobMatchRecordId(), "岗位对比记录 ID");
-        String jdText = normalizeText(request.getJdText());
+        String jdText = TextNormalizeUtil.normalizeText(request.getJdText());
 
         ResumeJobMatchRecord selectedRecord = resolveJobMatchRecord(
                 userId,
@@ -73,7 +74,7 @@ public class MockInterviewJobTargetServiceImpl
         );
 
         if (jdText.isBlank() && selectedRecord != null) {
-            jdText = normalizeText(selectedRecord.getJdText());
+            jdText = TextNormalizeUtil.normalizeText(selectedRecord.getJdText());
         }
 
         // 没有可用 JD 时，自动回落到普通模拟面试，不强制报错。
@@ -91,13 +92,13 @@ public class MockInterviewJobTargetServiceImpl
         Long resolvedResumeTaskId = resolveResumeTaskIdValue(resumeTaskId, selectedRecord);
         String resumeText = loadResumeText(userId, resolvedResumeTaskId);
         if (resumeText.isBlank() && selectedRecord != null) {
-            resumeText = normalizeText(selectedRecord.getResumeText());
+            resumeText = TextNormalizeUtil.normalizeText(selectedRecord.getResumeText());
         }
         if (resumeText.isBlank()) {
             InterviewJobTargetContext latestResumeContext = buildGeneralResumeContext(userId, null);
             if (latestResumeContext != null) {
                 resolvedResumeTaskId = parseOptionalLong(latestResumeContext.getResumeTaskId(), "简历任务 ID");
-                resumeText = normalizeText(latestResumeContext.getResumeText());
+                resumeText = TextNormalizeUtil.normalizeText(latestResumeContext.getResumeText());
             }
         }
 
@@ -182,7 +183,7 @@ public class MockInterviewJobTargetServiceImpl
         }
         String resumeText = loadResumeText(userId, record.getResumeTaskId());
         if (resumeText.isBlank() && jobMatchRecord != null) {
-            resumeText = normalizeText(jobMatchRecord.getResumeText());
+            resumeText = TextNormalizeUtil.normalizeText(jobMatchRecord.getResumeText());
         }
         context.setResumeText(resumeText);
 
@@ -280,7 +281,7 @@ public class MockInterviewJobTargetServiceImpl
         if (useLatestJobMatch) {
             return latestRecord;
         }
-        if (!jdText.isBlank() && Objects.equals(normalizeText(latestRecord.getJdText()), jdText)) {
+        if (!jdText.isBlank() && Objects.equals(TextNormalizeUtil.normalizeText(latestRecord.getJdText()), jdText)) {
             return latestRecord;
         }
         if (jdText.isBlank()) {
@@ -304,7 +305,7 @@ public class MockInterviewJobTargetServiceImpl
             throw new BusinessException("无权访问该简历诊断任务");
         }
         if (task.getResumeText() != null && !task.getResumeText().isBlank()) {
-            return normalizeText(task.getResumeText());
+            return TextNormalizeUtil.normalizeText(task.getResumeText());
         }
         if (task.getFileUrl() == null || task.getFileUrl().isBlank()) {
             return "";
@@ -315,7 +316,7 @@ public class MockInterviewJobTargetServiceImpl
             task.setParseMode(parseResult.getParseMode());
             task.setParseMessage(parseResult.getParseMessage());
             resumeDiagnosisTaskMapper.updateById(task);
-            return normalizeText(parseResult.getText());
+            return TextNormalizeUtil.normalizeText(parseResult.getText());
         } catch (Exception e) {
             log.warn("提取简历文本失败, userId: {}, resumeTaskId: {}", userId, resumeTaskId, e);
             return "";
@@ -464,15 +465,4 @@ public class MockInterviewJobTargetServiceImpl
         }
     }
 
-    private String normalizeText(String text) {
-        if (text == null) {
-            return "";
-        }
-        return text.replace("\r\n", "\n")
-                .replace('\r', '\n')
-                .replace('\t', ' ')
-                .replaceAll("[\\u200B-\\u200F\\uFEFF]", "")
-                .replaceAll(" {2,}", " ")
-                .trim();
-    }
 }

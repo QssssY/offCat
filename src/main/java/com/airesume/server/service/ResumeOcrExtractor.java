@@ -12,6 +12,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -46,6 +48,8 @@ public class ResumeOcrExtractor {
 
         Path imagePath = null;
         Path outputBase = null;
+        ExecutorService outputReaderExecutor = null;
+        Process process = null;
         try {
             imagePath = Files.createTempFile("resume-ocr-", ".png");
             outputBase = Files.createTempFile("resume-ocr-out-", "");
@@ -60,15 +64,28 @@ public class ResumeOcrExtractor {
                     resumeParseConfig.getOcr().getLang()
             );
 
-            Process process = new ProcessBuilder(command)
+            process = new ProcessBuilder(command)
                     .redirectErrorStream(true)
                     .start();
-            String processOutput = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            // 在独立线程中读取进程输出，避免 readAllBytes 阻塞导致 waitFor 超时无效
+            Process capturedProcess = process;
+            outputReaderExecutor = java.util.concurrent.Executors.newSingleThreadExecutor();
+            Future<String> outputFuture = outputReaderExecutor.submit(
+                    () -> new String(capturedProcess.getInputStream().readAllBytes(), StandardCharsets.UTF_8)
+            );
             // OCR 超时 30 秒，防止 Tesseract 卡死阻塞线程。
             boolean finished = process.waitFor(30, TimeUnit.SECONDS);
             if (!finished) {
                 process.destroyForcibly();
+                outputFuture.cancel(true);
                 throw new RuntimeException("Tesseract 执行超时（30秒），已强制终止");
+            }
+            String processOutput;
+            try {
+                processOutput = outputFuture.get(5, TimeUnit.SECONDS);
+            } catch (java.util.concurrent.TimeoutException | java.util.concurrent.ExecutionException readEx) {
+                String reason = readEx.getCause() != null ? readEx.getCause().getMessage() : readEx.getMessage();
+                throw new RuntimeException("读取 Tesseract 输出失败: " + reason, readEx);
             }
             int exitCode = process.exitValue();
             if (exitCode != 0) {
@@ -86,6 +103,13 @@ public class ResumeOcrExtractor {
             Thread.currentThread().interrupt();
             throw new RuntimeException("OCR 执行被中断", e);
         } finally {
+            // 确保进程资源被释放，防止进程泄漏
+            if (process != null) {
+                process.destroy();
+            }
+            if (outputReaderExecutor != null) {
+                outputReaderExecutor.shutdownNow();
+            }
             deleteQuietly(imagePath);
             deleteQuietly(outputBase);
             if (outputBase != null) {

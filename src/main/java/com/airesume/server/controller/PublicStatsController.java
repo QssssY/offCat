@@ -1,23 +1,14 @@
 package com.airesume.server.controller;
 
 import com.airesume.server.common.result.Result;
-import com.airesume.server.entity.InterviewSession;
-import com.airesume.server.entity.ResumeDiagnosisTask;
-import com.airesume.server.entity.SysUser;
-import com.airesume.server.mapper.InterviewSessionMapper;
-import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
-import com.airesume.server.mapper.SysUserMapper;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.airesume.server.service.PublicStatsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 /**
  * 公开统计接口（无需登录）
@@ -29,13 +20,7 @@ import java.util.concurrent.TimeUnit;
 @RequiredArgsConstructor
 public class PublicStatsController {
 
-    private static final String STATS_CACHE_KEY = "public:stats";
-    private static final long STATS_CACHE_TTL_MINUTES = 5;
-
-    private final SysUserMapper sysUserMapper;
-    private final ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper;
-    private final InterviewSessionMapper interviewSessionMapper;
-    private final RedisTemplate<String, Object> redisTemplate;
+    private final PublicStatsService publicStatsService;
 
     /**
      * 获取平台公开统计数据
@@ -44,49 +29,6 @@ public class PublicStatsController {
      */
     @GetMapping
     public Result<Map<String, Long>> getPublicStats() {
-        // 尝试从缓存读取
-        try {
-            Object cached = redisTemplate.opsForValue().get(STATS_CACHE_KEY);
-            if (cached instanceof Map<?, ?> rawMap) {
-                Map<String, Long> stats = new HashMap<>();
-                rawMap.forEach((k, v) -> {
-                    if (k instanceof String && v instanceof Number) {
-                        stats.put((String) k, ((Number) v).longValue());
-                    }
-                });
-                if (stats.size() == 3) return Result.success(stats);
-            }
-        } catch (Exception e) {
-            log.warn("读取公开统计缓存失败，降级查询数据库", e);
-        }
-
-        // 用户总数（@TableLogic 自动过滤已删除记录）
-        long userCount = sysUserMapper.selectCount(new LambdaQueryWrapper<SysUser>());
-
-        // 简历诊断完成数（status=2 表示已完成）
-        long diagnosisCount = resumeDiagnosisTaskMapper.selectCount(
-                new LambdaQueryWrapper<ResumeDiagnosisTask>()
-                        .eq(ResumeDiagnosisTask::getStatus, 2)
-        );
-
-        // 模拟面试完成数（status=1 表示已结束）
-        long interviewCount = interviewSessionMapper.selectCount(
-                new LambdaQueryWrapper<InterviewSession>()
-                        .eq(InterviewSession::getStatus, 1)
-        );
-
-        Map<String, Long> stats = new HashMap<>();
-        stats.put("userCount", userCount);
-        stats.put("diagnosisCount", diagnosisCount);
-        stats.put("interviewCount", interviewCount);
-
-        // 写入缓存
-        try {
-            redisTemplate.opsForValue().set(STATS_CACHE_KEY, stats, STATS_CACHE_TTL_MINUTES, TimeUnit.MINUTES);
-        } catch (Exception e) {
-            log.warn("写入公开统计缓存失败", e);
-        }
-
-        return Result.success(stats);
+        return Result.success(publicStatsService.getPublicStats());
     }
 }

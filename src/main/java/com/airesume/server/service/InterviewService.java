@@ -8,6 +8,7 @@ import com.airesume.server.dto.interview.CreateSessionRequest;
 import com.airesume.server.dto.interview.InterviewEvaluationReport;
 import com.airesume.server.dto.interview.InterviewHistoryResponse;
 import com.airesume.server.dto.interview.InterviewJobTargetContext;
+import com.airesume.server.dto.interview.InterviewReplayRoundResponse;
 import com.airesume.server.dto.interview.InterviewSessionResponse;
 import com.airesume.server.dto.interview.SendMessageRequest;
 import com.airesume.server.dto.interview.SendMessageResponse;
@@ -41,11 +42,13 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 /**
@@ -86,6 +89,9 @@ public class InterviewService {
 
         InterviewJobTargetContext jobTargetContext = mockInterviewJobTargetService.resolveContext(userId, request);
         String interviewMode = resolveInterviewMode(request.getInterviewMode(), jobTargetContext);
+        String feedbackMode = resolveFeedbackMode(request.getFeedbackMode());
+        log.info("创建面试会话配置解析完成, userId: {}, requestFeedbackMode: {}, resolvedFeedbackMode: {}, requestInterviewMode: {}, resolvedInterviewMode: {}",
+                userId, request.getFeedbackMode(), feedbackMode, request.getInterviewMode(), interviewMode);
 
         InterviewSession session = new InterviewSession();
         session.setId(IdWorker.getId());
@@ -95,6 +101,7 @@ public class InterviewService {
         session.setJobRoleCode(request.getJobRoleCode());
         session.setDifficulty(request.getDifficulty());
         session.setInterviewMode(interviewMode);
+        session.setFeedbackMode(feedbackMode);
         session.setStatus(InterviewConstants.STATUS_IN_PROGRESS);
         session.setOpeningGenerated(0);
         session.setCreateTime(LocalDateTime.now());
@@ -110,14 +117,15 @@ public class InterviewService {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    generateOpeningAsync(session.getSessionId(), userId, request, jobTargetContext);
+                    generateOpeningAsync(session.getSessionId(), userId, request, jobTargetContext, interviewMode);
                 }
             });
         } else {
-            generateOpeningAsync(session.getSessionId(), userId, request, jobTargetContext);
+            generateOpeningAsync(session.getSessionId(), userId, request, jobTargetContext, interviewMode);
         }
 
-        log.info("面试会话创建成功(开场白异步生成中), sessionId: {}, userId: {}", session.getSessionId(), userId);
+        log.info("面试会话创建成功(开场白异步生成中), sessionId: {}, userId: {}, feedbackMode: {}",
+                session.getSessionId(), userId, feedbackMode);
         InterviewSessionResponse response = convertToSessionResponse(session, jobTargetContext);
         response.setOpeningPending(true);
         return response;
@@ -131,27 +139,22 @@ public class InterviewService {
             String sessionId,
             Long userId,
             CreateSessionRequest request,
-            InterviewJobTargetContext jobTargetContext
+            InterviewJobTargetContext jobTargetContext,
+            String interviewMode
     ) {
         CompletableFuture.runAsync(() -> {
             try {
                 // 硬编码开场白模板，不调用 AI
-                String difficultyDesc = switch (request.getDifficulty() == null ? 2 : request.getDifficulty()) {
-                    case 1 -> "初级";
-                    case 3 -> "高级";
-                    default -> "中级";
-                };
+                String difficultyDesc = com.airesume.server.common.constants.InterviewConstants.getDifficultyLabel(request.getDifficulty() == null ? 2 : request.getDifficulty());
                 boolean hasResume = jobTargetContext != null
                         && jobTargetContext.getResumeText() != null
                         && !jobTargetContext.getResumeText().isBlank();
                 String resumeHint = hasResume ? "我已经看过你的简历，" : "";
-                String stressHint = "stress".equalsIgnoreCase(request.getInterviewMode())
-                        ? "需要提前说明，这是一场压力面试，我会对你的回答进行深入追问和质疑，请做好准备。"
-                        : "";
+                String personaHint = buildOpeningPersonaHint(interviewMode);
                 String openingMessage = String.format(InterviewConstants.OPENING_TEMPLATE,
                         difficultyDesc,
                         request.getJobRole() != null ? request.getJobRole() : "软件工程师",
-                        resumeHint) + stressHint;
+                        resumeHint) + personaHint;
 
                 // 使用事务模板确保所有数据库操作在事务中
                 transactionTemplate.executeWithoutResult(status -> {
@@ -212,6 +215,9 @@ public class InterviewService {
                 .map(log -> new InterviewAiService.ChatMessageItem(log.getMessageRole(), log.getContent()))
                 .toList();
         InterviewJobTargetContext jobTargetContext = resolveConversationContext(userId, sessionId);
+        String resolvedFeedbackMode = resolveFeedbackMode(request.getFeedbackMode(), session);
+        log.info("发送面试消息配置解析完成, sessionId: {}, requestFeedbackMode: {}, sessionFeedbackMode: {}, resolvedFeedbackMode: {}",
+                sessionId, request.getFeedbackMode(), session.getFeedbackMode(), resolvedFeedbackMode);
 
         String reply = interviewAiService.generateReply(
                 sessionId,
@@ -219,7 +225,9 @@ public class InterviewService {
                 request.getContent(),
                 session.getJobRoleCode(),
                 session.getDifficulty(),
-                jobTargetContext
+                jobTargetContext,
+                resolvedFeedbackMode,
+                session.getInterviewMode()
         );
 
         interviewMessageService.saveMessage(session, InterviewConstants.ROLE_USER, request.getContent());
@@ -347,13 +355,20 @@ public class InterviewService {
 
         Integer finalScore = score;
         String finalReportJson = evaluationReportJson;
-        transactionTemplate.executeWithoutResult(status -> interviewSessionRepository.updateEvaluationReport(
+        final int[] updatedRows = {0};
+        transactionTemplate.executeWithoutResult(status -> updatedRows[0] = interviewSessionRepository.updateEvaluationReportIfAbsent(
                 sessionId,
                 finalScore,
                 finalReportJson,
                 InterviewConstants.STATUS_ENDED,
                 LocalDateTime.now()
         ));
+
+        // 只允许首个异步结果落库，避免并发结束同一场面试时互相覆盖评估报告。
+        if (updatedRows[0] == 0) {
+            log.info("面试评估报告已存在，跳过重复回写, sessionId: {}", sessionId);
+            return;
+        }
 
         // 创建模拟面试完成通知
         notificationService.createNotification(
@@ -410,6 +425,17 @@ public class InterviewService {
             throw new BusinessException("开场白正在生成中，请稍候再发送消息");
         }
 
+        // 流式回答断线后可能重复请求同一条消息；若最新一条仍是相同用户消息，则直接跳过，避免重复落库。
+        InterviewChatLog latestMessage = interviewMessageRepository
+                .findFirstBySessionIdOrderByCreateTimeDesc(sessionId)
+                .orElse(null);
+        if (latestMessage != null
+                && InterviewConstants.ROLE_USER.equalsIgnoreCase(latestMessage.getMessageRole())
+                && Objects.equals(latestMessage.getContent(), content)) {
+            log.warn("检测到重复的流式用户消息，跳过写入, sessionId: {}, userId: {}", sessionId, userId);
+            return;
+        }
+
         InterviewChatLog userMessage = new InterviewChatLog();
         userMessage.setId(IdWorker.getId());
         userMessage.setSessionId(sessionId);
@@ -430,18 +456,36 @@ public class InterviewService {
             Publisher<String> publisher,
             StringBuilder fullReply
     ) throws IOException {
-        Subscription[] subscriptionRef = new Subscription[1];
+        AtomicReference<Subscription> subscriptionRef = new AtomicReference<>();
         AtomicBoolean done = new AtomicBoolean(false);
+        AtomicBoolean streamClosed = new AtomicBoolean(false);
+
+        // SSE 连接关闭后立即取消订阅，避免 AI 流继续占用线程与网络资源。
+        emitter.onTimeout(() -> {
+            if (cancelActiveStream(sessionId, streamClosed, done, subscriptionRef, "timeout")) {
+                emitter.complete();
+            }
+        });
+        emitter.onCompletion(() -> cancelActiveStream(sessionId, streamClosed, done, subscriptionRef, "completion"));
+        emitter.onError(error -> cancelActiveStream(sessionId, streamClosed, done, subscriptionRef, "error"));
 
         publisher.subscribe(new Subscriber<>() {
             @Override
             public void onSubscribe(Subscription s) {
-                subscriptionRef[0] = s;
+                subscriptionRef.set(s);
+                if (streamClosed.get()) {
+                    s.cancel();
+                    return;
+                }
                 s.request(Long.MAX_VALUE);
             }
 
             @Override
             public void onNext(String item) {
+                if (streamClosed.get()) {
+                    cancelActiveStream(sessionId, streamClosed, done, subscriptionRef, "emitter_closed_before_chunk");
+                    return;
+                }
                 if (item == null || item.isBlank()) {
                     return;
                 }
@@ -451,22 +495,23 @@ public class InterviewService {
                     String jsonData = "{\"type\":\"content\",\"content\":\"" + escaped + "\"}";
                     emitter.send("event: message\ndata: " + jsonData + "\n\n");
                 } catch (IOException e) {
-                    log.warn("SSE 发送失败，取消订阅, sessionId: {}, error: {}", sessionId, e.getMessage());
-                    if (subscriptionRef[0] != null) {
-                        subscriptionRef[0].cancel();
-                    }
+                    log.warn("SSE send failed, cancel subscription, sessionId: {}, error: {}", sessionId, e.getMessage());
+                    cancelActiveStream(sessionId, streamClosed, done, subscriptionRef, "send_failed");
                 }
             }
 
             @Override
             public void onError(Throwable t) {
+                if (streamClosed.get()) {
+                    return;
+                }
                 if (done.compareAndSet(false, true)) {
                     try {
-                        String errorMsg = escapeJsonForSse(t.getMessage() == null ? "系统异常" : t.getMessage());
+                        String errorMsg = escapeJsonForSse(t.getMessage() == null ? "System error" : t.getMessage());
                         String jsonData = "{\"type\":\"error\",\"message\":\"" + errorMsg + "\"}";
                         emitter.send("event: message\ndata: " + jsonData + "\n\n");
                     } catch (Exception ex) {
-                        log.warn("SSE 发送错误事件失败, sessionId: {}", sessionId, ex);
+                        log.warn("SSE error event send failed, sessionId: {}", sessionId, ex);
                     } finally {
                         emitter.completeWithError(t);
                     }
@@ -475,29 +520,31 @@ public class InterviewService {
 
             @Override
             public void onComplete() {
+                if (streamClosed.get()) {
+                    return;
+                }
                 if (done.compareAndSet(false, true)) {
                     try {
                         if (fullReply.isEmpty()) {
-                            String jsonData = "{\"type\":\"error\",\"message\":\"AI 回复内容为空，请稍后重试\"}";
+                            String jsonData = "{\"type\":\"error\",\"message\":\"AI response is empty, please retry later\"}";
                             emitter.send("event: message\ndata: " + jsonData + "\n\n");
                             emitter.complete();
                             return;
                         }
 
+                        persistAssistantMessage(sessionId, fullReply.toString());
                         emitter.send("event: message\ndata: {\"type\":\"done\"}\n\n");
                         emitter.complete();
-
-                        InterviewChatLog assistantMessage = new InterviewChatLog();
-                        assistantMessage.setId(IdWorker.getId());
-                        assistantMessage.setSessionId(sessionId);
-                        assistantMessage.setMessageRole(InterviewConstants.ROLE_ASSISTANT);
-                        assistantMessage.setContent(fullReply.toString());
-                        assistantMessage.setCreateTime(LocalDateTime.now());
-                        assistantMessage.setUpdateTime(LocalDateTime.now());
-                        assistantMessage.setIsDeleted(0);
-                        interviewMessageRepository.save(assistantMessage);
                     } catch (Exception e) {
-                        log.error("流式结束时保存 assistant 消息失败, sessionId: {}", sessionId, e);
+                        log.error("Failed to persist assistant message after stream, sessionId: {}", sessionId, e);
+                        try {
+                            String errorMsg = escapeJsonForSse("Failed to persist message, please refresh conversation history");
+                            String jsonData = "{\"type\":\"error\",\"message\":\"" + errorMsg + "\"}";
+                            emitter.send("event: message\ndata: " + jsonData + "\n\n");
+                        } catch (Exception ex) {
+                            log.warn("SSE error event send failed, sessionId: {}", sessionId, ex);
+                        }
+                        emitter.completeWithError(e);
                     }
                 }
             }
@@ -505,8 +552,43 @@ public class InterviewService {
     }
 
     /**
-     * 校验创建请求。
+     * 流式链路一旦关闭，就同时终止订阅，避免后续 token 继续生成。
      */
+    private boolean cancelActiveStream(String sessionId,
+                                       AtomicBoolean streamClosed,
+                                       AtomicBoolean done,
+                                       AtomicReference<Subscription> subscriptionRef,
+                                       String reason) {
+        if (done.get()) {
+            streamClosed.set(true);
+            return false;
+        }
+        if (!streamClosed.compareAndSet(false, true)) {
+            return false;
+        }
+        done.set(true);
+        Subscription subscription = subscriptionRef.getAndSet(null);
+        if (subscription != null) {
+            subscription.cancel();
+        }
+        log.info("SSE stream cancelled, sessionId: {}, reason: {}", sessionId, reason);
+        return true;
+    }
+
+    private void persistAssistantMessage(String sessionId, String content) {
+        transactionTemplate.executeWithoutResult(status -> {
+            InterviewChatLog assistantMessage = new InterviewChatLog();
+            assistantMessage.setId(IdWorker.getId());
+            assistantMessage.setSessionId(sessionId);
+            assistantMessage.setMessageRole(InterviewConstants.ROLE_ASSISTANT);
+            assistantMessage.setContent(content);
+            assistantMessage.setCreateTime(LocalDateTime.now());
+            assistantMessage.setUpdateTime(LocalDateTime.now());
+            assistantMessage.setIsDeleted(0);
+            interviewMessageRepository.save(assistantMessage);
+        });
+    }
+
     private void validateCreateRequest(CreateSessionRequest request) {
         if (request.getJobRole() == null || request.getJobRole().trim().isEmpty()) {
             throw new BusinessException("面试岗位不能为空");
@@ -523,15 +605,17 @@ public class InterviewService {
      * 规范化面试模式。
      */
     private String resolveInterviewMode(String interviewMode, InterviewJobTargetContext jobTargetContext) {
-        if (jobTargetContext != null && Boolean.TRUE.equals(jobTargetContext.getJobTargeted())) {
+        String lowerMode = interviewMode == null ? "" : interviewMode.toLowerCase().trim();
+        // 岗位定向可以叠加固定人设；历史未传人设时才回落到 job_targeted 展示语义。
+        if ((lowerMode.isBlank() || InterviewConstants.MODE_NORMAL.equals(lowerMode))
+                && jobTargetContext != null && Boolean.TRUE.equals(jobTargetContext.getJobTargeted())) {
             return InterviewConstants.MODE_JOB_TARGETED;
         }
-        if (interviewMode == null || interviewMode.isBlank()) {
+        if (lowerMode.isBlank()) {
             return InterviewConstants.MODE_NORMAL;
         }
-        String lowerMode = interviewMode.toLowerCase().trim();
-        return InterviewConstants.MODE_STRESS.equals(lowerMode)
-                ? InterviewConstants.MODE_STRESS
+        return InterviewConstants.isSupportedInterviewMode(lowerMode)
+                ? lowerMode
                 : InterviewConstants.MODE_NORMAL;
     }
 
@@ -545,6 +629,15 @@ public class InterviewService {
         if (InterviewConstants.MODE_STRESS.equals(interviewMode)) {
             return "压力面试";
         }
+        if (InterviewConstants.MODE_BIG_COMPANY_HR.equals(interviewMode)) {
+            return "大厂 HR 面";
+        }
+        if (InterviewConstants.MODE_TECH_LEADER.equals(interviewMode)) {
+            return "技术 Leader 面";
+        }
+        if (InterviewConstants.MODE_FOREIGN_INTERVIEWER.equals(interviewMode)) {
+            return "外企面试官";
+        }
         return "普通面试";
     }
 
@@ -553,13 +646,58 @@ public class InterviewService {
      * 兼容历史数据中“岗位定向=true，但面试模式仍为 normal”的旧记录。
      */
     private String resolveResponseInterviewMode(String storedInterviewMode, InterviewJobTargetContext jobTargetContext) {
-        if (jobTargetContext != null && Boolean.TRUE.equals(jobTargetContext.getJobTargeted())) {
+        String normalizedMode = storedInterviewMode == null ? "" : storedInterviewMode.toLowerCase().trim();
+        if ((normalizedMode.isBlank() || InterviewConstants.MODE_NORMAL.equals(normalizedMode))
+                && jobTargetContext != null && Boolean.TRUE.equals(jobTargetContext.getJobTargeted())) {
             return InterviewConstants.MODE_JOB_TARGETED;
         }
-        if (storedInterviewMode == null || storedInterviewMode.isBlank()) {
+        if (normalizedMode.isBlank()) {
             return InterviewConstants.MODE_NORMAL;
         }
-        return storedInterviewMode;
+        return InterviewConstants.isSupportedInterviewMode(normalizedMode)
+                ? normalizedMode
+                : InterviewConstants.MODE_NORMAL;
+    }
+
+    /**
+     * 根据固定人设补充开场语气提示。
+     * 开场白仍走硬编码模板，不额外调用 AI，避免创建会话时增加 token 消耗。
+     */
+    private String buildOpeningPersonaHint(String interviewMode) {
+        if (InterviewConstants.MODE_STRESS.equals(interviewMode)) {
+            return "需要提前说明，这是一场压力面试，我会对你的回答进行深入追问和质疑，请做好准备。";
+        }
+        if (InterviewConstants.MODE_BIG_COMPANY_HR.equals(interviewMode)) {
+            return "接下来我会更关注你的行为经历、团队协作和文化匹配。";
+        }
+        if (InterviewConstants.MODE_TECH_LEADER.equals(interviewMode)) {
+            return "接下来我会重点追问技术细节、项目取舍和你的个人贡献。";
+        }
+        if (InterviewConstants.MODE_FOREIGN_INTERVIEWER.equals(interviewMode)) {
+            return "This interview will be conducted mainly in English, and I will pay attention to your communication logic.";
+        }
+        return "";
+    }
+
+    /**
+     * 规范化即时反馈开关。
+     * 该值只影响本次 AI 回复，不写入会话表，避免扩大存储范围。
+     */
+    public String resolveFeedbackMode(String feedbackMode) {
+        return resolveFeedbackMode(feedbackMode, null);
+    }
+
+    /**
+     * 解析反馈模式。优先使用请求参数，其次读会话记录值，最后兜底默认值。
+     */
+    public String resolveFeedbackMode(String feedbackMode, InterviewSession session) {
+        if (InterviewConstants.FEEDBACK_MODE_IMMEDIATE.equalsIgnoreCase(feedbackMode)) {
+            return InterviewConstants.FEEDBACK_MODE_IMMEDIATE;
+        }
+        if (session != null && InterviewConstants.FEEDBACK_MODE_IMMEDIATE.equalsIgnoreCase(session.getFeedbackMode())) {
+            return InterviewConstants.FEEDBACK_MODE_IMMEDIATE;
+        }
+        return InterviewConstants.FEEDBACK_MODE_AFTER_INTERVIEW;
     }
 
     /**
@@ -598,6 +736,7 @@ public class InterviewService {
                 .comprehensiveScore(session.getComprehensiveScore())
                 .jobTargeted(jobTargetContext != null && Boolean.TRUE.equals(jobTargetContext.getJobTargeted()))
                 .jobTargetContext(jobTargetContext)
+                .feedbackMode(resolveFeedbackMode(null, session))
                 .openingPending(openingPending)
                 .createTime(session.getCreateTime())
                 .updateTime(session.getUpdateTime())
@@ -639,11 +778,59 @@ public class InterviewService {
                 .evaluationReport(session.getEvaluationReport())
                 .jobTargeted(jobTargetContext != null && Boolean.TRUE.equals(jobTargetContext.getJobTargeted()))
                 .jobTargetContext(jobTargetContext)
+                .feedbackMode(resolveFeedbackMode(null, session))
                 .chatLogs(dtoLogs)
+                .replayRounds(buildReplayRounds(chatLogs))
                 .openingPending(session.getOpeningGenerated() == null || session.getOpeningGenerated() == 0)
                 .createTime(session.getCreateTime())
                 .updateTime(session.getUpdateTime())
                 .build();
+    }
+
+    /**
+     * 从原始聊天记录派生“问题-回答-反馈”回放轮次。
+     * 同一条 assistant 消息既是上一轮反馈，也可能是下一轮追问，因此不新增存储，只在返回时组织视图数据。
+     */
+    private List<InterviewReplayRoundResponse> buildReplayRounds(List<InterviewChatLog> chatLogs) {
+        if (chatLogs == null || chatLogs.isEmpty()) {
+            return List.of();
+        }
+
+        List<InterviewReplayRoundResponse> rounds = new java.util.ArrayList<>();
+        InterviewChatLog currentQuestion = null;
+        InterviewReplayRoundResponse pendingRound = null;
+
+        for (InterviewChatLog log : chatLogs) {
+            if (log == null || log.getMessageRole() == null || log.getContent() == null || log.getContent().isBlank()) {
+                continue;
+            }
+            if (InterviewConstants.ROLE_ASSISTANT.equalsIgnoreCase(log.getMessageRole())) {
+                if (pendingRound != null && pendingRound.getFeedbackContent() == null) {
+                    pendingRound.setFeedbackMessageId(log.getId());
+                    pendingRound.setFeedbackContent(log.getContent());
+                    pendingRound.setFeedbackTime(log.getCreateTime());
+                }
+                currentQuestion = log;
+                continue;
+            }
+            if (!InterviewConstants.ROLE_USER.equalsIgnoreCase(log.getMessageRole()) || currentQuestion == null) {
+                continue;
+            }
+
+            InterviewReplayRoundResponse round = InterviewReplayRoundResponse.builder()
+                    .roundNo(rounds.size() + 1)
+                    .questionMessageId(currentQuestion.getId())
+                    .questionContent(currentQuestion.getContent())
+                    .answerMessageId(log.getId())
+                    .answerContent(log.getContent())
+                    .answerTime(log.getCreateTime())
+                    .build();
+            rounds.add(round);
+            pendingRound = round;
+            currentQuestion = null;
+        }
+
+        return rounds;
     }
 
     /**
@@ -694,6 +881,7 @@ public class InterviewService {
                 .comprehensiveScore(session.getComprehensiveScore())
                 .messageCount(messageCount == null ? 0 : messageCount)
                 .jobTargeted(jobTargetContext != null && Boolean.TRUE.equals(jobTargetContext.getJobTargeted()))
+                .feedbackMode(resolveFeedbackMode(null, session))
                 .sourceType(jobTargetContext == null ? null : jobTargetContext.getSourceType())
                 .createTime(session.getCreateTime())
                 .updateTime(session.getUpdateTime())
@@ -722,6 +910,13 @@ public class InterviewService {
                 .weaknesses(Boolean.TRUE.equals(jobTargetContext != null ? jobTargetContext.getJobTargeted() : false)
                         ? List.of("岗位要求与案例关联仍可加强")
                         : List.of("案例细节不够充分"))
+                .followUpLossPoints(List.of("追问到项目细节时，回答需要补充更多事实证据"))
+                .commonLossPatterns(List.of("回答结构具备基础框架，但项目证据和结果量化不足"))
+                .immediateActions(List.of(
+                        "明天选 1 个核心项目，按 STAR 结构重写 2 分钟回答",
+                        "整理 3 个可能被追问的技术细节，每个补充边界和取舍理由",
+                        "回看本次记录，标出 1 个最空泛回答并补充量化结果"
+                ))
                 .improvementSuggestions(Boolean.TRUE.equals(jobTargetContext != null ? jobTargetContext.getJobTargeted() : false)
                         ? List.of("补充与目标岗位最相关的项目证据", "强化对 JD 关键能力项的量化表达")
                         : List.of("补充更多项目细节", "提升回答的结构化程度"))
@@ -731,6 +926,27 @@ public class InterviewService {
                 .improvements(Boolean.TRUE.equals(jobTargetContext != null ? jobTargetContext.getJobTargeted() : false)
                         ? List.of("加强岗位匹配表达")
                         : List.of("加强案例细节表达"))
+                .technicalDepth(InterviewEvaluationReport.DimensionScore.builder()
+                        .score(score)
+                        .comment("兜底报告仅提供基础技术深度判断，建议结合原始问答继续复盘。")
+                        .build())
+                .projectExpression(InterviewEvaluationReport.DimensionScore.builder()
+                        .score(score)
+                        .comment("项目表达需要进一步补充场景、个人动作和结果证据。")
+                        .weaknesses(List.of("案例细节和结果量化不足"))
+                        .build())
+                .communication(InterviewEvaluationReport.DimensionScore.builder()
+                        .score(score)
+                        .comment("表达具备基础结构，但需要减少泛化描述。")
+                        .build())
+                .problemSolving(InterviewEvaluationReport.DimensionScore.builder()
+                        .score(score)
+                        .comment("问题拆解有基础框架，仍需补充取舍依据。")
+                        .build())
+                .pressureResistance(InterviewEvaluationReport.DimensionScore.builder()
+                        .score(score)
+                        .comment("兜底报告暂不做复杂抗压细分。")
+                        .build())
                 .jobMatch(InterviewEvaluationReport.DimensionScore.builder()
                         .score(Boolean.TRUE.equals(jobTargetContext != null ? jobTargetContext.getJobTargeted() : false) ? score : null)
                         .comment(Boolean.TRUE.equals(jobTargetContext != null ? jobTargetContext.getJobTargeted() : false)
@@ -775,12 +991,7 @@ public class InterviewService {
         if (difficulty == null) {
             return "未知";
         }
-        return switch (difficulty) {
-            case 1 -> "初级";
-            case 2 -> "中级";
-            case 3 -> "高级";
-            default -> "未知";
-        };
+        return com.airesume.server.common.constants.InterviewConstants.getDifficultyLabel(difficulty);
     }
 
     /**

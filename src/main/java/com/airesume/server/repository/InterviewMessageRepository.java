@@ -8,6 +8,7 @@ import org.springframework.stereotype.Repository;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 面试消息仓储
@@ -30,6 +31,8 @@ public interface InterviewMessageRepository extends JpaRepository<InterviewChatL
      * 根据会话ID查询所有消息（按时间降序）
      */
     List<InterviewChatLog> findBySessionIdOrderByCreateTimeDesc(String sessionId);
+
+    Optional<InterviewChatLog> findFirstBySessionIdOrderByCreateTimeDesc(String sessionId);
 
     /**
      * 根据会话ID统计消息数量
