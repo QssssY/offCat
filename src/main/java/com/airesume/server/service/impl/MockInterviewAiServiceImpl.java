@@ -12,8 +12,8 @@ import org.reactivestreams.Publisher;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
-import reactor.core.scheduler.Schedulers;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -43,45 +43,39 @@ public class MockInterviewAiServiceImpl implements InterviewAiService {
     @Override
     public String generateReply(String sessionId, List<ChatMessageItem> history, String userMessage,
                                 String jobRoleCode, Integer difficulty, InterviewJobTargetContext jobTargetContext,
-                                String feedbackMode, String interviewMode) {
+                                String feedbackMode, String interviewMode, Integer interactionType) {
         log.info("[MOCK] 生成面试官回复, sessionId: {}, historySize: {}, targeted: {}",
                 sessionId, history == null ? 0 : history.size(),
                 jobTargetContext != null && Boolean.TRUE.equals(jobTargetContext.getJobTargeted()));
         int messageCount = history == null ? 0 : history.size();
         String reply = mockInterviewService.generateMockReply(sessionId, userMessage, messageCount, jobTargetContext);
-        return applyStructuredImmediateFeedback(applyPersona(reply, interviewMode), feedbackMode);
+        return applyVoiceInstructionToMockReply(applyStructuredImmediateFeedback(applyPersona(reply, interviewMode), feedbackMode), interactionType);
     }
 
     @Override
     public Publisher<String> generateReplyStream(String sessionId, List<ChatMessageItem> history, String userMessage,
                                                  String jobRoleCode, Integer difficulty,
                                                  InterviewJobTargetContext jobTargetContext,
-                                                 String feedbackMode, String interviewMode) {
+                                                 String feedbackMode, String interviewMode, Integer interactionType) {
         log.info("[MOCK] 流式生成面试官回复, sessionId: {}, historySize: {}, targeted: {}",
                 sessionId, history == null ? 0 : history.size(),
                 jobTargetContext != null && Boolean.TRUE.equals(jobTargetContext.getJobTargeted()));
         int messageCount = history == null ? 0 : history.size();
-        String fullReply = applyStructuredImmediateFeedback(
+        String fullReply = applyVoiceInstructionToMockReply(applyStructuredImmediateFeedback(
                 applyPersona(mockInterviewService.generateMockReply(sessionId, userMessage, messageCount, jobTargetContext), interviewMode),
-                feedbackMode);
+                feedbackMode), interactionType);
 
-        return Flux.<String>create(sink -> {
-            for (int i = 0; i < fullReply.length(); i++) {
-                sink.next(fullReply.substring(i, i + 1));
-                if (Thread.currentThread().isInterrupted()) {
-                    sink.error(new RuntimeException("流式输出被中断"));
-                    return;
-                }
-                try {
-                    Thread.sleep(20);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    sink.error(new RuntimeException("流式输出被中断"));
-                    return;
-                }
-            }
-            sink.complete();
-        }).subscribeOn(Schedulers.boundedElastic());
+        // 使用 Flux.interval 按 20ms 节奏吐字，避免在 boundedElastic 线程上 Thread.sleep 造成线程阻塞。
+        // 500 字回复在旧实现下会阻塞工作线程约 10 秒，并发面试时容易耗尽 boundedElastic 池。
+        return Flux.interval(Duration.ofMillis(20))
+                .map(tick -> {
+                    int index = tick.intValue();
+                    if (index >= fullReply.length()) {
+                        return "";
+                    }
+                    return fullReply.substring(index, index + 1);
+                })
+                .takeWhile(chunk -> !chunk.isEmpty());
     }
 
     /**
@@ -115,6 +109,20 @@ public class MockInterviewAiServiceImpl implements InterviewAiService {
             return safeReply;
         }
         return safeReply + "\n\n<FEEDBACK>\n本题反馈：你的回答方向是对的，但案例细节还不够具体，可以补充场景、个人动作和结果。\n</FEEDBACK>";
+    }
+
+    /**
+     * Mock 模式下也压缩语音面试回复长度，方便本地联调 TTS 逐句播报。
+     */
+    private String applyVoiceInstructionToMockReply(String reply, Integer interactionType) {
+        if (!Integer.valueOf(InterviewConstants.INTERACTION_TYPE_VOICE).equals(interactionType)) {
+            return reply;
+        }
+        String safeReply = reply == null ? "" : reply.trim();
+        if (safeReply.isBlank()) {
+            return "好的，我们继续。请用一两句话补充你的具体做法。";
+        }
+        return safeReply.replace("：", "，");
     }
 
     @Override

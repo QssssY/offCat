@@ -82,6 +82,11 @@ public class InterviewHistoryResponse {
     private String feedbackMode;
 
     /**
+     * 交互方式：0-文字面试，1-语音面试。
+     */
+    private Integer interactionType;
+
+    /**
      * 岗位定向来源类型。
      */
     private String sourceType;

@@ -40,6 +40,13 @@ public class InterviewSessionServiceImpl extends ServiceImpl<InterviewSessionMap
         return buildSessionResponse(session, chatMessageResponses);
     }
 
+    /**
+     * 历史记录最大返回条数。
+     * 限定单次查询的最大规模，避免长期使用后历史被无界拉取造成内存与传输压力。
+     * 分页能力请改用 InterviewService#getHistory。
+     */
+    private static final int MAX_HISTORY_LIMIT = 100;
+
     @Override
     public List<InterviewHistoryResponse> getHistoryByUserId(Long userId) {
         log.info("Getting interview history, userId: {}", userId);
@@ -47,6 +54,7 @@ public class InterviewSessionServiceImpl extends ServiceImpl<InterviewSessionMap
         LambdaQueryWrapper<InterviewSession> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(InterviewSession::getUserId, userId);
         wrapper.orderByDesc(InterviewSession::getCreateTime);
+        wrapper.last("LIMIT " + MAX_HISTORY_LIMIT);
 
         List<InterviewSession> sessions = list(wrapper);
         List<InterviewHistoryResponse> history = sessions.stream()
@@ -110,6 +118,9 @@ public class InterviewSessionServiceImpl extends ServiceImpl<InterviewSessionMap
                 .statusDesc(getStatusDescription(session.getStatus()))
                 .comprehensiveScore(session.getComprehensiveScore())
                 .evaluationReport(session.getEvaluationReport())
+                .interactionType(session.getInteractionType() == null
+                        ? InterviewConstants.INTERACTION_TYPE_TEXT
+                        : session.getInteractionType())
                 .chatLogs(chatLogs)
                 .createTime(session.getCreateTime())
                 .updateTime(session.getUpdateTime())
@@ -126,6 +137,9 @@ public class InterviewSessionServiceImpl extends ServiceImpl<InterviewSessionMap
                 .status(session.getStatus())
                 .statusDesc(getStatusDescription(session.getStatus()))
                 .comprehensiveScore(session.getComprehensiveScore())
+                .interactionType(session.getInteractionType() == null
+                        ? InterviewConstants.INTERACTION_TYPE_TEXT
+                        : session.getInteractionType())
                 .createTime(session.getCreateTime())
                 .updateTime(session.getUpdateTime())
                 .build();

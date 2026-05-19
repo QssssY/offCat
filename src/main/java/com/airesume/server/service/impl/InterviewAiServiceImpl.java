@@ -42,10 +42,12 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.FluxSink;
 import reactor.core.scheduler.Schedulers;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -56,6 +58,20 @@ public class InterviewAiServiceImpl implements InterviewAiService {
 
     private static final String INTERVIEW_AI_BREAKER = "interview-ai";
     private static final String INTERVIEW_STREAM_BREAKER = "interview-ai-stream";
+
+    /**
+     * AI 服务白名单 host 集合。
+     * 安全考虑：DB / 配置文件读取的 baseUrl 必须命中此白名单，否则一律回退到 provider 默认地址，
+     * 避免管理后台被攻破或 DB 写权限滥用时把请求指向内网元数据端点造成 SSRF。
+     */
+    private static final Set<String> TRUSTED_AI_HOSTS = Set.of(
+            "ark.cn-beijing.volces.com",
+            "dashscope.aliyuncs.com",
+            "qianfan.baidubce.com",
+            "api.deepseek.com",
+            "api.minimax.chat",
+            "api.openai.com"
+    );
 
     private final RestClient restClient;
     private final WebClient webClient;
@@ -168,10 +184,16 @@ public class InterviewAiServiceImpl implements InterviewAiService {
 
     private String resolveBaseUrl(String provider, String configuredUrl) {
         if (configuredUrl != null && !configuredUrl.isBlank()) {
-            log.debug("使用用户配置的 baseUrl: {}", configuredUrl);
-            return configuredUrl;
+            // 仅接受白名单 host 的 baseUrl，避免 DB 或外部配置被篡改后指向内网/元数据端点造成 SSRF。
+            if (isTrustedAiBaseUrl(configuredUrl)) {
+                log.debug("使用用户配置的 baseUrl: {}", configuredUrl);
+                return configuredUrl;
+            }
+            log.warn("拒绝不在白名单的 baseUrl，回退到 provider 默认地址, provider: {}, rejectedUrl: {}",
+                    provider, configuredUrl);
+        } else {
+            log.debug("用户未配置 baseUrl，使用默认值");
         }
-        log.debug("用户未配置 baseUrl，使用默认值");
         return switch (provider) {
             case "doubao", "openai" -> "https://ark.cn-beijing.volces.com/api/v3";
             case "qwen" -> "https://dashscope.aliyuncs.com/compatible-mode/v3";
@@ -180,6 +202,29 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             case "minimax" -> "https://api.minimax.chat/v2";
             default -> "https://ark.cn-beijing.volces.com/api/v3";
         };
+    }
+
+    /**
+     * 校验 baseUrl 是否落在受信 AI 服务商 host 白名单内。
+     * 同时要求使用 HTTPS，避免明文上传 API Key。
+     */
+    private boolean isTrustedAiBaseUrl(String baseUrl) {
+        try {
+            URI uri = URI.create(baseUrl.trim());
+            String scheme = uri.getScheme();
+            String host = uri.getHost();
+            if (scheme == null || host == null) {
+                return false;
+            }
+            if (!"https".equalsIgnoreCase(scheme)) {
+                return false;
+            }
+            String normalizedHost = host.toLowerCase(Locale.ROOT);
+            return TRUSTED_AI_HOSTS.contains(normalizedHost);
+        } catch (IllegalArgumentException e) {
+            log.warn("baseUrl 不是合法 URI，已拒绝: {}, error: {}", baseUrl, e.getMessage());
+            return false;
+        }
     }
 
     private String getApiKey() {
@@ -226,7 +271,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                                  String jobRoleCode, Integer difficulty,
                                  InterviewJobTargetContext jobTargetContext,
                                  String feedbackMode,
-                                 String interviewMode) {
+                                 String interviewMode,
+                                 Integer interactionType) {
         RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
         String tag = runtimeConfig.provider().toUpperCase();
 
@@ -256,13 +302,18 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 difficulty,
                 resolvedInterviewMode,
                 jobTargetContext,
-                feedbackMode
+                feedbackMode,
+                interactionType
         );
 
         try {
             return chatWithMessages(messages);
         } catch (Exception e) {
             if (shouldFallbackToLocalMock(e)) {
+                // 网络异常/Key 缺失等基础设施故障会回落到本地 Mock，必须用 ERROR 日志显式告警，
+                // 让运维能在真 AI 不可用时第一时间感知。
+                log.error("[{}] 真 AI 调用失败，本次回复将回落到本地 Mock, sessionId: {}, reason: {}",
+                        tag, sessionId, e.getMessage());
                 return buildReplyFallback(tag, sessionId, userMessage, compressedHistory, jobTargetContext, feedbackMode, resolvedInterviewMode, e);
             }
             log.error("[{}] 生成回复失败, sessionId: {}", tag, sessionId, e);
@@ -275,7 +326,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                                                    String jobRoleCode, Integer difficulty,
                                                    InterviewJobTargetContext jobTargetContext,
                                                    String feedbackMode,
-                                                   String interviewMode) {
+                                                   String interviewMode,
+                                                   Integer interactionType) {
         RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
         String tag = runtimeConfig.provider().toUpperCase();
 
@@ -304,11 +356,16 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 difficulty,
                 resolvedInterviewMode,
                 jobTargetContext,
-                feedbackMode
+                feedbackMode,
+                interactionType
         );
 
         String apiKey = runtimeConfig.apiKey();
         if (apiKey == null || apiKey.isBlank()) {
+            // 真 AI 模式下 API Key 缺失会静默回落到本地 Mock 字符流，必须用 ERROR 日志显式告警，
+            // 防止运维不知情地把生产长期跑在 Mock 上。
+            log.error("[{}] 真 AI 模式下 API Key 缺失，本次流式回复将回落到本地 Mock。请检查管理端激活的 AI 引擎配置或环境变量 DOUBAO_API_KEY/API_KEY/AI_API_KEY",
+                    tag);
             return buildReplyFallbackStream(
                     tag,
                     sessionId,
@@ -1149,10 +1206,11 @@ public class InterviewAiServiceImpl implements InterviewAiService {
 
     private List<Message> buildConversationMessages(List<ChatMessageItem> history, String currentUserMessage, String jobRole,
                                                     String jobRoleCode, Integer difficulty, String interviewMode,
-                                                    InterviewJobTargetContext jobTargetContext, String feedbackMode) {
+                                                    InterviewJobTargetContext jobTargetContext, String feedbackMode,
+                                                    Integer interactionType) {
         java.util.List<Message> messages = new java.util.ArrayList<>();
 
-        String systemPrompt = buildSystemPromptFromJobRole(history, jobRole, jobRoleCode, difficulty, interviewMode, jobTargetContext, feedbackMode);
+        String systemPrompt = buildSystemPromptFromJobRole(history, jobRole, jobRoleCode, difficulty, interviewMode, jobTargetContext, feedbackMode, interactionType);
         messages.add(new Message("system", systemPrompt));
 
         int historyUserCount = 0;
@@ -1285,7 +1343,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
 
     private String buildSystemPromptFromJobRole(List<ChatMessageItem> history, String jobRole, String jobRoleCode, Integer difficulty,
                                                 String interviewMode, InterviewJobTargetContext jobTargetContext,
-                                                String feedbackMode) {
+                                                String feedbackMode, Integer interactionType) {
         String resolvedJobRole = jobRole;
         if (resolvedJobRole == null || resolvedJobRole.isBlank()) {
             resolvedJobRole = mapJobRoleCodeToName(jobRoleCode);
@@ -1304,23 +1362,27 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         if (resolvedJobRole == null || resolvedJobRole.isBlank()) {
             resolvedJobRole = "软件工程师";
         }
-        return buildSystemPrompt(resolvedJobRole, jobRoleCode, difficulty, interviewMode, jobTargetContext, feedbackMode);
+        return buildSystemPrompt(resolvedJobRole, jobRoleCode, difficulty, interviewMode, jobTargetContext, feedbackMode, interactionType);
     }
 
     private String buildSystemPrompt(String jobRole, String jobRoleCode, Integer difficulty,
-                                     String interviewMode, InterviewJobTargetContext jobTargetContext, String feedbackMode) {
+                                     String interviewMode, InterviewJobTargetContext jobTargetContext, String feedbackMode,
+                                     Integer interactionType) {
+        String voiceInstruction = buildVoiceInteractionInstruction(interactionType);
         if (InterviewConstants.FEEDBACK_MODE_IMMEDIATE.equalsIgnoreCase(feedbackMode)) {
             log.info("使用每题反馈独立 Prompt, jobRole: {}, difficulty: {}", jobRole, difficulty);
             return buildImmediateFeedbackSystemPrompt(jobRole, difficulty)
                     + buildJobTargetInstruction(jobTargetContext, jobRole)
-                    + buildInterviewerPersonaInstruction(interviewMode);
+                    + buildInterviewerPersonaInstruction(interviewMode)
+                    + voiceInstruction;
         }
         // 压力面试：使用独立的硬编码 prompt，不查数据库
         if ("stress".equalsIgnoreCase(interviewMode)) {
             log.info("使用压力面试 Prompt, jobRole: {}, difficulty: {}", jobRole, difficulty);
             return buildStressSystemPrompt(jobRole, difficulty)
                     + buildJobTargetInstruction(jobTargetContext, jobRole)
-                    + buildInterviewerPersonaInstruction(interviewMode);
+                    + buildInterviewerPersonaInstruction(interviewMode)
+                    + voiceInstruction;
         }
         // 普通面试：原有逻辑不变
         SysPrompt dbPrompt = null;
@@ -1333,12 +1395,31 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                     jobRoleCode, difficulty, dbPrompt.getId());
             return dbPrompt.getPromptContent()
                     + buildJobTargetInstruction(jobTargetContext, jobRole)
-                    + buildInterviewerPersonaInstruction(interviewMode);
+                    + buildInterviewerPersonaInstruction(interviewMode)
+                    + voiceInstruction;
         }
         log.debug("使用硬编码兜底 Prompt, jobRole: {}, difficulty: {}", jobRole, difficulty);
         return buildDefaultSystemPrompt(jobRole, difficulty)
                 + buildJobTargetInstruction(jobTargetContext, jobRole)
-                + buildInterviewerPersonaInstruction(interviewMode);
+                + buildInterviewerPersonaInstruction(interviewMode)
+                + voiceInstruction;
+    }
+
+    /**
+     * 语音面试专用输出约束。
+     * 说明：语音模式会逐句朗读 SSE 内容，因此必须避免 Markdown、表格和长段落影响播报体验。
+     */
+    private String buildVoiceInteractionInstruction(Integer interactionType) {
+        if (!Integer.valueOf(InterviewConstants.INTERACTION_TYPE_VOICE).equals(interactionType)) {
+            return "";
+        }
+        return """
+
+                【语音面试输出要求】
+                当前为语音面试模式。请使用口语化、简洁、适合直接朗读的方式回复。
+                每次回复控制在 3-5 句话以内，只问一个主问题；避免 Markdown、代码块、表格、编号清单和复杂符号。
+                回答结束时使用句号、问号或感叹号，便于前端按句子边界进行语音播报。
+                """;
     }
 
     /**

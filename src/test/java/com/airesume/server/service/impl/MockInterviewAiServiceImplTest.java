@@ -76,7 +76,7 @@ class MockInterviewAiServiceImplTest {
                 .thenReturn("请继续讲一个具体项目。");
         MockInterviewAiServiceImpl service = new MockInterviewAiServiceImpl(mockInterviewService, new ObjectMapper());
 
-        String reply = service.generateReply("session-4", List.of(), "我的回答", "java", 2, null, "immediate", "normal");
+        String reply = service.generateReply("session-4", List.of(), "我的回答", "java", 2, null, "immediate", "normal", 0);
 
         assertTrue(reply.startsWith("请继续讲一个具体项目。"));
         assertTrue(reply.contains("<FEEDBACK>"));
@@ -92,7 +92,7 @@ class MockInterviewAiServiceImplTest {
                 .thenReturn("请继续讲一个具体项目。");
         MockInterviewAiServiceImpl service = new MockInterviewAiServiceImpl(mockInterviewService, new ObjectMapper());
 
-        String reply = service.generateReply("session-5", List.of(), "我的回答", "java", 2, null, "after_interview", "tech_leader");
+        String reply = service.generateReply("session-5", List.of(), "我的回答", "java", 2, null, "after_interview", "tech_leader", 0);
 
         assertTrue(reply.startsWith("从技术 Leader 角度"));
         assertTrue(reply.contains("请继续讲一个具体项目。"));

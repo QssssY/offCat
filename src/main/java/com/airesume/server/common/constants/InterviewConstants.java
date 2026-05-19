@@ -143,7 +143,7 @@ public class InterviewConstants {
     public static final String MODE_FOREIGN_INTERVIEWER = "foreign_interviewer";
 
     /**
-     * 每���即时反馈模式。
+     * 每题即时反馈模式。
      */
     public static final String FEEDBACK_MODE_IMMEDIATE = "immediate";
 
@@ -156,6 +156,16 @@ public class InterviewConstants {
      * 反馈模式默认值。
      */
     public static final String FEEDBACK_MODE_DEFAULT = FEEDBACK_MODE_AFTER_INTERVIEW;
+
+    /**
+     * 交互方式：文字面试。
+     */
+    public static final int INTERACTION_TYPE_TEXT = 0;
+
+    /**
+     * 交互方式：语音面试。
+     */
+    public static final int INTERACTION_TYPE_VOICE = 1;
 
     /**
      * 面试开场白模板。
@@ -183,6 +193,15 @@ public class InterviewConstants {
         return MODE_BIG_COMPANY_HR.equals(interviewMode)
                 || MODE_TECH_LEADER.equals(interviewMode)
                 || MODE_FOREIGN_INTERVIEWER.equals(interviewMode);
+    }
+
+    /**
+     * 判断是否为支持的交互方式。
+     * 说明：交互方式会写入会话表，必须拒绝未知值，避免后续前端和 AI Prompt 分支不可控。
+     */
+    public static boolean isSupportedInteractionType(Integer interactionType) {
+        return interactionType != null
+                && (interactionType == INTERACTION_TYPE_TEXT || interactionType == INTERACTION_TYPE_VOICE);
     }
 
     private InterviewConstants() {

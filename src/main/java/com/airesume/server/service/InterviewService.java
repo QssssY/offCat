@@ -87,11 +87,16 @@ public class InterviewService {
             throw new BusinessException("模拟面试次数已用完");
         }
 
+        // 先做原子 CAS 扣减，避免同一用户并发 createSession 双双通过 check 后双双 INSERT 又只能扣一次。
+        // 若 CAS 失败会抛 BusinessException，由 @Transactional 统一回滚，此时尚未插入会话记录。
+        userQuotaService.deductInterviewQuota(userId);
+
         InterviewJobTargetContext jobTargetContext = mockInterviewJobTargetService.resolveContext(userId, request);
         String interviewMode = resolveInterviewMode(request.getInterviewMode(), jobTargetContext);
         String feedbackMode = resolveFeedbackMode(request.getFeedbackMode());
-        log.info("创建面试会话配置解析完成, userId: {}, requestFeedbackMode: {}, resolvedFeedbackMode: {}, requestInterviewMode: {}, resolvedInterviewMode: {}",
-                userId, request.getFeedbackMode(), feedbackMode, request.getInterviewMode(), interviewMode);
+        Integer interactionType = resolveInteractionType(request.getInteractionType());
+        log.info("创建面试会话配置解析完成, userId: {}, requestFeedbackMode: {}, resolvedFeedbackMode: {}, requestInterviewMode: {}, resolvedInterviewMode: {}, interactionType: {}",
+                userId, request.getFeedbackMode(), feedbackMode, request.getInterviewMode(), interviewMode, interactionType);
 
         InterviewSession session = new InterviewSession();
         session.setId(IdWorker.getId());
@@ -102,14 +107,12 @@ public class InterviewService {
         session.setDifficulty(request.getDifficulty());
         session.setInterviewMode(interviewMode);
         session.setFeedbackMode(feedbackMode);
+        session.setInteractionType(interactionType);
         session.setStatus(InterviewConstants.STATUS_IN_PROGRESS);
         session.setOpeningGenerated(0);
         session.setCreateTime(LocalDateTime.now());
         session.setUpdateTime(LocalDateTime.now());
         interviewSessionRepository.saveAndFlush(session);
-
-        // 仅在会话成功创建后扣减次数，避免无效扣费。
-        userQuotaService.deductInterviewQuota(userId);
 
         // 事务提交后异步生成开场白，避免前端长时间等待 AI 响应。
         if (TransactionSynchronizationManager.isActualTransactionActive()
@@ -227,7 +230,8 @@ public class InterviewService {
                 session.getDifficulty(),
                 jobTargetContext,
                 resolvedFeedbackMode,
-                session.getInterviewMode()
+                session.getInterviewMode(),
+                resolveInteractionType(session.getInteractionType())
         );
 
         interviewMessageService.saveMessage(session, InterviewConstants.ROLE_USER, request.getContent());
@@ -242,6 +246,7 @@ public class InterviewService {
     /**
      * 查询会话详情。
      */
+    @Transactional(readOnly = true)
     public InterviewSessionResponse getSessionDetail(Long userId, String sessionId) {
         InterviewSession session = getSessionByOwnerOrThrow(sessionId, userId);
         List<InterviewChatLog> chatLogs = interviewMessageService.getMessageList(sessionId);
@@ -380,6 +385,7 @@ public class InterviewService {
     /**
      * 历史记录分页查询。
      */
+    @Transactional(readOnly = true)
     public PageResult<InterviewHistoryResponse> getHistory(Long userId, Integer pageNum, Integer pageSize) {
         Pageable pageable = PageRequest.of(pageNum - 1, pageSize, Sort.by(Sort.Direction.DESC, "createTime"));
         Page<InterviewSession> page = interviewSessionRepository.findByUserId(userId, pageable);
@@ -391,6 +397,7 @@ public class InterviewService {
      * 兼容旧版全量历史接口。
      */
     @Deprecated
+    @Transactional(readOnly = true)
     public List<InterviewHistoryResponse> getAllHistory(Long userId) {
         List<InterviewSession> sessions = interviewSessionRepository.findByUserIdOrderByCreateTimeDesc(userId);
         return buildHistoryResponses(userId, sessions);
@@ -416,6 +423,7 @@ public class InterviewService {
     /**
      * 流式发送前统一拉取历史并校验状态。
      */
+    @Transactional(readOnly = true)
     public List<InterviewChatLog> getChatLogsForStream(String sessionId, Long userId) {
         InterviewSession session = getSessionByOwnerOrThrow(sessionId, userId);
         assertSessionInProgress(session);
@@ -425,6 +433,7 @@ public class InterviewService {
     /**
      * 流式发送前二次校验会话状态。
      */
+    @Transactional(readOnly = true)
     public void validateSessionForStream(String sessionId, Long userId) {
         InterviewSession session = getSessionByOwnerOrThrow(sessionId, userId);
         assertSessionInProgress(session);
@@ -466,25 +475,18 @@ public class InterviewService {
 
     /**
      * 订阅并写出 SSE 数据。
+     * 注意：调用方需先通过 {@link #attachStreamLifecycleCallbacks} 把 streamClosed 注册到 emitter 上，
+     * 这里只接收已注册好的同一份 streamClosed，避免控制层与服务层重复注册 onTimeout/onCompletion/onError 导致回调互相覆盖。
      */
     public void subscribeAndWriteStream(
             String sessionId,
             ResponseBodyEmitter emitter,
             Publisher<String> publisher,
-            StringBuilder fullReply
+            StringBuilder fullReply,
+            AtomicBoolean streamClosed
     ) throws IOException {
         AtomicReference<Subscription> subscriptionRef = new AtomicReference<>();
         AtomicBoolean done = new AtomicBoolean(false);
-        AtomicBoolean streamClosed = new AtomicBoolean(false);
-
-        // SSE 连接关闭后立即取消订阅，避免 AI 流继续占用线程与网络资源。
-        emitter.onTimeout(() -> {
-            if (cancelActiveStream(sessionId, streamClosed, done, subscriptionRef, "timeout")) {
-                emitter.complete();
-            }
-        });
-        emitter.onCompletion(() -> cancelActiveStream(sessionId, streamClosed, done, subscriptionRef, "completion"));
-        emitter.onError(error -> cancelActiveStream(sessionId, streamClosed, done, subscriptionRef, "error"));
 
         publisher.subscribe(new Subscriber<>() {
             @Override
@@ -512,7 +514,7 @@ public class InterviewService {
                     String jsonData = "{\"type\":\"content\",\"content\":\"" + escaped + "\"}";
                     emitter.send("event: message\ndata: " + jsonData + "\n\n");
                 } catch (IOException e) {
-                    log.warn("SSE send failed, cancel subscription, sessionId: {}, error: {}", sessionId, e.getMessage());
+                    log.warn("SSE 推送失败，取消订阅, sessionId: {}, error: {}", sessionId, e.getMessage());
                     cancelActiveStream(sessionId, streamClosed, done, subscriptionRef, "send_failed");
                 }
             }
@@ -523,12 +525,13 @@ public class InterviewService {
                     return;
                 }
                 if (done.compareAndSet(false, true)) {
+                    // 安全考虑：不把上游异常详情透传给前端，只记录服务端日志。
+                    log.warn("SSE 上游异常, sessionId: {}", sessionId, t);
                     try {
-                        String errorMsg = escapeJsonForSse(t.getMessage() == null ? "System error" : t.getMessage());
-                        String jsonData = "{\"type\":\"error\",\"message\":\"" + errorMsg + "\"}";
+                        String jsonData = "{\"type\":\"error\",\"message\":\"AI 服务暂时不可用，请稍后重试\"}";
                         emitter.send("event: message\ndata: " + jsonData + "\n\n");
                     } catch (Exception ex) {
-                        log.warn("SSE error event send failed, sessionId: {}", sessionId, ex);
+                        log.warn("SSE 错误事件发送失败, sessionId: {}", sessionId, ex);
                     } finally {
                         emitter.completeWithError(t);
                     }
@@ -543,7 +546,7 @@ public class InterviewService {
                 if (done.compareAndSet(false, true)) {
                     try {
                         if (fullReply.isEmpty()) {
-                            String jsonData = "{\"type\":\"error\",\"message\":\"AI response is empty, please retry later\"}";
+                            String jsonData = "{\"type\":\"error\",\"message\":\"AI 回复为空，请稍后重试\"}";
                             emitter.send("event: message\ndata: " + jsonData + "\n\n");
                             emitter.complete();
                             return;
@@ -553,17 +556,45 @@ public class InterviewService {
                         emitter.send("event: message\ndata: {\"type\":\"done\"}\n\n");
                         emitter.complete();
                     } catch (Exception e) {
-                        log.error("Failed to persist assistant message after stream, sessionId: {}", sessionId, e);
+                        log.error("SSE 完成后落库 assistant 消息失败, sessionId: {}", sessionId, e);
                         try {
-                            String errorMsg = escapeJsonForSse("Failed to persist message, please refresh conversation history");
-                            String jsonData = "{\"type\":\"error\",\"message\":\"" + errorMsg + "\"}";
+                            String jsonData = "{\"type\":\"error\",\"message\":\"消息保存失败，请刷新会话历史\"}";
                             emitter.send("event: message\ndata: " + jsonData + "\n\n");
                         } catch (Exception ex) {
-                            log.warn("SSE error event send failed, sessionId: {}", sessionId, ex);
+                            log.warn("SSE 错误事件发送失败, sessionId: {}", sessionId, ex);
                         }
                         emitter.completeWithError(e);
                     }
                 }
+            }
+        });
+    }
+
+    /**
+     * 统一注册 SSE 生命周期回调。
+     * ResponseBodyEmitter 每类回调只保留最后一次注册，因此必须由本方法独家持有 onTimeout/onCompletion/onError，
+     * 防止 controller 与 service 各自重复注册导致回调互相覆盖、streamClosed 状态分裂。
+     */
+    public void attachStreamLifecycleCallbacks(String sessionId,
+                                               ResponseBodyEmitter emitter,
+                                               AtomicBoolean streamClosed) {
+        emitter.onTimeout(() -> {
+            if (streamClosed.compareAndSet(false, true)) {
+                log.info("SSE 连接超时，停止后续处理, sessionId: {}", sessionId);
+                try {
+                    emitter.complete();
+                } catch (Exception e) {
+                    log.warn("SSE 超时关闭失败, sessionId: {}", sessionId, e);
+                }
+            }
+        });
+        emitter.onCompletion(() -> {
+            streamClosed.set(true);
+            log.debug("SSE 连接正常完成, sessionId: {}", sessionId);
+        });
+        emitter.onError(error -> {
+            if (streamClosed.compareAndSet(false, true)) {
+                log.warn("SSE 连接异常关闭, sessionId: {}", sessionId, error);
             }
         });
     }
@@ -616,6 +647,21 @@ public class InterviewService {
         if (request.getDifficulty() == null || request.getDifficulty() < 1 || request.getDifficulty() > 3) {
             throw new BusinessException("难度级别必须在 1-3 之间");
         }
+        if (request.getInteractionType() != null
+                && !InterviewConstants.isSupportedInteractionType(request.getInteractionType())) {
+            throw new BusinessException("交互方式只能是文字或语音");
+        }
+    }
+
+    /**
+     * 规范化交互方式。
+     * 空值或非语音值都按文字面试处理；非 0/1 已在创建入口拦截，历史脏数据也统一按文字面试回显。
+     */
+    public Integer resolveInteractionType(Integer interactionType) {
+        if (interactionType != null && interactionType == InterviewConstants.INTERACTION_TYPE_VOICE) {
+            return InterviewConstants.INTERACTION_TYPE_VOICE;
+        }
+        return InterviewConstants.INTERACTION_TYPE_TEXT;
     }
 
     /**
@@ -754,6 +800,7 @@ public class InterviewService {
                 .jobTargeted(jobTargetContext != null && Boolean.TRUE.equals(jobTargetContext.getJobTargeted()))
                 .jobTargetContext(jobTargetContext)
                 .feedbackMode(resolveFeedbackMode(null, session))
+                .interactionType(resolveInteractionType(session.getInteractionType()))
                 .openingPending(openingPending)
                 .createTime(session.getCreateTime())
                 .updateTime(session.getUpdateTime())
@@ -796,6 +843,7 @@ public class InterviewService {
                 .jobTargeted(jobTargetContext != null && Boolean.TRUE.equals(jobTargetContext.getJobTargeted()))
                 .jobTargetContext(jobTargetContext)
                 .feedbackMode(resolveFeedbackMode(null, session))
+                .interactionType(resolveInteractionType(session.getInteractionType()))
                 .chatLogs(dtoLogs)
                 .replayRounds(buildReplayRounds(chatLogs))
                 .openingPending(session.getOpeningGenerated() == null || session.getOpeningGenerated() == 0)
@@ -899,6 +947,7 @@ public class InterviewService {
                 .messageCount(messageCount == null ? 0 : messageCount)
                 .jobTargeted(jobTargetContext != null && Boolean.TRUE.equals(jobTargetContext.getJobTargeted()))
                 .feedbackMode(resolveFeedbackMode(null, session))
+                .interactionType(resolveInteractionType(session.getInteractionType()))
                 .sourceType(jobTargetContext == null ? null : jobTargetContext.getSourceType())
                 .createTime(session.getCreateTime())
                 .updateTime(session.getUpdateTime())

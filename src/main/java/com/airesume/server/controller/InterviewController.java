@@ -2,6 +2,7 @@ package com.airesume.server.controller;
 
 import com.airesume.server.common.result.PageResult;
 import com.airesume.server.common.result.Result;
+import com.airesume.server.common.constants.InterviewConstants;
 import com.airesume.server.dto.interview.CreateSessionRequest;
 import com.airesume.server.dto.interview.InterviewHistoryResponse;
 import com.airesume.server.dto.interview.InterviewJobRoleResponse;
@@ -39,7 +40,6 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter
 import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
-
 /**
  * 模拟面试控制器。
  */
@@ -96,7 +96,8 @@ public class InterviewController {
 
         ResponseBodyEmitter emitter = new ResponseBodyEmitter(120_000L);
         AtomicBoolean streamClosed = new AtomicBoolean(false);
-        registerStreamLifecycleCallbacks(sessionId, emitter, streamClosed);
+        // SSE 生命周期回调统一由 service 注册并独占同一份 streamClosed，避免回调被重复注册互相覆盖。
+        interviewService.attachStreamLifecycleCallbacks(sessionId, emitter, streamClosed);
 
         Authentication authenticationForThread = authentication;
         aiAsyncExecutor.execute(() -> {
@@ -135,6 +136,9 @@ public class InterviewController {
                 String jobRoleCode = session != null ? session.getJobRoleCode() : null;
                 Integer difficulty = session != null ? session.getDifficulty() : null;
                 String interviewMode = session != null ? session.getInterviewMode() : null;
+                Integer interactionType = session != null
+                        ? interviewService.resolveInteractionType(session.getInteractionType())
+                        : InterviewConstants.INTERACTION_TYPE_TEXT;
                 InterviewJobTargetContext jobTargetContext =
                         mockInterviewJobTargetService.getSessionContext(userId, sessionId);
                 if (jobTargetContext == null) {
@@ -152,9 +156,10 @@ public class InterviewController {
                         difficulty,
                         jobTargetContext,
                         resolvedFeedbackMode,
-                        interviewMode
+                        interviewMode,
+                        interactionType
                 );
-                interviewService.subscribeAndWriteStream(sessionId, emitter, publisher, fullReply);
+                interviewService.subscribeAndWriteStream(sessionId, emitter, publisher, fullReply, streamClosed);
             } catch (Exception e) {
                 if (!streamClosed.get()) {
                     log.error("流式处理异常, sessionId: {}", sessionId, e);
@@ -260,24 +265,10 @@ public class InterviewController {
 
     /**
      * 浏览器断开、超时或主动完成后，都要尽快终止后续 AI 链路。
+     * 该控制层只在异步任务里读取 streamClosed 决定是否跳过剩余处理；
+     * onTimeout/onCompletion/onError 的注册已交给 InterviewService#attachStreamLifecycleCallbacks 独家管理，
+     * 避免 ResponseBodyEmitter "每类回调只保留最后一次注册" 的特性导致回调被覆盖。
      */
-    private void registerStreamLifecycleCallbacks(String sessionId,
-                                                  ResponseBodyEmitter emitter,
-                                                  AtomicBoolean streamClosed) {
-        emitter.onTimeout(() -> {
-            if (streamClosed.compareAndSet(false, true)) {
-                log.info("流式面试连接超时，停止后续处理, sessionId: {}", sessionId);
-                emitter.complete();
-            }
-        });
-        emitter.onCompletion(() -> streamClosed.set(true));
-        emitter.onError(error -> {
-            if (streamClosed.compareAndSet(false, true)) {
-                log.warn("流式面试连接异常关闭, sessionId: {}", sessionId, error);
-            }
-        });
-    }
-
     private boolean shouldSkipClosedStream(String sessionId, AtomicBoolean streamClosed) {
         if (!streamClosed.get()) {
             return false;

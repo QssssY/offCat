@@ -2,9 +2,11 @@ package com.airesume.server.service;
 
 import com.airesume.server.entity.InterviewChatLog;
 import com.airesume.server.entity.InterviewSession;
+import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.mock.MockInterviewService;
 import com.airesume.server.repository.InterviewMessageRepository;
 import com.airesume.server.repository.InterviewSessionRepository;
+import com.airesume.server.dto.interview.CreateSessionRequest;
 import com.airesume.server.dto.interview.InterviewEvaluationReport;
 import com.airesume.server.dto.interview.InterviewHistoryResponse;
 import com.airesume.server.dto.interview.InterviewSessionResponse;
@@ -31,6 +33,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -94,7 +97,7 @@ class InterviewServiceTest {
             return null;
         }).when(transactionTemplate).executeWithoutResult(Mockito.any());
 
-        interviewService.subscribeAndWriteStream(sessionId, emitter, publisher, fullReply);
+        interviewService.subscribeAndWriteStream(sessionId, emitter, publisher, fullReply, new AtomicBoolean(false));
 
         verify(interviewMessageRepository).save(chatLogCaptor.capture());
         InterviewChatLog savedMessage = chatLogCaptor.getValue();
@@ -123,7 +126,7 @@ class InterviewServiceTest {
         doThrow(new RuntimeException("DB connection lost"))
                 .when(transactionTemplate).executeWithoutResult(Mockito.any());
 
-        interviewService.subscribeAndWriteStream(sessionId, emitter, publisher, fullReply);
+        interviewService.subscribeAndWriteStream(sessionId, emitter, publisher, fullReply, new AtomicBoolean(false));
 
         verify(emitter, atLeastOnce()).send(anyString());
         verify(emitter).completeWithError(any(RuntimeException.class));
@@ -140,7 +143,7 @@ class InterviewServiceTest {
             subscriber.onComplete();
         };
 
-        interviewService.subscribeAndWriteStream(sessionId, emitter, publisher, fullReply);
+        interviewService.subscribeAndWriteStream(sessionId, emitter, publisher, fullReply, new AtomicBoolean(false));
 
         verify(interviewMessageRepository, never()).save(any());
         verify(emitter, atLeastOnce()).send(anyString());
@@ -152,15 +155,20 @@ class InterviewServiceTest {
         String sessionId = "test-session-id";
         ResponseBodyEmitter emitter = mock(ResponseBodyEmitter.class);
         StringBuilder fullReply = new StringBuilder();
+        AtomicBoolean streamClosed = new AtomicBoolean(false);
 
         Publisher<String> publisher = subscriber -> subscriber.onSubscribe(subscription);
 
-        interviewService.subscribeAndWriteStream(sessionId, emitter, publisher, fullReply);
+        // 控制层职责：先 attach 生命周期回调（独占注册 onTimeout/onCompletion/onError），
+        // 服务层 subscribeAndWriteStream 在数据流上消费同一份 streamClosed。
+        interviewService.attachStreamLifecycleCallbacks(sessionId, emitter, streamClosed);
+        interviewService.subscribeAndWriteStream(sessionId, emitter, publisher, fullReply, streamClosed);
 
         verify(emitter).onTimeout(timeoutCaptor.capture());
         timeoutCaptor.getValue().run();
 
-        verify(subscription).cancel();
+        // 触发 onTimeout 后 streamClosed 应翻转为 true，且 emitter.complete() 应被调用。
+        // 当前数据流尚未发出数据，订阅取消由数据流后续 onNext/onComplete 通过 streamClosed 检测。
         verify(emitter).complete();
         verify(interviewMessageRepository, never()).save(any());
     }
@@ -279,7 +287,8 @@ class InterviewServiceTest {
                 eq(session.getDifficulty()),
                 any(),
                 eq("immediate"),
-                eq("normal")
+                eq("normal"),
+                eq(0)
         )).thenReturn("请继续说明幂等方案。\n\n<FEEDBACK>\n本题反馈：回答方向清晰，但还需要补充具体处理细节。\n</FEEDBACK>");
 
         interviewService.sendMessage(userId, sessionId, request);
@@ -292,7 +301,8 @@ class InterviewServiceTest {
                 eq(session.getDifficulty()),
                 any(),
                 eq("immediate"),
-                eq("normal")
+                eq("normal"),
+                eq(0)
         );
         verify(interviewMessageService).saveMessage(session, "user", request.getContent());
         verify(interviewMessageService).saveMessage(session, "assistant", "请继续说明幂等方案。\n\n<FEEDBACK>\n本题反馈：回答方向清晰，但还需要补充具体处理细节。\n</FEEDBACK>");
@@ -314,6 +324,47 @@ class InterviewServiceTest {
     }
 
     @Test
+    void shouldDefaultInteractionTypeToTextWhenCreatingSession() {
+        CreateSessionRequest request = buildCreateRequest();
+        ArgumentCaptor<InterviewSession> sessionCaptor = ArgumentCaptor.forClass(InterviewSession.class);
+        when(userQuotaService.checkInterviewQuota(123L)).thenReturn(true);
+        when(sysJobRoleService.isActiveRoleName("Java工程师")).thenReturn(true);
+        when(mockInterviewJobTargetService.resolveContext(eq(123L), any())).thenReturn(null);
+
+        InterviewSessionResponse response = interviewService.createSession(123L, request);
+
+        verify(interviewSessionRepository).saveAndFlush(sessionCaptor.capture());
+        assertEquals(0, sessionCaptor.getValue().getInteractionType());
+        assertEquals(0, response.getInteractionType());
+    }
+
+    @Test
+    void shouldSaveVoiceInteractionTypeWhenCreatingSession() {
+        CreateSessionRequest request = buildCreateRequest();
+        request.setInteractionType(1);
+        ArgumentCaptor<InterviewSession> sessionCaptor = ArgumentCaptor.forClass(InterviewSession.class);
+        when(userQuotaService.checkInterviewQuota(123L)).thenReturn(true);
+        when(sysJobRoleService.isActiveRoleName("Java工程师")).thenReturn(true);
+        when(mockInterviewJobTargetService.resolveContext(eq(123L), any())).thenReturn(null);
+
+        InterviewSessionResponse response = interviewService.createSession(123L, request);
+
+        verify(interviewSessionRepository).saveAndFlush(sessionCaptor.capture());
+        assertEquals(1, sessionCaptor.getValue().getInteractionType());
+        assertEquals(1, response.getInteractionType());
+    }
+
+    @Test
+    void shouldRejectUnsupportedInteractionTypeWhenCreatingSession() {
+        CreateSessionRequest request = buildCreateRequest();
+        request.setInteractionType(3);
+        when(sysJobRoleService.isActiveRoleName("Java工程师")).thenReturn(true);
+
+        assertThrows(BusinessException.class, () -> interviewService.createSession(123L, request));
+        verify(interviewSessionRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
     void shouldReturnFeedbackModeInHistory() {
         String sessionId = "session-feedback-history";
         Long userId = 123L;
@@ -328,6 +379,25 @@ class InterviewServiceTest {
 
         assertEquals(1, history.size());
         assertEquals("immediate", history.get(0).getFeedbackMode());
+    }
+
+    @Test
+    void shouldReturnInteractionTypeInSessionDetailAndHistory() {
+        String sessionId = "session-voice-detail";
+        Long userId = 123L;
+        InterviewSession session = buildInProgressSession(sessionId, userId);
+        session.setInteractionType(1);
+
+        when(interviewSessionRepository.findBySessionIdAndUserId(sessionId, userId)).thenReturn(Optional.of(session));
+        when(interviewMessageService.getMessageList(sessionId)).thenReturn(List.of());
+        InterviewSessionResponse detail = interviewService.getSessionDetail(userId, sessionId);
+        assertEquals(1, detail.getInteractionType());
+
+        when(interviewSessionRepository.findByUserId(eq(userId), any())).thenReturn(new PageImpl<>(List.of(session)));
+        when(interviewMessageService.getMessageCountMap(any())).thenReturn(java.util.Map.of(sessionId, 0));
+        when(mockInterviewJobTargetService.getSessionContextSummaryMap(eq(userId), any())).thenReturn(java.util.Map.of());
+        List<InterviewHistoryResponse> history = interviewService.getHistory(userId, 1, 5).getList();
+        assertEquals(1, history.get(0).getInteractionType());
     }
 
     @Test
@@ -459,6 +529,16 @@ class InterviewServiceTest {
         session.setCreateTime(LocalDateTime.now());
         session.setUpdateTime(LocalDateTime.now());
         return session;
+    }
+
+    private CreateSessionRequest buildCreateRequest() {
+        CreateSessionRequest request = new CreateSessionRequest();
+        request.setJobRole("Java工程师");
+        request.setJobRoleCode("java_backend");
+        request.setDifficulty(2);
+        request.setInterviewMode("normal");
+        request.setFeedbackMode("after_interview");
+        return request;
     }
 
     private InterviewChatLog buildChatLog(Long id, String sessionId, String role, String content, int secondOffset) {

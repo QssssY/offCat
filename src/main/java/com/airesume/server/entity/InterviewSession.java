@@ -85,4 +85,11 @@ public class InterviewSession extends BaseEntity {
      */
     @TableField("feedback_mode")
     private String feedbackMode;
+
+    /**
+     * 交互方式：0-文字面试，1-语音面试。
+     * 该字段只记录创建会话时选择的交互入口，会话进行中不切换。
+     */
+    @TableField("interaction_type")
+    private Integer interactionType;
 }

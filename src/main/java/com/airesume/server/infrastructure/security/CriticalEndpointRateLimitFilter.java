@@ -41,6 +41,7 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
     private static final String RESUME_UPLOAD_PATH = "/api/resume/upload";
     private static final String INTERVIEW_SESSION_PATH = "/api/interview/session";
     private static final String INTERVIEW_SESSION_PREFIX = "/api/interview/session/";
+    private static final String INTERVIEW_STREAM_SUFFIX = "/message/stream";
     private static final String OFFER_API_PREFIX = "/api/offer/";
     private static final long CLEANUP_INTERVAL = 256L;
 
@@ -54,6 +55,10 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
             "resume_upload", RESUME_UPLOAD_PATH, MatchType.EXACT, 10, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
     private static final RateLimitPolicy INTERVIEW_CREATE_POLICY = new RateLimitPolicy(
             "interview_create", INTERVIEW_SESSION_PATH, MatchType.EXACT, 10, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
+    // 面试 SSE 流式接口是单次成本最高的端点：每次都会触发一次真 AI 调用。
+    // 用更严格的 10 次 / 10 分钟限制单独保护，避免被脚本刷爆推高 Token 成本。
+    private static final RateLimitPolicy INTERVIEW_STREAM_POLICY = new RateLimitPolicy(
+            "interview_stream", INTERVIEW_STREAM_SUFFIX, MatchType.SUFFIX, 10, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
     private static final RateLimitPolicy INTERVIEW_ACTION_POLICY = new RateLimitPolicy(
             "interview_action", INTERVIEW_SESSION_PREFIX, MatchType.PREFIX, 40, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
     private static final RateLimitPolicy OFFER_ACTION_POLICY = new RateLimitPolicy(
@@ -172,7 +177,13 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
         if (trustForwardedHeaders) {
             String forwardedFor = request.getHeader("X-Forwarded-For");
             if (forwardedFor != null && !forwardedFor.isBlank()) {
-                return forwardedFor.split(",")[0].trim();
+                // 仅信任最右侧（最近的）一跳代理写入的值。
+                // 取最左可被任意客户端伪造："X-Forwarded-For: 1.2.3.4" 即可冒充任意 IP 绕过 IP 限频。
+                String[] hops = forwardedFor.split(",");
+                String rightmost = hops[hops.length - 1].trim();
+                if (!rightmost.isBlank()) {
+                    return rightmost;
+                }
             }
         }
         return request.getRemoteAddr() == null || request.getRemoteAddr().isBlank()
@@ -198,6 +209,10 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
         if (INTERVIEW_CREATE_POLICY.matches(requestMethod, requestUri)) {
             return INTERVIEW_CREATE_POLICY;
         }
+        // 流式策略优先级高于通用 action 策略：先精确匹配 /message/stream，再回落到通用面试限频。
+        if (INTERVIEW_STREAM_POLICY.matches(requestMethod, requestUri)) {
+            return INTERVIEW_STREAM_POLICY;
+        }
         if (INTERVIEW_ACTION_POLICY.matches(requestMethod, requestUri)) {
             return INTERVIEW_ACTION_POLICY;
         }
@@ -216,7 +231,8 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
 
     private enum MatchType {
         EXACT,
-        PREFIX
+        PREFIX,
+        SUFFIX
     }
 
     private enum KeyStrategy {
@@ -245,10 +261,11 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
             if (!method.equalsIgnoreCase(requestMethod)) {
                 return false;
             }
-            if (matchType == MatchType.EXACT) {
-                return path.equals(requestUri);
-            }
-            return requestUri.startsWith(path);
+            return switch (matchType) {
+                case EXACT -> path.equals(requestUri);
+                case PREFIX -> requestUri.startsWith(path);
+                case SUFFIX -> requestUri.endsWith(path);
+            };
         }
     }
 

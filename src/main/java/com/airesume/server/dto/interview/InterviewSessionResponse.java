@@ -1,5 +1,6 @@
 package com.airesume.server.dto.interview;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -29,8 +30,10 @@ public class InterviewSessionResponse {
     private String sessionId;
 
     /**
-     * 用户ID
+     * 用户ID。
+     * 仅服务端用于鉴权与日志，不返回给前端，避免泄露内部代理键。
      */
+    @JsonIgnore
     private Long userId;
 
     /**
@@ -108,6 +111,11 @@ public class InterviewSessionResponse {
      * 反馈模式：immediate-每题反馈，after_interview-面完复盘
      */
     private String feedbackMode;
+
+    /**
+     * 交互方式：0-文字面试，1-语音面试。
+     */
+    private Integer interactionType;
 
     /**
      * 开场白是否正在生成中（前端据此显示加载状态）

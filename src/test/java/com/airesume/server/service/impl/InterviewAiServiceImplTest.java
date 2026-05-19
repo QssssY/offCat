@@ -71,7 +71,7 @@ class InterviewAiServiceImplTest {
     void buildSystemPromptShouldNotPolluteAfterInterviewMode() throws Exception {
         Method method = InterviewAiServiceImpl.class.getDeclaredMethod(
                 "buildSystemPrompt", String.class, String.class, Integer.class, String.class,
-                com.airesume.server.dto.interview.InterviewJobTargetContext.class, String.class);
+                com.airesume.server.dto.interview.InterviewJobTargetContext.class, String.class, Integer.class);
         method.setAccessible(true);
 
         String result = (String) method.invoke(
@@ -81,7 +81,8 @@ class InterviewAiServiceImplTest {
                 2,
                 InterviewConstants.MODE_NORMAL,
                 null,
-                InterviewConstants.FEEDBACK_MODE_AFTER_INTERVIEW);
+                InterviewConstants.FEEDBACK_MODE_AFTER_INTERVIEW,
+                InterviewConstants.INTERACTION_TYPE_TEXT);
 
         assertFalse(result.contains("<FEEDBACK>"));
         assertFalse(result.contains("每题反馈模式"));
@@ -91,7 +92,7 @@ class InterviewAiServiceImplTest {
     void buildSystemPromptShouldUseIndependentPromptForImmediate() throws Exception {
         Method method = InterviewAiServiceImpl.class.getDeclaredMethod(
                 "buildSystemPrompt", String.class, String.class, Integer.class, String.class,
-                com.airesume.server.dto.interview.InterviewJobTargetContext.class, String.class);
+                com.airesume.server.dto.interview.InterviewJobTargetContext.class, String.class, Integer.class);
         method.setAccessible(true);
 
         String result = (String) method.invoke(
@@ -101,13 +102,56 @@ class InterviewAiServiceImplTest {
                 2,
                 InterviewConstants.MODE_NORMAL,
                 null,
-                InterviewConstants.FEEDBACK_MODE_IMMEDIATE);
+                InterviewConstants.FEEDBACK_MODE_IMMEDIATE,
+                InterviewConstants.INTERACTION_TYPE_TEXT);
 
         assertTrue(result.contains("<FEEDBACK>"));
         assertTrue(result.contains("</FEEDBACK>"));
         assertTrue(result.contains("每题反馈模式"));
         assertTrue(result.contains("第一段只输出面试官自然追问"));
         assertTrue(result.contains("不要输出“追问：”“问题：”等标签"));
+    }
+
+    @Test
+    void buildSystemPromptShouldIncludeVoiceInstructionForVoiceInteraction() throws Exception {
+        Method method = InterviewAiServiceImpl.class.getDeclaredMethod(
+                "buildSystemPrompt", String.class, String.class, Integer.class, String.class,
+                com.airesume.server.dto.interview.InterviewJobTargetContext.class, String.class, Integer.class);
+        method.setAccessible(true);
+
+        String result = (String) method.invoke(
+                service,
+                "Java工程师",
+                "java",
+                2,
+                InterviewConstants.MODE_NORMAL,
+                null,
+                InterviewConstants.FEEDBACK_MODE_AFTER_INTERVIEW,
+                InterviewConstants.INTERACTION_TYPE_VOICE);
+
+        assertTrue(result.contains("语音面试模式"));
+        assertTrue(result.contains("口语化"));
+        assertTrue(result.contains("适合直接朗读"));
+    }
+
+    @Test
+    void buildSystemPromptShouldNotIncludeVoiceInstructionForTextInteraction() throws Exception {
+        Method method = InterviewAiServiceImpl.class.getDeclaredMethod(
+                "buildSystemPrompt", String.class, String.class, Integer.class, String.class,
+                com.airesume.server.dto.interview.InterviewJobTargetContext.class, String.class, Integer.class);
+        method.setAccessible(true);
+
+        String result = (String) method.invoke(
+                service,
+                "Java工程师",
+                "java",
+                2,
+                InterviewConstants.MODE_NORMAL,
+                null,
+                InterviewConstants.FEEDBACK_MODE_AFTER_INTERVIEW,
+                InterviewConstants.INTERACTION_TYPE_TEXT);
+
+        assertFalse(result.contains("语音面试模式"));
     }
 
     @Test
