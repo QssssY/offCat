@@ -46,12 +46,12 @@ public class MockInterviewService {
         boolean jobTargeted = context != null && Boolean.TRUE.equals(context.getJobTargeted());
         boolean hasResume = hasResumeText(context);
         boolean hasJd = context != null && context.getJdText() != null && !context.getJdText().isBlank();
-        String resumeAnchor = pickResumeAnchor(context == null ? null : context.getResumeText());
+        String resumeTopic = pickResumeTopic(context == null ? null : context.getResumeText());
 
         if (jobTargeted && hasResume && hasJd) {
             String missingKeyword = pickFirst(context.getMissingKeywords(), pickFirst(context.getMatchedKeywords(), "目标岗位核心能力"));
-            return String.format("我看到你简历里有“%s”。如果把这段经历放到%s岗位场景里，围绕“%s”这项能力，你会怎样证明自己能够胜任？",
-                    resumeAnchor,
+            return String.format("我看到你简历里有一段%s。如果把这段经历放到%s岗位场景里，你会怎样证明自己具备“%s”这项能力？",
+                    resumeTopic,
                     jobRole,
                     missingKeyword);
         }
@@ -62,8 +62,8 @@ public class MockInterviewService {
                     focusKeyword);
         }
         if (hasResume) {
-            return String.format("我看到你简历里提到“%s”。你当时具体负责了什么，过程中最能体现你%s岗位能力的一个关键决策是什么？",
-                    resumeAnchor,
+            return String.format("我看到你简历里有一段%s。你当时具体负责了什么，过程中最能体现你%s岗位能力的一个关键决策是什么？",
+                    resumeTopic,
                     jobRole);
         }
 
@@ -100,18 +100,18 @@ public class MockInterviewService {
      * 基于岗位定向上下文构造追问。
      */
     private String buildTargetedQuestion(InterviewJobTargetContext context, int messageIndex) {
-        String resumeAnchor = pickResumeAnchor(context.getResumeText());
+        String resumeTopic = pickResumeTopic(context.getResumeText());
         List<String> matchedKeywords = context.getMatchedKeywords();
         List<String> missingKeywords = context.getMissingKeywords();
         List<String> suggestions = context.getSuggestions();
 
         if (hasResumeText(context) && matchedKeywords != null && !matchedKeywords.isEmpty()) {
             String keyword = matchedKeywords.get(messageIndex % matchedKeywords.size());
-            return "继续围绕你简历里的“" + resumeAnchor + "”追问一下，你当时是怎么把“" + keyword + "”真正落到结果上的？";
+            return "继续追问你简历里的这段" + resumeTopic + "，你当时是怎么把“" + keyword + "”真正落到结果上的？";
         }
         if (hasResumeText(context) && missingKeywords != null && !missingKeywords.isEmpty()) {
             String keyword = missingKeywords.get(messageIndex % missingKeywords.size());
-            return "如果把你简历里的“" + resumeAnchor + "”迁移到目标岗位场景，面对“" + keyword + "”这项要求，你会怎样补足能力缺口？";
+            return "如果把你简历里的这段" + resumeTopic + "迁移到目标岗位场景，面对“" + keyword + "”这项要求，你会怎样补足能力缺口？";
         }
         if (missingKeywords != null && !missingKeywords.isEmpty()) {
             String keyword = missingKeywords.get(messageIndex % missingKeywords.size());
@@ -130,12 +130,12 @@ public class MockInterviewService {
      * 普通模拟面试在有简历上下文时，也要从简历经历切入，不再退回泛泛提问。
      */
     private String buildResumeBasedQuestion(InterviewJobTargetContext context, int messageIndex) {
-        String resumeAnchor = pickResumeAnchor(context.getResumeText());
+        String resumeTopic = pickResumeTopic(context.getResumeText());
         return switch (messageIndex % 4) {
-            case 0 -> "回到你简历里的“" + resumeAnchor + "”，你当时承担的核心职责和结果指标分别是什么？";
-            case 1 -> "在“" + resumeAnchor + "”这段经历里，你做过的一个关键技术或方案选择是什么，为什么这么定？";
-            case 2 -> "如果复盘“" + resumeAnchor + "”，你认为当时最难解决的问题是什么，你是怎么处理的？";
-            default -> "围绕“" + resumeAnchor + "”这段经历，再讲一个最能体现你个人价值的细节。";
+            case 0 -> "回到你简历里的这段" + resumeTopic + "，你当时承担的核心职责和结果指标分别是什么？";
+            case 1 -> "在这段" + resumeTopic + "里，你做过的一个关键技术或方案选择是什么，为什么这么定？";
+            case 2 -> "如果复盘这段" + resumeTopic + "，你认为当时最难解决的问题是什么，你是怎么处理的？";
+            default -> "你再讲一个这段" + resumeTopic + "里最能体现个人价值的细节。";
         };
     }
 
@@ -144,38 +144,25 @@ public class MockInterviewService {
     }
 
     /**
-     * 从简历文本里抽取一个适合面试追问的经历锚点。
-     * 这里只做轻量级启发式提取，避免 Mock 文案出现“看不到简历”的错误语义。
+     * 从简历文本里判断适合追问的经历类型。
+     * Mock 问题不能直接展示简历原文、文件名或姓名性别等元信息，只保留泛化经历类型。
      */
-    private String pickResumeAnchor(String resumeText) {
+    private String pickResumeTopic(String resumeText) {
         if (resumeText == null || resumeText.isBlank()) {
-            return "最近一段项目经历";
+            return "相关经历";
         }
-        String[] lines = resumeText.replace("\r\n", "\n").replace('\r', '\n').split("\n");
-        for (String rawLine : lines) {
-            String line = rawLine == null ? "" : rawLine.trim();
-            if (line.length() < 6) {
-                continue;
-            }
-            if (line.contains("项目") || line.contains("实习") || line.contains("经历")
-                    || line.contains("系统") || line.contains("平台") || line.contains("商城")) {
-                return trimText(line, 28);
-            }
+        String normalized = resumeText.replace("\r\n", "\n").replace('\r', '\n');
+        if (normalized.contains("实习")) {
+            return "实习经历";
         }
-        for (String rawLine : lines) {
-            String line = rawLine == null ? "" : rawLine.trim();
-            if (line.length() >= 6) {
-                return trimText(line, 28);
-            }
+        if (normalized.contains("项目") || normalized.contains("系统")
+                || normalized.contains("平台") || normalized.contains("商城")) {
+            return "项目经历";
         }
-        return "最近一段项目经历";
-    }
-
-    private String trimText(String text, int maxLength) {
-        if (text == null || text.length() <= maxLength) {
-            return text;
+        if (normalized.contains("工作") || normalized.contains("任职")) {
+            return "工作经历";
         }
-        return text.substring(0, maxLength) + "...";
+        return "相关经历";
     }
 
     private String pickFirst(List<String> values, String fallback) {

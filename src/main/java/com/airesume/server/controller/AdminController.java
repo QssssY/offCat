@@ -6,6 +6,7 @@ import com.airesume.server.common.constants.PromptConstants;
 import com.airesume.server.common.constants.UserRoleConstants;
 import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.Result;
+import com.airesume.server.common.util.PublicHttpsUrlValidator;
 import com.airesume.server.dto.admin.*;
 import com.airesume.server.entity.SysAiEngineConfig;
 import com.airesume.server.entity.SysJobRole;
@@ -16,6 +17,7 @@ import com.airesume.server.entity.UserQuota;
 import com.airesume.server.service.AdminDashboardService;
 import com.airesume.server.service.AdminUserRightsService;
 import com.airesume.server.service.AiCredentialCrypto;
+import com.airesume.server.service.AiEngineConnectivityTestService;
 import com.airesume.server.service.SysAiEngineConfigService;
 import com.airesume.server.service.SysJobRoleService;
 import com.airesume.server.service.SysPromptService;
@@ -49,6 +51,7 @@ public class AdminController {
     private final AdminDashboardService adminDashboardService;
     private final AdminUserRightsService adminUserRightsService;
     private final SysAiEngineConfigService sysAiEngineConfigService;
+    private final AiEngineConnectivityTestService aiEngineConnectivityTestService;
     private final SysPromptService sysPromptService;
     private final SysJobRoleService sysJobRoleService;
     private final SysUserService sysUserService;
@@ -388,6 +391,28 @@ public class AdminController {
 
         sysAiEngineConfigService.updateConfig(config);
         return Result.success("AI 引擎配置更新成功", null);
+    }
+
+    /**
+     * 测试 AI 引擎配置连通性。
+     *
+     * 作用：
+     * 管理员在新增或编辑弹窗内可以先验证基础地址、模型名和密钥是否真实可用。
+     * 本接口不保存配置；编辑态如果未输入新 API Key，则使用数据库中已保存的真实密钥测试。
+     */
+    @PostMapping("/ai-engines/connectivity-test")
+    public Result<AiEngineConnectivityTestResponse> testAiEngineConnectivity(
+            @Valid @RequestBody AiEngineConnectivityTestRequest request,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin test AI engine connectivity, id: {}, provider: {}, model: {}",
+                request.getId(), request.getProviderType(), request.getModelName());
+
+        String apiKey = isMockProvider(request.getProviderType()) ? null : normalizeConfigApiKeyForConnectivityTest(request);
+        AiEngineConnectivityTestResponse response =
+                aiEngineConnectivityTestService.testConnectivity(request, apiKey);
+        return Result.success(response.getMessage(), response);
     }
 
     /**
@@ -1275,21 +1300,11 @@ private UserListResponse buildUserListResponse(SysUser user) {
     }
 
     private String validatePublicHttpsBaseUrl(String baseUrl) {
-        String normalized = normalizeRequiredValue(baseUrl, "基础地址不能为空");
-        String lower = normalized.toLowerCase(Locale.ROOT);
-        if (!lower.startsWith("https://")) {
-            throw new BusinessException("基础地址只允许 https://");
+        try {
+            return PublicHttpsUrlValidator.validate(baseUrl, "基础地址不能为空");
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(e.getMessage());
         }
-        if (lower.contains("localhost")
-                || lower.contains("127.0.0.1")
-                || lower.contains("0.0.0.0")
-                || lower.contains("[::1]")
-                || lower.matches("^https://10\\..*")
-                || lower.matches("^https://192\\.168\\..*")
-                || lower.matches("^https://172\\.(1[6-9]|2\\d|3[0-1])\\..*")) {
-            throw new BusinessException("基础地址不允许指向本机或内网地址");
-        }
-        return normalized;
     }
 
     /**
@@ -1304,7 +1319,37 @@ private UserListResponse buildUserListResponse(SysUser user) {
         return normalized == null ? null : normalized.toLowerCase(Locale.ROOT);
     }
 
-/**
+    /**
+     * 解析连通测试使用的真实 API Key。
+     *
+     * 作用：
+     * 新增态必须使用表单输入的完整密钥；编辑态如果未输入新密钥，则读取数据库中已加密保存的密钥。
+     */
+    private String normalizeConfigApiKeyForConnectivityTest(AiEngineConnectivityTestRequest request) {
+        String submittedApiKey = trimToNull(request.getApiKey());
+        if (submittedApiKey != null && !isMaskedApiKey(submittedApiKey)) {
+            return submittedApiKey;
+        }
+        if (request.getId() == null) {
+            throw new BusinessException("请先输入完整 API Key 后再测试连通性");
+        }
+
+        SysAiEngineConfig config = sysAiEngineConfigService.getById(request.getId());
+        if (config == null) {
+            throw new BusinessException("AI 引擎配置不存在");
+        }
+        String storedApiKey = trimToNull(aiCredentialCrypto.decrypt(config.getApiKey()));
+        if (storedApiKey == null) {
+            throw new BusinessException("当前配置未保存有效 API Key，请输入完整 API Key 后再测试");
+        }
+        return storedApiKey;
+    }
+
+    private boolean isMockProvider(String providerType) {
+        return "mock".equalsIgnoreCase(trimToNull(providerType));
+    }
+
+    /**
      * 验证是否为脱敏格式的 API Key。
      *
      * 作用：

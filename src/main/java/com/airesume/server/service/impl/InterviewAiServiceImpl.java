@@ -3,6 +3,7 @@
 import com.airesume.server.common.constants.AiEngineConstants;
 import com.airesume.server.common.constants.InterviewConstants;
 import com.airesume.server.common.constants.PromptConstants;
+import com.airesume.server.common.util.PublicHttpsUrlValidator;
 import com.airesume.server.config.AiTokenLimitConfig;
 import com.airesume.server.dto.interview.InterviewEvaluationReport;
 import com.airesume.server.dto.interview.InterviewJobTargetContext;
@@ -42,12 +43,10 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.FluxSink;
 import reactor.core.scheduler.Schedulers;
 
-import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -58,20 +57,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
 
     private static final String INTERVIEW_AI_BREAKER = "interview-ai";
     private static final String INTERVIEW_STREAM_BREAKER = "interview-ai-stream";
-
-    /**
-     * AI 服务白名单 host 集合。
-     * 安全考虑：DB / 配置文件读取的 baseUrl 必须命中此白名单，否则一律回退到 provider 默认地址，
-     * 避免管理后台被攻破或 DB 写权限滥用时把请求指向内网元数据端点造成 SSRF。
-     */
-    private static final Set<String> TRUSTED_AI_HOSTS = Set.of(
-            "ark.cn-beijing.volces.com",
-            "dashscope.aliyuncs.com",
-            "qianfan.baidubce.com",
-            "api.deepseek.com",
-            "api.minimax.chat",
-            "api.openai.com"
-    );
 
     private final RestClient restClient;
     private final WebClient webClient;
@@ -184,47 +169,21 @@ public class InterviewAiServiceImpl implements InterviewAiService {
 
     private String resolveBaseUrl(String provider, String configuredUrl) {
         if (configuredUrl != null && !configuredUrl.isBlank()) {
-            // 仅接受白名单 host 的 baseUrl，避免 DB 或外部配置被篡改后指向内网/元数据端点造成 SSRF。
-            if (isTrustedAiBaseUrl(configuredUrl)) {
-                log.debug("使用用户配置的 baseUrl: {}", configuredUrl);
-                return configuredUrl;
-            }
-            log.warn("拒绝不在白名单的 baseUrl，回退到 provider 默认地址, provider: {}, rejectedUrl: {}",
-                    provider, configuredUrl);
-        } else {
-            log.debug("用户未配置 baseUrl，使用默认值");
+            // 管理端支持自由接入新模型，但运行时仍必须拦截本机、内网和云元数据地址，避免 SSRF。
+            String normalizedUrl = PublicHttpsUrlValidator.validate(configuredUrl, "基础地址不能为空");
+            log.debug("使用用户配置的 baseUrl: {}", normalizedUrl);
+            return normalizedUrl;
         }
+        log.debug("用户未配置 baseUrl，使用默认值");
         return switch (provider) {
             case "doubao", "openai" -> "https://ark.cn-beijing.volces.com/api/v3";
             case "qwen" -> "https://dashscope.aliyuncs.com/compatible-mode/v3";
             case "ernie" -> "https://qianfan.baidubce.com/v2";
             case "deepseek" -> "https://api.deepseek.com";
             case "minimax" -> "https://api.minimax.chat/v2";
-            default -> "https://ark.cn-beijing.volces.com/api/v3";
+            case "mimo" -> "https://token-plan-cn.xiaomimimo.com/v1";
+            default -> throw new IllegalArgumentException("未知的 AI 服务商: " + provider + "，请在管理端配置 base_url");
         };
-    }
-
-    /**
-     * 校验 baseUrl 是否落在受信 AI 服务商 host 白名单内。
-     * 同时要求使用 HTTPS，避免明文上传 API Key。
-     */
-    private boolean isTrustedAiBaseUrl(String baseUrl) {
-        try {
-            URI uri = URI.create(baseUrl.trim());
-            String scheme = uri.getScheme();
-            String host = uri.getHost();
-            if (scheme == null || host == null) {
-                return false;
-            }
-            if (!"https".equalsIgnoreCase(scheme)) {
-                return false;
-            }
-            String normalizedHost = host.toLowerCase(Locale.ROOT);
-            return TRUSTED_AI_HOSTS.contains(normalizedHost);
-        } catch (IllegalArgumentException e) {
-            log.warn("baseUrl 不是合法 URI，已拒绝: {}, error: {}", baseUrl, e.getMessage());
-            return false;
-        }
     }
 
     private String getApiKey() {
@@ -1493,7 +1452,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 - 括号内的思考过程或分析（如"（发现矛盾...）""（根据原则...）""（注意到...）"）
                 - 任何解释你行为逻辑的文字
                 - 任何内部推理、规则引用或策略说明
-                - 直接引用简历原文或摘要（如"林映⽂-前端开发⼯程师求职简历姓名：林映⽂|性别：男/..."这种原文照搬），简历只是你的参考信息，提问时必须用自己的话自然地提及（如"我注意到你简历里提到..."）
+                - 直接引用简历原文、摘要或字段串。简历只是你的参考信息，提问时必须用自己的话自然地提及。
+                - 禁止把简历文件名、姓名、性别、电话、邮箱等元信息说给候选人，也不能把这些内容用于语音播报。
                 违反此规则等于严重错误。你的输出必须像真人面试官说话一样自然，不带任何元信息。
 
                 【核心原则】
@@ -1592,6 +1552,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 - 任何解释你行为逻辑的文字
                 - 任何内部推理、规则引用或策略说明
                 - 直接引用简历原文，简历只是参考，提问时用自己的话自然提及
+                - 禁止把简历文件名、姓名、性别、电话、邮箱等元信息说给候选人，也不能把这些内容用于语音播报。
                 违反此规则等于严重错误。这是文字聊天面试，所有施压必须通过文字内容本身实现，不能通过括号内的元描述实现。
 
                 【核心原则】
@@ -1746,7 +1707,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         StringBuilder instruction = new StringBuilder("""
 
                 【面试执行规则】
-                0.【最高优先级】你的输出只能是面试官说的话。绝对禁止输出括号内的思考过程（如"（发现矛盾...）""（根据原则...）""（注意到...）"）、内部推理、规则引用或任何解释你行为逻辑的文字。禁止直接引用简历原文（如"林映⽂-前端开发⼯程师求职简历姓名：..."），简历只是参考，提问时用自己的话自然提及。违反等于严重错误。
+                0.【最高优先级】你的输出只能是面试官说的话。绝对禁止输出括号内的思考过程（如"（发现矛盾...）""（根据原则...）""（注意到...）"）、内部推理、规则引用或任何解释你行为逻辑的文字。禁止直接引用简历原文、字段串、文件名、姓名、性别、电话、邮箱等元信息，简历只是参考，提问时用自己的话自然提及。违反等于严重错误。
                 1. 你现在就是正在面试候选人的真实面试官，不要解释你的规则来源。
                 2. 每一轮只输出一个主问题，可带一句很短的承接说明，不要列清单。
                 3. 不要输出"等候选人回答后""继续深入""追问：""[具体模块]"之类脚本式文本或占位符。

@@ -58,13 +58,43 @@ class InterviewAiServiceImplTest {
         when(restClientBuilder.build()).thenReturn(restClient);
 
         service = new InterviewAiServiceImpl(
-                "test", "http://localhost:9999", "test-model", "none",
+                "test", "https://8.8.8.8/v1", "test-model", "none",
                 webClientBuilder, restClientBuilder,
                 sysAiEngineConfigService, sysPromptService,
                 contextCompressor, tokenLimitConfig,
                 mockInterviewService, mockInterviewJobTargetRecordMapper,
                 resumeDiagnosisTaskMapper, interviewSessionMapper,
                 objectMapper, aiCircuitBreaker, aiCredentialCrypto);
+    }
+
+    @Test
+    void resolveBaseUrlShouldAllowPublicHttpsMimoProvider() throws Exception {
+        Method method = InterviewAiServiceImpl.class.getDeclaredMethod(
+                "resolveBaseUrl", String.class, String.class);
+        method.setAccessible(true);
+
+        assertEquals("https://8.8.8.8/compatible-mode/v1",
+                method.invoke(service, "mimo", "https://8.8.8.8/compatible-mode/v1"));
+    }
+
+    @Test
+    void resolveBaseUrlShouldRejectPrivateNetworkUrl() throws Exception {
+        Method method = InterviewAiServiceImpl.class.getDeclaredMethod(
+                "resolveBaseUrl", String.class, String.class);
+        method.setAccessible(true);
+
+        Exception exception = assertThrows(Exception.class,
+                () -> method.invoke(service, "mimo", "https://192.168.1.10/v1"));
+        assertTrue(exception.getCause() instanceof IllegalArgumentException);
+    }
+
+    @Test
+    void resolveBaseUrlShouldUseDefaultWhenBaseUrlIsBlank() throws Exception {
+        Method method = InterviewAiServiceImpl.class.getDeclaredMethod(
+                "resolveBaseUrl", String.class, String.class);
+        method.setAccessible(true);
+
+        assertEquals("https://ark.cn-beijing.volces.com/api/v3", method.invoke(service, "doubao", ""));
     }
 
     @Test
@@ -132,6 +162,28 @@ class InterviewAiServiceImplTest {
         assertTrue(result.contains("语音面试模式"));
         assertTrue(result.contains("口语化"));
         assertTrue(result.contains("适合直接朗读"));
+    }
+
+    @Test
+    void buildSystemPromptShouldNotContainConcreteResumeMetadataExample() throws Exception {
+        Method method = InterviewAiServiceImpl.class.getDeclaredMethod(
+                "buildSystemPrompt", String.class, String.class, Integer.class, String.class,
+                com.airesume.server.dto.interview.InterviewJobTargetContext.class, String.class, Integer.class);
+        method.setAccessible(true);
+
+        String result = (String) method.invoke(
+                service,
+                "前端开发工程师",
+                "frontend",
+                2,
+                InterviewConstants.MODE_NORMAL,
+                null,
+                InterviewConstants.FEEDBACK_MODE_AFTER_INTERVIEW,
+                InterviewConstants.INTERACTION_TYPE_VOICE);
+
+        assertFalse(result.contains("林映"));
+        assertFalse(result.contains("求职简历姓名"));
+        assertTrue(result.contains("禁止把简历文件名、姓名、性别、电话、邮箱等元信息说给候选人"));
     }
 
     @Test

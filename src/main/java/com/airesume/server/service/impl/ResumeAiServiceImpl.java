@@ -2,6 +2,7 @@ package com.airesume.server.service.impl;
 
 import com.airesume.server.common.constants.AiEngineConstants;
 import com.airesume.server.common.constants.ResumeDiagnosisConstants;
+import com.airesume.server.common.util.PublicHttpsUrlValidator;
 import com.airesume.server.config.AiTokenLimitConfig;
 import com.airesume.server.dto.resume.ResumeJobMatchAnalyzeResponse;
 import com.airesume.server.dto.resume.ResumePolishAiResult;
@@ -151,8 +152,9 @@ public class ResumeAiServiceImpl implements ResumeAiService {
 
     private String resolveBaseUrl(String provider, String configuredUrl) {
         if (configuredUrl != null && !configuredUrl.isBlank()) {
-            log.debug("使用用户配置的 baseUrl: {}", configuredUrl);
-            return configuredUrl;
+            String normalizedUrl = PublicHttpsUrlValidator.validate(configuredUrl, "基础地址不能为空");
+            log.debug("使用用户配置的 baseUrl: {}", normalizedUrl);
+            return normalizedUrl;
         }
         log.debug("用户未配置 baseUrl，使用默认值");
         return switch (provider) {
@@ -161,7 +163,8 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             case "ernie" -> "https://qianfan.baidubce.com/v2";
             case "deepseek" -> "https://api.deepseek.com";
             case "minimax" -> "https://api.minimax.chat/v1";
-            default -> "https://ark.cn-beijing.volces.com/api/v3";
+            case "mimo" -> "https://token-plan-cn.xiaomimimo.com/v1";
+            default -> throw new IllegalArgumentException("未知的 AI 服务商: " + provider + "，请在管理端配置 base_url");
         };
     }
 
