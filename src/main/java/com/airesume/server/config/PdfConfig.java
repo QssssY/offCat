@@ -27,6 +27,23 @@ public class PdfConfig {
      */
     private boolean noSandboxEnabled = false;
 
+    /**
+     * PDF 保存路径（导出后保存一份到本地）
+     * 留空则默认保存到项目目录下的 exported-pdfs 文件夹
+     */
+    private String savePath;
+
+    /**
+     * PDF 文件最大保留时间（分钟），超过此时间的文件会被定时清理
+     * 默认 10 分钟。设为 0 或负数则禁用自动清理。
+     */
+    private int maxRetentionMinutes = 10;
+
+    /**
+     * 清理任务执行间隔（毫秒），默认每 5 分钟执行一次
+     */
+    private long cleanupIntervalMs = 300000;
+
     public String getChromePath() {
         return chromePath;
     }
@@ -49,5 +66,29 @@ public class PdfConfig {
 
     public void setNoSandboxEnabled(boolean noSandboxEnabled) {
         this.noSandboxEnabled = noSandboxEnabled;
+    }
+
+    public String getSavePath() {
+        return savePath;
+    }
+
+    public void setSavePath(String savePath) {
+        this.savePath = savePath;
+    }
+
+    public int getMaxRetentionMinutes() {
+        return maxRetentionMinutes;
+    }
+
+    public void setMaxRetentionMinutes(int maxRetentionMinutes) {
+        this.maxRetentionMinutes = maxRetentionMinutes;
+    }
+
+    public long getCleanupIntervalMs() {
+        return cleanupIntervalMs;
+    }
+
+    public void setCleanupIntervalMs(long cleanupIntervalMs) {
+        this.cleanupIntervalMs = cleanupIntervalMs;
     }
 }

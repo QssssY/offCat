@@ -249,6 +249,7 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
     }
 
     @Override
+    @SuppressWarnings("deprecation")
     public List<ResumeDiagnosisHistoryResponse> getHistoryByUserId(Long userId) {
         LambdaQueryWrapper<ResumeDiagnosisTask> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(ResumeDiagnosisTask::getUserId, userId);
