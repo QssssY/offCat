@@ -88,9 +88,29 @@
                     <img :src="assistantAvatar" alt="AI面试官" @error="handleImageError" />
                   </div>
                   <div class="message-content">
-                    <div class="message-bubble assistant-bubble">
+                    <div
+                      class="message-bubble assistant-bubble"
+                      :class="{ 'thinking-bubble': item.status === 'thinking' }"
+                    >
                       <span v-if="item.status === 'thinking'" class="thinking-indicator">
-                        <span class="thinking-text">面试官正在思考你的回答</span><span class="thinking-dots">...</span>
+                        <span class="thinking-text" aria-label="面试官正在思考你的回答">
+                          <span class="thinking-motion-unit thinking-char" style="--thinking-unit-index: 0" aria-hidden="true">面</span>
+                          <span class="thinking-motion-unit thinking-char" style="--thinking-unit-index: 1" aria-hidden="true">试</span>
+                          <span class="thinking-motion-unit thinking-char" style="--thinking-unit-index: 2" aria-hidden="true">官</span>
+                          <span class="thinking-motion-unit thinking-char" style="--thinking-unit-index: 3" aria-hidden="true">正</span>
+                          <span class="thinking-motion-unit thinking-char" style="--thinking-unit-index: 4" aria-hidden="true">在</span>
+                          <span class="thinking-motion-unit thinking-char" style="--thinking-unit-index: 5" aria-hidden="true">思</span>
+                          <span class="thinking-motion-unit thinking-char" style="--thinking-unit-index: 6" aria-hidden="true">考</span>
+                          <span class="thinking-motion-unit thinking-char" style="--thinking-unit-index: 7" aria-hidden="true">你</span>
+                          <span class="thinking-motion-unit thinking-char" style="--thinking-unit-index: 8" aria-hidden="true">的</span>
+                          <span class="thinking-motion-unit thinking-char" style="--thinking-unit-index: 9" aria-hidden="true">回</span>
+                          <span class="thinking-motion-unit thinking-char" style="--thinking-unit-index: 10" aria-hidden="true">答</span>
+                        </span>
+                        <span class="thinking-dots" aria-hidden="true">
+                          <span class="thinking-motion-unit thinking-dot" style="--thinking-unit-index: 11"></span>
+                          <span class="thinking-motion-unit thinking-dot" style="--thinking-unit-index: 12"></span>
+                          <span class="thinking-motion-unit thinking-dot" style="--thinking-unit-index: 13"></span>
+                        </span>
                       </span>
                       <span v-else-if="item.status === 'error'" class="error-text">回复失败，请重试</span>
                       <span v-else-if="item.status === 'streaming'" class="streaming-text">
@@ -152,15 +172,27 @@
         />
         <div class="input-footer">
           <span class="input-hint"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> 发送</span>
-          <el-button
-            type="primary"
-            :loading="replyLocked"
-            :disabled="replyLocked || !inputMessage.trim()"
-            class="send-btn"
-            @click="sendMessage"
-          >
-            {{ replyLocked ? 'AI 回复中...' : '发送回答' }}
-          </el-button>
+          <div class="input-actions">
+            <el-button
+              v-if="sttSupported"
+              :class="['mic-btn', { 'is-recording': sttRecording }]"
+              :type="sttRecording ? 'danger' : 'default'"
+              :disabled="replyLocked"
+              circle
+              @click="sttToggle"
+            >
+              <el-icon :size="18"><Microphone /></el-icon>
+            </el-button>
+            <el-button
+              type="primary"
+              :loading="replyLocked"
+              :disabled="replyLocked || !inputMessage.trim()"
+              class="send-btn"
+              @click="sendMessage"
+            >
+              {{ replyLocked ? 'AI 回复中...' : '发送回答' }}
+            </el-button>
+          </div>
         </div>
       </div>
     </div>
@@ -183,7 +215,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { getDifficultyLabel, getFeedbackModeLabel, getInterviewModeLabel } from '@/constants/interview'
 import {
@@ -191,6 +223,7 @@ import {
   ChatDotSquare,
   Loading,
   CircleCheckFilled,
+  Microphone,
 } from "@element-plus/icons-vue";
 import {
   endInterview as apiEndInterview,
@@ -199,6 +232,7 @@ import {
 } from "@/api/interview";
 import { ElMessage } from "element-plus";
 import { getToken } from "@/utils/auth";
+import { useSpeechToText } from "@/composables/useSpeechToText";
 
 import assistantAvatarImg from "@/assets/assistant.png";
 import userAvatarImg from "@/assets/user.png";
@@ -221,6 +255,64 @@ const replyLocked = ref(false);
 const feedbackMode = computed(() => sessionData.value?.feedbackMode || "after_interview");
 const feedbackModeText = computed(() => getFeedbackModeLabel(feedbackMode.value));
 let openingPollingTimer = null;
+
+const {
+  isSupported: sttSupported,
+  isRecording: sttRecording,
+  finalTranscript: sttFinal,
+  interimTranscript: sttInterim,
+  error: sttError,
+  language: sttLanguage,
+  cancel: sttCancel,
+  toggle: sttToggle,
+} = useSpeechToText();
+
+const sttLang = computed(() =>
+  sessionData.value?.interviewMode === 'foreign_interviewer' ? 'en-US' : 'zh-CN'
+);
+
+const sttDraftBase = ref('');
+const syncingSttDraft = ref(false);
+
+watch(sttLang, (lang) => { sttLanguage.value = lang }, { immediate: true });
+
+watch([sttFinal, sttInterim], () => {
+  if (!sttRecording.value && !sttFinal.value && !sttInterim.value) {
+    return;
+  }
+
+  syncingSttDraft.value = true;
+  inputMessage.value = `${sttDraftBase.value}${sttFinal.value}${sttInterim.value}`;
+});
+
+watch(sttRecording, (recording) => {
+  if (recording) {
+    sttDraftBase.value = inputMessage.value;
+    return;
+  }
+
+  sttDraftBase.value = '';
+});
+
+watch(inputMessage, (nextValue) => {
+  if (syncingSttDraft.value) {
+    syncingSttDraft.value = false;
+    return;
+  }
+
+  if (!sttRecording.value) {
+    return;
+  }
+
+  const expectedDraft = `${sttDraftBase.value}${sttFinal.value}${sttInterim.value}`;
+  if (nextValue !== expectedDraft) {
+    sttCancel();
+  }
+});
+
+watch(sttError, (err) => {
+  if (err) ElMessage.warning(err);
+});
 
 const assistantAvatar = assistantAvatarImg;
 const userAvatar = userAvatarImg;
@@ -502,6 +594,7 @@ const sendMessage = async () => {
     return;
   }
 
+  sttCancel();
   replyLocked.value = true;
   sending.value = true;
   const tempMsgId = `temp-${Date.now()}`;
@@ -955,6 +1048,33 @@ onBeforeUnmount(() => {
   border-top-left-radius: 4px;
 }
 
+.thinking-bubble {
+  position: relative;
+  min-width: 246px;
+  overflow: hidden;
+  border-color: rgba(255, 140, 66, 0.28);
+  background: linear-gradient(135deg, rgba(255, 250, 246, 0.98) 0%, var(--bg-card) 100%);
+  box-shadow: 0 8px 24px rgba(255, 140, 66, 0.1);
+  animation: thinkingBubbleBreath 2.4s ease-in-out infinite;
+}
+
+.thinking-bubble::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    110deg,
+    transparent 0%,
+    transparent 35%,
+    rgba(255, 140, 66, 0.12) 48%,
+    transparent 62%,
+    transparent 100%
+  );
+  transform: translateX(-120%);
+  animation: thinkingBubbleSweep 2.8s ease-in-out infinite;
+}
+
 .message-feedback-card {
   margin-top: 10px;
   padding: 12px 14px;
@@ -1001,24 +1121,89 @@ onBeforeUnmount(() => {
 }
 
 .thinking-indicator {
+  position: relative;
+  z-index: 1;
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 10px;
+  min-height: 24px;
   color: var(--text-muted);
-  font-style: italic;
+  animation: thinkingContentIn 0.32s ease-out both;
+}
+
+.thinking-text {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.thinking-motion-unit {
+  display: inline-block;
+  animation: thinkingUnitWave 2.35s ease-in-out infinite;
+  animation-delay: calc(var(--thinking-unit-index) * 0.055s);
 }
 
 .thinking-dots {
-  animation: thinkingPulse 1.2s ease-in-out infinite;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: 28px;
+  flex-shrink: 0;
 }
 
-@keyframes thinkingPulse {
+.thinking-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--orange-main);
+  opacity: 0.45;
+}
+
+@keyframes thinkingBubbleBreath {
   0%,
   100% {
-    opacity: 0.3;
+    border-color: rgba(255, 140, 66, 0.22);
+    box-shadow: 0 8px 24px rgba(255, 140, 66, 0.08);
   }
   50% {
+    border-color: rgba(255, 140, 66, 0.42);
+    box-shadow: 0 10px 28px rgba(255, 140, 66, 0.14);
+  }
+}
+
+@keyframes thinkingBubbleSweep {
+  0% {
+    transform: translateX(-120%);
+  }
+  55%,
+  100% {
+    transform: translateX(120%);
+  }
+}
+
+@keyframes thinkingContentIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
     opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes thinkingUnitWave {
+  0%,
+  32%,
+  100% {
+    color: var(--text-muted);
+    opacity: 0.72;
+    transform: translateY(0);
+  }
+  16% {
+    color: var(--orange-main);
+    opacity: 1;
+    transform: translateY(-3px);
   }
 }
 
@@ -1185,6 +1370,34 @@ onBeforeUnmount(() => {
   color: #67c23a;
 }
 
+.input-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mic-btn {
+  transition: all 0.3s;
+}
+
+.mic-btn.is-recording {
+  animation: mic-pulse 1.2s ease-in-out infinite;
+  box-shadow: 0 0 0 0 rgba(245, 108, 108, 0.6);
+}
+
+[data-theme="dark"] .mic-btn.is-recording {
+  box-shadow: 0 0 0 0 rgba(245, 108, 108, 0.4);
+}
+
+@keyframes mic-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(245, 108, 108, 0.6);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(245, 108, 108, 0);
+  }
+}
+
 @media (max-width: 1023px) {
   .session-status-bar {
     padding: 12px 16px;
@@ -1214,6 +1427,20 @@ onBeforeUnmount(() => {
 
   .message-content {
     max-width: 84%;
+  }
+
+  .thinking-bubble {
+    min-width: min(246px, calc(100vw - 112px));
+  }
+
+  .thinking-indicator {
+    max-width: 100%;
+    gap: 8px;
+  }
+
+  .thinking-text {
+    flex-wrap: wrap;
+    white-space: normal;
   }
 
   .chat-container {
@@ -1308,5 +1535,52 @@ onBeforeUnmount(() => {
 
 [data-theme="dark"] .message-feedback-card {
   background: rgba(255, 140, 66, 0.06);
+}
+
+[data-theme="dark"] .thinking-bubble {
+  border-color: rgba(255, 184, 119, 0.22);
+  background: linear-gradient(135deg, rgba(255, 140, 66, 0.08) 0%, var(--bg-card) 100%);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.22);
+}
+
+[data-theme="dark"] .thinking-bubble::after {
+  background: linear-gradient(
+    110deg,
+    transparent 0%,
+    transparent 35%,
+    rgba(255, 184, 119, 0.08) 48%,
+    transparent 62%,
+    transparent 100%
+  );
+}
+
+[data-theme="dark"] .thinking-dot {
+  background: #ffb877;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-bubble,
+  .thinking-bubble::after,
+  .thinking-indicator,
+  .thinking-motion-unit,
+  .thinking-char,
+  .thinking-dot {
+    animation: none;
+  }
+
+  .thinking-bubble::after {
+    display: none;
+  }
+
+  .thinking-dot {
+    opacity: 0.72;
+    transform: none;
+  }
+
+  .thinking-char {
+    color: var(--text-muted);
+    opacity: 1;
+    transform: none;
+  }
 }
 </style>

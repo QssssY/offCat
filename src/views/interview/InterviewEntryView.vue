@@ -209,15 +209,27 @@
         <div class="info-list">
           <div class="info-item">
             <div class="info-number">1</div>
-            <div class="info-text">普通模拟面试保持原有流程可用，不会因为本轮改动被替换</div>
+            <div class="info-text">选择面试岗位和难度级别，系统会按对应技术栈和业务场景生成问题</div>
           </div>
           <div class="info-item">
             <div class="info-number">2</div>
-            <div class="info-text">岗位定向模式会优先结合简历、JD 和最近一次 JD 对比记录生成问题</div>
+            <div class="info-text">支持 5 种面试人设：普通、压力、大厂 HR、技术 Leader、外企，不同人设提问风格与考察侧重点不同</div>
           </div>
           <div class="info-item">
             <div class="info-number">3</div>
-            <div class="info-text">面试结束后会额外展示岗位匹配表现、优势、不足和改进建议</div>
+            <div class="info-text">反馈模式可选「面完复盘」统一分析或「每题反馈」即时点评</div>
+          </div>
+          <div class="info-item">
+            <div class="info-number">4</div>
+            <div class="info-text">开启岗位定向模拟后，会结合简历、岗位 JD 和最近一次 JD 对比结果生成针对性问题与匹配建议</div>
+          </div>
+          <div class="info-item">
+            <div class="info-number">5</div>
+            <div class="info-text">支持语音输入回答（输入框右侧麦克风按钮），外企面试官模式仅识别英文，其他模式支持中英混杂</div>
+          </div>
+          <div class="info-item">
+            <div class="info-number">6</div>
+            <div class="info-text">面试结束后生成综合评价报告，包含多维度评分、优势短板和改进建议</div>
           </div>
         </div>
       </div>
