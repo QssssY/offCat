@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ElementPlus from 'element-plus'
 import InterviewEntryView from '@/views/interview/InterviewEntryView.vue'
-import { getInterviewJobRoles } from '@/api/interview'
+import { createInterviewSession, getInterviewJobRoles } from '@/api/interview'
 import { saveSettingsPreferences } from '@/utils/settingsPreferences'
 
 const push = vi.fn()
@@ -45,6 +45,10 @@ describe('InterviewEntryView', () => {
     vi.clearAllMocks()
     localStorage.clear()
     routeQuery = {}
+    window.SpeechRecognition = vi.fn()
+    window.speechSynthesis = {
+      getVoices: vi.fn(() => []),
+    }
   })
 
   it('fills interview entry with local default preferences', async () => {
@@ -105,5 +109,62 @@ describe('InterviewEntryView', () => {
     expect(wrapper.vm.selectedJob).toBe('')
     expect(wrapper.vm.selectedRoleCode).toBe('')
     expect(wrapper.vm.selectedDifficulty).toBe('advanced')
+  })
+
+  it('sends voice interaction type when voice mode is selected', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    wrapper.vm.selectedJob = '前端工程师'
+    wrapper.vm.selectedRoleCode = 'frontend'
+    wrapper.vm.selectInteractionType(1)
+    await wrapper.vm.handleStart()
+    await flushPromises()
+
+    expect(createInterviewSession).toHaveBeenCalledWith(expect.objectContaining({
+      interactionType: 1
+    }))
+  })
+
+  it('switches voice interviews to after-interview feedback', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    wrapper.vm.selectedJob = '前端工程师'
+    wrapper.vm.selectedRoleCode = 'frontend'
+    wrapper.vm.selectedFeedbackMode = 'immediate'
+    wrapper.vm.selectInteractionType(1)
+    await wrapper.vm.handleStart()
+    await flushPromises()
+
+    expect(wrapper.vm.selectedFeedbackMode).toBe('after_interview')
+    expect(createInterviewSession).toHaveBeenCalledWith(expect.objectContaining({
+      interactionType: 1,
+      feedbackMode: 'after_interview'
+    }))
+  })
+
+  it('does not allow immediate feedback while voice interaction is selected', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    wrapper.vm.selectInteractionType(1)
+    wrapper.vm.selectFeedbackMode('immediate')
+
+    expect(wrapper.vm.selectedInteractionType).toBe(1)
+    expect(wrapper.vm.selectedFeedbackMode).toBe('after_interview')
+  })
+
+  it('keeps text interaction type when speech api is unsupported', async () => {
+    delete window.SpeechRecognition
+    delete window.webkitSpeechRecognition
+    delete window.speechSynthesis
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    wrapper.vm.selectInteractionType(1)
+
+    expect(wrapper.vm.selectedInteractionType).toBe(0)
   })
 })

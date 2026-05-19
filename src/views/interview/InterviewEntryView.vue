@@ -83,12 +83,32 @@
               v-for="fm in FEEDBACK_MODE_OPTIONS"
               :key="fm.value"
               class="pill-button"
-              :class="{ active: selectedFeedbackMode === fm.value }"
-              @click="selectedFeedbackMode = fm.value"
+              :class="{ active: selectedFeedbackMode === fm.value, disabled: isFeedbackModeDisabled(fm.value) }"
+              @click="selectFeedbackMode(fm.value)"
             >
               <span class="pill-label">{{ fm.label }}</span>
-              <span class="pill-hint">{{ fm.hint }}</span>
+              <span class="pill-hint">{{ getFeedbackModeHint(fm) }}</span>
             </div>
+          </div>
+        </div>
+
+        <div class="config-item">
+          <div class="config-label">交互方式</div>
+          <div class="config-control pill-control">
+            <button
+              v-for="mode in INTERACTION_MODE_OPTIONS"
+              :key="mode.value"
+              type="button"
+              class="pill-button"
+              :class="{ active: selectedInteractionType === mode.value, disabled: mode.value === INTERACTION_TYPE_VOICE && !speechApiSupported }"
+              :disabled="mode.value === INTERACTION_TYPE_VOICE && !speechApiSupported"
+              @click="selectInteractionType(mode.value)"
+            >
+              <span class="pill-label">{{ mode.label }}</span>
+              <span class="pill-hint">
+                {{ mode.value === INTERACTION_TYPE_VOICE && !speechApiSupported ? '当前浏览器暂不支持' : mode.hint }}
+              </span>
+            </button>
           </div>
         </div>
 
@@ -245,7 +265,14 @@ import { ElMessage } from "element-plus";
 import { useUserStore } from "@/stores/user";
 import { createInterviewSession, getInterviewJobRoles } from "@/api/interview";
 import { getResumeTask } from "@/api/resume";
-import { INTERVIEW_MODE_OPTIONS, STRING_TO_DIFFICULTY, FEEDBACK_MODE_OPTIONS } from "@/constants/interview";
+import {
+  FEEDBACK_MODE_OPTIONS,
+  INTERACTION_MODE_OPTIONS,
+  INTERACTION_TYPE_TEXT,
+  INTERACTION_TYPE_VOICE,
+  INTERVIEW_MODE_OPTIONS,
+  STRING_TO_DIFFICULTY,
+} from "@/constants/interview";
 import { getSettingsPreferences } from "@/utils/settingsPreferences";
 
 const router = useRouter();
@@ -258,6 +285,7 @@ const selectedRoleCode = ref("");
 const selectedDifficulty = ref("primary");
 const selectedMode = ref("normal");
 const selectedFeedbackMode = ref("after_interview");
+const selectedInteractionType = ref(INTERACTION_TYPE_TEXT);
 const creating = ref(false);
 
 // 岗位定向状态统一收敛在入口页，便于清楚区分普通模拟与岗位定向模拟。
@@ -277,6 +305,9 @@ const difficultyOptions = [
 const modeOptions = INTERVIEW_MODE_OPTIONS;
 
 const difficultyMap = STRING_TO_DIFFICULTY;
+const speechApiSupported = typeof window !== 'undefined'
+  && Boolean(window.SpeechRecognition || window.webkitSpeechRecognition)
+  && 'speechSynthesis' in window;
 
 const hasLatestJobMatch = computed(() => Boolean(latestJobMatchAnalysis.value));
 const matchedKeywords = computed(() => latestJobMatchAnalysis.value?.matchedKeywords || []);
@@ -372,6 +403,41 @@ const onJobChange = (jobName) => {
   selectedRoleCode.value = job?.roleCode || "";
 };
 
+const isFeedbackModeDisabled = (feedbackMode) => {
+  return selectedInteractionType.value === INTERACTION_TYPE_VOICE && feedbackMode === "immediate";
+};
+
+const getFeedbackModeHint = (feedbackModeOption) => {
+  if (isFeedbackModeDisabled(feedbackModeOption.value)) {
+    return "语音面试暂不支持即时反馈";
+  }
+  return feedbackModeOption.hint;
+};
+
+const selectFeedbackMode = (feedbackMode) => {
+  // 语音面试会过滤结构化即时反馈用于播报，避免用户进入“每题反馈不可见”的组合。
+  if (selectedInteractionType.value === INTERACTION_TYPE_VOICE && feedbackMode === "immediate") {
+    ElMessage.warning("语音面试暂不支持每题反馈，请使用面完复盘");
+    selectedFeedbackMode.value = "after_interview";
+    return;
+  }
+  selectedFeedbackMode.value = feedbackMode;
+};
+
+const selectInteractionType = (interactionType) => {
+  // 语音通话依赖浏览器同时支持语音识别和语音合成，不支持时保持文字面试。
+  if (interactionType === INTERACTION_TYPE_VOICE && !speechApiSupported) {
+    ElMessage.warning("当前浏览器不支持语音识别或语音播报，请使用文字面试");
+    selectedInteractionType.value = INTERACTION_TYPE_TEXT;
+    return;
+  }
+  selectedInteractionType.value = interactionType;
+  if (interactionType === INTERACTION_TYPE_VOICE && selectedFeedbackMode.value === "immediate") {
+    ElMessage.warning("语音面试暂不支持每题反馈，已切换为面完复盘");
+    selectedFeedbackMode.value = "after_interview";
+  }
+};
+
 const applyMatchedJob = (matched) => {
   selectedJob.value = matched?.label || "";
   selectedRoleCode.value = matched?.roleCode || "";
@@ -429,12 +495,16 @@ const applyRouteQueryPreferences = () => {
 };
 
 const buildCreatePayload = () => {
+  const normalizedFeedbackMode = selectedInteractionType.value === INTERACTION_TYPE_VOICE
+    ? "after_interview"
+    : selectedFeedbackMode.value;
   const payload = {
     jobRole: selectedJob.value,
     jobRoleCode: selectedRoleCode.value,
     difficulty: difficultyMap[selectedDifficulty.value],
     interviewMode: selectedMode.value,
-    feedbackMode: selectedFeedbackMode.value,
+    feedbackMode: normalizedFeedbackMode,
+    interactionType: selectedInteractionType.value,
     // 普通模拟面试也允许携带关联简历任务，便于后端优先复用明确的简历上下文。
     resumeTaskId: resumeTaskId.value || undefined,
   };
@@ -716,6 +786,7 @@ onMounted(async () => {
   justify-content: center;
   gap: 2px;
   transition: all 0.25s ease;
+  font-family: inherit;
 }
 
 .pill-button:hover {
@@ -727,6 +798,13 @@ onMounted(async () => {
   border-color: var(--orange-main);
   background-color: var(--orange-main);
   box-shadow: 0 4px 12px rgba(255, 140, 66, 0.3);
+}
+
+.pill-button.disabled,
+.pill-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  box-shadow: none;
 }
 
 .pill-label {

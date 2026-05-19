@@ -4,6 +4,7 @@
       <div>
         <h2 class="page-title">AI 引擎配置</h2>
         <p class="page-subtitle">维护 interview/resume 业务模型配置，支持启用切换和密钥脱敏展示</p>
+        <p class="page-subtitle subtitle-tip">说明：首页「Offer 辅助」（薪资谈判模拟、谈薪话术）复用 interview 业务类型的激活配置，调整 interview 配置会同时影响模拟面试与 Offer 辅助。</p>
       </div>
       <div class="header-actions">
         <el-button :loading="tableLoading" class="refresh-btn" @click="fetchEngineList">刷新列表</el-button>
@@ -352,6 +353,9 @@
                 <el-option value="interview" label="模拟面试(interview)" />
                 <el-option value="resume" label="简历诊断(resume)" />
               </el-select>
+              <div v-if="formData.businessType === 'interview'" class="field-tip">
+                interview 配置同时服务首页「Offer 辅助」（薪资谈判模拟、谈薪话术）。
+              </div>
             </el-form-item>
           </el-col>
         </el-row>
@@ -1359,6 +1363,12 @@ watch(
   margin: 6px 0 0;
   font-size: 13px;
   color: #a08060;
+}
+
+.page-subtitle.subtitle-tip {
+  color: #b58a5e;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .btn-primary {

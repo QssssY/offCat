@@ -67,6 +67,36 @@ export const FEEDBACK_MODE_OPTIONS = [
   { label: '每题反馈', value: 'immediate', hint: '回答后即时点评' }
 ]
 
+/** 交互方式：文字面试 */
+export const INTERACTION_TYPE_TEXT = 0
+
+/** 交互方式：语音面试 */
+export const INTERACTION_TYPE_VOICE = 1
+
+/**
+ * 创建会话时的交互方式选项。
+ * 语音选项依赖浏览器 Web Speech API，入口页会根据支持情况置灰。
+ */
+export const INTERACTION_MODE_OPTIONS = [
+  { label: '文字面试', value: INTERACTION_TYPE_TEXT, hint: '打字回答，稳定适配所有浏览器' },
+  { label: '语音面试', value: INTERACTION_TYPE_VOICE, hint: '点击开始通话后自动听写和播报' }
+]
+
+/** 交互方式标签映射 */
+export const INTERACTION_TYPE_LABEL_MAP = {
+  [INTERACTION_TYPE_TEXT]: '文字面试',
+  [INTERACTION_TYPE_VOICE]: '语音面试'
+}
+
+/**
+ * 获取交互方式中文标签。
+ * @param {number} type - 交互方式
+ * @returns {string}
+ */
+export function getInteractionTypeLabel(type) {
+  return INTERACTION_TYPE_LABEL_MAP[type] || INTERACTION_TYPE_LABEL_MAP[INTERACTION_TYPE_TEXT]
+}
+
 /**
  * 反馈模式标签映射
  */

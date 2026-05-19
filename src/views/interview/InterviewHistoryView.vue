@@ -62,6 +62,17 @@
             <h3 class="job-title">{{ item.jobRole || "未知岗位" }}</h3>
             <div class="title-tags">
               <el-tag
+                size="small"
+                effect="plain"
+                :type="item.interactionType === INTERACTION_TYPE_VOICE ? 'success' : 'info'"
+              >
+                <el-icon class="tag-icon">
+                  <Microphone v-if="item.interactionType === INTERACTION_TYPE_VOICE" />
+                  <ChatDotSquare v-else />
+                </el-icon>
+                {{ getInteractionTypeLabel(item.interactionType) }}
+              </el-tag>
+              <el-tag
                 v-if="item.jobTargeted"
                 size="small"
                 type="warning"
@@ -144,10 +155,16 @@
 <script setup>
 import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { CircleClose } from "@element-plus/icons-vue";
+import { ChatDotSquare, CircleClose, Microphone } from "@element-plus/icons-vue";
 import { getInterviewHistory } from "@/api/interview";
 import InterviewEmpty from "@/components/empty/InterviewEmpty.vue";
-import { DIFFICULTY_TAG_MAP, getFeedbackModeLabel, getInterviewModeLabel } from '@/constants/interview'
+import {
+  DIFFICULTY_TAG_MAP,
+  getFeedbackModeLabel,
+  getInteractionTypeLabel,
+  getInterviewModeLabel,
+  INTERACTION_TYPE_VOICE,
+} from '@/constants/interview'
 
 const router = useRouter();
 
@@ -396,6 +413,11 @@ onMounted(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.tag-icon {
+  margin-right: 4px;
+  vertical-align: -1px;
 }
 
 .job-title {

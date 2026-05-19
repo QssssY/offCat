@@ -14,6 +14,7 @@ import request from '@/utils/request'
  * @param {string} [data.jdText] - 手动输入的岗位 JD 文本
  * @param {boolean} [data.useLatestJobMatch] - 是否优先复用最近一次 JD 对比结果
  * @param {string|number} [data.jobMatchRecordId] - 指定复用的 JD 对比记录 ID
+ * @param {number} [data.interactionType] - 交互方式，0 文字面试 / 1 语音面试
  * @returns {Promise}
  */
 export function createInterviewSession(data) {
@@ -53,19 +54,23 @@ export function sendInterviewMessage(sessionId, data) {
 
 /**
  * 发送面试消息并获取流式回复。
+ * 注：因为 Axios 不支持原生流式响应，这里使用裸 fetch；调用方必须自行管理 AbortController、token 与超时，
+ * 不要把这种实现复制到普通 API 模块。
  * @param {string} sessionId - 会话 ID
  * @param {{content: string, feedbackMode?: string}} data - 消息参数，feedbackMode 控制每题反馈或面完复盘
  * @param {string} token - 登录 token
+ * @param {{ signal?: AbortSignal }} [options] - 可选配置，signal 用于路由切换或重复发送时取消旧流
  * @returns {Promise<Response>}
  */
-export function streamInterviewMessage(sessionId, data, token) {
+export function streamInterviewMessage(sessionId, data, token, options = {}) {
   return fetch(`/api/interview/session/${sessionId}/message/stream`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: token ? `Bearer ${token}` : ''
     },
-    body: JSON.stringify(data)
+    body: JSON.stringify(data),
+    signal: options.signal
   })
 }
 
