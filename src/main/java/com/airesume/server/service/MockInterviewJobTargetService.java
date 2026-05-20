@@ -56,4 +56,9 @@ public interface MockInterviewJobTargetService extends IService<MockInterviewJob
      * 用于面试记录清理和账号注销，不物理删除外键关联数据。
      */
     int logicalDeleteByUserId(Long userId);
+
+    /**
+     * 按会话批量逻辑删除岗位定向上下文。
+     */
+    int logicalDeleteBySessionIds(Collection<String> sessionIds);
 }

@@ -265,6 +265,17 @@ public class MockInterviewJobTargetServiceImpl
     }
 
     /**
+     * 按会话批量逻辑删除岗位定向上下文。
+     */
+    @Override
+    public int logicalDeleteBySessionIds(Collection<String> sessionIds) {
+        if (sessionIds == null || sessionIds.isEmpty()) {
+            return 0;
+        }
+        return getBaseMapper().logicalDeleteBySessionIds(sessionIds);
+    }
+
+    /**
      * 解析应当复用的岗位 JD 对比记录。
      * 优先级为：指定记录 ID > 最近一次匹配记录 > 与手动 JD 相同的最近记录。
      */

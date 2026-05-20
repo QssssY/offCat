@@ -514,6 +514,43 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
     }
 
     /**
+     * 删除单条简历诊断记录及其衍生数据（JD 对比记录、AI 润色记录）。
+     * 先读取文件路径再逻辑删除，确保上传文件清理不会丢失路径来源。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class, noRollbackFor = BusinessException.class)
+    @CacheEvict(value = "resume:task", allEntries = true)
+    public boolean deleteTask(Long userId, Long taskId) {
+        ResumeDiagnosisTask task = getById(taskId);
+        if (task == null) {
+            throw new BusinessException("任务不存在");
+        }
+        if (!task.getUserId().equals(userId)) {
+            throw new BusinessException("无权访问该任务");
+        }
+
+        List<String> fileUrls = getBaseMapper().selectActiveFileUrlsByTaskIds(List.of(taskId));
+        resumeJobMatchRecordMapper.logicalDeleteByResumeTaskIds(List.of(taskId));
+        resumePolishRecordMapper.logicalDeleteByResumeTaskIds(List.of(taskId));
+        getBaseMapper().logicalDeleteByTaskIds(List.of(taskId));
+
+        // 数据库逻辑删除已完成，文件清理失败不影响事务提交
+        boolean fileCleanupFailed = false;
+        for (String fileUrl : fileUrls) {
+            try {
+                deleteResumeFileIfExists(fileUrl);
+            } catch (Exception e) {
+                fileCleanupFailed = true;
+                log.warn("删除简历文件失败，不影响记录删除, taskId: {}, fileUrl: {}", taskId, fileUrl, e);
+            }
+        }
+        if (fileCleanupFailed) {
+            throw new BusinessException("记录已删除，但部分文件清理失败");
+        }
+        return true;
+    }
+
+    /**
      * 删除用户上传的简历文件。
      * 文件路径必须解析到项目 uploads/resumes 目录内；文件不存在视为已经清理，不阻断数据库逻辑删除。
      */

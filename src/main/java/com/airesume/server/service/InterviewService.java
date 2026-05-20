@@ -421,6 +421,23 @@ public class InterviewService {
     }
 
     /**
+     * 删除单条面试会话及其关联数据（聊天记录、岗位定向上下文）。
+     *
+     * @param userId    当前登录用户 ID
+     * @param sessionId 会话 ID
+     * @return 是否删除成功
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public boolean deleteSession(Long userId, String sessionId) {
+        InterviewSession session = getSessionByOwnerOrThrow(sessionId, userId);
+        LocalDateTime now = LocalDateTime.now();
+        interviewMessageRepository.logicalDeleteBySessionIdIn(List.of(sessionId), now);
+        mockInterviewJobTargetService.logicalDeleteBySessionIds(List.of(sessionId));
+        interviewSessionRepository.logicalDeleteBySessionIdIn(List.of(sessionId), now);
+        return true;
+    }
+
+    /**
      * 流式发送前统一拉取历史并校验状态。
      */
     @Transactional(readOnly = true)

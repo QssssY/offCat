@@ -105,4 +105,13 @@ public interface ResumeDiagnosisTaskService extends IService<ResumeDiagnosisTask
      * @return 清理的简历诊断任务数量
      */
     int clearHistory(Long userId);
+
+    /**
+     * 删除单条简历诊断记录及其衍生数据。
+     *
+     * @param userId 当前登录用户 ID
+     * @param taskId 任务 ID
+     * @return 是否删除成功
+     */
+    boolean deleteTask(Long userId, Long taskId);
 }

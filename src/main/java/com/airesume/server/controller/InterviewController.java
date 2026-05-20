@@ -255,6 +255,19 @@ public class InterviewController {
     }
 
     /**
+     * 删除单条面试会话记录。
+     */
+    @DeleteMapping("/history/{sessionId}")
+    public Result<Boolean> deleteSession(
+            @PathVariable String sessionId,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("删除面试会话, userId: {}, sessionId: {}", userId, sessionId);
+        interviewService.deleteSession(userId, sessionId);
+        return Result.success(true);
+    }
+
+    /**
      * 获取不分页历史记录，兼容旧版本。
      */
     @Deprecated

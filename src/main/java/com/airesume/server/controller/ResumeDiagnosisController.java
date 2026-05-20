@@ -121,6 +121,19 @@ public class ResumeDiagnosisController {
     }
 
     /**
+     * 删除单条简历诊断记录。
+     */
+    @DeleteMapping("/history/{taskId}")
+    public Result<Boolean> deleteTask(
+            @PathVariable Long taskId,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("删除简历诊断记录, userId: {}, taskId: {}", userId, taskId);
+        resumeDiagnosisTaskService.deleteTask(userId, taskId);
+        return Result.success(true);
+    }
+
+    /**
      * 执行岗位 JD 对比分析。
      */
     @PostMapping("/job-match/analyze")
