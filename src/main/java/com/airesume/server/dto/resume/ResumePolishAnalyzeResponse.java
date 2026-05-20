@@ -41,6 +41,16 @@ public class ResumePolishAnalyzeResponse implements Serializable {
     private List<String> modificationNotes;
 
     /**
+     * 编辑后的简历文档 JSON（用于恢复编辑器状态）。
+     */
+    private String documentJson;
+
+    /**
+     * 编辑后的简历纯文本。
+     */
+    private String editedPlainText;
+
+    /**
      * 润色来源类型。
      */
     private String sourceType;

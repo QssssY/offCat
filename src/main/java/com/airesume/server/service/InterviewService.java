@@ -483,17 +483,17 @@ public class InterviewService {
             ResponseBodyEmitter emitter,
             Publisher<String> publisher,
             StringBuilder fullReply,
-            AtomicBoolean streamClosed
+            AtomicBoolean streamClosed,
+            AtomicBoolean done,
+            AtomicReference<Subscription> subscriptionRef
     ) throws IOException {
-        AtomicReference<Subscription> subscriptionRef = new AtomicReference<>();
-        AtomicBoolean done = new AtomicBoolean(false);
-
         publisher.subscribe(new Subscriber<>() {
             @Override
             public void onSubscribe(Subscription s) {
                 subscriptionRef.set(s);
                 if (streamClosed.get()) {
                     s.cancel();
+                    subscriptionRef.compareAndSet(s, null);
                     return;
                 }
                 s.request(Long.MAX_VALUE);
@@ -577,9 +577,11 @@ public class InterviewService {
      */
     public void attachStreamLifecycleCallbacks(String sessionId,
                                                ResponseBodyEmitter emitter,
-                                               AtomicBoolean streamClosed) {
+                                               AtomicBoolean streamClosed,
+                                               AtomicBoolean done,
+                                               AtomicReference<Subscription> subscriptionRef) {
         emitter.onTimeout(() -> {
-            if (streamClosed.compareAndSet(false, true)) {
+            if (cancelActiveStream(sessionId, streamClosed, done, subscriptionRef, "timeout")) {
                 log.info("SSE 连接超时，停止后续处理, sessionId: {}", sessionId);
                 try {
                     emitter.complete();
@@ -588,12 +590,9 @@ public class InterviewService {
                 }
             }
         });
-        emitter.onCompletion(() -> {
-            streamClosed.set(true);
-            log.debug("SSE 连接正常完成, sessionId: {}", sessionId);
-        });
+        emitter.onCompletion(() -> cancelActiveStream(sessionId, streamClosed, done, subscriptionRef, "completion"));
         emitter.onError(error -> {
-            if (streamClosed.compareAndSet(false, true)) {
+            if (cancelActiveStream(sessionId, streamClosed, done, subscriptionRef, "error")) {
                 log.warn("SSE 连接异常关闭, sessionId: {}", sessionId, error);
             }
         });
@@ -609,9 +608,14 @@ public class InterviewService {
                                        String reason) {
         if (done.get()) {
             streamClosed.set(true);
+            Subscription subscription = subscriptionRef.getAndSet(null);
+            if (subscription != null) {
+                subscription.cancel();
+            }
             return false;
         }
-        if (!streamClosed.compareAndSet(false, true)) {
+        boolean firstClose = streamClosed.compareAndSet(false, true);
+        if (!firstClose && subscriptionRef.get() == null) {
             return false;
         }
         done.set(true);

@@ -15,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * 简历 PDF 导出控制器（生成与下载分离）
@@ -27,6 +28,24 @@ import java.util.Map;
 @RequestMapping("/api/resume")
 @RequiredArgsConstructor
 public class ResumePdfController {
+
+    static final int MAX_HTML_BYTES = 8 * 1024 * 1024;
+    private static final Pattern DANGEROUS_BLOCK_TAGS = Pattern.compile(
+            "(?is)<\\s*(script|iframe|object|embed|base|link|meta|form|input|button|textarea|select)\\b[^>]*>.*?<\\s*/\\s*\\1\\s*>|<\\s*(script|iframe|object|embed|base|link|meta|form|input|button|textarea|select)\\b[^>]*?/?>");
+    private static final Pattern EVENT_HANDLER_ATTRIBUTES = Pattern.compile("(?i)\\s+on[a-z0-9_-]+\\s*=\\s*(\"[^\"]*\"|'[^']*'|[^\\s>]+)");
+    // URL 属性先移除脚本、本地文件和非图片 data 协议，避免危险协议进入 Chrome 渲染链路。
+    private static final Pattern DANGEROUS_URL_SCHEMES = Pattern.compile(
+            "(?i)\\s+(src|href|xlink:href|action|formaction)\\s*=\\s*" +
+            "(\"\\s*(?:javascript|vbscript|file|data\\s*:(?!image/))[^\">]*\"" +
+            "|'\\s*(?:javascript|vbscript|file|data\\s*:(?!image/))[^'>]*'" +
+            "|(?:javascript|vbscript|file|data\\s*:(?!image/))[^\\s>]+)");
+    // 资源加载属性不允许保留远程地址，防止无头 Chrome 生成 PDF 时访问内网或云元数据地址。
+    private static final Pattern REMOTE_RESOURCE_ATTRIBUTES = Pattern.compile(
+            "(?i)\\s+(src|srcset|poster)\\s*=\\s*" +
+            "(\"[^\"]*(?:https?:|//|file:|ftp:|data\\s*:(?!image/))[^\"]*\"" +
+            "|'[^']*(?:https?:|//|file:|ftp:|data\\s*:(?!image/))[^']*'" +
+            "|[^\\s>]*(?:https?:|//|file:|ftp:|data\\s*:(?!image/))[^\\s>]*)");
+    private static final Pattern CSS_REMOTE_URLS = Pattern.compile("(?i)url\\s*\\(\\s*(['\"]?)(?:https?:|file:|ftp:|//|data:(?!image/))[^)]*\\1\\s*\\)");
 
     private final ResumePdfService resumePdfService;
 
@@ -45,11 +64,16 @@ public class ResumePdfController {
         if (html == null || html.isBlank()) {
             return Result.error("html 参数不能为空");
         }
+        int htmlBytes = html.getBytes(StandardCharsets.UTF_8).length;
+        if (htmlBytes > MAX_HTML_BYTES) {
+            log.warn("拒绝超大 PDF 导出请求，HTML 字节数: {}", htmlBytes);
+            return Result.error("HTML 内容过大，无法生成 PDF");
+        }
 
         log.info("收到 PDF 生成请求，HTML 长度: {}", html.length());
 
         try {
-            PdfGenerationResult result = resumePdfService.generatePdfFromHtml(html);
+            PdfGenerationResult result = resumePdfService.generatePdfFromHtml(sanitizeHtmlForPdf(html));
             log.info("PDF 生成成功，fileId: {}, 大小: {} bytes", result.getFileId(), result.getFileSize());
             return Result.success("PDF 生成成功", result);
         } catch (ResumePdfService.PdfGenerationException e) {
@@ -93,5 +117,13 @@ public class ResumePdfController {
             response.setCharacterEncoding(StandardCharsets.UTF_8.name());
             response.getWriter().write("{\"code\":404,\"message\":\"文件不存在或已过期\",\"data\":null}");
         }
+    }
+
+    static String sanitizeHtmlForPdf(String html) {
+        String sanitized = DANGEROUS_BLOCK_TAGS.matcher(html).replaceAll("");
+        sanitized = EVENT_HANDLER_ATTRIBUTES.matcher(sanitized).replaceAll("");
+        sanitized = DANGEROUS_URL_SCHEMES.matcher(sanitized).replaceAll("");
+        sanitized = REMOTE_RESOURCE_ATTRIBUTES.matcher(sanitized).replaceAll("");
+        return CSS_REMOTE_URLS.matcher(sanitized).replaceAll("url('')");
     }
 }

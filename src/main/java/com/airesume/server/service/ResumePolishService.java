@@ -1,5 +1,6 @@
 package com.airesume.server.service;
 
+import com.airesume.server.dto.resume.ResumeDocumentUpdateRequest;
 import com.airesume.server.dto.resume.ResumePolishAnalyzeRequest;
 import com.airesume.server.dto.resume.ResumePolishAnalyzeResponse;
 import com.airesume.server.entity.ResumePolishRecord;
@@ -33,6 +34,15 @@ public interface ResumePolishService extends IService<ResumePolishRecord> {
      * @return 最近一次润色结果
      */
     ResumePolishAnalyzeResponse getLatestPolishResult(Long userId, Long resumeTaskId);
+
+    /**
+     * 保存用户编辑的简历文档。
+     *
+     * @param userId 当前用户 ID
+     * @param polishRecordId 润色记录 ID
+     * @param request 文档更新请求
+     */
+    void updateDocument(Long userId, Long polishRecordId, ResumeDocumentUpdateRequest request);
 
     record ResumePolishProgressEvent(
             String eventName,

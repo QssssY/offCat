@@ -1,6 +1,7 @@
 package com.airesume.server.service.impl;
 
 import com.airesume.server.common.exception.BusinessException;
+import com.airesume.server.dto.resume.ResumeDocumentUpdateRequest;
 import com.airesume.server.dto.resume.ResumeJobMatchAnalyzeResponse;
 import com.airesume.server.dto.resume.ResumePolishAiResult;
 import com.airesume.server.dto.resume.ResumePolishAnalyzeRequest;
@@ -19,6 +20,7 @@ import com.airesume.server.service.ResumePolishService;
 import com.airesume.server.service.resume.ResumeParseResult;
 import com.airesume.server.util.TextNormalizeUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -138,10 +140,33 @@ public class ResumePolishServiceImpl extends ServiceImpl<ResumePolishRecordMappe
                 .polishRecordId(String.valueOf(record.getId()))
                 .resumeTaskId(String.valueOf(record.getResumeTaskId()))
                 .polishedResumeText(record.getPolishedResumeText())
+                .documentJson(record.getDocumentJson())
+                .editedPlainText(record.getEditedPlainText())
                 .modificationNotes(parseNotes(record.getModificationNotes()))
                 .sourceType(record.getSourceType())
                 .createTime(record.getCreateTime())
                 .build();
+    }
+
+    @Override
+    public void updateDocument(Long userId, Long polishRecordId, ResumeDocumentUpdateRequest request) {
+        ResumePolishRecord record = getById(polishRecordId);
+        if (record == null) {
+            throw new BusinessException("润色记录不存在");
+        }
+        if (!Objects.equals(record.getUserId(), userId)) {
+            throw new BusinessException("无权修改该润色记录");
+        }
+
+        LambdaUpdateWrapper<ResumePolishRecord> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(ResumePolishRecord::getId, polishRecordId)
+                .set(ResumePolishRecord::getDocumentJson, request.getDocumentJson())
+                .set(ResumePolishRecord::getEditedPlainText, request.getEditedPlainText());
+        boolean updated = update(wrapper);
+        if (!updated) {
+            throw new BusinessException("保存失败，润色记录可能已被删除");
+        }
+        log.info("保存简历编辑文档，userId: {}, polishRecordId: {}", userId, polishRecordId);
     }
 
     /**

@@ -107,4 +107,22 @@ class JwtAuthenticationFilterTest {
         assertNull(SecurityContextHolder.getContext().getAuthentication());
         verify(filterChain).doFilter(request, response);
     }
+
+    @Test
+    void shouldIgnoreQueryToken() throws Exception {
+        JwtAuthenticationFilter filter = new JwtAuthenticationFilter(jwtUtil, jwtProperties, sysUserService);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/resume/download-pdf/20260520010203004");
+        request.setParameter("token", "query-token");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        FilterChain filterChain = mock(FilterChain.class);
+
+        when(jwtProperties.getHeader()).thenReturn("Authorization");
+
+        filter.doFilter(request, response, filterChain);
+
+        assertNull(SecurityContextHolder.getContext().getAuthentication());
+        verify(filterChain).doFilter(request, response);
+        verifyNoInteractions(jwtUtil);
+        verifyNoInteractions(sysUserService);
+    }
 }

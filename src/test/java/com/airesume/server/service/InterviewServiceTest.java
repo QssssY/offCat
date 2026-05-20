@@ -34,6 +34,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -97,7 +98,9 @@ class InterviewServiceTest {
             return null;
         }).when(transactionTemplate).executeWithoutResult(Mockito.any());
 
-        interviewService.subscribeAndWriteStream(sessionId, emitter, publisher, fullReply, new AtomicBoolean(false));
+        interviewService.subscribeAndWriteStream(
+                sessionId, emitter, publisher, fullReply,
+                new AtomicBoolean(false), new AtomicBoolean(false), new AtomicReference<>());
 
         verify(interviewMessageRepository).save(chatLogCaptor.capture());
         InterviewChatLog savedMessage = chatLogCaptor.getValue();
@@ -126,7 +129,9 @@ class InterviewServiceTest {
         doThrow(new RuntimeException("DB connection lost"))
                 .when(transactionTemplate).executeWithoutResult(Mockito.any());
 
-        interviewService.subscribeAndWriteStream(sessionId, emitter, publisher, fullReply, new AtomicBoolean(false));
+        interviewService.subscribeAndWriteStream(
+                sessionId, emitter, publisher, fullReply,
+                new AtomicBoolean(false), new AtomicBoolean(false), new AtomicReference<>());
 
         verify(emitter, atLeastOnce()).send(anyString());
         verify(emitter).completeWithError(any(RuntimeException.class));
@@ -143,7 +148,9 @@ class InterviewServiceTest {
             subscriber.onComplete();
         };
 
-        interviewService.subscribeAndWriteStream(sessionId, emitter, publisher, fullReply, new AtomicBoolean(false));
+        interviewService.subscribeAndWriteStream(
+                sessionId, emitter, publisher, fullReply,
+                new AtomicBoolean(false), new AtomicBoolean(false), new AtomicReference<>());
 
         verify(interviewMessageRepository, never()).save(any());
         verify(emitter, atLeastOnce()).send(anyString());
@@ -156,20 +163,22 @@ class InterviewServiceTest {
         ResponseBodyEmitter emitter = mock(ResponseBodyEmitter.class);
         StringBuilder fullReply = new StringBuilder();
         AtomicBoolean streamClosed = new AtomicBoolean(false);
+        AtomicBoolean done = new AtomicBoolean(false);
+        AtomicReference<Subscription> subscriptionRef = new AtomicReference<>();
 
         Publisher<String> publisher = subscriber -> subscriber.onSubscribe(subscription);
 
         // 控制层职责：先 attach 生命周期回调（独占注册 onTimeout/onCompletion/onError），
         // 服务层 subscribeAndWriteStream 在数据流上消费同一份 streamClosed。
-        interviewService.attachStreamLifecycleCallbacks(sessionId, emitter, streamClosed);
-        interviewService.subscribeAndWriteStream(sessionId, emitter, publisher, fullReply, streamClosed);
+        interviewService.attachStreamLifecycleCallbacks(sessionId, emitter, streamClosed, done, subscriptionRef);
+        interviewService.subscribeAndWriteStream(sessionId, emitter, publisher, fullReply, streamClosed, done, subscriptionRef);
 
         verify(emitter).onTimeout(timeoutCaptor.capture());
         timeoutCaptor.getValue().run();
 
-        // 触发 onTimeout 后 streamClosed 应翻转为 true，且 emitter.complete() 应被调用。
-        // 当前数据流尚未发出数据，订阅取消由数据流后续 onNext/onComplete 通过 streamClosed 检测。
+        // 触发 onTimeout 后 streamClosed 应翻转为 true，立即完成 emitter 并取消上游订阅。
         verify(emitter).complete();
+        verify(subscription).cancel();
         verify(interviewMessageRepository, never()).save(any());
     }
 

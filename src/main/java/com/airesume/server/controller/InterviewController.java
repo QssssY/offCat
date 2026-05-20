@@ -23,6 +23,7 @@ import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.reactivestreams.Publisher;
+import org.reactivestreams.Subscription;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -40,6 +41,8 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter
 import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+
 /**
  * 模拟面试控制器。
  */
@@ -96,8 +99,10 @@ public class InterviewController {
 
         ResponseBodyEmitter emitter = new ResponseBodyEmitter(120_000L);
         AtomicBoolean streamClosed = new AtomicBoolean(false);
-        // SSE 生命周期回调统一由 service 注册并独占同一份 streamClosed，避免回调被重复注册互相覆盖。
-        interviewService.attachStreamLifecycleCallbacks(sessionId, emitter, streamClosed);
+        AtomicBoolean done = new AtomicBoolean(false);
+        AtomicReference<Subscription> subscriptionRef = new AtomicReference<>();
+        // Keep lifecycle callbacks and publisher cancellation on the same stream state.
+        interviewService.attachStreamLifecycleCallbacks(sessionId, emitter, streamClosed, done, subscriptionRef);
 
         Authentication authenticationForThread = authentication;
         aiAsyncExecutor.execute(() -> {
@@ -159,7 +164,8 @@ public class InterviewController {
                         interviewMode,
                         interactionType
                 );
-                interviewService.subscribeAndWriteStream(sessionId, emitter, publisher, fullReply, streamClosed);
+                interviewService.subscribeAndWriteStream(
+                        sessionId, emitter, publisher, fullReply, streamClosed, done, subscriptionRef);
             } catch (Exception e) {
                 if (!streamClosed.get()) {
                     log.error("流式处理异常, sessionId: {}", sessionId, e);

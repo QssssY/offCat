@@ -259,7 +259,7 @@ class AuthServiceImplTest {
     @DisplayName("should reject weak placeholder secret")
     void jwtPropertiesShouldRejectWeakPlaceholderSecret() {
         JwtProperties properties = new JwtProperties();
-        properties.setSecret("ai-resume-dev-jwt-secret-placeholder");
+        properties.setSecret("dev-secret-key-change-in-production-123456");
 
         IllegalStateException exception = assertThrows(IllegalStateException.class, properties::validate);
         assertTrue(exception.getMessage().contains("default placeholder"));

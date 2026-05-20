@@ -262,6 +262,8 @@ CREATE TABLE `resume_polish_record` (
   `source_resume_text` MEDIUMTEXT NOT NULL COMMENT 'Source resume text snapshot',
   `jd_text` MEDIUMTEXT NULL COMMENT 'Job description text snapshot',
   `polished_resume_text` MEDIUMTEXT NOT NULL COMMENT 'Polished resume text',
+  `document_json` LONGTEXT NULL DEFAULT NULL COMMENT '编辑后的简历文档JSON',
+  `edited_plain_text` TEXT NULL DEFAULT NULL COMMENT '编辑后的简历纯文本',
   `modification_notes` JSON NULL COMMENT 'Modification notes',
   `source_type` VARCHAR(32) NOT NULL COMMENT 'Polish source type',
   `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Create time',

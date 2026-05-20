@@ -49,6 +49,18 @@ public class ResumePolishRecord extends BaseEntity {
     private String polishedResumeText;
 
     /**
+     * 编辑后的简历文档 JSON（结构化模型：header + sections）。
+     */
+    @TableField("document_json")
+    private String documentJson;
+
+    /**
+     * 编辑后的简历纯文本。
+     */
+    @TableField("edited_plain_text")
+    private String editedPlainText;
+
+    /**
      * 修改说明。
      */
     @TableField("modification_notes")

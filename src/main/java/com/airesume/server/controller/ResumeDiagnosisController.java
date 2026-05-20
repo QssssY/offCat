@@ -3,6 +3,7 @@ package com.airesume.server.controller;
 import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.PageResult;
 import com.airesume.server.common.result.Result;
+import com.airesume.server.dto.resume.ResumeDocumentUpdateRequest;
 import com.airesume.server.dto.resume.ResumeDiagnosisHistoryResponse;
 import com.airesume.server.dto.resume.ResumeDiagnosisTaskResponse;
 import com.airesume.server.dto.resume.ResumeJobMatchAnalyzeRequest;
@@ -25,6 +26,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -144,6 +146,21 @@ public class ResumeDiagnosisController {
 
         ResumePolishAnalyzeResponse response = resumePolishService.analyzeResumePolish(userId, request);
         return Result.success("AI 简历润色完成", response);
+    }
+
+    /**
+     * 保存用户编辑的简历文档。
+     */
+    @PutMapping("/polish-records/{polishRecordId}/document")
+    public Result<Void> updatePolishDocument(
+            @PathVariable Long polishRecordId,
+            @Valid @RequestBody ResumeDocumentUpdateRequest request,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("Save polish document request, userId: {}, polishRecordId: {}", userId, polishRecordId);
+
+        resumePolishService.updateDocument(userId, polishRecordId, request);
+        return Result.success();
     }
 
     private boolean isAllowedResumeFile(MultipartFile file) {
