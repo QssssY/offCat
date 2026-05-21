@@ -436,6 +436,19 @@ class InterviewAiServiceImplTest {
     }
 
     @Test
+    void parseEvaluationResponseShouldRejectBrokenJson() throws Exception {
+        Method parseMethod = InterviewAiServiceImpl.class.getDeclaredMethod(
+                "parseEvaluationResponse", String.class);
+        parseMethod.setAccessible(true);
+
+        String brokenAiResponse = "{\"overallScore\":15,\"communication\":{\"score\":0";
+
+        Exception exception = assertThrows(Exception.class,
+                () -> parseMethod.invoke(service, brokenAiResponse));
+        assertTrue(exception.getCause() instanceof IllegalStateException);
+    }
+
+    @Test
     void extractJsonFromResponseShouldWork() throws Exception {
         Method method = InterviewAiServiceImpl.class.getDeclaredMethod(
                 "extractJsonFromResponse", String.class);

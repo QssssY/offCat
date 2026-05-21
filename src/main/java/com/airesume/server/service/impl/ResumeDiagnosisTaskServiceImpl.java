@@ -3,6 +3,7 @@ package com.airesume.server.service.impl;
 import com.airesume.server.common.constants.ResumeDiagnosisConstants;
 import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.PageResult;
+import com.airesume.server.common.result.ResultCode;
 import com.airesume.server.dto.resume.ResumeDiagnosisHistoryResponse;
 import com.airesume.server.dto.resume.ResumeJobMatchAnalyzeResponse;
 import com.airesume.server.dto.resume.ResumePolishAnalyzeResponse;
@@ -22,6 +23,7 @@ import com.airesume.server.service.UserQuotaService;
 import com.airesume.server.service.resume.ResumeParseResult;
 import org.springframework.context.annotation.Lazy;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.extern.slf4j.Slf4j;
@@ -107,7 +109,7 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
         if (!hasQuota) {
             // 额度不足时创建通知（带防重，独立事务不受回滚影响）
             notificationService.createQuotaNotificationIfNeeded(userId);
-            throw new BusinessException("简历诊断次数已用完");
+            throw new BusinessException(ResultCode.RESUME_QUOTA_EXHAUSTED);
         }
 
         // 2. 创建任务记录
@@ -115,8 +117,10 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
         task.setUserId(userId);
         task.setFileUrl(fileUrl);
         task.setStatus(ResumeDiagnosisConstants.STATUS_PENDING);
+        task.setStage(null);
         task.setDiagnosisResult(null);
         task.setErrorMsg(null);
+        task.setFailedAt(null);
         save(task);
 
         log.info("Resume diagnosis task created, taskId: {}", task.getId());
@@ -152,16 +156,16 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
     @Transactional(rollbackFor = Exception.class)
     public String createTask(Long userId, MultipartFile file) {
         if (file.isEmpty()) {
-            throw new BusinessException("Uploaded file must not be empty");
+            throw new BusinessException(ResultCode.RESUME_FILE_EMPTY);
         }
 
         String originalFilename = sanitizeOriginalFilename(file.getOriginalFilename());
         if (!originalFilename.toLowerCase().endsWith(".pdf")) {
-            throw new BusinessException("Only PDF files are supported");
+            throw new BusinessException(ResultCode.RESUME_FORMAT_UNSUPPORTED);
         }
 
         if (file.getSize() > maxFileSize) {
-            throw new BusinessException("File size must not exceed " + (maxFileSize / 1024 / 1024) + "MB");
+            throw new BusinessException(ResultCode.RESUME_FILE_TOO_LARGE, "文件大小不能超过 " + (maxFileSize / 1024 / 1024) + "MB");
         }
 
         String fileName = buildStoredResumeFileName();
@@ -183,7 +187,7 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
 
             Path destPath = uploadDirPath.resolve(fileName).normalize();
             if (!destPath.startsWith(uploadDirPath)) {
-                throw new BusinessException("Illegal file path");
+                throw new BusinessException(ResultCode.RESUME_FILE_ILLEGAL_PATH);
             }
             file.transferTo(destPath.toFile());
 
@@ -192,7 +196,7 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
                     userId, fileName, fileUrl);
         } catch (Exception e) {
             log.error("Failed to save resume file, userId: {}, fileName: {}", userId, fileName, e);
-            throw new BusinessException("Failed to save file, please retry later");
+            throw new BusinessException(ResultCode.RESUME_FILE_SAVE_FAILED);
         }
 
         Long taskId = createTask(userId, fileUrl);
@@ -201,13 +205,13 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
 
     private String sanitizeOriginalFilename(String originalFilename) {
         if (originalFilename == null) {
-            throw new BusinessException("Filename must not be null");
+            throw new BusinessException(ResultCode.RESUME_FILE_EMPTY);
         }
 
         String normalizedFilename = originalFilename.replace("\\", "/");
         String safeFilename = Paths.get(normalizedFilename).getFileName().toString();
         if (safeFilename.isBlank()) {
-            throw new BusinessException("Filename is invalid");
+            throw new BusinessException(ResultCode.RESUME_FILE_EMPTY);
         }
         return safeFilename;
     }
@@ -221,12 +225,12 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
     public ResumeDiagnosisTaskResponse getTaskById(Long taskId, Long userId) {
         ResumeDiagnosisTask task = getById(taskId);
         if (task == null) {
-            throw new BusinessException("任务不存在");
+            throw new BusinessException(ResultCode.RESUME_TASK_NOT_FOUND);
         }
 
         // 校验任务归属
         if (!task.getUserId().equals(userId)) {
-            throw new BusinessException("无权访问该任务");
+            throw new BusinessException(ResultCode.RESUME_TASK_ACCESS_DENIED);
         }
 
         return buildTaskResponse(task);
@@ -285,67 +289,74 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
     @Transactional(rollbackFor = Exception.class)
     @CacheEvict(value = "resume:task", allEntries = true)
     public void updateStatusToCompleted(Long taskId, String diagnosisResult) {
-        ResumeDiagnosisTask task = getById(taskId);
-        if (task == null) {
+        LambdaUpdateWrapper<ResumeDiagnosisTask> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(ResumeDiagnosisTask::getId, taskId)
+                .set(ResumeDiagnosisTask::getStatus, ResumeDiagnosisConstants.STATUS_COMPLETED)
+                .set(ResumeDiagnosisTask::getStage, null)
+                .set(ResumeDiagnosisTask::getDiagnosisResult, diagnosisResult)
+                .set(ResumeDiagnosisTask::getErrorMsg, null)
+                .set(ResumeDiagnosisTask::getFailedAt, null)
+                .setSql("update_time = NOW()");
+        boolean updated = update(wrapper);
+        if (updated) {
+            log.info("Task status updated to completed, taskId: {}", taskId);
+        } else {
             log.warn("Task not found when updating to completed, taskId: {}", taskId);
-            return;
         }
-
-        task.setStatus(ResumeDiagnosisConstants.STATUS_COMPLETED);
-        task.setDiagnosisResult(diagnosisResult);
-        task.setErrorMsg(null);
-        updateById(task);
-        log.info("Task status updated to completed, taskId: {}", taskId);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     @CacheEvict(value = "resume:task", allEntries = true)
     public void updateStatusToFailed(Long taskId, String errorMsg) {
-        ResumeDiagnosisTask task = getById(taskId);
-        if (task == null) {
+        LambdaUpdateWrapper<ResumeDiagnosisTask> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(ResumeDiagnosisTask::getId, taskId)
+                .set(ResumeDiagnosisTask::getStatus, ResumeDiagnosisConstants.STATUS_FAILED)
+                .set(ResumeDiagnosisTask::getStage, null)
+                .set(ResumeDiagnosisTask::getDiagnosisResult, null)
+                .set(ResumeDiagnosisTask::getErrorMsg, errorMsg)
+                .set(ResumeDiagnosisTask::getFailedAt, LocalDateTime.now())
+                .setSql("update_time = NOW()");
+        boolean updated = update(wrapper);
+        if (updated) {
+            log.error("Task status updated to failed, taskId: {}, errorMsg: {}", taskId, errorMsg);
+        } else {
             log.warn("Task not found when updating to failed, taskId: {}", taskId);
-            return;
         }
-
-        task.setStatus(ResumeDiagnosisConstants.STATUS_FAILED);
-        task.setDiagnosisResult(null);
-        task.setErrorMsg(errorMsg);
-        updateById(task);
-        log.error("Task status updated to failed, taskId: {}, errorMsg: {}", taskId, errorMsg);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     @CacheEvict(value = "resume:task", allEntries = true)
     public void updateTaskResumeText(Long taskId, String resumeText) {
-        ResumeDiagnosisTask task = getById(taskId);
-        if (task == null) {
+        LambdaUpdateWrapper<ResumeDiagnosisTask> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(ResumeDiagnosisTask::getId, taskId)
+                .set(ResumeDiagnosisTask::getResumeText, resumeText)
+                .setSql("update_time = NOW()");
+        boolean updated = update(wrapper);
+        if (updated) {
+            log.info("Task resume text updated, taskId: {}", taskId);
+        } else {
             log.warn("Task not found when updating resume text, taskId: {}", taskId);
-            return;
         }
-
-        task.setResumeText(resumeText);
-        updateById(task);
-        log.info("Task resume text updated, taskId: {}", taskId);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     @CacheEvict(value = "resume:task", allEntries = true)
     public void updateTaskResumeParseResult(Long taskId, String resumeText, String parseMode, String parseMessage) {
-        ResumeDiagnosisTask task = getById(taskId);
-        if (task == null) {
+        LambdaUpdateWrapper<ResumeDiagnosisTask> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(ResumeDiagnosisTask::getId, taskId)
+                .set(ResumeDiagnosisTask::getResumeText, resumeText)
+                .set(ResumeDiagnosisTask::getParseMode, parseMode)
+                .set(ResumeDiagnosisTask::getParseMessage, parseMessage)
+                .setSql("update_time = NOW()");
+        boolean updated = update(wrapper);
+        if (updated) {
+            log.info("Task resume parse result updated, taskId: {}, parseMode: {}", taskId, parseMode);
+        } else {
             log.warn("Task not found when updating resume parse result, taskId: {}", taskId);
-            return;
         }
-
-        // 统一写入缓存文本与解析元信息，供结果页和后续能力复用。
-        task.setResumeText(resumeText);
-        task.setParseMode(parseMode);
-        task.setParseMessage(parseMessage);
-        updateById(task);
-        log.info("Task resume parse result updated, taskId: {}, parseMode: {}", taskId, parseMode);
     }
 
     @Override
@@ -367,6 +378,69 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
     }
 
     /**
+     * 获取子阶段中文描述。
+     */
+    private String getStageDescription(String stage) {
+        if (stage == null) return null;
+        return switch (stage) {
+            case ResumeDiagnosisConstants.STAGE_EXTRACTING -> "正在提取简历文本";
+            case ResumeDiagnosisConstants.STAGE_AI_ANALYZING -> "AI 正在分析简历";
+            case ResumeDiagnosisConstants.STAGE_ENHANCING -> "正在生成诊断报告";
+            default -> null;
+        };
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "resume:task", allEntries = true)
+    public void updateStage(Long taskId, String stage) {
+        LambdaUpdateWrapper<ResumeDiagnosisTask> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(ResumeDiagnosisTask::getId, taskId)
+                .eq(ResumeDiagnosisTask::getStatus, ResumeDiagnosisConstants.STATUS_PROCESSING)
+                .set(ResumeDiagnosisTask::getStage, stage)
+                .setSql("update_time = NOW()");
+        boolean updated = update(wrapper);
+        if (updated) {
+            log.info("Task stage updated, taskId: {}, stage: {}", taskId, stage);
+        } else {
+            log.warn("Task not processing when updating stage, taskId: {}, stage: {}", taskId, stage);
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public String retryFailedTask(Long taskId, Long userId) {
+        ResumeDiagnosisTask task = getById(taskId);
+        if (task == null) {
+            throw new BusinessException(ResultCode.RESUME_TASK_NOT_FOUND);
+        }
+        if (!task.getUserId().equals(userId)) {
+            throw new BusinessException(ResultCode.RESUME_TASK_ACCESS_DENIED);
+        }
+        // 只有失败状态的任务才允许重试
+        if (task.getStatus() == null || task.getStatus() != ResumeDiagnosisConstants.STATUS_FAILED) {
+            throw new BusinessException(ResultCode.RESUME_TASK_NOT_RETRYABLE);
+        }
+        // 失败时间超过 24 小时不允许重试，引导用户重新上传。历史数据没有 failed_at 时兼容使用 update_time。
+        LocalDateTime failedAt = task.getFailedAt() != null ? task.getFailedAt() : task.getUpdateTime();
+        if (failedAt != null && failedAt.isBefore(LocalDateTime.now().minusHours(24))) {
+            throw new BusinessException(ResultCode.RESUME_TASK_RETRY_EXPIRED);
+        }
+
+        // 复用原文件创建新任务
+        Long newTaskId = createTask(userId, task.getFileUrl());
+
+        // 预填缓存文本：重试场景下原文件可能已被定时清理，处理器会优先使用缓存跳过PDF提取
+        if (task.getResumeText() != null && !task.getResumeText().isBlank()) {
+            updateTaskResumeText(newTaskId, task.getResumeText());
+            log.info("重试任务已预填缓存简历文本, 原taskId: {}, 新taskId: {}", taskId, newTaskId);
+        }
+
+        log.info("重试失败任务, 原taskId: {}, 新taskId: {}, userId: {}", taskId, newTaskId, userId);
+        return String.valueOf(newTaskId);
+    }
+
+    /**
      * 构建任务详情响应对象
      *
      * @param task 任务实体
@@ -383,6 +457,8 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
                 .fileUrl(task.getFileUrl())
                 .status(task.getStatus())
                 .statusDesc(getStatusDescription(task.getStatus()))
+                .stage(task.getStage())
+                .stageDesc(getStageDescription(task.getStage()))
                 .diagnosisResult(task.getDiagnosisResult())
                 .errorMsg(task.getErrorMsg())
                 .resumeText(resumeText)
@@ -463,6 +539,7 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
                 .fileUrl(task.getFileUrl())
                 .status(task.getStatus())
                 .statusDesc(getStatusDescription(task.getStatus()))
+                .errorMsg(task.getErrorMsg())
                 .createTime(task.getCreateTime())
                 .updateTime(task.getUpdateTime())
                 .build();
@@ -485,7 +562,9 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
         log.warn("发现 {} 个超时孤儿任务，开始回收...", orphans.size());
         for (ResumeDiagnosisTask task : orphans) {
             task.setStatus(ResumeDiagnosisConstants.STATUS_FAILED);
+            task.setStage(null);
             task.setErrorMsg("任务处理超时，系统自动回收。可能原因：服务重启或消费者异常");
+            task.setFailedAt(LocalDateTime.now());
             updateById(task);
             log.warn("已回收孤儿任务, taskId: {}, userId: {}, 原updateTime: {}",
                     task.getId(), task.getUserId(), task.getUpdateTime());
@@ -523,10 +602,10 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
     public boolean deleteTask(Long userId, Long taskId) {
         ResumeDiagnosisTask task = getById(taskId);
         if (task == null) {
-            throw new BusinessException("任务不存在");
+            throw new BusinessException(ResultCode.RESUME_TASK_NOT_FOUND);
         }
         if (!task.getUserId().equals(userId)) {
-            throw new BusinessException("无权访问该任务");
+            throw new BusinessException(ResultCode.RESUME_TASK_ACCESS_DENIED);
         }
 
         List<String> fileUrls = getBaseMapper().selectActiveFileUrlsByTaskIds(List.of(taskId));
@@ -545,7 +624,7 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
             }
         }
         if (fileCleanupFailed) {
-            throw new BusinessException("记录已删除，但部分文件清理失败");
+            throw new BusinessException(ResultCode.RESUME_FILE_CLEANUP_FAILED);
         }
         return true;
     }
@@ -564,19 +643,19 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
         String normalized = fileUrl.replace("\\", "/").trim();
         String prefix = "/uploads/resumes/";
         if (!normalized.startsWith(prefix)) {
-            throw new BusinessException("简历文件路径不合法");
+            throw new BusinessException(ResultCode.RESUME_FILE_ILLEGAL_PATH);
         }
 
         Path resolvedPath = uploadRoot.resolve(normalized.substring(prefix.length())).normalize();
         if (!resolvedPath.startsWith(uploadRoot)) {
-            throw new BusinessException("简历文件路径不合法");
+            throw new BusinessException(ResultCode.RESUME_FILE_ILLEGAL_PATH);
         }
 
         try {
             Files.deleteIfExists(resolvedPath);
         } catch (Exception e) {
             log.warn("删除简历上传文件失败, fileUrl: {}", fileUrl, e);
-            throw new BusinessException("简历文件清理失败");
+            throw new BusinessException(ResultCode.RESUME_FILE_CLEANUP_FAILED);
         }
     }
 }

@@ -2,6 +2,7 @@ package com.airesume.server.service.impl;
 
 import com.airesume.server.common.constants.QuotaConstants;
 import com.airesume.server.common.exception.BusinessException;
+import com.airesume.server.common.result.ResultCode;
 import com.airesume.server.entity.UserQuota;
 import com.airesume.server.mapper.UserQuotaMapper;
 import com.airesume.server.service.SysUserService;
@@ -41,7 +42,7 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
     @Transactional(rollbackFor = Exception.class)
     public void initUserQuota(Long userId) {
         if (userId == null) {
-            throw new BusinessException("userId can not be null");
+            throw new BusinessException(ResultCode.PARAM_ERROR);
         }
 
         UserQuota existed = getByUserId(userId);
@@ -105,7 +106,7 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
 
         int affected = getBaseMapper().deductInterviewQuotaAtomic(userId);
         if (affected == 0) {
-            throw new BusinessException("模拟面试次数已用完");
+            throw new BusinessException(ResultCode.INTERVIEW_QUOTA_EXHAUSTED);
         }
         log.info("Deducted interview quota atomically for userId: {}", userId);
     }
@@ -135,7 +136,7 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
 
         int affected = getBaseMapper().deductResumeQuotaAtomic(userId);
         if (affected == 0) {
-            throw new BusinessException("简历诊断次数已用完");
+            throw new BusinessException(ResultCode.RESUME_QUOTA_EXHAUSTED);
         }
         log.info("Deducted resume quota atomically for userId: {}", userId);
     }
@@ -184,7 +185,7 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
 
     private UserQuota ensureUserQuota(Long userId) {
         if (userId == null) {
-            throw new BusinessException("userId can not be null");
+            throw new BusinessException(ResultCode.PARAM_ERROR);
         }
 
         UserQuota userQuota = getByUserId(userId);
@@ -195,7 +196,7 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
         initUserQuota(userId);
         userQuota = getByUserId(userId);
         if (userQuota == null) {
-            throw new BusinessException("User quota record not found");
+            throw new BusinessException(ResultCode.NOT_FOUND);
         }
         return userQuota;
     }

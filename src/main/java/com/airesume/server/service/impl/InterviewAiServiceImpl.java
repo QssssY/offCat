@@ -782,7 +782,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             log.info("[{}] 截断后预估token: {}(system:{}, user:{})", tag, totalTokens, systemTokens, userTokens);
         }
 
-        String aiResponse = chat(systemPrompt, userPrompt);
+        String aiResponse = chat(systemPrompt, userPrompt, runtimeConfig);
         log.info("[{}] AI 评价原始响应长度: {}", tag, aiResponse == null ? 0 : aiResponse.length());
 
         InterviewEvaluationReport report = parseEvaluationResponse(aiResponse);
@@ -892,9 +892,9 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             log.info("[{}] 评价报告 JSON 解析成功", tag);
             return report;
         } catch (Exception e) {
-            log.error("[{}] 评价报告 JSON 解析失败，使用默认报告", tag, e);
+            log.error("[{}] 评价报告 JSON 解析失败，终止本次 AI 报告写入", tag, e);
             log.debug("[{}] 解析失败的 JSON 内容: {}", tag, jsonContent);
-            return buildDefaultEvaluationReport();
+            throw new IllegalStateException("AI 评价报告 JSON 解析失败", e);
         }
     }
 
@@ -1030,8 +1030,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         report.setImprovements(new ArrayList<>(report.getWeaknesses()));
     }
 
-    private String chat(String systemPrompt, String userPrompt) {
-        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
+    private String chat(String systemPrompt, String userPrompt, RuntimeAiConfig runtimeConfig) {
         String tag = runtimeConfig.provider().toUpperCase();
         String apiKey = runtimeConfig.apiKey();
         if (apiKey == null || apiKey.isBlank()) {
@@ -1044,6 +1043,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 new Message("system", systemPrompt),
                 new Message("user", userPrompt)
         );
+        // 评价报告字段多且文本长，输出上限低会导致模型返回半截 JSON。
+        request.max_tokens = 8192;
         request.thinking = buildThinkingConfig(runtimeConfig.model(), runtimeConfig.thinkingMode());
 
         try {
@@ -2029,6 +2030,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     private static class RequestBody {
         public String model;
         public List<Message> messages;
+        public Integer max_tokens;
         public Thinking thinking;
 
         public RequestBody() {

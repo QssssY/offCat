@@ -9,6 +9,7 @@ import com.airesume.server.repository.InterviewSessionRepository;
 import com.airesume.server.dto.interview.CreateSessionRequest;
 import com.airesume.server.dto.interview.InterviewEvaluationReport;
 import com.airesume.server.dto.interview.InterviewHistoryResponse;
+import com.airesume.server.dto.interview.InterviewJobTargetContext;
 import com.airesume.server.dto.interview.InterviewSessionResponse;
 import com.airesume.server.dto.interview.SendMessageRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -236,9 +237,9 @@ class InterviewServiceTest {
         when(mockInterviewService.generateMockScore(sessionId)).thenReturn(66);
 
         Method method = InterviewService.class.getDeclaredMethod(
-                "buildFallbackEvaluationReport", InterviewSession.class, com.airesume.server.dto.interview.InterviewJobTargetContext.class);
+                "buildFallbackEvaluationReport", InterviewSession.class, com.airesume.server.dto.interview.InterviewJobTargetContext.class, String.class);
         method.setAccessible(true);
-        InterviewEvaluationReport report = (InterviewEvaluationReport) method.invoke(interviewService, session, null);
+        InterviewEvaluationReport report = (InterviewEvaluationReport) method.invoke(interviewService, session, null, "AI JSON parse failed");
 
         assertEquals(3, report.getImmediateActions().size());
         assertFalse(report.getFollowUpLossPoints().isEmpty());
@@ -315,6 +316,55 @@ class InterviewServiceTest {
         );
         verify(interviewMessageService).saveMessage(session, "user", request.getContent());
         verify(interviewMessageService).saveMessage(session, "assistant", "请继续说明幂等方案。\n\n<FEEDBACK>\n本题反馈：回答方向清晰，但还需要补充具体处理细节。\n</FEEDBACK>");
+    }
+
+    @Test
+    void shouldFallbackToLatestResumeContextWhenCachedEmptyJobTargetContext() {
+        String sessionId = "session-empty-context";
+        Long userId = 123L;
+        InterviewSession session = buildInProgressSession(sessionId, userId);
+        SendMessageRequest request = new SendMessageRequest();
+        request.setContent("请继续追问项目经历");
+        InterviewJobTargetContext emptyContext = InterviewJobTargetContext.builder()
+                .jobTargeted(false)
+                .sourceType("none")
+                .build();
+        InterviewJobTargetContext latestResumeContext = InterviewJobTargetContext.builder()
+                .jobTargeted(false)
+                .sourceType("latest_resume")
+                .resumeText("候选人有前端项目经验")
+                .build();
+
+        when(interviewSessionRepository.findBySessionIdAndUserId(sessionId, userId)).thenReturn(Optional.of(session));
+        when(interviewMessageService.getMessageList(sessionId)).thenReturn(List.of());
+        when(mockInterviewJobTargetService.getSessionContext(userId, sessionId)).thenReturn(emptyContext);
+        when(mockInterviewJobTargetService.resolveLatestResumeContext(userId)).thenReturn(latestResumeContext);
+        when(interviewAiService.generateReply(
+                eq(sessionId),
+                anyList(),
+                eq(request.getContent()),
+                eq(session.getJobRoleCode()),
+                eq(session.getDifficulty()),
+                same(latestResumeContext),
+                eq("after_interview"),
+                eq("normal"),
+                eq(0)
+        )).thenReturn("继续追问");
+
+        interviewService.sendMessage(userId, sessionId, request);
+
+        verify(mockInterviewJobTargetService).resolveLatestResumeContext(userId);
+        verify(interviewAiService).generateReply(
+                eq(sessionId),
+                anyList(),
+                eq(request.getContent()),
+                eq(session.getJobRoleCode()),
+                eq(session.getDifficulty()),
+                same(latestResumeContext),
+                eq("after_interview"),
+                eq("normal"),
+                eq(0)
+        );
     }
 
     @Test

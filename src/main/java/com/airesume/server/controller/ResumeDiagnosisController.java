@@ -3,9 +3,10 @@ package com.airesume.server.controller;
 import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.PageResult;
 import com.airesume.server.common.result.Result;
-import com.airesume.server.dto.resume.ResumeDocumentUpdateRequest;
+import com.airesume.server.common.result.ResultCode;
 import com.airesume.server.dto.resume.ResumeDiagnosisHistoryResponse;
 import com.airesume.server.dto.resume.ResumeDiagnosisTaskResponse;
+import com.airesume.server.dto.resume.ResumeDocumentUpdateRequest;
 import com.airesume.server.dto.resume.ResumeJobMatchAnalyzeRequest;
 import com.airesume.server.dto.resume.ResumeJobMatchAnalyzeResponse;
 import com.airesume.server.dto.resume.ResumePolishAnalyzeRequest;
@@ -17,13 +18,15 @@ import com.airesume.server.service.ResumePolishService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import java.util.Locale;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -32,9 +35,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
-
-import java.util.Locale;
-import java.util.Set;
 
 /**
  * 简历诊断控制器。
@@ -48,12 +48,10 @@ public class ResumeDiagnosisController {
 
     private static final Set<String> ALLOWED_CONTENT_TYPES = Set.of(
             "application/pdf",
-            "application/msword",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             "application/octet-stream"
     );
 
-    private static final Set<String> ALLOWED_FILE_EXTENSIONS = Set.of(".pdf", ".doc", ".docx");
+    private static final Set<String> ALLOWED_FILE_EXTENSIONS = Set.of(".pdf");
 
     private final ResumeDiagnosisTaskService resumeDiagnosisTaskService;
     private final ResumeJobMatchService resumeJobMatchService;
@@ -66,10 +64,10 @@ public class ResumeDiagnosisController {
     public Result<String> uploadResume(@RequestParam("file") MultipartFile file,
                                        Authentication authentication) {
         if (file.isEmpty()) {
-            throw new BusinessException("上传文件不能为空");
+            throw new BusinessException(ResultCode.RESUME_FILE_EMPTY);
         }
         if (!isAllowedResumeFile(file)) {
-            throw new BusinessException("仅支持 PDF、DOC、DOCX 格式的文件");
+            throw new BusinessException(ResultCode.RESUME_FORMAT_UNSUPPORTED);
         }
 
         Long userId = (Long) authentication.getPrincipal();
@@ -99,7 +97,7 @@ public class ResumeDiagnosisController {
     @GetMapping("/history")
     public Result<PageResult<ResumeDiagnosisHistoryResponse>> getHistory(
             @RequestParam(defaultValue = "1") @Min(1) Integer pageNum,
-            @RequestParam(defaultValue = "10") @Min(1) @Max(value = 100, message = "每页最多100条") Integer pageSize,
+            @RequestParam(defaultValue = "10") @Min(1) @Max(value = 100, message = "每页最大 100 条") Integer pageSize,
             Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         log.info("Get history request, userId: {}, pageNum: {}, pageSize: {}", userId, pageNum, pageSize);
@@ -124,13 +122,25 @@ public class ResumeDiagnosisController {
      * 删除单条简历诊断记录。
      */
     @DeleteMapping("/history/{taskId}")
-    public Result<Boolean> deleteTask(
-            @PathVariable Long taskId,
-            Authentication authentication) {
+    public Result<Boolean> deleteTask(@PathVariable Long taskId,
+                                      Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         log.info("删除简历诊断记录, userId: {}, taskId: {}", userId, taskId);
         resumeDiagnosisTaskService.deleteTask(userId, taskId);
         return Result.success(true);
+    }
+
+    /**
+     * 重试失败的简历诊断任务。
+     * 复用原文件创建新任务，原任务保留。
+     */
+    @PostMapping("/task/{taskId}/retry")
+    public Result<String> retryTask(@PathVariable Long taskId,
+                                    Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("重试简历诊断任务, userId: {}, 原taskId: {}", userId, taskId);
+        String newTaskId = resumeDiagnosisTaskService.retryFailedTask(taskId, userId);
+        return Result.success("重试任务已提交", newTaskId);
     }
 
     /**
@@ -165,10 +175,9 @@ public class ResumeDiagnosisController {
      * 保存用户编辑的简历文档。
      */
     @PutMapping("/polish-records/{polishRecordId}/document")
-    public Result<Void> updatePolishDocument(
-            @PathVariable Long polishRecordId,
-            @Valid @RequestBody ResumeDocumentUpdateRequest request,
-            Authentication authentication) {
+    public Result<Void> updatePolishDocument(@PathVariable Long polishRecordId,
+                                             @Valid @RequestBody ResumeDocumentUpdateRequest request,
+                                             Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         log.info("Save polish document request, userId: {}, polishRecordId: {}", userId, polishRecordId);
 

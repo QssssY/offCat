@@ -1,7 +1,10 @@
 package com.airesume.server.service.impl;
 
 import com.airesume.server.common.constants.ResumeDiagnosisConstants;
+import com.airesume.server.common.exception.BusinessException;
+import com.airesume.server.common.result.ResultCode;
 import com.airesume.server.dto.resume.ResumeDiagnosisResult;
+import com.airesume.server.entity.ResumeDiagnosisTask;
 import com.airesume.server.service.NotificationService;
 import com.airesume.server.service.ResumeAiService;
 import com.airesume.server.service.ResumeContentExtractor;
@@ -39,7 +42,7 @@ class ResumeDiagnosisProcessorTest {
         UserQuotaService quotaService = mock(UserQuotaService.class);
         NotificationService notificationService = mock(NotificationService.class);
 
-        when(taskService.getTaskStatus(1L)).thenReturn(ResumeDiagnosisConstants.STATUS_PENDING);
+        when(taskService.getById(1L)).thenReturn(newPendingTask());
         when(taskService.updateStatusToProcessing(1L)).thenReturn(true);
         when(resumeContentExtractor.extract("/resume.pdf")).thenReturn(
                 ResumeParseResult.builder().text("张三 13800000000 zhangsan@test.com").parseMode("TEXT").build());
@@ -90,7 +93,7 @@ class ResumeDiagnosisProcessorTest {
         UserQuotaService quotaService = mock(UserQuotaService.class);
         NotificationService notificationService = mock(NotificationService.class);
 
-        when(taskService.getTaskStatus(1L)).thenReturn(ResumeDiagnosisConstants.STATUS_PENDING);
+        when(taskService.getById(1L)).thenReturn(newPendingTask());
         when(taskService.updateStatusToProcessing(1L)).thenReturn(true);
         when(resumeContentExtractor.extract("/resume.pdf")).thenReturn(
                 ResumeParseResult.builder().text("简历内容").parseMode("TEXT").build());
@@ -113,6 +116,66 @@ class ResumeDiagnosisProcessorTest {
     }
 
     @Test
+    void processTaskShouldMapStructuredAiBusinessException() {
+        ResumeDiagnosisTaskService taskService = mock(ResumeDiagnosisTaskService.class);
+        ResumeContentExtractor resumeContentExtractor = mock(ResumeContentExtractor.class);
+        ResumeAiService resumeAiService = mock(ResumeAiService.class);
+        ResumeInfoExtractor resumeInfoExtractor = mock(ResumeInfoExtractor.class);
+        UserQuotaService quotaService = mock(UserQuotaService.class);
+        NotificationService notificationService = mock(NotificationService.class);
+
+        when(taskService.getById(1L)).thenReturn(newPendingTask());
+        when(taskService.updateStatusToProcessing(1L)).thenReturn(true);
+        when(resumeContentExtractor.extract("/resume.pdf")).thenReturn(
+                ResumeParseResult.builder().text("简历内容").parseMode("TEXT").build());
+        when(resumeAiService.diagnose(anyString()))
+                .thenThrow(new BusinessException(ResultCode.AI_SERVICE_UNAVAILABLE));
+
+        ResumeDiagnosisProcessor processor = new ResumeDiagnosisProcessor(
+                taskService,
+                resumeContentExtractor,
+                resumeAiService,
+                resumeInfoExtractor,
+                objectMapper,
+                quotaService,
+                notificationService);
+
+        processor.processTask(1L, 2L, "/resume.pdf");
+
+        verify(quotaService).refundResumeQuota(2L);
+        verify(taskService).updateStatusToFailed(1L, "AI服务暂时不可用，请稍后重试");
+    }
+
+    @Test
+    void processTaskShouldMapBlankAiResponseToStructuredMessage() {
+        ResumeDiagnosisTaskService taskService = mock(ResumeDiagnosisTaskService.class);
+        ResumeContentExtractor resumeContentExtractor = mock(ResumeContentExtractor.class);
+        ResumeAiService resumeAiService = mock(ResumeAiService.class);
+        ResumeInfoExtractor resumeInfoExtractor = mock(ResumeInfoExtractor.class);
+        UserQuotaService quotaService = mock(UserQuotaService.class);
+        NotificationService notificationService = mock(NotificationService.class);
+
+        when(taskService.getById(1L)).thenReturn(newPendingTask());
+        when(taskService.updateStatusToProcessing(1L)).thenReturn(true);
+        when(resumeContentExtractor.extract("/resume.pdf")).thenReturn(
+                ResumeParseResult.builder().text("简历内容").parseMode("TEXT").build());
+        when(resumeAiService.diagnose(anyString())).thenReturn(" ");
+
+        ResumeDiagnosisProcessor processor = new ResumeDiagnosisProcessor(
+                taskService,
+                resumeContentExtractor,
+                resumeAiService,
+                resumeInfoExtractor,
+                objectMapper,
+                quotaService,
+                notificationService);
+
+        processor.processTask(1L, 2L, "/resume.pdf");
+
+        verify(taskService).updateStatusToFailed(1L, "AI分析返回结果为空，请稍后重试");
+    }
+
+    @Test
     void processTaskShouldSkipWhenTaskAlreadyClaimedByAnotherWorker() {
         ResumeDiagnosisTaskService taskService = mock(ResumeDiagnosisTaskService.class);
         ResumeContentExtractor resumeContentExtractor = mock(ResumeContentExtractor.class);
@@ -121,7 +184,7 @@ class ResumeDiagnosisProcessorTest {
         UserQuotaService quotaService = mock(UserQuotaService.class);
         NotificationService notificationService = mock(NotificationService.class);
 
-        when(taskService.getTaskStatus(1L)).thenReturn(ResumeDiagnosisConstants.STATUS_PENDING);
+        when(taskService.getById(1L)).thenReturn(newPendingTask());
         when(taskService.updateStatusToProcessing(1L)).thenReturn(false);
 
         ResumeDiagnosisProcessor processor = new ResumeDiagnosisProcessor(
@@ -138,6 +201,13 @@ class ResumeDiagnosisProcessorTest {
         verify(resumeContentExtractor, never()).extract(anyString());
         verify(resumeAiService, never()).diagnose(anyString());
         verify(quotaService, never()).refundResumeQuota(anyLong());
+    }
+
+    private ResumeDiagnosisTask newPendingTask() {
+        ResumeDiagnosisTask task = new ResumeDiagnosisTask();
+        task.setId(1L);
+        task.setStatus(ResumeDiagnosisConstants.STATUS_PENDING);
+        return task;
     }
 
     @Test

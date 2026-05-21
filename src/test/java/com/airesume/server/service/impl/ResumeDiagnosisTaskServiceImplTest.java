@@ -1,11 +1,20 @@
 package com.airesume.server.service.impl;
 
 import com.airesume.server.common.exception.BusinessException;
+import com.airesume.server.common.constants.ResumeDiagnosisConstants;
+import com.airesume.server.common.result.ResultCode;
+import com.airesume.server.entity.ResumeDiagnosisTask;
 import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
 import com.airesume.server.mapper.ResumeJobMatchRecordMapper;
 import com.airesume.server.mapper.ResumePolishRecordMapper;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -13,6 +22,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -29,6 +39,9 @@ class ResumeDiagnosisTaskServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(new MybatisConfiguration(), ""),
+                ResumeDiagnosisTask.class);
         service = new ResumeDiagnosisTaskServiceImpl(
                 null, null, null, null, null, null, null,
                 resumeJobMatchRecordMapper, resumePolishRecordMapper);
@@ -55,7 +68,8 @@ class ResumeDiagnosisTaskServiceImplTest {
         InvocationTargetException ex = assertThrows(InvocationTargetException.class,
                 () -> method.invoke(service, (String) null));
         assertInstanceOf(BusinessException.class, ex.getCause());
-        assertTrue(ex.getCause().getMessage().contains("null"));
+        assertEquals(ResultCode.RESUME_FILE_EMPTY.getCode(),
+                ((BusinessException) ex.getCause()).getCode());
     }
 
     @Test
@@ -143,5 +157,72 @@ class ResumeDiagnosisTaskServiceImplTest {
         verify(resumeJobMatchRecordMapper).logicalDeleteByUserId(userId);
         verify(resumePolishRecordMapper).logicalDeleteByUserId(userId);
         verify(resumeDiagnosisTaskMapper).logicalDeleteByUserId(userId);
+    }
+
+    @Test
+    void recoverOrphanedTasksShouldClearStageWhenMarkingFailed() {
+        ResumeDiagnosisTask orphan = new ResumeDiagnosisTask();
+        orphan.setId(100L);
+        orphan.setUserId(123L);
+        orphan.setStatus(ResumeDiagnosisConstants.STATUS_PROCESSING);
+        orphan.setStage(ResumeDiagnosisConstants.STAGE_AI_ANALYZING);
+        orphan.setUpdateTime(LocalDateTime.now().minusMinutes(30));
+        when(resumeDiagnosisTaskMapper.selectList(any())).thenReturn(List.of(orphan));
+
+        int recoveredCount = service.recoverOrphanedTasks(10);
+
+        ArgumentCaptor<ResumeDiagnosisTask> taskCaptor = ArgumentCaptor.forClass(ResumeDiagnosisTask.class);
+        verify(resumeDiagnosisTaskMapper).updateById(taskCaptor.capture());
+        assertEquals(1, recoveredCount);
+        assertEquals(ResumeDiagnosisConstants.STATUS_FAILED, taskCaptor.getValue().getStatus());
+        assertNull(taskCaptor.getValue().getStage());
+        assertNotNull(taskCaptor.getValue().getFailedAt());
+    }
+
+    @Test
+    void updateStageShouldOnlyUpdateProcessingTask() {
+        ResumeDiagnosisTaskServiceImpl spyService = spy(service);
+        doReturn(true).when(spyService).update(any(Wrapper.class));
+
+        spyService.updateStage(100L, ResumeDiagnosisConstants.STAGE_AI_ANALYZING);
+
+        ArgumentCaptor<Wrapper<ResumeDiagnosisTask>> wrapperCaptor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(spyService).update(wrapperCaptor.capture());
+        String sqlSegment = wrapperCaptor.getValue().getSqlSegment();
+        assertTrue(sqlSegment.contains("status"));
+        assertTrue(sqlSegment.contains("#{ew.paramNameValuePairs.MPGENVAL2}"));
+    }
+
+    @Test
+    void updateStatusToFailedShouldSetFailedAt() {
+        ResumeDiagnosisTaskServiceImpl spyService = spy(service);
+        doReturn(true).when(spyService).update(any(Wrapper.class));
+
+        spyService.updateStatusToFailed(100L, "AI服务暂时不可用，请稍后重试");
+
+        ArgumentCaptor<Wrapper<ResumeDiagnosisTask>> wrapperCaptor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(spyService).update(wrapperCaptor.capture());
+        String sqlSet = ((LambdaUpdateWrapper<ResumeDiagnosisTask>) wrapperCaptor.getValue()).getSqlSet();
+        assertTrue(sqlSet.contains("failed_at"));
+    }
+
+    @Test
+    void retryFailedTaskShouldUseFailedAtBeforeUpdateTime() {
+        Long userId = 123L;
+        ResumeDiagnosisTask task = new ResumeDiagnosisTask();
+        task.setId(100L);
+        task.setUserId(userId);
+        task.setStatus(ResumeDiagnosisConstants.STATUS_FAILED);
+        task.setFileUrl("/uploads/resumes/resume.pdf");
+        task.setFailedAt(LocalDateTime.now().minusHours(25));
+        task.setUpdateTime(LocalDateTime.now());
+        ResumeDiagnosisTaskServiceImpl spyService = spy(service);
+        doReturn(task).when(spyService).getById(100L);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> spyService.retryFailedTask(100L, userId));
+
+        assertEquals(ResultCode.RESUME_TASK_RETRY_EXPIRED.getCode(), exception.getCode());
+        verify(spyService, never()).createTask(anyLong(), anyString());
     }
 }

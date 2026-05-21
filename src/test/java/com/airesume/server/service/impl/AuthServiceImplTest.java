@@ -183,12 +183,12 @@ class AuthServiceImplTest {
             user.setCreateTime(java.time.LocalDateTime.of(2026, 5, 18, 10, 0));
 
             UserQuota quota = new UserQuota();
+            quota.setResumeQuota(5);
+            quota.setInterviewQuota(3);
             quota.setDailyResumeUsed(0);
             quota.setDailyInterviewUsed(0);
 
             when(sysUserService.getById(TEST_USER_ID)).thenReturn(user);
-            when(userQuotaService.getRemainingResumeQuota(TEST_USER_ID)).thenReturn(5);
-            when(userQuotaService.getRemainingInterviewQuota(TEST_USER_ID)).thenReturn(3);
             when(userQuotaService.getByUserId(TEST_USER_ID)).thenReturn(quota);
 
             UserInfoResponse response = authService.getCurrentUserInfo(TEST_USER_ID);

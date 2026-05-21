@@ -4,6 +4,7 @@ import com.airesume.server.common.constants.MembershipConstants;
 import com.airesume.server.common.constants.QuotaConstants;
 import com.airesume.server.common.constants.UserRoleConstants;
 import com.airesume.server.common.exception.BusinessException;
+import com.airesume.server.common.result.ResultCode;
 import com.airesume.server.dto.membership.MembershipUpgradeRequest;
 import com.airesume.server.entity.MembershipOrder;
 import com.airesume.server.entity.MembershipPlan;
@@ -59,20 +60,20 @@ public class MembershipServiceImpl implements MembershipService {
     @CacheEvict(value = "auth:userInfo", key = "#userId")
     public MembershipUpgradeVO mockUpgrade(Long userId, MembershipUpgradeRequest request) {
         if (userId == null) {
-            throw new BusinessException("User is not logged in");
+            throw new BusinessException(ResultCode.MEMBERSHIP_USER_NOT_LOGGED_IN);
         }
 
         MembershipPlan plan = membershipPlanService.getActiveByCode(request.getPlanCode());
         if (plan == null) {
-            throw new BusinessException("Membership plan does not exist or is disabled");
+            throw new BusinessException(ResultCode.MEMBERSHIP_PLAN_NOT_FOUND);
         }
 
         SysUser user = sysUserService.getById(userId);
         if (user == null) {
-            throw new BusinessException("User not found");
+            throw new BusinessException(ResultCode.MEMBERSHIP_USER_NOT_FOUND);
         }
         if (user.getStatus() != null && user.getStatus() == 0) {
-            throw new BusinessException("Account is disabled");
+            throw new BusinessException(ResultCode.MEMBERSHIP_ACCOUNT_DISABLED);
         }
 
         LocalDateTime now = LocalDateTime.now();

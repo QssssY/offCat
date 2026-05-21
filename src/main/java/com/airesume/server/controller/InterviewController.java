@@ -146,7 +146,9 @@ public class InterviewController {
                         : InterviewConstants.INTERACTION_TYPE_TEXT;
                 InterviewJobTargetContext jobTargetContext =
                         mockInterviewJobTargetService.getSessionContext(userId, sessionId);
-                if (jobTargetContext == null) {
+                if (jobTargetContext == null
+                        || (!Boolean.TRUE.equals(jobTargetContext.getJobTargeted())
+                        && (jobTargetContext.getResumeText() == null || jobTargetContext.getResumeText().isBlank()))) {
                     jobTargetContext = mockInterviewJobTargetService.resolveLatestResumeContext(userId);
                 }
                 String resolvedFeedbackMode = interviewService.resolveFeedbackMode(request.getFeedbackMode(), session);

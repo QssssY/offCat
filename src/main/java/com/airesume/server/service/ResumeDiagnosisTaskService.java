@@ -114,4 +114,23 @@ public interface ResumeDiagnosisTaskService extends IService<ResumeDiagnosisTask
      * @return 是否删除成功
      */
     boolean deleteTask(Long userId, Long taskId);
+
+    /**
+     * 更新任务子阶段（不影响主状态机）。
+     *
+     * @param taskId 任务 ID
+     * @param stage  子阶段标识：extracting / ai_analyzing / enhancing
+     */
+    void updateStage(Long taskId, String stage);
+
+    /**
+     * 重试失败的诊断任务。
+     * 校验：任务归属、状态为失败、失败时间在 24h 内。
+     * 行为：复用原文件创建新任务，原任务保留。
+     *
+     * @param taskId 原失败任务 ID
+     * @param userId 当前用户 ID
+     * @return 新任务 ID
+     */
+    String retryFailedTask(Long taskId, Long userId);
 }

@@ -23,6 +23,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -133,6 +135,7 @@ public class MockInterviewJobTargetServiceImpl
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "interview:jobTarget", key = "#userId + '::' + #sessionId")
     public void saveSessionContext(Long userId, String sessionId, InterviewJobTargetContext context, String openingQuestion) {
         if (context == null || !Boolean.TRUE.equals(context.getJobTargeted())) {
             return;
@@ -150,6 +153,7 @@ public class MockInterviewJobTargetServiceImpl
     }
 
     @Override
+    @Cacheable(value = "interview:jobTarget", key = "#userId + '::' + #sessionId")
     public InterviewJobTargetContext getSessionContext(Long userId, String sessionId) {
         LambdaQueryWrapper<MockInterviewJobTargetRecord> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(MockInterviewJobTargetRecord::getUserId, userId)
@@ -157,7 +161,11 @@ public class MockInterviewJobTargetServiceImpl
                 .last("limit 1");
         MockInterviewJobTargetRecord record = getOne(wrapper, false);
         if (record == null) {
-            return null;
+            // 普通模拟面试没有岗位定向记录，返回可缓存的空上下文，避免轮询详情时反复穿透查询数据库。
+            return InterviewJobTargetContext.builder()
+                    .jobTargeted(false)
+                    .sourceType("none")
+                    .build();
         }
 
         InterviewJobTargetContext context = InterviewJobTargetContext.builder()

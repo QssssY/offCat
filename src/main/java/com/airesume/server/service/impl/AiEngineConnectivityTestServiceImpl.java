@@ -1,6 +1,7 @@
 package com.airesume.server.service.impl;
 
 import com.airesume.server.common.exception.BusinessException;
+import com.airesume.server.common.result.ResultCode;
 import com.airesume.server.common.util.PublicHttpsUrlValidator;
 import com.airesume.server.dto.admin.AiEngineConnectivityTestRequest;
 import com.airesume.server.dto.admin.AiEngineConnectivityTestResponse;
@@ -177,13 +178,13 @@ public class AiEngineConnectivityTestServiceImpl implements AiEngineConnectivity
      */
     private String extractResponsePreview(String rawResponse) {
         if (rawResponse == null || rawResponse.isBlank()) {
-            throw new BusinessException("AI returned an empty response");
+            throw new BusinessException(ResultCode.AI_RESPONSE_EMPTY);
         }
         try {
             JsonNode root = objectMapper.readTree(rawResponse);
             JsonNode choiceNode = root.path("choices").path(0);
             if (choiceNode.isMissingNode()) {
-                throw new BusinessException("AI returned an empty response");
+                throw new BusinessException(ResultCode.AI_RESPONSE_EMPTY);
             }
 
             JsonNode messageNode = choiceNode.path("message");
@@ -201,11 +202,11 @@ public class AiEngineConnectivityTestServiceImpl implements AiEngineConnectivity
             if (messageNode.isObject() || finishReason != null && !finishReason.isBlank()) {
                 return "Upstream returned a valid response without text content";
             }
-            throw new BusinessException("AI returned an empty response");
+            throw new BusinessException(ResultCode.AI_RESPONSE_EMPTY);
         } catch (BusinessException ex) {
             throw ex;
         } catch (Exception ex) {
-            throw new BusinessException("AI response parse failed: " + ex.getMessage());
+            throw new BusinessException(ResultCode.AI_RESPONSE_PARSE_FAILED, "AI 响应解析失败");
         }
     }
 

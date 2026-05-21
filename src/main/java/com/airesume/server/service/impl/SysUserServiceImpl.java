@@ -7,8 +7,13 @@ import com.airesume.server.service.SysUserService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
+import java.io.Serializable;
 import java.time.LocalDateTime;
 
 /**
@@ -19,11 +24,54 @@ import java.time.LocalDateTime;
 @Service
 public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> implements SysUserService {
 
+    private static final String USER_CACHE = "sys_user";
+
+    /**
+     * 自注入：通过 Spring 代理调用自身方法，使 @Cacheable 等 AOP 注解在自调用时生效。
+     */
+    @Lazy
+    @Autowired
+    private SysUserServiceImpl self;
+
+    /**
+     * 重写 getById，加 Redis 缓存。
+     * JwtAuthenticationFilter 每次请求都调用此方法，缓存可避免频繁查库。
+     */
+    @Override
+    @Cacheable(value = USER_CACHE, key = "#id")
+    public SysUser getById(Serializable id) {
+        return super.getById(id);
+    }
+
+    /**
+     * 重写 updateById，更新时清除缓存。
+     */
+    @Override
+    @CacheEvict(value = USER_CACHE, key = "#entity.id")
+    public boolean updateById(SysUser entity) {
+        return super.updateById(entity);
+    }
+
+    /**
+     * 重写 save，新建用户时不会命中缓存，但防止极端场景缓存不一致。
+     */
+    @Override
+    @CacheEvict(value = USER_CACHE, key = "#entity.id")
+    public boolean save(SysUser entity) {
+        return super.save(entity);
+    }
+
+    /**
+     * 重写 removeById，删除用户时清除用户详情缓存。
+     */
+    @Override
+    @CacheEvict(value = USER_CACHE, key = "#id")
+    public boolean removeById(Serializable id) {
+        return super.removeById(id);
+    }
+
     /**
      * 根据用户名查询用户
-     *
-     * @param username 用户名
-     * @return 用户实体，不存在返回null
      */
     @Override
     public SysUser getByUsername(String username) {
@@ -37,9 +85,6 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
 
     /**
      * 检查用户名是否已存在
-     *
-     * @param username 用户名
-     * @return 存在返回true，否则返回false
      */
     @Override
     public boolean existsByUsername(String username) {
@@ -53,25 +98,19 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
 
     /**
      * 判断用户是否为有效VIP用户
-     * 同时检查用户角色和VIP到期时间
-     *
-     * @param userId 用户ID
-     * @return 是有效VIP返回true，否则返回false
      */
     @Override
     public boolean isVipUser(Long userId) {
         log.debug("Checking if user is VIP, userId: {}", userId);
-        SysUser user = getById(userId);
+        SysUser user = self.getById(userId);
         if (user == null) {
             log.warn("User not found when checking VIP status, userId: {}", userId);
             return false;
         }
-        // 检查用户角色是否为VIP
         if (user.getRole() == null || user.getRole() != UserRoleConstants.ROLE_VIP) {
             log.debug("User is not VIP role, userId: {}, role: {}", userId, user.getRole());
             return false;
         }
-        // 检查VIP是否过期
         if (user.getVipExpireTime() == null) {
             log.debug("User has no VIP expire time, userId: {}", userId);
             return false;

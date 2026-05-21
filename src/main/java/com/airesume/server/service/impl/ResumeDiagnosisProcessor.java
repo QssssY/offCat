@@ -1,7 +1,10 @@
 package com.airesume.server.service.impl;
 
 import com.airesume.server.common.constants.ResumeDiagnosisConstants;
+import com.airesume.server.common.exception.BusinessException;
+import com.airesume.server.common.result.ResultCode;
 import com.airesume.server.dto.resume.ResumeDiagnosisResult;
+import com.airesume.server.entity.ResumeDiagnosisTask;
 import com.airesume.server.service.NotificationService;
 import com.airesume.server.service.ResumeAiService;
 import com.airesume.server.service.ResumeContentExtractor;
@@ -38,14 +41,15 @@ public class ResumeDiagnosisProcessor {
         log.info("开始处理简历诊断任务, taskId: {}, userId: {}", taskId, userId);
 
         try {
-            Integer currentStatus = resumeDiagnosisTaskService.getTaskStatus(taskId);
-            if (currentStatus == null) {
+            // 状态校验与缓存文本检查合并为一次查询，避免 getTaskStatus + getById 两次 SELECT
+            ResumeDiagnosisTask currentTask = resumeDiagnosisTaskService.getById(taskId);
+            if (currentTask == null) {
                 log.warn("任务不存在，跳过处理, taskId: {}", taskId);
                 refundQuotaIfNeeded(userId, taskId);
                 return;
             }
-            if (currentStatus != ResumeDiagnosisConstants.STATUS_PENDING) {
-                log.warn("任务状态不是待处理，跳过处理, taskId: {}, status: {}", taskId, currentStatus);
+            if (currentTask.getStatus() == null || currentTask.getStatus() != ResumeDiagnosisConstants.STATUS_PENDING) {
+                log.warn("任务状态不是待处理，跳过处理, taskId: {}, status: {}", taskId, currentTask.getStatus());
                 return;
             }
 
@@ -56,35 +60,46 @@ public class ResumeDiagnosisProcessor {
                 return;
             }
 
+            // 阶段1：提取简历文本（优先使用缓存，支持文件过期后的重试场景）
             long pdfStartTime = System.currentTimeMillis();
-            // 统一解析服务会优先复用文本直提，不足时再进入多模态或 OCR。
-            ResumeParseResult parseResult = resumeContentExtractor.extract(fileUrl);
-            String resumeText = parseResult.getText();
-            long pdfElapsed = System.currentTimeMillis() - pdfStartTime;
-            log.info("PDF 文本提取完成, taskId: {}, textLength: {}, elapsedMs: {}",
-                    taskId, resumeText.length(), pdfElapsed);
+            String resumeText = (currentTask.getResumeText() != null
+                    && !currentTask.getResumeText().isBlank())
+                    ? currentTask.getResumeText() : null;
 
-            try {
-                // 统一缓存解析文本与解析来源，供结果页和后续能力复用。
-                resumeDiagnosisTaskService.updateTaskResumeParseResult(
-                        taskId,
-                        resumeText,
-                        parseResult.getParseMode(),
-                        parseResult.getParseMessage());
-            } catch (Exception e) {
-                log.warn("缓存简历文本失败, taskId: {}, 不影响主流程", taskId, e);
+            if (resumeText != null) {
+                log.info("使用缓存简历文本（跳过PDF提取）, taskId: {}, textLength: {}", taskId, resumeText.length());
+                // 使用缓存文本时仍需设置提取阶段，确保前端阶段链路可见
+                resumeDiagnosisTaskService.updateStage(taskId, ResumeDiagnosisConstants.STAGE_EXTRACTING);
+            } else {
+                resumeDiagnosisTaskService.updateStage(taskId, ResumeDiagnosisConstants.STAGE_EXTRACTING);
+                ResumeParseResult parseResult = resumeContentExtractor.extract(fileUrl);
+                resumeText = parseResult.getText();
+                log.info("PDF 文本提取完成, taskId: {}, textLength: {}, elapsedMs: {}",
+                        taskId, resumeText.length(), System.currentTimeMillis() - pdfStartTime);
+                try {
+                    resumeDiagnosisTaskService.updateTaskResumeParseResult(
+                            taskId, resumeText,
+                            parseResult.getParseMode(), parseResult.getParseMessage());
+                } catch (Exception e) {
+                    log.warn("缓存简历文本失败, taskId: {}, 不影响主流程", taskId, e);
+                }
             }
+            long pdfElapsed = System.currentTimeMillis() - pdfStartTime;
 
             long aiStartTime = System.currentTimeMillis();
+            // 阶段2：AI 分析简历
+            resumeDiagnosisTaskService.updateStage(taskId, ResumeDiagnosisConstants.STAGE_AI_ANALYZING);
             log.info("开始 AI 诊断调用, taskId: {}", taskId);
             String diagnosisResult = resumeAiService.diagnose(resumeText);
             long aiElapsed = System.currentTimeMillis() - aiStartTime;
             log.info("AI 诊断调用返回, taskId: {}, elapsedMs: {}", taskId, aiElapsed);
             if (diagnosisResult == null || diagnosisResult.isBlank()) {
-                throw new RuntimeException("AI 诊断返回结果为空");
+                throw new BusinessException(ResultCode.AI_RESPONSE_EMPTY);
             }
 
             long enhanceStartTime = System.currentTimeMillis();
+            // 阶段3：生成诊断报告
+            resumeDiagnosisTaskService.updateStage(taskId, ResumeDiagnosisConstants.STAGE_ENHANCING);
             String enhancedResult = enhanceDiagnosisResult(diagnosisResult, resumeText);
             long enhanceElapsed = System.currentTimeMillis() - enhanceStartTime;
             enhancedResult = enhancedResult.replaceAll("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]", "");
@@ -298,14 +313,49 @@ public class ResumeDiagnosisProcessor {
     }
 
     private String buildUserFriendlyErrorMessage(Throwable throwable) {
+        if (throwable == null) {
+            return "系统异常，请稍后重试";
+        }
         if (isTimeoutException(throwable)) {
             return "AI分析超时，请稍后重试";
         }
-        String message = throwable == null ? "" : throwable.getMessage();
-        if (message == null || message.isBlank()) {
-            return "系统异常，请稍后重试";
+        // PDF 解析类错误
+        if (throwable instanceof com.airesume.server.service.PdfTextExtractor.PdfExtractionException) {
+            return "PDF文件解析失败，请检查文件是否损坏后重新上传";
         }
-        return message;
+        BusinessException businessException = findBusinessException(throwable);
+        if (businessException != null) {
+            return buildBusinessErrorMessage(businessException);
+        }
+        return "诊断处理异常，请稍后重试";
+    }
+
+    private BusinessException findBusinessException(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof BusinessException businessException) {
+                return businessException;
+            }
+            current = current.getCause();
+        }
+        return null;
+    }
+
+    private String buildBusinessErrorMessage(BusinessException exception) {
+        Integer code = exception.getCode();
+        if (ResultCode.AI_SERVICE_UNAVAILABLE.getCode().equals(code)) {
+            return "AI服务暂时不可用，请稍后重试";
+        }
+        if (ResultCode.AI_RESPONSE_EMPTY.getCode().equals(code)) {
+            return "AI分析返回结果为空，请稍后重试";
+        }
+        if (ResultCode.AI_RESPONSE_PARSE_FAILED.getCode().equals(code)) {
+            return "AI响应解析失败，请稍后重试";
+        }
+        if (ResultCode.AI_QUOTA_INSUFFICIENT.getCode().equals(code)) {
+            return "AI调用配额不足，请联系客服或稍后重试";
+        }
+        return "诊断处理异常，请稍后重试";
     }
 
     private boolean isTimeoutException(Throwable throwable) {

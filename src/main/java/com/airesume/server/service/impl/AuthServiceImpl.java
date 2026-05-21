@@ -213,10 +213,11 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException(ResultCode.NOT_FOUND);
         }
 
-        int resumeQuota = userQuotaService.getRemainingResumeQuota(userId);
-        int interviewQuota = userQuotaService.getRemainingInterviewQuota(userId);
+        // 一次查询 user_quota，避免 getRemainingResumeQuota / getRemainingInterviewQuota / getByUserId 各查一次
         UserQuota userQuota = userQuotaService.getByUserId(userId);
         userQuotaService.refreshDailyQuotaIfNeeded(userId, userQuota);
+        int resumeQuota = userQuota == null ? 0 : Math.max(0, safeValue(userQuota.getResumeQuota()));
+        int interviewQuota = userQuota == null ? 0 : Math.max(0, safeValue(userQuota.getInterviewQuota()));
         int vipDailyResumeQuota = userQuota == null
                 ? 0
                 : Math.max(0, QuotaConstants.VIP_USER_DAILY_RESUME_LIMIT - safeValue(userQuota.getDailyResumeUsed()));

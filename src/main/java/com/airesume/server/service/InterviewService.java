@@ -348,7 +348,7 @@ public class InterviewService {
             log.info("异步 AI 评估报告生成成功, sessionId: {}, score: {}", sessionId, score);
         } catch (Exception e) {
             log.warn("异步 AI 评估失败，降级使用 Mock 报告, sessionId: {}, error: {}", sessionId, e.getMessage());
-            InterviewEvaluationReport fallbackReport = buildFallbackEvaluationReport(session, jobTargetContext);
+            InterviewEvaluationReport fallbackReport = buildFallbackEvaluationReport(session, jobTargetContext, e.getMessage());
             score = fallbackReport.getOverallScore();
             mockInterviewJobTargetService.updateFeedback(
                     sessionId,
@@ -790,7 +790,9 @@ public class InterviewService {
      */
     private InterviewJobTargetContext resolveConversationContext(Long userId, String sessionId) {
         InterviewJobTargetContext sessionContext = mockInterviewJobTargetService.getSessionContext(userId, sessionId);
-        if (sessionContext != null) {
+        if (sessionContext != null
+                && (Boolean.TRUE.equals(sessionContext.getJobTargeted())
+                || (sessionContext.getResumeText() != null && !sessionContext.getResumeText().isBlank()))) {
             return sessionContext;
         }
         return mockInterviewJobTargetService.resolveLatestResumeContext(userId);
@@ -981,18 +983,20 @@ public class InterviewService {
      */
     private InterviewEvaluationReport buildFallbackEvaluationReport(
             InterviewSession session,
-            InterviewJobTargetContext jobTargetContext
+            InterviewJobTargetContext jobTargetContext,
+            String failureReason
     ) {
         int score = mockInterviewService.generateMockScore(session.getSessionId());
         String summary = Boolean.TRUE.equals(jobTargetContext != null ? jobTargetContext.getJobTargeted() : false)
                 ? "本次岗位定向模拟面试已结合目标岗位要求给出基础评估，建议继续围绕岗位关键能力补齐案例表达。"
                 : "本次模拟面试已生成基础评估，建议继续补强案例细节与表达完整性。";
+        String safeFailureReason = failureReason == null || failureReason.isBlank() ? "AI 报告生成失败" : failureReason;
 
         return InterviewEvaluationReport.builder()
                 .overallScore(score)
                 .level(resolveLevel(score))
                 .summary(summary)
-                .finalVerdict(score >= 80 ? "表现较好" : "仍有提升空间")
+                .finalVerdict("AI 深度报告生成失败，当前为基础评估：" + safeFailureReason)
                 .strengths(List.of("回答具备基本结构", "能够围绕问题给出业务表达"))
                 .weaknesses(Boolean.TRUE.equals(jobTargetContext != null ? jobTargetContext.getJobTargeted() : false)
                         ? List.of("岗位要求与案例关联仍可加强")

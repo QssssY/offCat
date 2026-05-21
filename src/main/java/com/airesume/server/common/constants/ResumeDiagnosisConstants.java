@@ -27,6 +27,14 @@ public class ResumeDiagnosisConstants {
 
     public static final int SCENARIO_TYPE_RESUME = 2;
 
+    // 诊断子阶段（仅 status=PROCESSING 时有效）
+    /** 子阶段：提取简历文本 */
+    public static final String STAGE_EXTRACTING = "extracting";
+    /** 子阶段：AI 深度分析 */
+    public static final String STAGE_AI_ANALYZING = "ai_analyzing";
+    /** 子阶段：生成诊断报告 */
+    public static final String STAGE_ENHANCING = "enhancing";
+
     private ResumeDiagnosisConstants() {
     }
 }

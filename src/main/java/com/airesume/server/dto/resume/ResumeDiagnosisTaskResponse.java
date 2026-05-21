@@ -45,6 +45,16 @@ public class ResumeDiagnosisTaskResponse implements Serializable {
     private String statusDesc;
 
     /**
+     * 当前子阶段标识：extracting / ai_analyzing / enhancing。
+     */
+    private String stage;
+
+    /**
+     * 当前子阶段中文描述。
+     */
+    private String stageDesc;
+
+    /**
      * AI 诊断结果。
      */
     private String diagnosisResult;

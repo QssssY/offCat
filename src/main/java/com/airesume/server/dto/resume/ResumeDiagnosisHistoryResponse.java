@@ -39,6 +39,11 @@ public class ResumeDiagnosisHistoryResponse {
     private String statusDesc;
 
     /**
+     * 失败原因（仅 status=3 时非空）
+     */
+    private String errorMsg;
+
+    /**
      * 创建时间
      */
     private LocalDateTime createTime;
