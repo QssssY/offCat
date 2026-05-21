@@ -162,26 +162,26 @@
       <!-- 已登录状态：显示通知铃铛和头像下拉菜单 -->
       <template v-if="isLoggedIn">
         <!-- 消息通知铃铛 -->
-        <el-popover
-          v-if="notificationRealtimeEnabled"
-          v-model:visible="notificationPopoverVisible"
-          placement="bottom-end"
-          :width="360"
-          trigger="click"
-          :show-arrow="false"
-          :offset="8"
-          popper-class="notification-popover"
-          @before-enter="handleNotificationOpen"
-        >
-          <template #reference>
-            <div class="notification-bell" title="消息通知">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-              </svg>
-              <span v-if="unreadCount > 0" class="bell-badge">{{ unreadCount > 99 ? '99+' : unreadCount }}</span>
-            </div>
-          </template>
+        <template v-if="notificationRealtimeEnabled">
+          <el-popover
+            v-model:visible="notificationPopoverVisible"
+            placement="bottom-end"
+            :width="360"
+            trigger="click"
+            :show-arrow="false"
+            :offset="8"
+            popper-class="notification-popover"
+            @before-enter="handleNotificationOpen"
+          >
+            <template #reference>
+              <div ref="bellRef" class="notification-bell">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                </svg>
+                <span v-if="unreadCount > 0" class="bell-badge">{{ unreadCount > 99 ? '99+' : unreadCount }}</span>
+              </div>
+            </template>
 
           <!-- 通知下拉面板 -->
           <div class="notification-panel">
@@ -240,6 +240,9 @@
             </div>
           </div>
         </el-popover>
+        <!-- 虚拟触发 tooltip，popover 打开时禁用 -->
+        <el-tooltip content="消息通知" placement="bottom" :show-after="300" :disabled="notificationPopoverVisible" virtual-triggering :virtual-ref="bellRef" />
+        </template>
 
       <el-dialog
           v-model="announcementDialogVisible"
@@ -559,6 +562,8 @@ const unreadCount = ref(0);
 const notificationList = ref([]);
 /** 通知面板是否展开 */
 const notificationPopoverVisible = ref(false);
+/** 铃铛 DOM 引用，供虚拟触发 tooltip 使用 */
+const bellRef = ref(null);
 /** 通知加载状态 */
 const notificationLoading = ref(false);
 /** 全部已读加载状态 */

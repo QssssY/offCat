@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import { getToken, getTokenType, removeToken, isLoggedIn } from '@/utils/auth'
+import { getErrorMessage } from '@/utils/errorMessages'
 import router from '@/router'
 
 const request = axios.create({
@@ -37,7 +38,17 @@ request.interceptors.response.use(
       return Promise.reject(new Error(res.message || '请求失败'))
     }
 
-    ElMessage.error(res.message || '请求失败')
+    // 优先使用错误码映射获取用户友好提示
+    const errorInfo = getErrorMessage(res.code, res.message)
+    if (errorInfo) {
+      ElMessage({
+        message: errorInfo.description ? `${errorInfo.title}：${errorInfo.description}` : errorInfo.title,
+        type: 'error',
+        duration: 5000
+      })
+    } else {
+      ElMessage.error(res.message || '请求失败')
+    }
     return Promise.reject(new Error(res.message || '请求失败'))
   },
   (error) => {
@@ -45,6 +56,8 @@ request.interceptors.response.use(
     if (error.config?.skipDefaultErrorHandler) {
       return Promise.reject(error)
     }
+
+    const friendlyMessage = '网络异常，请稍后重试'
 
     if (error.response) {
       const { status, data } = error.response
@@ -66,18 +79,23 @@ request.interceptors.response.use(
           ElMessage.error('请求的资源不存在')
           break
         case 500:
-          ElMessage.error('服务器错误')
+          ElMessage.error('服务器繁忙，请稍后重试')
+          break
+        case 502:
+        case 503:
+        case 504:
+          ElMessage.error('服务暂时不可用，请稍后重试')
           break
         default:
-          ElMessage.error(data?.message || '请求失败')
+          ElMessage.error(data?.message || friendlyMessage)
       }
     } else if (error.request) {
-      ElMessage.error('网络错误，请检查网络连接')
+      ElMessage.error('网络连接失败，请检查网络后重试')
     } else {
-      ElMessage.error('请求失败')
+      ElMessage.error(friendlyMessage)
     }
 
-    return Promise.reject(error)
+    return Promise.reject(new Error(friendlyMessage))
   }
 )
 

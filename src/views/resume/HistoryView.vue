@@ -125,7 +125,7 @@
             </el-button>
             <!-- 失败 -->
             <template v-if="item.status === 3">
-              <el-button size="small" @click="goToUpload">
+              <el-button size="small" type="primary" :loading="retryingTaskId === item.taskId" @click="handleRetry(item)">
                 <el-icon style="margin-right: 4px;"><RefreshRight /></el-icon>
                 重新诊断
               </el-button>
@@ -141,6 +141,12 @@
               </el-button>
             </template>
           </div>
+        </div>
+
+        <!-- 失败原因 -->
+        <div v-if="item.status === 3 && item.errorMsg" class="card-error">
+          <el-icon :size="14" style="flex-shrink: 0;"><CircleClose /></el-icon>
+          <span>{{ item.errorMsg }}</span>
         </div>
       </div>
     </div>
@@ -170,7 +176,7 @@ import {
   Clock,
   RefreshRight,
 } from "@element-plus/icons-vue";
-import { getResumeHistory, extractFileName, clearResumeHistory, deleteResumeHistory } from "@/api/resume";
+import { getResumeHistory, extractFileName, clearResumeHistory, deleteResumeHistory, retryResumeTask } from "@/api/resume";
 import { ElMessage, ElMessageBox } from "element-plus";
 import ResumeEmpty from "@/components/empty/ResumeEmpty.vue";
 
@@ -181,6 +187,7 @@ const loading = ref(true);
 const error = ref("");
 const historyList = ref([]);
 const isMobileLayout = ref(false);
+const retryingTaskId = ref(null);
 
 const updateLayout = () => {
   isMobileLayout.value = window.innerWidth < 768;
@@ -300,6 +307,25 @@ const handleDelete = async (item) => {
     }
   } catch {
     // 用户取消或删除失败
+  }
+};
+
+// 重试失败任务
+const handleRetry = async (item) => {
+  retryingTaskId.value = item.taskId;
+  try {
+    const res = await retryResumeTask(item.taskId);
+    const newTaskId = res.data;
+    if (!newTaskId) {
+      ElMessage.error("重试响应异常，请稍后重试");
+      return;
+    }
+    ElMessage.success("重试任务已提交");
+    router.push(`/resume/result/${newTaskId}`);
+  } catch (err) {
+    ElMessage.error(err?.message || "重试失败，请重新上传");
+  } finally {
+    retryingTaskId.value = null;
   }
 };
 
@@ -618,6 +644,30 @@ onUnmounted(() => {
 @keyframes textPulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
+}
+
+/* 失败原因 */
+.card-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px 14px;
+  background: rgba(245, 108, 108, 0.06);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-danger);
+  margin-top: -8px;
+  overflow: hidden;
+  word-break: break-all;
+}
+
+.card-error span {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ── 分页 ── */

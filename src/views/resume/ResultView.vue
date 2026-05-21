@@ -442,6 +442,12 @@
         </svg>
         <div class="failed-title">诊断失败</div>
         <div class="failed-desc">{{ task.errorMsg || '请稍后重试' }}</div>
+        <div class="failed-actions">
+          <n-button type="primary" :loading="retrying" @click="handleRetry">
+            {{ retrying ? '提交中...' : '重新诊断' }}
+          </n-button>
+          <n-button ghost @click="goToUpload">重新上传</n-button>
+        </div>
       </div>
 
       <!-- 底部操作区 -->
@@ -625,9 +631,9 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick, onMounted, onUnmounted, watch, defineAsyncComponent } from 'vue'
+import { ref, computed, nextTick, onUnmounted, watch, defineAsyncComponent } from 'vue'
 import { useRouter, useRoute, onBeforeRouteLeave } from 'vue-router'
-import { analyzeResumeJobMatch, analyzeResumePolish, getResumeTask, savePolishDocument } from '@/api/resume'
+import { analyzeResumeJobMatch, analyzeResumePolish, getResumeTask, retryResumeTask, savePolishDocument } from '@/api/resume'
 import { useUserStore } from '@/stores/user'
 import { NButton, NInput, useMessage } from 'naive-ui'
 const message = useMessage()
@@ -664,6 +670,7 @@ const pdfExporting = ref(false)
 const imageExporting = ref(false)
 const resumeTemplateRef = ref(null)
 const documentSaving = ref(false)
+const retrying = ref(false)
 
 const taskId = computed(() => route.params.taskId)
 
@@ -671,8 +678,8 @@ const isPending = computed(() => task.value?.status === 0)
 const isProcessing = computed(() => task.value?.status === 1)
 const isCompleted = computed(() => task.value?.status === 2)
 const isFailed = computed(() => task.value?.status === 3)
-const PENDING_POLL_INTERVAL = 5000
-const PROCESSING_POLL_INTERVAL = 7000
+const PENDING_POLL_INTERVAL = 3000
+const PROCESSING_POLL_INTERVAL = 2000
 const POLL_MAX_ROUNDS = 90
 const pollTimeout = ref(false)
 
@@ -725,11 +732,17 @@ const resumeStages = [
   { key: 'generating', label: '生成诊断报告' }
 ]
 
-/** 当前阶段索引：排队中=0，分析中=1 */
+/** 当前阶段索引：排队中=-1（无高亮），提取文本=0，AI分析=1，生成报告=2 */
 const currentStageIndex = computed(() => {
-  if (isPending.value) return 0
-  return 1
+  if (isPending.value) return -1
+  const stage = task.value?.stage
+  if (stage === 'extracting') return 0
+  if (stage === 'ai_analyzing') return 1
+  if (stage === 'enhancing') return 2
+  return 0
 })
+
+/** 阶段进度百分比（已移除进度条，保留阶段指示器） */
 
 /** 轮播鼓励文案 */
 const resumeLoadingMessages = [
@@ -843,6 +856,23 @@ const parsedResult = computed(() => {
     return null
   }
 })
+
+const resetTaskScopedState = () => {
+  stopPolling()
+  loading.value = true
+  refreshing.value = false
+  error.value = ''
+  pollTimeout.value = false
+  task.value = null
+  hasRefreshedUserInfo.value = false
+  jobMatchVisible.value = false
+  jobDescriptionText.value = ''
+  jobMatchLoading.value = false
+  jobMatchResult.value = null
+  polishLoading.value = false
+  polishResult.value = null
+  documentSaving.value = false
+}
 
 // 六维雷达图数据
 const radarScores = computed(() => {
@@ -1147,10 +1177,6 @@ const submitJobMatchAnalysis = async () => {
   }
 }
 
-onMounted(() => {
-  fetchTaskDetail({ silent: true })
-})
-
 onUnmounted(() => {
   stopPolling()
   document.body.style.overflow = ''
@@ -1187,6 +1213,18 @@ watch(task, (newTask) => {
     polishResult.value = newTask.latestPolishResult
   }
 }, { deep: true })
+
+// immediate watcher 负责首次进入页面和路由 taskId 变化时的数据加载。
+watch(taskId, (newTaskId, oldTaskId) => {
+  if (!newTaskId) {
+    return
+  }
+  if (oldTaskId !== undefined && String(newTaskId) === String(oldTaskId)) {
+    return
+  }
+  resetTaskScopedState()
+  fetchTaskDetail({ silent: true })
+}, { immediate: true })
 
 const handleSaveDocument = async () => {
   if (!polishResult.value?.polishRecordId || !resumeTemplateRef.value) {
@@ -1230,6 +1268,25 @@ const copyPolishedResume = async () => {
   }
 }
 
+
+/** 重试失败任务：复用原文件创建新任务，跳转新结果页 */
+const handleRetry = async () => {
+  if (!task.value?.taskId) {
+    message.error('任务不存在')
+    return
+  }
+  retrying.value = true
+  try {
+    const res = await retryResumeTask(task.value.taskId)
+    const newTaskId = res.data
+    message.success('重试任务已提交')
+    router.replace(`/resume/result/${newTaskId}`)
+  } catch (err) {
+    message.error(err?.message || '重试失败，请重新上传')
+  } finally {
+    retrying.value = false
+  }
+}
 
 const getExportFilename = () => {
   // 优先使用简历中的姓名作为文件名，否则取第一行文本
@@ -2267,6 +2324,21 @@ const exportResumeImage = async () => {
 .failed-desc {
   font-size: 14px;
   color: var(--text-body);
+  max-width: 400px;
+  margin: 0 auto;
+  word-break: break-all;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.failed-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 20px;
 }
 
 /* ============================================

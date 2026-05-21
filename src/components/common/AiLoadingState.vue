@@ -1,5 +1,5 @@
 <template>
-  <!-- AI 加载状态通用组件：SVG 轨道环动画 + 阶段指示器 + 轮播文案 + 进度条 -->
+  <!-- AI 加载状态通用组件：SVG 轨道环动画 + 阶段指示器 + 轮播文案 -->
   <div class="ai-loading-state" :class="{ 'no-card': noCard }">
     <!-- SVG 轨道环动画 -->
     <div class="animation-area">
@@ -68,14 +68,6 @@
       </transition>
     </div>
 
-    <!-- 进度条（仅传入 progressPercent 时显示） -->
-    <div class="progress-section" v-if="showProgress">
-      <div class="progress-track">
-        <div class="progress-fill" :style="{ width: `${progressPercent}%` }"></div>
-      </div>
-      <span class="progress-label">{{ Math.round(progressPercent) }}%</span>
-    </div>
-
     <!-- 已等待时间 -->
     <div class="elapsed-time" v-if="showElapsedTime">
       已等待 {{ formattedElapsed }}
@@ -106,8 +98,6 @@ const props = defineProps({
   stages: { type: Array, default: () => [] },
   /** 当前阶段索引（0-based） */
   currentStageIndex: { type: Number, default: 0 },
-  /** 进度百分比 0-100，不传则不显示进度条 */
-  progressPercent: { type: Number, default: -1 },
   /** 轮播鼓励文案 */
   messages: { type: Array, default: () => [] },
   /** 是否显示已等待时间 */
@@ -121,9 +111,6 @@ const props = defineProps({
 })
 
 defineEmits(['refresh'])
-
-// 是否显示进度条
-const showProgress = computed(() => props.progressPercent >= 0)
 
 // ---- 动画颜色（通过 CSS 变量适配暗色模式） ----
 const orbitOuterColor = 'var(--orange-border)'
@@ -205,7 +192,7 @@ function onMotionChange(e) {
   border-radius: 20px;
   border: 1px solid var(--border-card);
   box-shadow: 0 4px 20px rgba(255, 140, 66, 0.06);
-  max-width: 480px;
+  max-width: 560px;
   width: 100%;
 }
 
@@ -308,13 +295,17 @@ function onMotionChange(e) {
   justify-content: center;
   gap: 0;
   margin-bottom: 24px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  width: 100%;
+  padding: 0 8px;
 }
 
 .stage-item {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 /* 圆点 */
@@ -364,6 +355,8 @@ function onMotionChange(e) {
   color: var(--text-muted);
   white-space: nowrap;
   transition: color 0.3s ease;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .stage-item.active .stage-label {
@@ -377,11 +370,13 @@ function onMotionChange(e) {
 
 /* 连接线 */
 .stage-line {
-  width: 32px;
+  flex: 1;
+  min-width: 12px;
+  max-width: 40px;
   height: 2px;
   background: var(--border-card);
-  margin: 0 8px;
-  flex-shrink: 0;
+  margin: 0 4px;
+  flex-shrink: 1;
   transition: background 0.3s ease;
 }
 
@@ -423,69 +418,6 @@ function onMotionChange(e) {
 }
 
 /* ============================================
-   进度条
-   ============================================ */
-.progress-section {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.progress-track {
-  flex: 1;
-  height: 6px;
-  background: var(--border-card);
-  border-radius: 3px;
-  overflow: hidden;
-}
-
-.progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--orange-main) 0%, var(--orange-deep) 100%);
-  border-radius: 3px;
-  transition: width 0.6s cubic-bezier(0.25, 1, 0.5, 1);
-  position: relative;
-}
-
-/* 进度条微光效果 */
-.progress-fill::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.3) 50%,
-    transparent 100%
-  );
-  animation: progress-shimmer 2s ease-in-out infinite;
-}
-
-@keyframes progress-shimmer {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .progress-fill::after {
-    animation: none !important;
-  }
-}
-
-.progress-label {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--orange-main);
-  min-width: 36px;
-  text-align: right;
-}
-
-/* ============================================
    已等待时间
    ============================================ */
 .elapsed-time {
@@ -502,5 +434,57 @@ function onMotionChange(e) {
   display: flex;
   gap: 12px;
   align-items: center;
+}
+
+/* ============================================
+   响应式适配
+   ============================================ */
+@media (max-width: 480px) {
+  .ai-loading-state {
+    padding: 32px 16px 28px;
+    max-width: 100%;
+    border-radius: 16px;
+  }
+
+  .animation-area {
+    margin-bottom: 20px;
+  }
+
+  .orbit-svg {
+    width: 88px;
+    height: 88px;
+  }
+
+  .loading-title {
+    font-size: 17px;
+    margin-bottom: 18px;
+  }
+
+  .stage-dot {
+    width: 20px;
+    height: 20px;
+  }
+
+  .stage-label {
+    font-size: 12px;
+  }
+
+  .stage-line {
+    min-width: 8px;
+    max-width: 24px;
+    margin: 0 2px;
+  }
+
+  .stage-item {
+    gap: 4px;
+  }
+
+  .message-area {
+    margin-bottom: 14px;
+  }
+
+  .rotating-message {
+    font-size: 13px;
+  }
 }
 </style>

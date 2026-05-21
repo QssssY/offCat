@@ -71,6 +71,18 @@ export function deleteResumeHistory(taskId) {
 }
 
 /**
+ * 重试失败的简历诊断任务（复用原文件，24h 内有效）。
+ * @param {string|number} taskId - 原失败任务 ID
+ * @returns {Promise} 新任务 ID
+ */
+export function retryResumeTask(taskId) {
+  return request({
+    url: `/api/resume/task/${taskId}/retry`,
+    method: 'post'
+  })
+}
+
+/**
  * 执行岗位 JD 对比分析
  * @param {{resumeTaskId: string|number, resumeText: string, jdText: string}} data - 分析请求参数
  * @returns {Promise}
