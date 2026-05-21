@@ -14,6 +14,7 @@ import com.airesume.server.service.SysAiEngineConfigService;
 import com.airesume.server.service.SysPromptService;
 import com.airesume.server.util.AiInputCompressor;
 import com.airesume.server.util.TokenEstimator;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -30,6 +31,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -44,6 +46,7 @@ import java.util.regex.Pattern;
 public class ResumeAiServiceImpl implements ResumeAiService {
 
     private static final String RESUME_AI_BREAKER = "resume-ai";
+    private static final BigDecimal STABLE_DIAGNOSIS_TEMPERATURE = BigDecimal.ZERO;
 
     private final RestClient restClient;
     private final String provider;
@@ -423,6 +426,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                 new Message("system", prompt.systemPrompt()),
                 new Message("user", prompt.userPrompt())), true);
         request.thinking = buildThinkingConfig(runtimeConfig.model(), runtimeConfig.thinkingMode());
+        applyStableDiagnosisOptions(request);
         logDiagnosisRequest(tag, runtimeConfig, prompt.version(), retryCount, true, readTimeout, prompt.totalTokens());
 
         WebClient runtimeWebClient = webClientBuilder
@@ -496,6 +500,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                 new Message("system", prompt.systemPrompt()),
                 new Message("user", prompt.userPrompt()));
         request.thinking = buildThinkingConfig(runtimeConfig.model(), runtimeConfig.thinkingMode());
+        applyStableDiagnosisOptions(request);
         logDiagnosisRequest(tag, runtimeConfig, prompt.version(), retryCount, false, readTimeout, prompt.totalTokens());
 
         RestClient runtimeRestClient = restClientBuilder
@@ -523,6 +528,11 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             throw new EmptyAiResponseException("AI 非流式返回内容为空");
         }
         return result;
+    }
+
+    private void applyStableDiagnosisOptions(RequestBody request) {
+        // 简历诊断是评分任务，固定低随机性参数，避免同一份简历重复诊断时分数大幅漂移。
+        request.temperature = STABLE_DIAGNOSIS_TEMPERATURE;
     }
 
     private String extractDiagnosisStreamContent(JsonNode root) {
@@ -755,7 +765,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                 角色：跨行业资深职业顾问。任务：严格诊断简历问题。
                 原则：1)根据简历实际岗位方向评价，不预设技术岗标准 2)优点缺点都直说 3)项目必须有业务价值+量化成果 4)学历放宽但项目要硬。
                 评分标准：S(90+)顶尖 A(75-89)优秀 B(60-74)合格 C(40-59)偏弱 D(<40)问题严重。多数简历应在B-C区间，仅真正出色者得A以上。
-                权重：工作经验40% 项目经历30% 核心技能15% 基础信息5% 教育背景5% 个人定位5%。
+                权重：工作/实习经历30% 项目经历27% 核心技能23% 教育背景10% 个人定位5% 个人信息5%。
                 跨行业原则：按岗位方向评价核心能力，不默认技术标准。与岗位无关的字段不扣分。
                 规则：只返回JSON，无额外文本；JSON完整闭合；缺信息返回null/空数组；basicInfoDetails从原文提取真实值。
                 得分明细规则：每个维度（basicInfoEvaluation、skillEvaluation、workExperienceEvaluation、projectExperienceEvaluation、educationEvaluation、positioningEvaluation）必须包含strengths和weaknesses数组，strengths列出2-4条加分项（做得好的具体方面），weaknesses列出2-4条扣分项（需要改进的具体方面及扣分原因），每项一句话简洁具体，不得为空数组。
@@ -1012,7 +1022,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                 角色：跨行业资深职业顾问。任务：严格诊断简历问题。
                 原则：1)根据简历实际岗位方向评价，不预设技术岗标准 2)优点缺点都直说 3)项目必须有业务价值和量化成果 4)学历可以放宽，但经历必须真实可信。
                 评分标准：S(90+)顶尖 A(75-89)优秀 B(60-74)合格 C(40-59)偏弱 D(<40)问题严重。多数简历应落在B-C区间，仅真正出色者得A以上。
-                权重：工作经验40% 项目经历30% 核心技能15% 基础信息5% 教育背景5% 个人定位5%。
+                权重：工作/实习经历30% 项目经历27% 核心技能23% 教育背景10% 个人定位5% 个人信息5%。
                 规则：只返回JSON，不要额外文本；JSON必须完整闭合；缺信息返回null或空数组；basicInfoDetails必须从原文提取真实值。
                 输出约束：
                 1. 每个维度的 strengths 和 weaknesses 各输出1-3条，必须简洁具体，不得为空数组。
@@ -1984,10 +1994,12 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             String thinkingMode) {
     }
 
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     private static class RequestBody {
         public String model;
         public List<Message> messages;
         public Thinking thinking;
+        public BigDecimal temperature;
 
         public RequestBody() {
         }

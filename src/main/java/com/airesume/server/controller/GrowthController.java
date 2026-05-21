@@ -2,6 +2,7 @@ package com.airesume.server.controller;
 
 import com.airesume.server.common.result.Result;
 import com.airesume.server.dto.growth.GrowthOverviewResponse;
+import com.airesume.server.dto.growth.InterviewRadarResponse;
 import com.airesume.server.service.GrowthService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,6 +35,21 @@ public class GrowthController {
         Long userId = (Long) authentication.getPrincipal();
         log.info("[成长中心] 获取成长概览请求, userId: {}", userId);
         GrowthOverviewResponse response = growthService.getGrowthOverview(userId);
+        return Result.success(response);
+    }
+
+    /**
+     * 获取面试维度雷达数据。
+     * 包含最新雷达评分、各维度趋势和盲区提示。
+     *
+     * @param authentication 当前登录用户身份
+     * @return 面试维度雷达数据
+     */
+    @GetMapping("/interview-radar")
+    public Result<InterviewRadarResponse> getInterviewRadar(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("[成长中心] 获取面试维度雷达请求, userId: {}", userId);
+        InterviewRadarResponse response = growthService.getInterviewRadar(userId);
         return Result.success(response);
     }
 }

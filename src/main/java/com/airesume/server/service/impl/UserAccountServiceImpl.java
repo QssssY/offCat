@@ -7,6 +7,7 @@ import com.airesume.server.entity.SysUser;
 import com.airesume.server.mapper.SysUserMapper;
 import com.airesume.server.mapper.UserNotificationMapper;
 import com.airesume.server.mapper.UserOnboardingStateMapper;
+import com.airesume.server.mapper.UserOnboardingTaskMapper;
 import com.airesume.server.mapper.UserQuotaMapper;
 import com.airesume.server.service.InterviewService;
 import com.airesume.server.service.NotificationService;
@@ -40,6 +41,7 @@ public class UserAccountServiceImpl implements UserAccountService {
     private final UserNotificationMapper userNotificationMapper;
     private final UserQuotaMapper userQuotaMapper;
     private final UserOnboardingStateMapper userOnboardingStateMapper;
+    private final UserOnboardingTaskMapper userOnboardingTaskMapper;
 
     /**
      * 获取当前账号安全问题。
@@ -90,6 +92,7 @@ public class UserAccountServiceImpl implements UserAccountService {
         userNotificationMapper.logicalDeleteByUserId(userId);
         userQuotaMapper.logicalDeleteByUserId(userId);
         userOnboardingStateMapper.logicalDeleteByUserId(userId);
+        userOnboardingTaskMapper.logicalDeleteByUserId(userId);
 
         String deletedUsername = "deleted_" + userId;
         String deletedPassword = passwordEncoder.encode(UUID.randomUUID().toString());

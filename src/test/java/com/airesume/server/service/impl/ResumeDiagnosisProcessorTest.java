@@ -14,6 +14,7 @@ import com.airesume.server.service.UserQuotaService;
 import com.airesume.server.service.resume.ResumeParseResult;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -32,16 +33,34 @@ import static org.mockito.Mockito.when;
 class ResumeDiagnosisProcessorTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private ResumeDiagnosisTaskService taskService;
+    private ResumeContentExtractor resumeContentExtractor;
+    private ResumeAiService resumeAiService;
+    private ResumeInfoExtractor resumeInfoExtractor;
+    private UserQuotaService quotaService;
+    private NotificationService notificationService;
+    private ResumeDiagnosisProcessor processor;
+
+    @BeforeEach
+    void setUp() {
+        taskService = mock(ResumeDiagnosisTaskService.class);
+        resumeContentExtractor = mock(ResumeContentExtractor.class);
+        resumeAiService = mock(ResumeAiService.class);
+        resumeInfoExtractor = mock(ResumeInfoExtractor.class);
+        quotaService = mock(UserQuotaService.class);
+        notificationService = mock(NotificationService.class);
+        processor = new ResumeDiagnosisProcessor(
+                taskService,
+                resumeContentExtractor,
+                resumeAiService,
+                resumeInfoExtractor,
+                objectMapper,
+                quotaService,
+                notificationService);
+    }
 
     @Test
     void processTaskShouldNormalizeMinimalDiagnosisResult() throws Exception {
-        ResumeDiagnosisTaskService taskService = mock(ResumeDiagnosisTaskService.class);
-        ResumeContentExtractor resumeContentExtractor = mock(ResumeContentExtractor.class);
-        ResumeAiService resumeAiService = mock(ResumeAiService.class);
-        ResumeInfoExtractor resumeInfoExtractor = mock(ResumeInfoExtractor.class);
-        UserQuotaService quotaService = mock(UserQuotaService.class);
-        NotificationService notificationService = mock(NotificationService.class);
-
         when(taskService.getById(1L)).thenReturn(newPendingTask());
         when(taskService.updateStatusToProcessing(1L)).thenReturn(true);
         when(resumeContentExtractor.extract("/resume.pdf")).thenReturn(
@@ -57,15 +76,6 @@ class ResumeDiagnosisProcessorTest {
                         .github("")
                         .blog("")
                         .build());
-
-        ResumeDiagnosisProcessor processor = new ResumeDiagnosisProcessor(
-                taskService,
-                resumeContentExtractor,
-                resumeAiService,
-                resumeInfoExtractor,
-                objectMapper,
-                quotaService,
-                notificationService);
 
         processor.processTask(1L, 2L, "/resume.pdf");
 
@@ -85,29 +95,72 @@ class ResumeDiagnosisProcessorTest {
     }
 
     @Test
-    void processTaskShouldFailAndRefundOnTimeout() {
-        ResumeDiagnosisTaskService taskService = mock(ResumeDiagnosisTaskService.class);
-        ResumeContentExtractor resumeContentExtractor = mock(ResumeContentExtractor.class);
-        ResumeAiService resumeAiService = mock(ResumeAiService.class);
-        ResumeInfoExtractor resumeInfoExtractor = mock(ResumeInfoExtractor.class);
-        UserQuotaService quotaService = mock(UserQuotaService.class);
-        NotificationService notificationService = mock(NotificationService.class);
+    void processTaskShouldRecalculateOverallScoreFromDimensionScores() throws Exception {
+        when(taskService.getById(1L)).thenReturn(newPendingTask());
+        when(taskService.updateStatusToProcessing(1L)).thenReturn(true);
+        when(resumeContentExtractor.extract("/resume.pdf")).thenReturn(
+                ResumeParseResult.builder().text("Java 后端开发 简历内容").parseMode("TEXT").build());
+        when(resumeAiService.diagnose(anyString())).thenReturn("""
+                {
+                  "overallEvaluation":{"totalScore":86,"level":"A","summary":"模型原始总分偏高"},
+                  "basicInfoEvaluation":{"score":80},
+                  "skillEvaluation":{"score":70},
+                  "workExperienceEvaluation":{"score":60},
+                  "projectExperienceEvaluation":{"score":75},
+                  "educationEvaluation":{"score":90},
+                  "positioningEvaluation":{"score":65}
+                }
+                """);
+        when(resumeInfoExtractor.extractBasicInfo(anyString())).thenReturn(
+                ResumeDiagnosisResult.BasicInfoDetails.builder().build());
 
+        processor.processTask(1L, 2L, "/resume.pdf");
+
+        ArgumentCaptor<String> resultCaptor = ArgumentCaptor.forClass(String.class);
+        verify(taskService).updateStatusToCompleted(org.mockito.ArgumentMatchers.eq(1L), resultCaptor.capture());
+
+        JsonNode result = objectMapper.readTree(resultCaptor.getValue());
+        assertEquals(71, result.path("overallEvaluation").path("totalScore").asInt());
+        assertEquals("B", result.path("overallEvaluation").path("level").asText());
+    }
+
+    @Test
+    void processTaskShouldRenormalizeOverallScoreWhenDimensionScoreMissing() throws Exception {
+        when(taskService.getById(1L)).thenReturn(newPendingTask());
+        when(taskService.updateStatusToProcessing(1L)).thenReturn(true);
+        when(resumeContentExtractor.extract("/resume.pdf")).thenReturn(
+                ResumeParseResult.builder().text("Java 后端开发 简历内容").parseMode("TEXT").build());
+        when(resumeAiService.diagnose(anyString())).thenReturn("""
+                {
+                  "overallEvaluation":{"totalScore":86,"level":"A","summary":"模型原始总分偏高"},
+                  "basicInfoEvaluation":{"score":80},
+                  "skillEvaluation":{"score":80},
+                  "workExperienceEvaluation":{"score":80},
+                  "projectExperienceEvaluation":{"score":80},
+                  "educationEvaluation":{"score":80}
+                }
+                """);
+        when(resumeInfoExtractor.extractBasicInfo(anyString())).thenReturn(
+                ResumeDiagnosisResult.BasicInfoDetails.builder().build());
+
+        processor.processTask(1L, 2L, "/resume.pdf");
+
+        ArgumentCaptor<String> resultCaptor = ArgumentCaptor.forClass(String.class);
+        verify(taskService).updateStatusToCompleted(org.mockito.ArgumentMatchers.eq(1L), resultCaptor.capture());
+
+        JsonNode result = objectMapper.readTree(resultCaptor.getValue());
+        assertEquals(80, result.path("overallEvaluation").path("totalScore").asInt());
+        assertEquals("A", result.path("overallEvaluation").path("level").asText());
+    }
+
+    @Test
+    void processTaskShouldFailAndRefundOnTimeout() {
         when(taskService.getById(1L)).thenReturn(newPendingTask());
         when(taskService.updateStatusToProcessing(1L)).thenReturn(true);
         when(resumeContentExtractor.extract("/resume.pdf")).thenReturn(
                 ResumeParseResult.builder().text("简历内容").parseMode("TEXT").build());
         when(resumeAiService.diagnose(anyString())).thenThrow(
                 new RuntimeException("call failed", new SocketTimeoutException("Read timed out")));
-
-        ResumeDiagnosisProcessor processor = new ResumeDiagnosisProcessor(
-                taskService,
-                resumeContentExtractor,
-                resumeAiService,
-                resumeInfoExtractor,
-                objectMapper,
-                quotaService,
-                notificationService);
 
         processor.processTask(1L, 2L, "/resume.pdf");
 
@@ -117,28 +170,12 @@ class ResumeDiagnosisProcessorTest {
 
     @Test
     void processTaskShouldMapStructuredAiBusinessException() {
-        ResumeDiagnosisTaskService taskService = mock(ResumeDiagnosisTaskService.class);
-        ResumeContentExtractor resumeContentExtractor = mock(ResumeContentExtractor.class);
-        ResumeAiService resumeAiService = mock(ResumeAiService.class);
-        ResumeInfoExtractor resumeInfoExtractor = mock(ResumeInfoExtractor.class);
-        UserQuotaService quotaService = mock(UserQuotaService.class);
-        NotificationService notificationService = mock(NotificationService.class);
-
         when(taskService.getById(1L)).thenReturn(newPendingTask());
         when(taskService.updateStatusToProcessing(1L)).thenReturn(true);
         when(resumeContentExtractor.extract("/resume.pdf")).thenReturn(
                 ResumeParseResult.builder().text("简历内容").parseMode("TEXT").build());
         when(resumeAiService.diagnose(anyString()))
                 .thenThrow(new BusinessException(ResultCode.AI_SERVICE_UNAVAILABLE));
-
-        ResumeDiagnosisProcessor processor = new ResumeDiagnosisProcessor(
-                taskService,
-                resumeContentExtractor,
-                resumeAiService,
-                resumeInfoExtractor,
-                objectMapper,
-                quotaService,
-                notificationService);
 
         processor.processTask(1L, 2L, "/resume.pdf");
 
@@ -148,27 +185,11 @@ class ResumeDiagnosisProcessorTest {
 
     @Test
     void processTaskShouldMapBlankAiResponseToStructuredMessage() {
-        ResumeDiagnosisTaskService taskService = mock(ResumeDiagnosisTaskService.class);
-        ResumeContentExtractor resumeContentExtractor = mock(ResumeContentExtractor.class);
-        ResumeAiService resumeAiService = mock(ResumeAiService.class);
-        ResumeInfoExtractor resumeInfoExtractor = mock(ResumeInfoExtractor.class);
-        UserQuotaService quotaService = mock(UserQuotaService.class);
-        NotificationService notificationService = mock(NotificationService.class);
-
         when(taskService.getById(1L)).thenReturn(newPendingTask());
         when(taskService.updateStatusToProcessing(1L)).thenReturn(true);
         when(resumeContentExtractor.extract("/resume.pdf")).thenReturn(
                 ResumeParseResult.builder().text("简历内容").parseMode("TEXT").build());
         when(resumeAiService.diagnose(anyString())).thenReturn(" ");
-
-        ResumeDiagnosisProcessor processor = new ResumeDiagnosisProcessor(
-                taskService,
-                resumeContentExtractor,
-                resumeAiService,
-                resumeInfoExtractor,
-                objectMapper,
-                quotaService,
-                notificationService);
 
         processor.processTask(1L, 2L, "/resume.pdf");
 
@@ -177,24 +198,8 @@ class ResumeDiagnosisProcessorTest {
 
     @Test
     void processTaskShouldSkipWhenTaskAlreadyClaimedByAnotherWorker() {
-        ResumeDiagnosisTaskService taskService = mock(ResumeDiagnosisTaskService.class);
-        ResumeContentExtractor resumeContentExtractor = mock(ResumeContentExtractor.class);
-        ResumeAiService resumeAiService = mock(ResumeAiService.class);
-        ResumeInfoExtractor resumeInfoExtractor = mock(ResumeInfoExtractor.class);
-        UserQuotaService quotaService = mock(UserQuotaService.class);
-        NotificationService notificationService = mock(NotificationService.class);
-
         when(taskService.getById(1L)).thenReturn(newPendingTask());
         when(taskService.updateStatusToProcessing(1L)).thenReturn(false);
-
-        ResumeDiagnosisProcessor processor = new ResumeDiagnosisProcessor(
-                taskService,
-                resumeContentExtractor,
-                resumeAiService,
-                resumeInfoExtractor,
-                objectMapper,
-                quotaService,
-                notificationService);
 
         processor.processTask(1L, 2L, "/resume.pdf");
 
@@ -212,22 +217,19 @@ class ResumeDiagnosisProcessorTest {
 
     @Test
     void normalizeOverallEvaluationShouldFallbackToDWhenTotalScoreMissing() {
-        ResumeDiagnosisProcessor processor = new ResumeDiagnosisProcessor(
-                mock(ResumeDiagnosisTaskService.class),
-                mock(ResumeContentExtractor.class),
-                mock(ResumeAiService.class),
-                mock(ResumeInfoExtractor.class),
-                objectMapper,
-                mock(UserQuotaService.class),
-                mock(NotificationService.class));
         ResumeDiagnosisResult.OverallEvaluation source = ResumeDiagnosisResult.OverallEvaluation.builder()
                 .level("S - 优秀")
+                .build();
+
+        ResumeDiagnosisResult diagnosisResult = ResumeDiagnosisResult.builder()
+                .overallEvaluation(source)
                 .build();
 
         ResumeDiagnosisResult.OverallEvaluation result = ReflectionTestUtils.invokeMethod(
                 processor,
                 "normalizeOverallEvaluation",
-                source);
+                source,
+                diagnosisResult);
 
         assertEquals("D", result.getLevel());
     }

@@ -1,6 +1,7 @@
 package com.airesume.server.service;
 
 import com.airesume.server.dto.onboarding.OnboardingStatusResponse;
+import com.airesume.server.dto.onboarding.OnboardingTasksResponse;
 import com.airesume.server.dto.onboarding.OnboardingUpdateRequest;
 import com.airesume.server.entity.UserOnboardingState;
 import com.baomidou.mybatisplus.extension.service.IService;
@@ -30,4 +31,22 @@ public interface UserOnboardingService extends IService<UserOnboardingState> {
      * @param request 更新请求
      */
     void updateStatus(Long userId, OnboardingUpdateRequest request);
+
+    /**
+     * 获取用户新手任务列表
+     * 旧引导已完成/已跳过的用户返回 visible=false
+     *
+     * @param userId 用户ID
+     * @return 任务列表及完成进度
+     */
+    OnboardingTasksResponse getTasks(Long userId);
+
+    /**
+     * 上报任务完成（幂等）
+     * 非法 taskKey 会被拒绝，重复上报不报错
+     *
+     * @param userId  用户ID
+     * @param taskKey 任务标识
+     */
+    void completeTask(Long userId, String taskKey);
 }

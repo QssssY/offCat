@@ -6,6 +6,7 @@ import com.airesume.server.entity.SysUser;
 import com.airesume.server.mapper.SysUserMapper;
 import com.airesume.server.mapper.UserNotificationMapper;
 import com.airesume.server.mapper.UserOnboardingStateMapper;
+import com.airesume.server.mapper.UserOnboardingTaskMapper;
 import com.airesume.server.mapper.UserQuotaMapper;
 import com.airesume.server.service.InterviewService;
 import com.airesume.server.service.NotificationService;
@@ -35,6 +36,7 @@ class UserAccountServiceImplTest {
     @Mock private UserNotificationMapper userNotificationMapper;
     @Mock private UserQuotaMapper userQuotaMapper;
     @Mock private UserOnboardingStateMapper userOnboardingStateMapper;
+    @Mock private UserOnboardingTaskMapper userOnboardingTaskMapper;
 
     private UserAccountServiceImpl service;
 
@@ -49,7 +51,8 @@ class UserAccountServiceImplTest {
                 notificationService,
                 userNotificationMapper,
                 userQuotaMapper,
-                userOnboardingStateMapper);
+                userOnboardingStateMapper,
+                userOnboardingTaskMapper);
     }
 
     @Test
@@ -184,6 +187,7 @@ class UserAccountServiceImplTest {
         verify(userNotificationMapper).logicalDeleteByUserId(userId);
         verify(userQuotaMapper).logicalDeleteByUserId(userId);
         verify(userOnboardingStateMapper).logicalDeleteByUserId(userId);
+        verify(userOnboardingTaskMapper).logicalDeleteByUserId(userId);
         verify(sysUserMapper).anonymizeDeletedUser(eq(userId), eq("deleted_123"), eq("已注销用户"), eq("deleted-password"));
     }
 }

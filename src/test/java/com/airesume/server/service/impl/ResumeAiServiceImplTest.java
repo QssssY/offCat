@@ -12,7 +12,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -80,6 +82,23 @@ class ResumeAiServiceImplTest {
     void sanitizePolishedResumeTextShouldHandleNullInput() throws Exception {
         String sanitized = (String) sanitizeMethod.invoke(service, (Object) null);
         assertEquals("", sanitized);
+    }
+
+    @Test
+    void applyStableDiagnosisOptionsShouldUseZeroTemperature() throws Exception {
+        Class<?> requestBodyClass = Class.forName(
+                "com.airesume.server.service.impl.ResumeAiServiceImpl$RequestBody");
+        var constructor = requestBodyClass.getDeclaredConstructor();
+        constructor.setAccessible(true);
+        Object requestBody = constructor.newInstance();
+        Method applyMethod = ResumeAiServiceImpl.class.getDeclaredMethod("applyStableDiagnosisOptions", requestBodyClass);
+        applyMethod.setAccessible(true);
+
+        applyMethod.invoke(service, requestBody);
+
+        Field temperatureField = requestBodyClass.getDeclaredField("temperature");
+        temperatureField.setAccessible(true);
+        assertEquals(BigDecimal.ZERO, temperatureField.get(requestBody));
     }
 
     @Test

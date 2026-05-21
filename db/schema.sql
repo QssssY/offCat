@@ -3,6 +3,7 @@ SET FOREIGN_KEY_CHECKS = 0;
 
 DROP TABLE IF EXISTS `user_notification`;
 DROP TABLE IF EXISTS `user_feedback`;
+DROP TABLE IF EXISTS `user_onboarding_task`;
 DROP TABLE IF EXISTS `user_onboarding_state`;
 DROP TABLE IF EXISTS `user_settings`;
 DROP TABLE IF EXISTS `membership_order`;
@@ -368,6 +369,20 @@ CREATE TABLE `user_onboarding_state` (
   CONSTRAINT `fk_onboarding_user_id` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户新手引导状态表';
 
+CREATE TABLE `user_onboarding_task` (
+  `id`             BIGINT       NOT NULL COMMENT '主键',
+  `user_id`        BIGINT       NOT NULL COMMENT '用户ID',
+  `task_key`       VARCHAR(32)  NOT NULL COMMENT '任务标识: resume_uploaded/report_viewed/jd_compared/interview_completed',
+  `completed`      TINYINT      NOT NULL DEFAULT 0 COMMENT '是否完成 0-否 1-是',
+  `completed_time` DATETIME     NULL     COMMENT '完成时间',
+  `create_time`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `is_deleted`     TINYINT      NOT NULL DEFAULT 0 COMMENT '逻辑删除标志',
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `uk_user_task` (`user_id`, `task_key`),
+  INDEX `idx_task_user` (`user_id`, `is_deleted`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户新手任务表';
+
 CREATE TABLE `user_notification` (
   `id` BIGINT NOT NULL COMMENT '主键',
   `user_id` BIGINT NOT NULL COMMENT '所属用户ID',
@@ -463,6 +478,25 @@ CREATE TABLE `sys_growth_config` (
   UNIQUE INDEX `uk_growth_config_key` (`config_key`),
   INDEX `idx_growth_config_group` (`group_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='成长中心配置表';
+
+CREATE TABLE IF NOT EXISTS `interview_dimension_score` (
+  `id`             BIGINT       NOT NULL COMMENT '主键（雪花ID）',
+  `user_id`        BIGINT       NOT NULL COMMENT '用户ID',
+  `session_id`     VARCHAR(64)  NOT NULL COMMENT '面试会话ID',
+  `dimension_key`  VARCHAR(32)  NOT NULL COMMENT '维度标识: technicalDepth/projectExpression/communication/problemSolving/pressureResistance/jobMatch',
+  `score`          INT          NOT NULL COMMENT '维度分数 0-100',
+  `comment`        TEXT         NULL     COMMENT '维度评价说明',
+  `strengths`      JSON         NULL     COMMENT '加分项列表',
+  `weaknesses`     JSON         NULL     COMMENT '扣分项列表',
+  `create_time`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `is_deleted`     TINYINT      NOT NULL DEFAULT 0 COMMENT '逻辑删除标志',
+  PRIMARY KEY (`id`),
+  INDEX `idx_dim_user` (`user_id`, `is_deleted`),
+  INDEX `idx_dim_session` (`session_id`),
+  -- 唯一约束不包含 is_deleted：历史记录逻辑删除后不自动复写，重复写入由业务幂等保护处理。
+  UNIQUE INDEX `uk_session_dimension` (`session_id`, `dimension_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='面试维度评分表';
 
 INSERT INTO `membership_plan` (`id`, `plan_code`, `plan_name`, `description`, `price_amount`, `duration_days`, `resume_quota`, `interview_quota`, `status`, `sort`)
 VALUES

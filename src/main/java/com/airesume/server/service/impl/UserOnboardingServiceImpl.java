@@ -2,19 +2,23 @@ package com.airesume.server.service.impl;
 
 import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.dto.onboarding.OnboardingStatusResponse;
+import com.airesume.server.dto.onboarding.OnboardingTasksResponse;
 import com.airesume.server.dto.onboarding.OnboardingUpdateRequest;
 import com.airesume.server.entity.UserOnboardingState;
+import com.airesume.server.entity.UserOnboardingTask;
 import com.airesume.server.mapper.UserOnboardingStateMapper;
+import com.airesume.server.mapper.UserOnboardingTaskMapper;
 import com.airesume.server.service.UserOnboardingService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * 用户新手引导服务实现类
@@ -22,8 +26,11 @@ import java.util.List;
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class UserOnboardingServiceImpl extends ServiceImpl<UserOnboardingStateMapper, UserOnboardingState>
         implements UserOnboardingService {
+
+    private final UserOnboardingTaskMapper onboardingTaskMapper;
 
     /** 合法的状态值 */
     private static final String STATUS_NOT_STARTED = "not_started";
@@ -35,6 +42,26 @@ public class UserOnboardingServiceImpl extends ServiceImpl<UserOnboardingStateMa
     private static final List<String> VALID_UPDATE_STATUSES = Arrays.asList(
             STATUS_IN_PROGRESS, STATUS_COMPLETED, STATUS_SKIPPED
     );
+
+    /** 新手任务定义（保持插入顺序） */
+    private static final LinkedHashMap<String, TaskDefinition> TASK_DEFINITIONS = new LinkedHashMap<>();
+
+    static {
+        TASK_DEFINITIONS.put("resume_uploaded",
+                new TaskDefinition("上传简历", "上传你的第一份简历", "/resume/upload"));
+        TASK_DEFINITIONS.put("report_viewed",
+                new TaskDefinition("查看诊断报告", "查看 AI 诊断报告", "/resume/history"));
+        TASK_DEFINITIONS.put("jd_compared",
+                new TaskDefinition("岗位匹配分析", "完成一次岗位 JD 对比", "/resume/history"));
+        TASK_DEFINITIONS.put("interview_completed",
+                new TaskDefinition("完成模拟面试", "完成一次模拟面试", "/interview/entry"));
+    }
+
+    /** 合法 taskKey 集合（快速校验用） */
+    private static final Set<String> VALID_TASK_KEYS = TASK_DEFINITIONS.keySet();
+
+    /** 任务定义内部类 */
+    private record TaskDefinition(String label, String desc, String actionUrl) {}
 
     @Override
     public OnboardingStatusResponse getStatus(Long userId, String guideKey) {
@@ -171,4 +198,123 @@ public class UserOnboardingServiceImpl extends ServiceImpl<UserOnboardingStateMa
         updateById(state);
         log.info("更新引导状态成功，userId: {}, newStatus: {}", state.getUserId(), newStatus);
     }
+
+    // ============================== 新手任务式引导 ==============================
+
+    @Override
+    public OnboardingTasksResponse getTasks(Long userId) {
+        log.debug("查询新手任务列表，userId: {}", userId);
+
+        // 旧引导已完成/已跳过的用户不展示任务卡片
+        UserOnboardingState guideState = getStateByUserAndKey(userId, DEFAULT_GUIDE_KEY);
+        if (guideState != null && (STATUS_COMPLETED.equals(guideState.getStatus())
+                || STATUS_SKIPPED.equals(guideState.getStatus()))) {
+            log.debug("旧引导已完成或已跳过，不展示任务卡片，userId: {}", userId);
+            return buildInvisibleResponse();
+        }
+
+        // 查询该用户已完成的任务记录
+        List<UserOnboardingTask> completedRecords = onboardingTaskMapper.selectList(
+                new LambdaQueryWrapper<UserOnboardingTask>()
+                        .eq(UserOnboardingTask::getUserId, userId)
+                        .eq(UserOnboardingTask::getCompleted, 1));
+        Set<String> completedKeys = completedRecords.stream()
+                .map(UserOnboardingTask::getTaskKey)
+                .collect(Collectors.toSet());
+
+        // 构建任务列表
+        List<OnboardingTasksResponse.TaskItem> tasks = new ArrayList<>();
+        for (Map.Entry<String, TaskDefinition> entry : TASK_DEFINITIONS.entrySet()) {
+            String key = entry.getKey();
+            TaskDefinition def = entry.getValue();
+            tasks.add(OnboardingTasksResponse.TaskItem.builder()
+                    .taskKey(key)
+                    .taskLabel(def.label())
+                    .taskDesc(def.desc())
+                    .completed(completedKeys.contains(key))
+                    .actionUrl(def.actionUrl())
+                    .build());
+        }
+
+        int completedCount = completedKeys.size();
+        int totalCount = TASK_DEFINITIONS.size();
+        boolean allCompleted = completedCount >= totalCount;
+
+        return OnboardingTasksResponse.builder()
+                .tasks(tasks)
+                .completedCount(completedCount)
+                .totalCount(totalCount)
+                .allCompleted(allCompleted)
+                .visible(!allCompleted)
+                .build();
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void completeTask(Long userId, String taskKey) {
+        // 校验 taskKey 合法性
+        if (!VALID_TASK_KEYS.contains(taskKey)) {
+            throw new BusinessException("无效的任务标识: " + taskKey);
+        }
+
+        // 幂等检查：已存在且已完成则直接返回
+        UserOnboardingTask existing = onboardingTaskMapper.selectOne(
+                new LambdaQueryWrapper<UserOnboardingTask>()
+                        .eq(UserOnboardingTask::getUserId, userId)
+                        .eq(UserOnboardingTask::getTaskKey, taskKey));
+        if (existing != null && existing.getCompleted() == 1) {
+            log.debug("任务已完成，幂等返回，userId: {}, taskKey: {}", userId, taskKey);
+            return;
+        }
+
+        // 插入新记录或更新已有未完成记录
+        if (existing == null) {
+            try {
+                UserOnboardingTask task = new UserOnboardingTask();
+                task.setUserId(userId);
+                task.setTaskKey(taskKey);
+                task.setCompleted(1);
+                task.setCompletedTime(LocalDateTime.now());
+                onboardingTaskMapper.insert(task);
+                log.info("新手任务完成，userId: {}, taskKey: {}", userId, taskKey);
+            } catch (org.springframework.dao.DuplicateKeyException e) {
+                // 并发插入冲突，重新查询后更新
+                log.debug("任务记录并发创建冲突，重新查询更新，userId: {}, taskKey: {}", userId, taskKey);
+                existing = onboardingTaskMapper.selectOne(
+                        new LambdaQueryWrapper<UserOnboardingTask>()
+                                .eq(UserOnboardingTask::getUserId, userId)
+                                .eq(UserOnboardingTask::getTaskKey, taskKey));
+                if (existing != null && existing.getCompleted() != 1) {
+                    existing.setCompleted(1);
+                    existing.setCompletedTime(LocalDateTime.now());
+                    onboardingTaskMapper.updateById(existing);
+                }
+            }
+        } else {
+            existing.setCompleted(1);
+            existing.setCompletedTime(LocalDateTime.now());
+            onboardingTaskMapper.updateById(existing);
+            log.info("新手任务标记完成，userId: {}, taskKey: {}", userId, taskKey);
+        }
+    }
+
+    /** 构建旧用户不可见响应（全部标记已完成） */
+    private OnboardingTasksResponse buildInvisibleResponse() {
+        List<OnboardingTasksResponse.TaskItem> tasks = TASK_DEFINITIONS.entrySet().stream()
+                .map(e -> OnboardingTasksResponse.TaskItem.builder()
+                        .taskKey(e.getKey())
+                        .taskLabel(e.getValue().label())
+                        .taskDesc(e.getValue().desc())
+                        .completed(true)
+                        .actionUrl(e.getValue().actionUrl())
+                        .build())
+                .toList();
+        int total = TASK_DEFINITIONS.size();
+        return OnboardingTasksResponse.builder()
+                .tasks(tasks).completedCount(total).totalCount(total)
+                .allCompleted(true).visible(false).build();
+    }
+
+    /** 旧引导的默认 guideKey */
+    private static final String DEFAULT_GUIDE_KEY = "v1_3_main_onboarding";
 }

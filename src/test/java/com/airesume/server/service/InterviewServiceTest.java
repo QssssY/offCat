@@ -12,6 +12,7 @@ import com.airesume.server.dto.interview.InterviewHistoryResponse;
 import com.airesume.server.dto.interview.InterviewJobTargetContext;
 import com.airesume.server.dto.interview.InterviewSessionResponse;
 import com.airesume.server.dto.interview.SendMessageRequest;
+import com.airesume.server.mapper.InterviewDimensionScoreMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,7 +25,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.stubbing.Answer;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscription;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionCallbackWithoutResult;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
@@ -56,7 +60,11 @@ class InterviewServiceTest {
     @Mock private UserQuotaService userQuotaService;
     @Mock private MockInterviewJobTargetService mockInterviewJobTargetService;
     @Mock private NotificationService notificationService;
+    @Mock private InterviewDimensionScoreMapper dimensionScoreMapper;
     @Mock private Executor aiAsyncExecutor;
+    @Mock private CacheManager cacheManager;
+    @Mock private Cache interviewRadarCache;
+    @Mock private Cache growthOverviewCache;
     @Mock private Subscription subscription;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -73,7 +81,10 @@ class InterviewServiceTest {
                 interviewSessionRepository, interviewMessageService, mockInterviewService,
                 interviewMessageRepository, interviewAiService, objectMapper, sysJobRoleService,
                 transactionTemplate, userQuotaService, mockInterviewJobTargetService,
-                notificationService, aiAsyncExecutor);
+                notificationService, dimensionScoreMapper, aiAsyncExecutor);
+        ReflectionTestUtils.setField(interviewService, "cacheManager", cacheManager);
+        lenient().when(cacheManager.getCache("user:interviewRadar")).thenReturn(interviewRadarCache);
+        lenient().when(cacheManager.getCache("user:growthOverview")).thenReturn(growthOverviewCache);
     }
 
     @Test
@@ -488,7 +499,10 @@ class InterviewServiceTest {
         assertEquals(2, deletedCount);
         verify(interviewMessageRepository).logicalDeleteBySessionIdIn(eq(sessionIds), any(LocalDateTime.class));
         verify(mockInterviewJobTargetService).logicalDeleteByUserId(userId);
+        verify(dimensionScoreMapper).logicalDeleteBySessionIds(eq(sessionIds), any(LocalDateTime.class));
         verify(interviewSessionRepository).logicalDeleteByUserId(eq(userId), any(LocalDateTime.class));
+        verify(interviewRadarCache).evict(userId);
+        verify(growthOverviewCache).evict(userId);
     }
 
     @Test
@@ -501,7 +515,28 @@ class InterviewServiceTest {
         assertEquals(0, deletedCount);
         verify(interviewMessageRepository, never()).logicalDeleteBySessionIdIn(any(), any());
         verify(mockInterviewJobTargetService, never()).logicalDeleteByUserId(anyLong());
+        verify(dimensionScoreMapper, never()).logicalDeleteBySessionIds(any(List.class), any(LocalDateTime.class));
         verify(interviewSessionRepository, never()).logicalDeleteByUserId(anyLong(), any());
+        verify(interviewRadarCache, never()).evict(any());
+        verify(growthOverviewCache, never()).evict(any());
+    }
+
+    @Test
+    void shouldDeleteSingleInterviewHistoryWithDimensionScoresAndGrowthCaches() {
+        Long userId = 123L;
+        String sessionId = "session-delete";
+        InterviewSession session = buildEndedSession(sessionId, userId, 80);
+        when(interviewSessionRepository.findBySessionIdAndUserId(sessionId, userId)).thenReturn(Optional.of(session));
+
+        boolean deleted = interviewService.deleteSession(userId, sessionId);
+
+        assertTrue(deleted);
+        verify(interviewMessageRepository).logicalDeleteBySessionIdIn(eq(List.of(sessionId)), any(LocalDateTime.class));
+        verify(mockInterviewJobTargetService).logicalDeleteBySessionIds(List.of(sessionId));
+        verify(dimensionScoreMapper).logicalDeleteBySessionIds(eq(List.of(sessionId)), any(LocalDateTime.class));
+        verify(interviewSessionRepository).logicalDeleteBySessionIdIn(eq(List.of(sessionId)), any(LocalDateTime.class));
+        verify(interviewRadarCache).evict(userId);
+        verify(growthOverviewCache).evict(userId);
     }
 
     @Test
@@ -587,6 +622,13 @@ class InterviewServiceTest {
         session.setOpeningGenerated(1);
         session.setCreateTime(LocalDateTime.now());
         session.setUpdateTime(LocalDateTime.now());
+        return session;
+    }
+
+    private InterviewSession buildEndedSession(String sessionId, Long userId, Integer score) {
+        InterviewSession session = buildInProgressSession(sessionId, userId);
+        session.setStatus(1);
+        session.setComprehensiveScore(score);
         return session;
     }
 

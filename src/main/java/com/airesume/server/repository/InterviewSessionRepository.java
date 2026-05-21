@@ -146,6 +146,25 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
             @Param("isDeleted") Integer isDeleted);
 
     /**
+     * 查询用户已结束且有评估报告的面试会话，用于雷达图读取维度明细。
+     */
+    @Query("""
+            select s
+            from InterviewSession s
+            where s.userId = :userId
+              and s.status = :status
+              and s.evaluationReport is not null
+              and s.evaluationReport <> ''
+              and s.isDeleted = :isDeleted
+            order by s.createTime desc
+            """)
+    List<InterviewSession> findRecentEndedSessionsWithEvaluationReport(
+            @Param("userId") Long userId,
+            @Param("status") Integer status,
+            @Param("isDeleted") Integer isDeleted,
+            Pageable pageable);
+
+    /**
      * 查询当前用户未删除的会话 ID，用于同步清理聊天记录和岗位定向上下文。
      */
     @Query("select s.sessionId from InterviewSession s where s.userId = :userId and s.isDeleted = 0")

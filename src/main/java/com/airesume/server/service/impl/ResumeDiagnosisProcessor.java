@@ -164,7 +164,6 @@ public class ResumeDiagnosisProcessor {
         ResumeDiagnosisResult.BasicInfoDetails normalizedDetails =
                 normalizeBasicInfoDetails(resumeInfoExtractor.extractBasicInfo(resumeText));
 
-        parsedResult.setOverallEvaluation(normalizeOverallEvaluation(parsedResult.getOverallEvaluation()));
         parsedResult.setHighlights(defaultStringList(parsedResult.getHighlights()));
         parsedResult.setBasicInfoEvaluation(normalizeBasicInfoEvaluation(parsedResult.getBasicInfoEvaluation(), normalizedDetails));
         parsedResult.setBasicInfoDetails(normalizedDetails);
@@ -172,20 +171,69 @@ public class ResumeDiagnosisProcessor {
         parsedResult.setWorkExperienceEvaluation(normalizeWorkExperienceEvaluation(parsedResult.getWorkExperienceEvaluation()));
         parsedResult.setProjectExperienceEvaluation(normalizeProjectExperienceEvaluation(parsedResult.getProjectExperienceEvaluation()));
         parsedResult.setEducationEvaluation(normalizeEducationEvaluation(parsedResult.getEducationEvaluation()));
+        parsedResult.setPositioningEvaluation(normalizePositioningEvaluation(parsedResult.getPositioningEvaluation()));
+        parsedResult.setOverallEvaluation(normalizeOverallEvaluation(parsedResult.getOverallEvaluation(), parsedResult));
         parsedResult.setOptimizationSuggestions(defaultStringList(parsedResult.getOptimizationSuggestions()));
         return parsedResult;
     }
 
-    private ResumeDiagnosisResult.OverallEvaluation normalizeOverallEvaluation(ResumeDiagnosisResult.OverallEvaluation source) {
+    private ResumeDiagnosisResult.OverallEvaluation normalizeOverallEvaluation(
+            ResumeDiagnosisResult.OverallEvaluation source,
+            ResumeDiagnosisResult result) {
         if (source == null) {
             source = ResumeDiagnosisResult.OverallEvaluation.builder().build();
         }
         source.setSummary(defaultString(source.getSummary()));
         source.setStrengths(defaultStringList(source.getStrengths()));
         source.setWeaknesses(defaultStringList(source.getWeaknesses()));
-        int totalScore = source.getTotalScore() == null ? 0 : source.getTotalScore();
+        // 总分不再直接信任大模型自由给出的 totalScore，改为按维度分固定权重汇总，降低同一简历重复诊断的随机波动。
+        int totalScore = calculateStableTotalScore(result, source.getTotalScore());
+        source.setTotalScore(totalScore);
         source.setLevel(resolveLevel(totalScore));
         return source;
+    }
+
+    private int calculateStableTotalScore(ResumeDiagnosisResult result, Integer aiTotalScore) {
+        double weightedScore = 0;
+        double availableWeight = 0;
+
+        if (result.getBasicInfoEvaluation() != null && result.getBasicInfoEvaluation().getScore() != null) {
+            weightedScore += readScore(result.getBasicInfoEvaluation().getScore()) * 0.05;
+            availableWeight += 0.05;
+        }
+        if (result.getSkillEvaluation() != null && result.getSkillEvaluation().getScore() != null) {
+            weightedScore += readScore(result.getSkillEvaluation().getScore()) * 0.23;
+            availableWeight += 0.23;
+        }
+        if (result.getWorkExperienceEvaluation() != null && result.getWorkExperienceEvaluation().getScore() != null) {
+            weightedScore += readScore(result.getWorkExperienceEvaluation().getScore()) * 0.30;
+            availableWeight += 0.30;
+        }
+        if (result.getProjectExperienceEvaluation() != null && result.getProjectExperienceEvaluation().getScore() != null) {
+            weightedScore += readScore(result.getProjectExperienceEvaluation().getScore()) * 0.27;
+            availableWeight += 0.27;
+        }
+        if (result.getEducationEvaluation() != null && result.getEducationEvaluation().getScore() != null) {
+            weightedScore += readScore(result.getEducationEvaluation().getScore()) * 0.10;
+            availableWeight += 0.10;
+        }
+        if (result.getPositioningEvaluation() != null && result.getPositioningEvaluation().getScore() != null) {
+            weightedScore += readScore(result.getPositioningEvaluation().getScore()) * 0.05;
+            availableWeight += 0.05;
+        }
+        if (availableWeight == 0) {
+            return readScore(aiTotalScore);
+        }
+
+        // AI 偶发漏掉某个维度时，仅按实际返回的维度重新归一化，避免缺失项被当成 0 分拉低总分。
+        return (int) Math.round(weightedScore / availableWeight);
+    }
+
+    private int readScore(Integer score) {
+        if (score == null) {
+            return 0;
+        }
+        return Math.max(0, Math.min(score, 100));
     }
 
     private String resolveLevel(int totalScore) {
@@ -208,6 +256,18 @@ public class ResumeDiagnosisProcessor {
         source.setHasEmail(defaultBoolean(source.getHasEmail(), hasText(details.getEmail())));
         source.setHasGithub(defaultBoolean(source.getHasGithub(), hasText(details.getGithub())));
         source.setHasBlog(defaultBoolean(source.getHasBlog(), hasText(details.getBlog())));
+        source.setStrengths(defaultStringList(source.getStrengths()));
+        source.setWeaknesses(defaultStringList(source.getWeaknesses()));
+        source.setSuggestions(defaultStringList(source.getSuggestions()));
+        return source;
+    }
+
+    private ResumeDiagnosisResult.PositioningEvaluation normalizePositioningEvaluation(
+            ResumeDiagnosisResult.PositioningEvaluation source) {
+        if (source == null) {
+            source = ResumeDiagnosisResult.PositioningEvaluation.builder().build();
+        }
+        source.setEvaluation(defaultString(source.getEvaluation()));
         source.setStrengths(defaultStringList(source.getStrengths()));
         source.setWeaknesses(defaultStringList(source.getWeaknesses()));
         source.setSuggestions(defaultStringList(source.getSuggestions()));

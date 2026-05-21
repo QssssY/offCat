@@ -2,11 +2,15 @@ package com.airesume.server.service.impl;
 
 import com.airesume.server.dto.growth.GrowthOverviewResponse;
 import com.airesume.server.dto.growth.GrowthOverviewResponse.*;
+import com.airesume.server.dto.growth.InterviewRadarResponse;
+import com.airesume.server.dto.growth.InterviewRadarResponse.*;
+import com.airesume.server.entity.InterviewDimensionScore;
 import com.airesume.server.entity.InterviewSession;
 import com.airesume.server.entity.MockInterviewJobTargetRecord;
 import com.airesume.server.entity.ResumeDiagnosisTask;
 import com.airesume.server.entity.ResumeJobMatchRecord;
 import com.airesume.server.entity.ResumePolishRecord;
+import com.airesume.server.mapper.InterviewDimensionScoreMapper;
 import com.airesume.server.mapper.MockInterviewJobTargetRecordMapper;
 import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
 import com.airesume.server.mapper.ResumeJobMatchRecordMapper;
@@ -14,15 +18,22 @@ import com.airesume.server.mapper.ResumePolishRecordMapper;
 import com.airesume.server.repository.InterviewSessionRepository;
 import com.airesume.server.service.GrowthService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -39,6 +50,7 @@ public class GrowthServiceImpl implements GrowthService {
     private final ResumePolishRecordMapper resumePolishRecordMapper;
     private final InterviewSessionRepository interviewSessionRepository;
     private final MockInterviewJobTargetRecordMapper mockInterviewJobTargetRecordMapper;
+    private final InterviewDimensionScoreMapper dimensionScoreMapper;
     private final ObjectMapper objectMapper;
 
     /** 日期格式化：MM/dd */
@@ -122,6 +134,14 @@ public class GrowthServiceImpl implements GrowthService {
         return interviewSessionRepository
                 .findTop10ByUserIdAndStatusAndComprehensiveScoreIsNotNullAndIsDeletedOrderByCreateTimeDesc(
                         userId, INTERVIEW_STATUS_ENDED, 0);
+    }
+
+    /**
+     * 查询最近有评估报告的面试会话，雷达图依赖 evaluation_report 中的维度明细而不是综合分。
+     */
+    private List<InterviewSession> queryInterviewSessionsWithEvaluationReport(Long userId) {
+        return interviewSessionRepository.findRecentEndedSessionsWithEvaluationReport(
+                userId, INTERVIEW_STATUS_ENDED, 0, PageRequest.of(0, TREND_LIMIT));
     }
 
     /**
@@ -499,5 +519,240 @@ public class GrowthServiceImpl implements GrowthService {
             }
         }
         return result;
+    }
+
+    // ==================== 面试维度雷达相关 ====================
+
+    /** 6 维度标识 → 中文标签 */
+    private static final Map<String, String> DIMENSION_LABELS = Map.of(
+            "technicalDepth", "技术深度",
+            "projectExpression", "项目表达",
+            "communication", "沟通表达",
+            "problemSolving", "问题解决",
+            "pressureResistance", "抗压表现",
+            "jobMatch", "岗位匹配"
+    );
+
+    /** 维度顺序（雷达图按此顺序渲染） */
+    private static final List<String> DIMENSION_KEYS = List.of(
+            "technicalDepth", "projectExpression", "communication",
+            "problemSolving", "pressureResistance", "jobMatch"
+    );
+
+    /** 盲区分析取最近 N 次面试 */
+    private static final int BLIND_SPOT_SESSION_COUNT = 3;
+
+    /** 持续低分阈值 */
+    private static final int PERSISTENT_LOW_THRESHOLD = 60;
+
+    /** 下降趋势：最近分数阈值 */
+    private static final int DECLINING_SCORE_THRESHOLD = 70;
+
+    /** 下降趋势：下降幅度阈值 */
+    private static final int DECLINING_DROP_THRESHOLD = 5;
+
+    /** 维度改进建议文案 */
+    private static final Map<String, List<String>> DIMENSION_SUGGESTIONS = Map.of(
+            "technicalDepth", List.of("深入学习核心技术原理，不停留在 API 使用层面", "准备技术深挖题，能从源码和设计层面回答"),
+            "projectExpression", List.of("用 STAR 法则重新梳理项目经历", "量化项目成果，突出个人贡献和技术难点"),
+            "communication", List.of("练习结构化表达，先说结论再展开", "控制回答时长，避免跑题和冗余描述"),
+            "problemSolving", List.of("多练习算法和系统设计题", "培养拆解问题的习惯，展示分析过程"),
+            "pressureResistance", List.of("模拟压力面试场景进行脱敏训练", "学会在压力下保持逻辑清晰和情绪稳定"),
+            "jobMatch", List.of("研究目标岗位 JD，针对性准备匹配经历", "突出与岗位要求对口的技能和项目经验")
+    );
+
+    @Override
+    @Cacheable(value = "user:interviewRadar", key = "#userId")
+    public InterviewRadarResponse getInterviewRadar(Long userId) {
+        // 1. 查询最近已结束且有评估报告的面试会话
+        List<InterviewSession> sessions = queryInterviewSessionsWithEvaluationReport(userId);
+        if (sessions.isEmpty()) {
+            return InterviewRadarResponse.builder()
+                    .sessionCount(0)
+                    .dimensionTrends(Collections.emptyList())
+                    .blindSpotTips(Collections.emptyList())
+                    .build();
+        }
+
+        // 2. 查询所有相关 session 的维度评分记录；雷达读路径只读库，不在缓存读取中做回填写入。
+        List<String> sessionIds = sessions.stream()
+                .map(InterviewSession::getSessionId)
+                .collect(Collectors.toList());
+        List<InterviewDimensionScore> allScores = dimensionScoreMapper.selectList(
+                new LambdaQueryWrapper<InterviewDimensionScore>()
+                        .in(InterviewDimensionScore::getSessionId, sessionIds)
+                        .eq(InterviewDimensionScore::getIsDeleted, 0)
+                        .orderByAsc(InterviewDimensionScore::getCreateTime));
+
+        // 按 sessionId 分组
+        Map<String, List<InterviewDimensionScore>> scoresBySession = allScores.stream()
+                .collect(Collectors.groupingBy(InterviewDimensionScore::getSessionId));
+
+        // 仅保留有维度评分的 session（按原顺序，最新在前）
+        List<InterviewSession> scoredSessions = sessions.stream()
+                .filter(s -> scoresBySession.containsKey(s.getSessionId()))
+                .collect(Collectors.toList());
+
+        if (scoredSessions.isEmpty()) {
+            return InterviewRadarResponse.builder()
+                    .sessionCount(sessions.size())
+                    .dimensionTrends(Collections.emptyList())
+                    .blindSpotTips(Collections.emptyList())
+                    .build();
+        }
+
+        // 4. 构建最新一次雷达数据
+        RadarDataVO latestRadar = buildLatestRadar(scoredSessions.get(0), scoresBySession);
+
+        // 5. 构建维度趋势（按时间正序）
+        List<DimensionTrendVO> dimensionTrends = buildDimensionTrends(scoredSessions, scoresBySession);
+
+        // 6. 盲区分析
+        List<BlindSpotTipVO> blindSpotTips = analyzeBlindSpots(scoredSessions, scoresBySession);
+
+        return InterviewRadarResponse.builder()
+                .latestRadar(latestRadar)
+                .dimensionTrends(dimensionTrends)
+                .blindSpotTips(blindSpotTips)
+                .sessionCount(sessions.size())
+                .build();
+    }
+
+    /**
+     * 构建最新一次面试的雷达数据。
+     */
+    private RadarDataVO buildLatestRadar(InterviewSession latestSession,
+                                          Map<String, List<InterviewDimensionScore>> scoresBySession) {
+        List<InterviewDimensionScore> scores = scoresBySession.get(latestSession.getSessionId());
+        Map<String, DimensionScoreVO> dimensions = new LinkedHashMap<>();
+        if (scores != null) {
+            for (InterviewDimensionScore s : scores) {
+                dimensions.put(s.getDimensionKey(), DimensionScoreVO.builder()
+                        .score(s.getScore())
+                        .comment(s.getComment())
+                        .strengths(parseJsonStringList(s.getStrengths()))
+                        .weaknesses(parseJsonStringList(s.getWeaknesses()))
+                        .build());
+            }
+        }
+        String createTime = latestSession.getCreateTime() != null
+                ? latestSession.getCreateTime().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")) : "";
+        return RadarDataVO.builder()
+                .dimensions(dimensions)
+                .sessionId(latestSession.getSessionId())
+                .createTime(createTime)
+                .build();
+    }
+
+    /**
+     * 构建各维度趋势数据：每个维度一条折线，包含多次面试的得分变化。
+     */
+    private List<DimensionTrendVO> buildDimensionTrends(List<InterviewSession> scoredSessions,
+                                                         Map<String, List<InterviewDimensionScore>> scoresBySession) {
+        // 按时间正序排列
+        List<InterviewSession> chronological = new ArrayList<>(scoredSessions);
+        Collections.reverse(chronological);
+
+        List<DimensionTrendVO> trends = new ArrayList<>();
+        for (String dimKey : DIMENSION_KEYS) {
+            List<ScorePoint> points = new ArrayList<>();
+            for (InterviewSession session : chronological) {
+                List<InterviewDimensionScore> scores = scoresBySession.get(session.getSessionId());
+                if (scores == null) continue;
+                scores.stream()
+                        .filter(s -> dimKey.equals(s.getDimensionKey()))
+                        .findFirst()
+                        .ifPresent(s -> {
+                            String date = session.getCreateTime() != null
+                                    ? session.getCreateTime().format(DATE_FMT) : "";
+                            points.add(ScorePoint.builder().date(date).score(s.getScore()).build());
+                        });
+            }
+            trends.add(DimensionTrendVO.builder()
+                    .dimensionKey(dimKey)
+                    .dimensionLabel(DIMENSION_LABELS.getOrDefault(dimKey, dimKey))
+                    .points(points)
+                    .build());
+        }
+        return trends;
+    }
+
+    /**
+     * 盲区分析：标记持续低分或下降趋势的维度。
+     * 至少 2 次面试才能判断趋势，最多取最近 BLIND_SPOT_SESSION_COUNT 次计算均分。
+     */
+    private List<BlindSpotTipVO> analyzeBlindSpots(List<InterviewSession> scoredSessions,
+                                                     Map<String, List<InterviewDimensionScore>> scoresBySession) {
+        // 取最近 N 次（scoredSessions 已按时间倒序）
+        List<InterviewSession> recentSessions = scoredSessions.stream()
+                .limit(BLIND_SPOT_SESSION_COUNT)
+                .collect(Collectors.toList());
+
+        if (recentSessions.size() < 2) {
+            return Collections.emptyList();
+        }
+
+        List<BlindSpotTipVO> tips = new ArrayList<>();
+
+        for (String dimKey : DIMENSION_KEYS) {
+            // 收集该维度在最近 N 次面试中的分数（按时间倒序：index 0 = 最新）
+            List<Integer> scores = new ArrayList<>();
+            for (InterviewSession session : recentSessions) {
+                List<InterviewDimensionScore> sessionScores = scoresBySession.get(session.getSessionId());
+                if (sessionScores == null) continue;
+                sessionScores.stream()
+                        .filter(s -> dimKey.equals(s.getDimensionKey()))
+                        .findFirst()
+                        .ifPresent(s -> scores.add(s.getScore()));
+            }
+            if (scores.size() < 2) continue;
+
+            double avg = scores.stream().mapToInt(Integer::intValue).average().orElse(0);
+            String label = DIMENSION_LABELS.getOrDefault(dimKey, dimKey);
+
+            // 规则1：持续低分（均分 < 60）
+            if (avg < PERSISTENT_LOW_THRESHOLD) {
+                tips.add(BlindSpotTipVO.builder()
+                        .dimensionKey(dimKey)
+                        .dimensionLabel(label)
+                        .type("persistent_low")
+                        .tip("「" + label + "」近 " + scores.size() + " 次面试平均分仅 " + Math.round(avg) + " 分，属于持续薄弱项")
+                        .suggestions(DIMENSION_SUGGESTIONS.getOrDefault(dimKey, Collections.emptyList()))
+                        .averageScore(avg)
+                        .build());
+                continue;
+            }
+
+            // 规则2：下降趋势（最新 < 上一次 > 5 分 且 最新 < 70）
+            int latestScore = scores.get(0);
+            int previousScore = scores.get(1);
+            if (previousScore - latestScore > DECLINING_DROP_THRESHOLD && latestScore < DECLINING_SCORE_THRESHOLD) {
+                tips.add(BlindSpotTipVO.builder()
+                        .dimensionKey(dimKey)
+                        .dimensionLabel(label)
+                        .type("declining_trend")
+                        .tip("「" + label + "」最近一次得分 " + latestScore + " 分，较上次下降 " + (previousScore - latestScore) + " 分，呈下滑趋势")
+                        .suggestions(DIMENSION_SUGGESTIONS.getOrDefault(dimKey, Collections.emptyList()))
+                        .averageScore(avg)
+                        .build());
+            }
+        }
+        return tips;
+    }
+
+    /**
+     * 解析 JSON 字符串数组（如 strengths/weaknesses 字段）。
+     */
+    private List<String> parseJsonStringList(String json) {
+        if (json == null || json.isBlank()) {
+            return Collections.emptyList();
+        }
+        try {
+            return objectMapper.readValue(json,
+                    objectMapper.getTypeFactory().constructCollectionType(List.class, String.class));
+        } catch (JsonProcessingException e) {
+            log.warn("[成长中心] 解析JSON字符串数组失败: {}", e.getMessage());
+            return Collections.emptyList();
+        }
     }
 }

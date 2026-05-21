@@ -2,6 +2,8 @@ package com.airesume.server.controller;
 
 import com.airesume.server.common.result.Result;
 import com.airesume.server.dto.onboarding.OnboardingStatusResponse;
+import com.airesume.server.dto.onboarding.OnboardingTaskCompleteRequest;
+import com.airesume.server.dto.onboarding.OnboardingTasksResponse;
 import com.airesume.server.dto.onboarding.OnboardingUpdateRequest;
 import com.airesume.server.service.UserOnboardingService;
 import jakarta.validation.Valid;
@@ -61,6 +63,31 @@ public class UserOnboardingController {
         log.info("更新引导状态，userId: {}, status: {}, currentStep: {}",
                 userId, request.getStatus(), request.getCurrentStep());
         userOnboardingService.updateStatus(userId, request);
+        return Result.success();
+    }
+
+    /**
+     * 查询新手任务列表和完成进度
+     * 旧引导已完成/已跳过的用户返回 visible=false
+     */
+    @GetMapping("/tasks")
+    public Result<OnboardingTasksResponse> getTasks(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.debug("查询新手任务列表，userId: {}", userId);
+        return Result.success(userOnboardingService.getTasks(userId));
+    }
+
+    /**
+     * 上报新手任务完成（幂等）
+     * 前端在核心页面静默调用，失败不阻断主流程
+     */
+    @PostMapping("/tasks/complete")
+    public Result<Void> completeTask(
+            @Valid @RequestBody OnboardingTaskCompleteRequest request,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("上报新手任务完成，userId: {}, taskKey: {}", userId, request.getTaskKey());
+        userOnboardingService.completeTask(userId, request.getTaskKey());
         return Result.success();
     }
 }

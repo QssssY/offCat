@@ -13,7 +13,9 @@ import com.airesume.server.dto.interview.InterviewSessionResponse;
 import com.airesume.server.dto.interview.SendMessageRequest;
 import com.airesume.server.dto.interview.SendMessageResponse;
 import com.airesume.server.entity.InterviewChatLog;
+import com.airesume.server.entity.InterviewDimensionScore;
 import com.airesume.server.entity.InterviewSession;
+import com.airesume.server.mapper.InterviewDimensionScoreMapper;
 import com.airesume.server.mock.MockInterviewService;
 import com.airesume.server.repository.InterviewMessageRepository;
 import com.airesume.server.repository.InterviewSessionRepository;
@@ -25,6 +27,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -71,7 +77,12 @@ public class InterviewService {
     private final UserQuotaService userQuotaService;
     private final MockInterviewJobTargetService mockInterviewJobTargetService;
     private final NotificationService notificationService;
+    private final InterviewDimensionScoreMapper dimensionScoreMapper;
     private final Executor aiAsyncExecutor;
+
+    /** Spring Cache 管理器，用于按逻辑缓存名清理成长中心聚合数据。 */
+    @Autowired(required = false)
+    private CacheManager cacheManager;
 
     /**
      * 创建面试会话。
@@ -380,6 +391,75 @@ public class InterviewService {
                 session.getUserId(), "interview", "模拟面试完成",
                 "你的模拟面试反馈已生成，点击查看详情。",
                 "mock_interview", sessionId);
+
+        // 写入维度评分到独立表，供成长中心雷达图使用
+        persistDimensionScores(session, finalReportJson);
+    }
+
+    /**
+     * 从评估报告 JSON 中提取 6 维度评分并写入 interview_dimension_score 表。
+     * 失败时仅记录日志，不影响报告主流程。同时清除雷达缓存。
+     */
+    private void persistDimensionScores(InterviewSession session, String reportJson) {
+        try {
+            InterviewEvaluationReport report = objectMapper.readValue(reportJson, InterviewEvaluationReport.class);
+            Map<String, InterviewEvaluationReport.DimensionScore> dims = Map.of(
+                    "technicalDepth", Objects.requireNonNullElse(report.getTechnicalDepth(), new InterviewEvaluationReport.DimensionScore()),
+                    "projectExpression", Objects.requireNonNullElse(report.getProjectExpression(), new InterviewEvaluationReport.DimensionScore()),
+                    "communication", Objects.requireNonNullElse(report.getCommunication(), new InterviewEvaluationReport.DimensionScore()),
+                    "problemSolving", Objects.requireNonNullElse(report.getProblemSolving(), new InterviewEvaluationReport.DimensionScore()),
+                    "pressureResistance", Objects.requireNonNullElse(report.getPressureResistance(), new InterviewEvaluationReport.DimensionScore()),
+                    "jobMatch", Objects.requireNonNullElse(report.getJobMatch(), new InterviewEvaluationReport.DimensionScore())
+            );
+            for (Map.Entry<String, InterviewEvaluationReport.DimensionScore> entry : dims.entrySet()) {
+                InterviewEvaluationReport.DimensionScore ds = entry.getValue();
+                if (ds.getScore() == null) continue;
+                try {
+                    InterviewDimensionScore entity = new InterviewDimensionScore();
+                    entity.setUserId(session.getUserId());
+                    entity.setSessionId(session.getSessionId());
+                    entity.setDimensionKey(entry.getKey());
+                    entity.setScore(ds.getScore());
+                    entity.setComment(ds.getComment());
+                    entity.setStrengths(ds.getStrengths() != null ? objectMapper.writeValueAsString(ds.getStrengths()) : null);
+                    entity.setWeaknesses(ds.getWeaknesses() != null ? objectMapper.writeValueAsString(ds.getWeaknesses()) : null);
+                    dimensionScoreMapper.insert(entity);
+                } catch (DuplicateKeyException ignored) {
+                    // UNIQUE INDEX 保护
+                } catch (Exception e) {
+                    log.warn("[面试维度评分] 写入失败，sessionId={}, dim={}: {}", session.getSessionId(), entry.getKey(), e.getMessage());
+                }
+            }
+            evictGrowthCaches(session.getUserId());
+            log.info("[面试维度评分] 写入完成, sessionId={}, userId={}", session.getSessionId(), session.getUserId());
+        } catch (Exception e) {
+            log.warn("[面试维度评分] 解析报告失败，sessionId={}: {}", session.getSessionId(), e.getMessage());
+        }
+    }
+
+    /**
+     * 清除成长中心相关缓存，确保报告生成、历史删除后前端读取最新聚合数据。
+     */
+    private void evictGrowthCaches(Long userId) {
+        try {
+            evictCacheValue("user:interviewRadar", userId);
+            evictCacheValue("user:growthOverview", userId);
+        } catch (Exception e) {
+            log.warn("[面试维度评分] 清除成长缓存失败, userId={}: {}", userId, e.getMessage());
+        }
+    }
+
+    /**
+     * 按 Spring Cache 的缓存名和业务 key 驱逐缓存，避免依赖 Redis 序列化后的物理 key 格式。
+     */
+    private void evictCacheValue(String cacheName, Long userId) {
+        if (cacheManager == null) {
+            return;
+        }
+        Cache cache = cacheManager.getCache(cacheName);
+        if (cache != null) {
+            cache.evict(userId);
+        }
     }
 
     /**
@@ -417,7 +497,10 @@ public class InterviewService {
         LocalDateTime now = LocalDateTime.now();
         interviewMessageRepository.logicalDeleteBySessionIdIn(sessionIds, now);
         mockInterviewJobTargetService.logicalDeleteByUserId(userId);
-        return interviewSessionRepository.logicalDeleteByUserId(userId, now);
+        dimensionScoreMapper.logicalDeleteBySessionIds(sessionIds, now);
+        int deletedCount = interviewSessionRepository.logicalDeleteByUserId(userId, now);
+        evictGrowthCaches(userId);
+        return deletedCount;
     }
 
     /**
@@ -433,7 +516,9 @@ public class InterviewService {
         LocalDateTime now = LocalDateTime.now();
         interviewMessageRepository.logicalDeleteBySessionIdIn(List.of(sessionId), now);
         mockInterviewJobTargetService.logicalDeleteBySessionIds(List.of(sessionId));
+        dimensionScoreMapper.logicalDeleteBySessionIds(List.of(sessionId), now);
         interviewSessionRepository.logicalDeleteBySessionIdIn(List.of(sessionId), now);
+        evictGrowthCaches(userId);
         return true;
     }
 
@@ -987,7 +1072,8 @@ public class InterviewService {
             String failureReason
     ) {
         int score = mockInterviewService.generateMockScore(session.getSessionId());
-        String summary = Boolean.TRUE.equals(jobTargetContext != null ? jobTargetContext.getJobTargeted() : false)
+        boolean jobTargeted = jobTargetContext != null && Boolean.TRUE.equals(jobTargetContext.getJobTargeted());
+        String summary = jobTargeted
                 ? "本次岗位定向模拟面试已结合目标岗位要求给出基础评估，建议继续围绕岗位关键能力补齐案例表达。"
                 : "本次模拟面试已生成基础评估，建议继续补强案例细节与表达完整性。";
         String safeFailureReason = failureReason == null || failureReason.isBlank() ? "AI 报告生成失败" : failureReason;
@@ -998,7 +1084,7 @@ public class InterviewService {
                 .summary(summary)
                 .finalVerdict("AI 深度报告生成失败，当前为基础评估：" + safeFailureReason)
                 .strengths(List.of("回答具备基本结构", "能够围绕问题给出业务表达"))
-                .weaknesses(Boolean.TRUE.equals(jobTargetContext != null ? jobTargetContext.getJobTargeted() : false)
+                .weaknesses(jobTargeted
                         ? List.of("岗位要求与案例关联仍可加强")
                         : List.of("案例细节不够充分"))
                 .followUpLossPoints(List.of("追问到项目细节时，回答需要补充更多事实证据"))
@@ -1008,13 +1094,13 @@ public class InterviewService {
                         "整理 3 个可能被追问的技术细节，每个补充边界和取舍理由",
                         "回看本次记录，标出 1 个最空泛回答并补充量化结果"
                 ))
-                .improvementSuggestions(Boolean.TRUE.equals(jobTargetContext != null ? jobTargetContext.getJobTargeted() : false)
+                .improvementSuggestions(jobTargeted
                         ? List.of("补充与目标岗位最相关的项目证据", "强化对 JD 关键能力项的量化表达")
                         : List.of("补充更多项目细节", "提升回答的结构化程度"))
-                .suggestions(Boolean.TRUE.equals(jobTargetContext != null ? jobTargetContext.getJobTargeted() : false)
+                .suggestions(jobTargeted
                         ? List.of("补充与目标岗位最相关的项目证据", "强化对 JD 关键能力项的量化表达")
                         : List.of("补充更多项目细节", "提升回答的结构化程度"))
-                .improvements(Boolean.TRUE.equals(jobTargetContext != null ? jobTargetContext.getJobTargeted() : false)
+                .improvements(jobTargeted
                         ? List.of("加强岗位匹配表达")
                         : List.of("加强案例细节表达"))
                 .technicalDepth(InterviewEvaluationReport.DimensionScore.builder()
@@ -1039,8 +1125,8 @@ public class InterviewService {
                         .comment("兜底报告暂不做复杂抗压细分。")
                         .build())
                 .jobMatch(InterviewEvaluationReport.DimensionScore.builder()
-                        .score(Boolean.TRUE.equals(jobTargetContext != null ? jobTargetContext.getJobTargeted() : false) ? score : null)
-                        .comment(Boolean.TRUE.equals(jobTargetContext != null ? jobTargetContext.getJobTargeted() : false)
+                        .score(jobTargeted ? score : null)
+                        .comment(jobTargeted
                                 ? "当前回答与目标岗位存在基础匹配度，但仍需提升案例与岗位要求的贴合程度。"
                                 : null)
                         .build())
