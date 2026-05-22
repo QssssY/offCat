@@ -8,6 +8,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 评论视图对象（返回给前端）
@@ -38,6 +39,9 @@ public class CommentVO {
 
     /** 评论内容 */
     private String content;
+
+    /** 评论图片URL列表 */
+    private List<String> images;
 
     /** 创建时间 */
     private LocalDateTime createTime;

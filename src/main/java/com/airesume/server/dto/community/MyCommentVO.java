@@ -31,6 +31,10 @@ public class MyCommentVO {
     /** 评论创建时间 */
     private LocalDateTime commentTime;
 
+    /** 父评论ID，NULL表示顶级评论 */
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long parentCommentId;
+
     // ===== 所属帖子信息（次要） =====
 
     /** 帖子ID */

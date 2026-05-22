@@ -1,8 +1,9 @@
 package com.airesume.server.dto.community;
 
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
+
+import java.util.List;
 
 /**
  * 创建评论请求DTO
@@ -11,7 +12,6 @@ import lombok.Data;
 public class CreateCommentRequest {
 
     /** 评论内容 */
-    @NotBlank(message = "评论内容不能为空")
     @Size(max = 500, message = "评论内容不能超过500字")
     private String content;
 
@@ -20,4 +20,7 @@ public class CreateCommentRequest {
 
     /** 被回复用户ID（回复时传入） */
     private Long replyToUserId;
+
+    /** 评论图片URL列表（已上传的图片URL） */
+    private List<String> images;
 }

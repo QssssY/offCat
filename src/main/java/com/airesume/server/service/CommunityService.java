@@ -13,9 +13,11 @@ import com.airesume.server.mapper.CommunityCommentMapper;
 import com.airesume.server.mapper.CommunityPostFavoriteMapper;
 import com.airesume.server.mapper.CommunityPostLikeMapper;
 import com.airesume.server.mapper.CommunityPostMapper;
+import com.airesume.server.util.ImageValidator;
 import com.airesume.server.mapper.SysUserMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -23,6 +25,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -31,6 +34,7 @@ import java.io.File;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -230,85 +234,48 @@ public class CommunityService {
      * @return 分页结果
      */
     public PageResult<PostVO> listLikedPosts(Long userId, Integer pageNum, Integer pageSize) {
-        int safeSize = Math.min(pageSize, CommunityConstants.MAX_PAGE_SIZE);
-
-        // 第一步：分页查询用户点赞记录（获取帖子ID列表）
-        LambdaQueryWrapper<CommunityPostLike> likeWrapper = new LambdaQueryWrapper<>();
-        likeWrapper.eq(CommunityPostLike::getUserId, userId)
+        LambdaQueryWrapper<CommunityPostLike> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(CommunityPostLike::getUserId, userId)
                 .orderByDesc(CommunityPostLike::getCreateTime);
-        Page<CommunityPostLike> likePage = new Page<>(pageNum, safeSize);
-        Page<CommunityPostLike> likeResult = likeMapper.selectPage(likePage, likeWrapper);
-
-        if (likeResult.getRecords().isEmpty()) {
-            return PageResult.of(Collections.emptyList(), 0, pageNum, safeSize);
-        }
-
-        // 第二步：批量查询帖子详情
-        Set<Long> postIds = likeResult.getRecords().stream()
-                .map(CommunityPostLike::getPostId)
-                .collect(Collectors.toSet());
-        LambdaQueryWrapper<CommunityPost> postWrapper = new LambdaQueryWrapper<>();
-        postWrapper.in(CommunityPost::getId, postIds);
-        Map<Long, CommunityPost> postMap = postMapper.selectList(postWrapper).stream()
-                .collect(Collectors.toMap(CommunityPost::getId, p -> p));
-
-        // 按点赞时间排序组装列表
-        List<CommunityPost> posts = likeResult.getRecords().stream()
-                .map(like -> postMap.get(like.getPostId()))
-                .filter(Objects::nonNull)
-                .toList();
-
-        Set<Long> userIds = posts.stream()
-                .map(CommunityPost::getUserId)
-                .collect(Collectors.toSet());
-        Map<Long, SysUser> userMap = batchGetUsers(userIds);
-        Set<Long> likedPostIds = batchCheckLiked(userId, posts);
-        Set<Long> favoritedPostIds = batchCheckFavorited(userId, posts);
-
-        List<PostVO> voList = posts.stream()
-                .map(post -> toPostVO(post, userMap, likedPostIds, favoritedPostIds))
-                .toList();
-
-        // likeResult.getTotal() 包含已删帖的点赞记录，用实际返回数量判断是否有更多
-        boolean hasMore = likeResult.getRecords().size() == safeSize;
-        long total = hasMore ? likeResult.getTotal() : voList.size();
-        return PageResult.of(voList, total, pageNum, safeSize);
+        return listInteractedPosts(userId, pageNum, pageSize,
+                (page) -> likeMapper.selectPage(page, wrapper),
+                CommunityPostLike::getPostId);
     }
 
     /**
      * 分页查询用户收藏过的帖子
-     *
-     * @param userId   用户ID
-     * @param pageNum  页码
-     * @param pageSize 每页大小
-     * @return 分页结果
      */
     public PageResult<PostVO> listFavoritedPosts(Long userId, Integer pageNum, Integer pageSize) {
-        int safeSize = Math.min(pageSize, CommunityConstants.MAX_PAGE_SIZE);
-
-        // 第一步：分页查询用户收藏记录（获取帖子ID列表）
-        LambdaQueryWrapper<CommunityPostFavorite> favWrapper = new LambdaQueryWrapper<>();
-        favWrapper.eq(CommunityPostFavorite::getUserId, userId)
+        LambdaQueryWrapper<CommunityPostFavorite> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(CommunityPostFavorite::getUserId, userId)
                 .orderByDesc(CommunityPostFavorite::getCreateTime);
-        Page<CommunityPostFavorite> favPage = new Page<>(pageNum, safeSize);
-        Page<CommunityPostFavorite> favResult = favoriteMapper.selectPage(favPage, favWrapper);
+        return listInteractedPosts(userId, pageNum, pageSize,
+                (page) -> favoriteMapper.selectPage(page, wrapper),
+                CommunityPostFavorite::getPostId);
+    }
 
-        if (favResult.getRecords().isEmpty()) {
+    private <T> PageResult<PostVO> listInteractedPosts(
+            Long userId, Integer pageNum, Integer pageSize,
+            Function<Page<T>, IPage<T>> selectPageFn,
+            Function<T, Long> getPostIdFn) {
+        int safeSize = Math.min(pageSize, CommunityConstants.MAX_PAGE_SIZE);
+        Page<T> pageParam = new Page<>(pageNum, safeSize);
+        IPage<T> pageResult = selectPageFn.apply(pageParam);
+
+        if (pageResult.getRecords().isEmpty()) {
             return PageResult.of(Collections.emptyList(), 0, pageNum, safeSize);
         }
 
-        // 第二步：批量查询帖子详情
-        Set<Long> postIds = favResult.getRecords().stream()
-                .map(CommunityPostFavorite::getPostId)
+        Set<Long> postIds = pageResult.getRecords().stream()
+                .map(getPostIdFn)
                 .collect(Collectors.toSet());
         LambdaQueryWrapper<CommunityPost> postWrapper = new LambdaQueryWrapper<>();
         postWrapper.in(CommunityPost::getId, postIds);
         Map<Long, CommunityPost> postMap = postMapper.selectList(postWrapper).stream()
                 .collect(Collectors.toMap(CommunityPost::getId, p -> p));
 
-        // 按收藏时间排序组装列表
-        List<CommunityPost> posts = favResult.getRecords().stream()
-                .map(fav -> postMap.get(fav.getPostId()))
+        List<CommunityPost> posts = pageResult.getRecords().stream()
+                .map(entity -> postMap.get(getPostIdFn.apply(entity)))
                 .filter(Objects::nonNull)
                 .toList();
 
@@ -323,8 +290,8 @@ public class CommunityService {
                 .map(post -> toPostVO(post, userMap, likedPostIds, favoritedPostIds))
                 .toList();
 
-        boolean hasMore = favResult.getRecords().size() == safeSize;
-        long total = hasMore ? favResult.getTotal() : voList.size();
+        boolean hasMore = pageResult.getRecords().size() == safeSize;
+        long total = hasMore ? pageResult.getTotal() : voList.size();
         return PageResult.of(voList, total, pageNum, safeSize);
     }
 
@@ -339,33 +306,18 @@ public class CommunityService {
     public PageResult<PostVO> listCommentedPosts(Long userId, Integer pageNum, Integer pageSize) {
         int safeSize = Math.min(pageSize, CommunityConstants.MAX_PAGE_SIZE);
 
-        // 第一步：查询用户所有评论，去重获取帖子ID并按最近评论时间排序
-        LambdaQueryWrapper<CommunityComment> commentWrapper = new LambdaQueryWrapper<>();
-        commentWrapper.eq(CommunityComment::getUserId, userId)
-                .orderByDesc(CommunityComment::getCreateTime);
-        List<CommunityComment> allComments = commentMapper.selectList(commentWrapper);
+        // 第一步：SQL去重查询用户评论过的帖子ID，按最近评论时间排序，数据库分页
+        Page<Long> pageParam = new Page<>(pageNum, safeSize);
+        IPage<Long> postIdPage = commentMapper.selectDistinctPostIdsByUserId(pageParam, userId);
 
-        // 去重：每个帖子只保留最新评论，按最近评论时间排序
-        Set<Long> seen = new LinkedHashSet<>();
-        for (CommunityComment c : allComments) {
-            seen.add(c.getPostId());
-        }
-        List<Long> sortedPostIds = new ArrayList<>(seen);
-
-        if (sortedPostIds.isEmpty()) {
+        if (postIdPage.getRecords().isEmpty()) {
             return PageResult.of(Collections.emptyList(), 0, pageNum, safeSize);
         }
 
-        // 第二步：内存分页
-        int total = sortedPostIds.size();
-        int fromIndex = (pageNum - 1) * safeSize;
-        int toIndex = Math.min(fromIndex + safeSize, total);
-        if (fromIndex >= total) {
-            return PageResult.of(Collections.emptyList(), total, pageNum, safeSize);
-        }
-        List<Long> pagePostIds = sortedPostIds.subList(fromIndex, toIndex);
+        List<Long> pagePostIds = postIdPage.getRecords();
+        long total = postIdPage.getTotal();
 
-        // 第三步：批量查询帖子详情
+        // 第二步：批量查询帖子详情
         LambdaQueryWrapper<CommunityPost> postWrapper = new LambdaQueryWrapper<>();
         postWrapper.in(CommunityPost::getId, pagePostIds);
         Map<Long, CommunityPost> postMap = postMapper.selectList(postWrapper).stream()
@@ -387,10 +339,7 @@ public class CommunityService {
                 .map(post -> toPostVO(post, userMap, likedPostIds, favoritedPostIds))
                 .toList();
 
-        // total 包含已删帖的评论记录，用实际返回数量判断最后一页
-        boolean hasMore = sortedPostIds.size() > toIndex;
-        long displayTotal = hasMore ? total : voList.size();
-        return PageResult.of(voList, displayTotal, pageNum, safeSize);
+        return PageResult.of(voList, total, pageNum, safeSize);
     }
 
     /**
@@ -442,6 +391,7 @@ public class CommunityService {
                             .commentId(comment.getId())
                             .commentContent(comment.getContent())
                             .commentTime(comment.getCreateTime())
+                            .parentCommentId(comment.getParentCommentId())
                             .postId(comment.getPostId())
                             .postCategory(!deleted ? post.getCategory() : null)
                             .postContent(!deleted ? post.getContent() : null)
@@ -461,6 +411,7 @@ public class CommunityService {
      * @param userId 用户ID
      * @param postId 帖子ID
      */
+    @Transactional(rollbackFor = Exception.class)
     public void deletePost(Long userId, Long postId) {
         CommunityPost post = postMapper.selectById(postId);
         if (post == null) {
@@ -469,12 +420,23 @@ public class CommunityService {
         if (!post.getUserId().equals(userId)) {
             throw new BusinessException("只能删除自己发布的帖子");
         }
-        postMapper.deleteById(postId);
+        // 级联删除该帖子的所有评论
+        LambdaQueryWrapper<CommunityComment> commentWrapper = new LambdaQueryWrapper<>();
+        commentWrapper.eq(CommunityComment::getPostId, postId);
+        commentMapper.delete(commentWrapper);
+
+        // 级联删除该帖子的所有点赞
+        LambdaQueryWrapper<CommunityPostLike> likeWrapper = new LambdaQueryWrapper<>();
+        likeWrapper.eq(CommunityPostLike::getPostId, postId);
+        likeMapper.delete(likeWrapper);
+
         // 级联删除该帖子的所有收藏记录
         LambdaQueryWrapper<CommunityPostFavorite> favWrapper = new LambdaQueryWrapper<>();
         favWrapper.eq(CommunityPostFavorite::getPostId, postId);
         favoriteMapper.delete(favWrapper);
-        log.info("帖子删除成功, postId: {}, userId: {}（含级联删除收藏记录）", postId, userId);
+
+        postMapper.deleteById(postId);
+        log.info("帖子删除成功, postId: {}, userId: {}（含级联删除评论、点赞、收藏记录）", postId, userId);
     }
 
     // ==================== 点赞相关 ====================
@@ -513,10 +475,15 @@ public class CommunityService {
             CommunityPostLike like = new CommunityPostLike();
             like.setPostId(postId);
             like.setUserId(userId);
-            likeMapper.insert(like);
-            // 帖子点赞数+1
-            incrementLikeCount(postId);
-            log.info("点赞成功, userId: {}, postId: {}", userId, postId);
+            try {
+                likeMapper.insert(like);
+                // 帖子点赞数+1
+                incrementLikeCount(postId);
+                log.info("点赞成功, userId: {}, postId: {}", userId, postId);
+            } catch (DuplicateKeyException e) {
+                // 并发插入导致唯一索引冲突，视为已点赞，做幂等处理
+                log.info("并发点赞，唯一索引冲突，视为已点赞, userId: {}, postId: {}", userId, postId);
+            }
             return true;
         }
     }
@@ -556,8 +523,13 @@ public class CommunityService {
             CommunityPostFavorite fav = new CommunityPostFavorite();
             fav.setPostId(postId);
             fav.setUserId(userId);
-            favoriteMapper.insert(fav);
-            log.info("收藏成功, userId: {}, postId: {}", userId, postId);
+            try {
+                favoriteMapper.insert(fav);
+                log.info("收藏成功, userId: {}, postId: {}", userId, postId);
+            } catch (DuplicateKeyException e) {
+                // 并发插入导致唯一索引冲突，视为已收藏，做幂等处理
+                log.info("并发收藏，唯一索引冲突，视为已收藏, userId: {}, postId: {}", userId, postId);
+            }
             return true;
         }
     }
@@ -573,6 +545,32 @@ public class CommunityService {
      * @param pageSize      每页大小
      * @return 评论分页结果
      */
+    public CommentVO getCommentDetail(Long postId, Long commentId, Long currentUserId) {
+        CommunityComment comment = commentMapper.selectById(commentId);
+        if (comment == null || !comment.getPostId().equals(postId)) {
+            throw new BusinessException("评论不存在");
+        }
+        CommunityPost post = postMapper.selectById(postId);
+        Long postAuthorId = post != null ? post.getUserId() : null;
+        SysUser user = userMapper.selectById(comment.getUserId());
+
+        return CommentVO.builder()
+                .id(comment.getId())
+                .postId(comment.getPostId())
+                .userId(comment.getUserId())
+                .authorName(formatUserName(user))
+                .authorAvatar(null)
+                .content(comment.getContent())
+                .images(parseImages(comment.getImages()))
+                .createTime(comment.getCreateTime())
+                .isPostAuthor(comment.getUserId().equals(postAuthorId))
+                .deletable(currentUserId != null && (comment.getUserId().equals(currentUserId)
+                        || (postAuthorId != null && postAuthorId.equals(currentUserId))))
+                .parentCommentId(comment.getParentCommentId())
+                .replyCount(comment.getParentCommentId() == null ? batchGetReplyCounts(Set.of(commentId)).getOrDefault(commentId, 0L).intValue() : null)
+                .build();
+    }
+
     public PageResult<CommentVO> listComments(Long postId, Long currentUserId, Integer pageNum, Integer pageSize) {
         int safeSize = Math.min(pageSize, CommunityConstants.MAX_PAGE_SIZE);
 
@@ -684,12 +682,12 @@ public class CommunityService {
         if (commentIds.isEmpty()) {
             return Collections.emptyMap();
         }
-        LambdaQueryWrapper<CommunityComment> wrapper = new LambdaQueryWrapper<>();
-        wrapper.in(CommunityComment::getParentCommentId, commentIds);
-        List<CommunityComment> replies = commentMapper.selectList(wrapper);
+        List<Map<String, Object>> rows = commentMapper.countByParentIds(commentIds);
         Map<Long, Long> result = new HashMap<>();
-        for (CommunityComment reply : replies) {
-            result.merge(reply.getParentCommentId(), 1L, Long::sum);
+        for (Map<String, Object> row : rows) {
+            Long parentId = ((Number) row.get("parent_comment_id")).longValue();
+            Long cnt = ((Number) row.get("cnt")).longValue();
+            result.put(parentId, cnt);
         }
         return result;
     }
@@ -710,15 +708,35 @@ public class CommunityService {
             throw new BusinessException("帖子不存在");
         }
 
+        // 校验内容和图片至少有一个
+        boolean hasContent = request.getContent() != null && !request.getContent().isBlank();
+        boolean hasImages = request.getImages() != null && !request.getImages().isEmpty();
+        if (!hasContent && !hasImages) {
+            throw new BusinessException("评论内容不能为空");
+        }
+
         // 校验内容长度
-        if (request.getContent().length() > CommunityConstants.MAX_COMMENT_LENGTH) {
+        if (hasContent && request.getContent().length() > CommunityConstants.MAX_COMMENT_LENGTH) {
             throw new BusinessException("评论内容不能超过" + CommunityConstants.MAX_COMMENT_LENGTH + "字");
         }
 
         CommunityComment comment = new CommunityComment();
         comment.setPostId(postId);
         comment.setUserId(userId);
-        comment.setContent(request.getContent().trim());
+        comment.setContent(hasContent ? request.getContent().trim() : "");
+
+        // 图片列表转JSON存储
+        if (request.getImages() != null && !request.getImages().isEmpty()) {
+            if (request.getImages().size() > CommunityConstants.MAX_IMAGE_COUNT) {
+                throw new BusinessException("图片数量不能超过" + CommunityConstants.MAX_IMAGE_COUNT + "张");
+            }
+            try {
+                comment.setImages(objectMapper.writeValueAsString(request.getImages()));
+            } catch (JsonProcessingException e) {
+                log.error("评论图片列表序列化失败", e);
+                throw new BusinessException("图片数据处理失败");
+            }
+        }
 
         // 处理回复逻辑
         Long parentCommentId = request.getParentCommentId();
@@ -779,10 +797,22 @@ public class CommunityService {
             throw new BusinessException("没有权限删除此评论");
         }
 
+        // 查询并级联删除子回复
+        LambdaQueryWrapper<CommunityComment> childWrapper = new LambdaQueryWrapper<>();
+        childWrapper.eq(CommunityComment::getParentCommentId, commentId);
+        long childCount = commentMapper.selectCount(childWrapper);
+        if (childCount > 0) {
+            commentMapper.delete(childWrapper);
+        }
+
         commentMapper.deleteById(commentId);
-        // 帖子评论数-1
-        decrementCommentCount(postId);
-        log.info("评论删除成功, commentId: {}, postId: {}, userId: {}", commentId, postId, userId);
+        // 帖子评论数减去实际删除数量（评论 + 子回复）
+        long totalToDelete = 1 + childCount;
+        LambdaUpdateWrapper<CommunityPost> updateWrapper = new LambdaUpdateWrapper<>();
+        updateWrapper.eq(CommunityPost::getId, postId)
+                .setSql("comment_count = GREATEST(comment_count - " + totalToDelete + ", 0)");
+        postMapper.update(null, updateWrapper);
+        log.info("评论删除成功, commentId: {}, postId: {}, userId: {}, 级联删除子回复: {}", commentId, postId, userId, childCount);
     }
 
     // ==================== 图片上传 ====================
@@ -815,6 +845,17 @@ public class CommunityService {
                 && !lowerName.endsWith(".png") && !lowerName.endsWith(".gif")
                 && !lowerName.endsWith(".webp")) {
             throw new BusinessException("仅支持 JPG、PNG、GIF、WebP 格式图片");
+        }
+
+        // 校验文件魔术字节，防止伪造扩展名
+        String extWithoutDot = lowerName.substring(lowerName.lastIndexOf(".") + 1);
+        try {
+            if (!ImageValidator.validateMagicBytes(file, extWithoutDot)) {
+                throw new BusinessException("文件内容与声明格式不符，请上传真实的图片文件");
+            }
+        } catch (IOException e) {
+            log.error("读取文件魔术字节失败, userId: {}, fileName: {}", userId, originalFilename, e);
+            throw new BusinessException("文件校验失败，请重新上传");
         }
 
         // 生成唯一文件名
@@ -858,95 +899,48 @@ public class CommunityService {
     public ReceivedInteractionVO listReceivedInteractions(Long userId, Integer pageNum, Integer pageSize) {
         int safeSize = Math.min(pageSize, CommunityConstants.MAX_PAGE_SIZE);
 
-        // 1. 查询我的所有帖子ID
-        LambdaQueryWrapper<CommunityPost> myPostWrapper = new LambdaQueryWrapper<>();
-        myPostWrapper.eq(CommunityPost::getUserId, userId)
-                .select(CommunityPost::getId);
-        List<CommunityPost> myPosts = postMapper.selectList(myPostWrapper);
-        Set<Long> myPostIds = myPosts.stream().map(CommunityPost::getId).collect(Collectors.toSet());
+        String myPostSubQuery = "SELECT id FROM community_post WHERE user_id = " + userId + " AND is_deleted = 0";
 
-        if (myPostIds.isEmpty()) {
-            return ReceivedInteractionVO.builder()
-                    .likes(Collections.emptyList()).totalLikes(0)
-                    .comments(Collections.emptyList()).totalComments(0)
-                    .replies(Collections.emptyList()).totalReplies(0)
-                    .favorites(Collections.emptyList()).totalFavorites(0)
-                    .build();
-        }
-
-        // 2. 查询收到的点赞（排除自己的点赞）
+        // 2. 查询收到的点赞（排除自己的点赞，用子查询替代全量加载帖子ID）
         LambdaQueryWrapper<CommunityPostLike> likeWrapper = new LambdaQueryWrapper<>();
-        likeWrapper.in(CommunityPostLike::getPostId, myPostIds)
+        likeWrapper.inSql(CommunityPostLike::getPostId, myPostSubQuery)
                 .ne(CommunityPostLike::getUserId, userId)
                 .orderByDesc(CommunityPostLike::getCreateTime);
-        List<CommunityPostLike> allLikes = likeMapper.selectList(likeWrapper);
-        int totalLikes = allLikes.size();
-
-        // 分页截取
-        int likeFrom = (pageNum - 1) * safeSize;
-        int likeTo = Math.min(likeFrom + safeSize, totalLikes);
-        List<CommunityPostLike> pageLikes = likeFrom < totalLikes
-                ? allLikes.subList(likeFrom, likeTo)
-                : Collections.emptyList();
+        Page<CommunityPostLike> likePageParam = new Page<>(pageNum, safeSize);
+        Page<CommunityPostLike> likePageResult = likeMapper.selectPage(likePageParam, likeWrapper);
+        long totalLikes = likePageResult.getTotal();
+        List<CommunityPostLike> pageLikes = likePageResult.getRecords();
 
         // 3. 查询收到的评论（排除自己的评论，只查顶级评论）
         LambdaQueryWrapper<CommunityComment> commentWrapper = new LambdaQueryWrapper<>();
-        commentWrapper.in(CommunityComment::getPostId, myPostIds)
+        commentWrapper.inSql(CommunityComment::getPostId, myPostSubQuery)
                 .ne(CommunityComment::getUserId, userId)
                 .isNull(CommunityComment::getParentCommentId)
                 .orderByDesc(CommunityComment::getCreateTime);
-        List<CommunityComment> allComments = commentMapper.selectList(commentWrapper);
-        int totalComments = allComments.size();
+        Page<CommunityComment> commentPageParam = new Page<>(pageNum, safeSize);
+        Page<CommunityComment> commentPageResult = commentMapper.selectPage(commentPageParam, commentWrapper);
+        long totalComments = commentPageResult.getTotal();
+        List<CommunityComment> pageComments = commentPageResult.getRecords();
 
-        // 分页截取
-        int commentFrom = (pageNum - 1) * safeSize;
-        int commentTo = Math.min(commentFrom + safeSize, totalComments);
-        List<CommunityComment> pageComments = commentFrom < totalComments
-                ? allComments.subList(commentFrom, commentTo)
-                : Collections.emptyList();
-
-        // 4. 查询收到的回复（别人回复了我的评论）
-        // 先查我所有评论的ID
-        LambdaQueryWrapper<CommunityComment> myCommentIdWrapper = new LambdaQueryWrapper<>();
-        myCommentIdWrapper.eq(CommunityComment::getUserId, userId)
-                .select(CommunityComment::getId);
-        List<CommunityComment> myCommentEntities = commentMapper.selectList(myCommentIdWrapper);
-        Set<Long> myCommentIds = myCommentEntities.stream()
-                .map(CommunityComment::getId)
-                .collect(Collectors.toSet());
-
-        List<CommunityComment> allReplies = Collections.emptyList();
-        int totalReplies = 0;
-        if (!myCommentIds.isEmpty()) {
-            LambdaQueryWrapper<CommunityComment> replyWrapper = new LambdaQueryWrapper<>();
-            replyWrapper.in(CommunityComment::getParentCommentId, myCommentIds)
-                    .ne(CommunityComment::getUserId, userId)
-                    .orderByDesc(CommunityComment::getCreateTime);
-            allReplies = commentMapper.selectList(replyWrapper);
-            totalReplies = allReplies.size();
-        }
-
-        // 分页截取
-        int replyFrom = (pageNum - 1) * safeSize;
-        int replyTo = Math.min(replyFrom + safeSize, totalReplies);
-        List<CommunityComment> pageReplies = replyFrom < totalReplies
-                ? allReplies.subList(replyFrom, replyTo)
-                : Collections.emptyList();
+        // 4. 查询收到的回复（别人回复了我，通过 replyToUserId 判断）
+        LambdaQueryWrapper<CommunityComment> replyWrapper = new LambdaQueryWrapper<>();
+        replyWrapper.eq(CommunityComment::getReplyToUserId, userId)
+                .ne(CommunityComment::getUserId, userId)
+                .orderByDesc(CommunityComment::getCreateTime);
+        Page<CommunityComment> replyPageParam = new Page<>(pageNum, safeSize);
+        Page<CommunityComment> replyPageResult = commentMapper.selectPage(replyPageParam, replyWrapper);
+        long totalReplies = replyPageResult.getTotal();
+        List<CommunityComment> pageReplies = replyPageResult.getRecords();
 
         // 4.5. 查询收到的收藏（别人收藏了我的帖子）
         LambdaQueryWrapper<CommunityPostFavorite> favWrapper = new LambdaQueryWrapper<>();
-        favWrapper.in(CommunityPostFavorite::getPostId, myPostIds)
+        favWrapper.inSql(CommunityPostFavorite::getPostId, myPostSubQuery)
                 .ne(CommunityPostFavorite::getUserId, userId)
                 .orderByDesc(CommunityPostFavorite::getCreateTime);
-        List<CommunityPostFavorite> allFavorites = favoriteMapper.selectList(favWrapper);
-        int totalFavorites = allFavorites.size();
-
-        // 分页截取
-        int favFrom = (pageNum - 1) * safeSize;
-        int favTo = Math.min(favFrom + safeSize, totalFavorites);
-        List<CommunityPostFavorite> pageFavorites = favFrom < totalFavorites
-                ? allFavorites.subList(favFrom, favTo)
-                : Collections.emptyList();
+        Page<CommunityPostFavorite> favPageParam = new Page<>(pageNum, safeSize);
+        Page<CommunityPostFavorite> favPageResult = favoriteMapper.selectPage(favPageParam, favWrapper);
+        long totalFavorites = favPageResult.getTotal();
+        List<CommunityPostFavorite> pageFavorites = favPageResult.getRecords();
 
         // 5. 批量查询帖子信息（用于显示帖子摘要）
         Set<Long> relatedPostIds = new HashSet<>();
@@ -1003,6 +997,7 @@ public class CommunityService {
                     SysUser user = userMap.get(comment.getUserId());
                     CommunityPost post = postMap.get(comment.getPostId());
                     return ReceivedInteractionVO.CommentItem.builder()
+                            .commentId(comment.getId())
                             .userId(comment.getUserId())
                             .userName(formatUserName(user))
                             .commentContent(comment.getContent())
@@ -1020,10 +1015,12 @@ public class CommunityService {
                     SysUser user = userMap.get(reply.getUserId());
                     CommunityPost post = postMap.get(reply.getPostId());
                     return ReceivedInteractionVO.ReplyItem.builder()
+                            .replyId(reply.getId())
                             .userId(reply.getUserId())
                             .userName(formatUserName(user))
                             .replyContent(reply.getContent())
                             .parentCommentContent(parentCommentContentMap.get(reply.getParentCommentId()))
+                            .parentCommentId(reply.getParentCommentId())
                             .postId(reply.getPostId())
                             .postContent(post != null ? truncate(post.getContent(), 80) : "已删除")
                             .postCategory(post != null ? post.getCategory() : null)
@@ -1048,15 +1045,21 @@ public class CommunityService {
                 })
                 .toList();
 
+        boolean hasMore = (totalLikes > pageNum * safeSize)
+                || (totalComments > pageNum * safeSize)
+                || (totalReplies > pageNum * safeSize)
+                || (totalFavorites > pageNum * safeSize);
+
         return ReceivedInteractionVO.builder()
                 .likes(likeItems)
-                .totalLikes(totalLikes)
+                .totalLikes((int) totalLikes)
                 .comments(commentItems)
-                .totalComments(totalComments)
+                .totalComments((int) totalComments)
                 .replies(replyItems)
-                .totalReplies(totalReplies)
+                .totalReplies((int) totalReplies)
                 .favorites(favItems)
-                .totalFavorites(totalFavorites)
+                .totalFavorites((int) totalFavorites)
+                .hasMore(hasMore)
                 .build();
     }
 
@@ -1068,59 +1071,7 @@ public class CommunityService {
      * @return 未读数量
      */
     public int getUnreadInteractionCount(Long userId, LocalDateTime since) {
-        // 查询我的帖子ID
-        LambdaQueryWrapper<CommunityPost> myPostWrapper = new LambdaQueryWrapper<>();
-        myPostWrapper.eq(CommunityPost::getUserId, userId)
-                .select(CommunityPost::getId);
-        List<CommunityPost> myPosts = postMapper.selectList(myPostWrapper);
-        Set<Long> myPostIds = myPosts.stream().map(CommunityPost::getId).collect(Collectors.toSet());
-
-        if (myPostIds.isEmpty()) {
-            return 0;
-        }
-
-        int count = 0;
-
-        // 未读点赞
-        LambdaQueryWrapper<CommunityPostLike> likeWrapper = new LambdaQueryWrapper<>();
-        likeWrapper.in(CommunityPostLike::getPostId, myPostIds)
-                .ne(CommunityPostLike::getUserId, userId)
-                .gt(CommunityPostLike::getCreateTime, since);
-        count += likeMapper.selectCount(likeWrapper).intValue();
-
-        // 未读评论（顶级评论）
-        LambdaQueryWrapper<CommunityComment> commentWrapper = new LambdaQueryWrapper<>();
-        commentWrapper.in(CommunityComment::getPostId, myPostIds)
-                .ne(CommunityComment::getUserId, userId)
-                .isNull(CommunityComment::getParentCommentId)
-                .gt(CommunityComment::getCreateTime, since);
-        count += commentMapper.selectCount(commentWrapper).intValue();
-
-        // 未读回复（别人回复了我的评论）
-        LambdaQueryWrapper<CommunityComment> myCommentIdWrapper = new LambdaQueryWrapper<>();
-        myCommentIdWrapper.eq(CommunityComment::getUserId, userId)
-                .select(CommunityComment::getId);
-        List<CommunityComment> myCommentEntities = commentMapper.selectList(myCommentIdWrapper);
-        Set<Long> myCommentIds = myCommentEntities.stream()
-                .map(CommunityComment::getId)
-                .collect(Collectors.toSet());
-
-        if (!myCommentIds.isEmpty()) {
-            LambdaQueryWrapper<CommunityComment> replyWrapper = new LambdaQueryWrapper<>();
-            replyWrapper.in(CommunityComment::getParentCommentId, myCommentIds)
-                    .ne(CommunityComment::getUserId, userId)
-                    .gt(CommunityComment::getCreateTime, since);
-            count += commentMapper.selectCount(replyWrapper).intValue();
-        }
-
-        // 未读收藏
-        LambdaQueryWrapper<CommunityPostFavorite> favWrapper = new LambdaQueryWrapper<>();
-        favWrapper.in(CommunityPostFavorite::getPostId, myPostIds)
-                .ne(CommunityPostFavorite::getUserId, userId)
-                .gt(CommunityPostFavorite::getCreateTime, since);
-        count += favoriteMapper.selectCount(favWrapper).intValue();
-
-        return count;
+        return commentMapper.countUnreadInteractions(userId, since);
     }
 
     private String formatUserName(SysUser user) {
@@ -1303,6 +1254,7 @@ public class CommunityService {
                 .authorName(author != null ? (author.getNickname() != null ? author.getNickname() : author.getUsername()) : "匿名用户")
                 .authorAvatar(null)
                 .content(comment.getContent())
+                .images(parseImages(comment.getImages()))
                 .createTime(comment.getCreateTime())
                 .isPostAuthor(isPostAuthor)
                 .deletable(deletable)

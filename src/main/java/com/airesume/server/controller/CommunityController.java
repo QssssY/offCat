@@ -188,6 +188,19 @@ public class CommunityController {
     }
 
     /**
+     * 获取单条评论详情
+     */
+    @GetMapping("/posts/{postId}/comments/{commentId}/detail")
+    public Result<CommentVO> getCommentDetail(
+            Authentication authentication,
+            @PathVariable Long postId,
+            @PathVariable Long commentId) {
+        Long userId = authentication != null ? (Long) authentication.getPrincipal() : null;
+        CommentVO vo = communityService.getCommentDetail(postId, commentId, userId);
+        return Result.success(vo);
+    }
+
+    /**
      * 创建评论
      *
      * @param authentication 当前登录用户身份
@@ -257,8 +270,11 @@ public class CommunityController {
     @GetMapping("/my/interactions/unread-count")
     public Result<Integer> getUnreadInteractionCount(
             Authentication authentication,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime since) {
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime since) {
         Long userId = (Long) authentication.getPrincipal();
+        if (since == null) {
+            since = LocalDateTime.of(2000, 1, 1, 0, 0);
+        }
         log.info("[社区] 查询未读互动数量, userId: {}, since: {}", userId, since);
         int count = communityService.getUnreadInteractionCount(userId, since);
         return Result.success(count);

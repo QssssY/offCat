@@ -412,19 +412,7 @@ CREATE TABLE `community_comment` (
   `parent_comment_id` BIGINT NULL DEFAULT NULL COMMENT '父评论ID，NULL表示顶级评论',
   `reply_to_user_id` BIGINT NULL DEFAULT NULL COMMENT '被回复用户ID',
   `content` TEXT NOT NULL COMMENT '评论内容',
-  INDEX `idx_admin_notification_status` (`status`),
-  INDEX `idx_admin_notification_type` (`type`),
-  INDEX `idx_admin_notification_create_time` (`create_time`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='系统公告表';
-
-CREATE TABLE `sys_version_log` (
-  `id` BIGINT NOT NULL COMMENT '主键',
-  `version` VARCHAR(32) NOT NULL COMMENT '版本号',
-  `title` VARCHAR(200) NOT NULL COMMENT '版本标题',
-  `content` TEXT NOT NULL COMMENT '更新内容（Markdown格式）',
-  `type` VARCHAR(16) NOT NULL DEFAULT 'minor' COMMENT '版本类型: major/minor/patch',
-  `status` TINYINT NOT NULL DEFAULT 0 COMMENT '0-draft, 1-published',
-  `published_at` DATETIME NULL DEFAULT NULL COMMENT '发布时间',
+  `images` JSON NULL COMMENT '评论图片URL列表JSON数组',
   `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除标志',

@@ -1,3 +1,4 @@
+
 package com.airesume.server.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -76,6 +77,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/actuator/**").permitAll()
+                        // 静态资源（上传的图片等）放行 - img标签不会携带JWT token
+                        .requestMatchers("/uploads/**").permitAll()
                         // 网络诊断接口放行 - 用于排查 DNS、代理、端口等网络问题，无需登录
                         .requestMatchers("/api/diagnostic/**").permitAll()
                         // 用户端岗位选项需要由后台配置提供，前端不能再写死，所以这里开放只读岗位列表。

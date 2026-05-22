@@ -44,6 +44,9 @@ public class ReceivedInteractionVO {
     /** 收藏总数 */
     private Integer totalFavorites;
 
+    /** 是否还有更多数据（任一类型还有更多时为 true） */
+    private Boolean hasMore;
+
     /**
      * 点赞条目
      */
@@ -71,6 +74,8 @@ public class ReceivedInteractionVO {
     @AllArgsConstructor
     public static class CommentItem {
         @JsonSerialize(using = ToStringSerializer.class)
+        private Long commentId;
+        @JsonSerialize(using = ToStringSerializer.class)
         private Long userId;
         private String userName;
         private String commentContent;
@@ -90,11 +95,15 @@ public class ReceivedInteractionVO {
     @AllArgsConstructor
     public static class ReplyItem {
         @JsonSerialize(using = ToStringSerializer.class)
+        private Long replyId;
+        @JsonSerialize(using = ToStringSerializer.class)
         private Long userId;
         private String userName;
         private String replyContent;
         /** 被回复的原评论内容 */
         private String parentCommentContent;
+        @JsonSerialize(using = ToStringSerializer.class)
+        private Long parentCommentId;
         @JsonSerialize(using = ToStringSerializer.class)
         private Long postId;
         private String postContent;
