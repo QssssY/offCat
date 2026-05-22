@@ -57,7 +57,7 @@ public class NetworkDiagnosticUtil {
         report.append("----------------------------------------\n");
         if (targetUrl != null && !targetUrl.isBlank()) {
             try {
-                String host = new URL(targetUrl).getHost();
+                String host = java.net.URI.create(targetUrl).toURL().getHost();
                 report.append(checkDnsResolution(host));
             } catch (Exception e) {
                 report.append("URL 解析失败: ").append(e.getMessage()).append("\n");
@@ -195,7 +195,7 @@ public class NetworkDiagnosticUtil {
         sb.append("目标 URL: ").append(urlStr).append("\n");
 
         try {
-            URL url = new URL(urlStr);
+            URL url = java.net.URI.create(urlStr).toURL();
             int port = url.getPort() != -1 ? url.getPort() : url.getDefaultPort();
             sb.append("协议: ").append(url.getProtocol()).append("\n");
             sb.append("主机: ").append(url.getHost()).append("\n");

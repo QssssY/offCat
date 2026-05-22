@@ -122,7 +122,10 @@ public class SecurityConfig {
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding("UTF-8");
         ObjectMapper mapper = new ObjectMapper();
-        response.getWriter().write(mapper.writeValueAsString(Result.error(code, message)));
+        byte[] body = mapper.writeValueAsBytes(Result.error(code, message));
+        response.setContentLength(body.length);
+        response.getOutputStream().write(body);
+        response.getOutputStream().flush();
     }
 
 }
