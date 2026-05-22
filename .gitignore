@@ -122,3 +122,8 @@ replay_pid*
 ehthumbs.db
 Thumbs.db
 desktop.ini
+
+# ==========================================
+# User Uploads
+# ==========================================
+uploads/
