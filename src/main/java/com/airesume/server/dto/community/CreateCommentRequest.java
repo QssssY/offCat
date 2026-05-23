@@ -11,7 +11,7 @@ import java.util.List;
 @Data
 public class CreateCommentRequest {
 
-    /** 评论内容 */
+    /** 评论内容：允许为空，服务层会校验文本和图片至少提供一个。 */
     @Size(max = 500, message = "评论内容不能超过500字")
     private String content;
 

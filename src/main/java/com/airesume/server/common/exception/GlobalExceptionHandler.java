@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 import java.io.IOException;
 
 @Slf4j
@@ -72,6 +73,16 @@ public class GlobalExceptionHandler {
     public Result<Void> handleMaxUploadSizeExceededException(MaxUploadSizeExceededException e) {
         log.warn("上传文件大小超限: {}", e.getMessage());
         return Result.error(ResultCode.PARAM_ERROR.getCode(), "文件大小不能超过 5MB");
+    }
+
+    /**
+     * 静态资源不存在属于客户端请求了无效 URL，返回 404，避免被通用异常兜成 500。
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public Result<Void> handleNoResourceFoundException(NoResourceFoundException e) {
+        log.warn("静态资源不存在: {}", e.getResourcePath());
+        return Result.error(ResultCode.NOT_FOUND);
     }
 
     @ExceptionHandler(Exception.class)

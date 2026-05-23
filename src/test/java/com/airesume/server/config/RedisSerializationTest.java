@@ -90,6 +90,15 @@ class RedisSerializationTest {
                         .interviewWeaknesses(List.of("缓存兼容性说明不完整"))
                         .suggestions(List.of("补充 Redis 缓存迁移方案"))
                         .build())
+                .growthConfig(GrowthOverviewResponse.GrowthConfigVO.builder()
+                        .encouragementMessages(List.of("本周面试表达有进步，建议继续复盘最近一次反馈。"))
+                        .milestones(List.of(GrowthOverviewResponse.MilestoneConfigVO.builder()
+                                .configKey("milestone_first_interview")
+                                .title("完成第一次模拟面试")
+                                .description("开始沉淀面试反馈")
+                                .sort(1)
+                                .build()))
+                        .build())
                 .build();
 
         Object actual = roundTrip(expected);

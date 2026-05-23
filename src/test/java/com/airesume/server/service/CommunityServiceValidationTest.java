@@ -21,8 +21,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -60,6 +58,8 @@ class CommunityServiceValidationTest {
     private CommunityService service;
 
     private static final Long USER_ID = 1001L;
+    private static final String PLACEHOLDER_IMAGE_URL =
+            "https://ts3.tc.mm.bing.net/th/id/OIP-C.TmvkuikpStxy5wKWiziR1AHaE7?rs=1&pid=ImgDetMain&o=7&rm=3";
 
     // ==========================================================
     //  Feature 6: 评论内容校验 - CreateCommentRequest DTO validation
@@ -78,8 +78,8 @@ class CommunityServiceValidationTest {
         }
 
         @Test
-        @DisplayName("Scenario 6.1 [P2] - 纯空格评论被拒绝")
-        void shouldRejectWhitespaceOnlyContent() {
+        @DisplayName("Scenario 6.1 [P2] - DTO允许空白文本，服务层校验文本或图片至少一个")
+        void shouldAllowWhitespaceOnlyContentAtDtoLevel() {
             // ====== Given ======
             CreateCommentRequest request = new CreateCommentRequest();
             request.setContent("   ");
@@ -89,17 +89,13 @@ class CommunityServiceValidationTest {
                     validator.validate(request);
 
             // ====== Then ======
-            // 修复后：添加 @NotBlank 注解后，纯空格评论应被拒绝
-            // 当前状态：缺少 @NotBlank，此测试会 FAIL
-            assertFalse(violations.isEmpty(),
-                    "纯空格评论应被拒绝（添加 @NotBlank 后此测试通过）");
-            assertTrue(violations.stream().anyMatch(v -> v.getMessage().contains("不能为空")),
-                    "违规消息应包含'不能为空'");
+            assertTrue(violations.isEmpty(),
+                    "DTO不能拒绝空白文本，否则只发图片的评论会在进入服务层前失败");
         }
 
         @Test
-        @DisplayName("Scenario 6.2 [P2] - null评论被拒绝")
-        void shouldRejectNullContent() {
+        @DisplayName("Scenario 6.2 [P2] - DTO允许null文本以支持图片评论")
+        void shouldAllowNullContentAtDtoLevel() {
             // ====== Given ======
             CreateCommentRequest request = new CreateCommentRequest();
             request.setContent(null);
@@ -109,10 +105,8 @@ class CommunityServiceValidationTest {
                     validator.validate(request);
 
             // ====== Then ======
-            // 修复后：添加 @NotBlank 注解后，null 评论应被拒绝
-            // 当前状态：缺少 @NotBlank，此测试会 FAIL
-            assertFalse(violations.isEmpty(),
-                    "null评论应被拒绝（添加 @NotBlank 后此测试通过）");
+            assertTrue(violations.isEmpty(),
+                    "DTO不能拒绝null文本，否则只发图片的评论会在进入服务层前失败");
         }
 
         @Test
@@ -174,17 +168,14 @@ class CommunityServiceValidationTest {
     @DisplayName("Feature 7: 图片上传校验 (#14)")
     class ImageUploadValidationTest {
 
-        private Path tempDir;
-
         @BeforeEach
-        void setUp() throws Exception {
+        void setUp() {
             service = new CommunityService(
                     postMapper, commentMapper, likeMapper, favoriteMapper, userMapper, objectMapper
             );
             // Set @Value injected fields via reflection
             ReflectionTestUtils.setField(service, "maxFileSize", 5 * 1024 * 1024L);
-            tempDir = Files.createTempDirectory("community-upload-test");
-            ReflectionTestUtils.setField(service, "configuredUploadDir", tempDir.toString());
+            ReflectionTestUtils.setField(service, "communityPlaceholderImageUrl", PLACEHOLDER_IMAGE_URL);
         }
 
         // ---------- File empty validation ----------
@@ -305,10 +296,8 @@ class CommunityServiceValidationTest {
 
             // ====== Then ======
             assertNotNull(result, "上传成功应返回文件URL");
-            assertTrue(result.startsWith("/uploads/community/"),
-                    "返回的URL应以 /uploads/community/ 开头");
-            assertTrue(result.endsWith(".jpg"),
-                    "返回的URL应保留原始扩展名");
+            assertEquals(PLACEHOLDER_IMAGE_URL, result,
+                    "未接入对象存储前应返回可跨用户访问的外链占位图");
         }
 
         @Test
@@ -327,10 +316,8 @@ class CommunityServiceValidationTest {
 
             // ====== Then ======
             assertNotNull(result, "上传成功应返回文件URL");
-            assertTrue(result.startsWith("/uploads/community/"),
-                    "返回的URL应以 /uploads/community/ 开头");
-            assertTrue(result.endsWith(".png"),
-                    "返回的URL应保留原始扩展名");
+            assertEquals(PLACEHOLDER_IMAGE_URL, result,
+                    "未接入对象存储前应返回可跨用户访问的外链占位图");
         }
 
         @Test
@@ -348,10 +335,8 @@ class CommunityServiceValidationTest {
 
             // ====== Then ======
             assertNotNull(result, "上传成功应返回文件URL");
-            assertTrue(result.startsWith("/uploads/community/"),
-                    "返回的URL应以 /uploads/community/ 开头");
-            assertTrue(result.endsWith(".gif"),
-                    "返回的URL应保留原始扩展名");
+            assertEquals(PLACEHOLDER_IMAGE_URL, result,
+                    "未接入对象存储前应返回可跨用户访问的外链占位图");
         }
 
         @Test
@@ -373,10 +358,8 @@ class CommunityServiceValidationTest {
 
             // ====== Then ======
             assertNotNull(result, "上传成功应返回文件URL");
-            assertTrue(result.startsWith("/uploads/community/"),
-                    "返回的URL应以 /uploads/community/ 开头");
-            assertTrue(result.endsWith(".webp"),
-                    "返回的URL应保留原始扩展名");
+            assertEquals(PLACEHOLDER_IMAGE_URL, result,
+                    "未接入对象存储前应返回可跨用户访问的外链占位图");
         }
 
         @Test
@@ -393,8 +376,8 @@ class CommunityServiceValidationTest {
 
             // ====== Then ======
             assertNotNull(result, ".jpeg扩展名应通过校验");
-            assertTrue(result.endsWith(".jpeg"),
-                    "返回的URL应保留 .jpeg 扩展名");
+            assertEquals(PLACEHOLDER_IMAGE_URL, result,
+                    "未接入对象存储前应返回可跨用户访问的外链占位图");
         }
     }
 }

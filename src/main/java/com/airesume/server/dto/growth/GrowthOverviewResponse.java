@@ -41,6 +41,9 @@ public class GrowthOverviewResponse implements Serializable {
     /** 当前主要短板与建议 */
     private WeaknessSummaryVO weaknessSummary;
 
+    /** 管理端维护的成长中心运营配置 */
+    private GrowthConfigVO growthConfig;
+
     /**
      * 成长概览摘要VO
      */
@@ -159,5 +162,40 @@ public class GrowthOverviewResponse implements Serializable {
         private List<String> interviewWeaknesses;
         /** 改进建议 */
         private List<String> suggestions;
+    }
+
+    /**
+     * 成长中心运营配置VO。
+     * 由管理端成长配置中心维护，用于驱动用户端激励文案和里程碑展示。
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class GrowthConfigVO implements Serializable {
+        private static final long serialVersionUID = 1L;
+        /** 激励文案列表 */
+        private List<String> encouragementMessages;
+        /** 里程碑配置列表 */
+        private List<MilestoneConfigVO> milestones;
+    }
+
+    /**
+     * 里程碑配置VO。
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class MilestoneConfigVO implements Serializable {
+        private static final long serialVersionUID = 1L;
+        /** 配置键，作为前端渲染稳定 key */
+        private String configKey;
+        /** 里程碑标题，来自配置值 */
+        private String title;
+        /** 里程碑说明，来自配置说明 */
+        private String description;
+        /** 排序值 */
+        private Integer sort;
     }
 }

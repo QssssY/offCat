@@ -10,6 +10,7 @@ import com.airesume.server.entity.MockInterviewJobTargetRecord;
 import com.airesume.server.entity.ResumeDiagnosisTask;
 import com.airesume.server.entity.ResumeJobMatchRecord;
 import com.airesume.server.entity.ResumePolishRecord;
+import com.airesume.server.entity.SysGrowthConfig;
 import com.airesume.server.mapper.InterviewDimensionScoreMapper;
 import com.airesume.server.mapper.MockInterviewJobTargetRecordMapper;
 import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
@@ -17,6 +18,7 @@ import com.airesume.server.mapper.ResumeJobMatchRecordMapper;
 import com.airesume.server.mapper.ResumePolishRecordMapper;
 import com.airesume.server.repository.InterviewSessionRepository;
 import com.airesume.server.service.GrowthService;
+import com.airesume.server.service.SysGrowthConfigService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -51,6 +53,7 @@ public class GrowthServiceImpl implements GrowthService {
     private final InterviewSessionRepository interviewSessionRepository;
     private final MockInterviewJobTargetRecordMapper mockInterviewJobTargetRecordMapper;
     private final InterviewDimensionScoreMapper dimensionScoreMapper;
+    private final SysGrowthConfigService sysGrowthConfigService;
     private final ObjectMapper objectMapper;
 
     /** 日期格式化：MM/dd */
@@ -104,6 +107,9 @@ public class GrowthServiceImpl implements GrowthService {
         WeaknessSummaryVO weaknessSummary = buildWeaknessSummary(
                 resumeScoreTrend, interviewScoreTrend, latestJobMatch, latestInterviewFeedback);
 
+        // 12. 读取管理端成长配置，驱动用户端激励文案和里程碑展示
+        GrowthConfigVO growthConfig = buildGrowthConfig();
+
         return GrowthOverviewResponse.builder()
                 .summary(summary)
                 .resumeScoreTrend(resumeScoreTrend)
@@ -112,6 +118,7 @@ public class GrowthServiceImpl implements GrowthService {
                 .latestPolish(latestPolish)
                 .latestInterviewFeedback(latestInterviewFeedback)
                 .weaknessSummary(weaknessSummary)
+                .growthConfig(growthConfig)
                 .build();
     }
 
@@ -519,6 +526,33 @@ public class GrowthServiceImpl implements GrowthService {
             }
         }
         return result;
+    }
+
+    /**
+     * 构建管理端配置驱动的成长中心展示内容。
+     * encouragement 分组只取配置值作为用户端文案，milestone 分组保留 key/说明/排序供前端稳定渲染。
+     */
+    private GrowthConfigVO buildGrowthConfig() {
+        List<String> encouragementMessages = sysGrowthConfigService.getByGroup("encouragement").stream()
+                .map(SysGrowthConfig::getConfigValue)
+                .filter(value -> value != null && !value.isBlank())
+                .map(String::trim)
+                .collect(Collectors.toList());
+
+        List<MilestoneConfigVO> milestones = sysGrowthConfigService.getByGroup("milestone").stream()
+                .filter(config -> config.getConfigValue() != null && !config.getConfigValue().isBlank())
+                .map(config -> MilestoneConfigVO.builder()
+                        .configKey(config.getConfigKey())
+                        .title(config.getConfigValue().trim())
+                        .description(config.getDescription())
+                        .sort(config.getSort())
+                        .build())
+                .collect(Collectors.toList());
+
+        return GrowthConfigVO.builder()
+                .encouragementMessages(encouragementMessages)
+                .milestones(milestones)
+                .build();
     }
 
     // ==================== 面试维度雷达相关 ====================

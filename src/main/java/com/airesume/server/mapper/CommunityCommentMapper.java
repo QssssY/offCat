@@ -18,8 +18,10 @@ import java.util.Map;
 @Mapper
 public interface CommunityCommentMapper extends BaseMapper<CommunityComment> {
 
-    @Select("SELECT post_id FROM community_comment WHERE user_id = #{userId} AND is_deleted = 0 " +
-            "GROUP BY post_id ORDER BY MAX(create_time) DESC")
+    @Select("SELECT c.post_id FROM community_comment c " +
+            "INNER JOIN community_post p ON p.id = c.post_id AND p.is_deleted = 0 " +
+            "WHERE c.user_id = #{userId} AND c.is_deleted = 0 " +
+            "GROUP BY c.post_id ORDER BY MAX(c.create_time) DESC")
     IPage<Long> selectDistinctPostIdsByUserId(Page<?> page, @Param("userId") Long userId);
 
     @Select("SELECT IFNULL(SUM(cnt), 0) FROM (" +

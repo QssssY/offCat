@@ -6,11 +6,14 @@ import com.airesume.server.common.result.Result;
 import com.airesume.server.dto.community.*;
 import com.airesume.server.service.CommunityService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -21,6 +24,7 @@ import java.time.LocalDateTime;
  * 提供帖子列表/详情、发帖、点赞、评论、图片上传等接口
  */
 @Slf4j
+@Validated
 @RestController
 @RequestMapping("/api/community")
 @RequiredArgsConstructor
@@ -46,8 +50,8 @@ public class CommunityController {
             @RequestParam(defaultValue = "latest") String sort,
             @RequestParam(defaultValue = "false") Boolean mine,
             @RequestParam(required = false) String filter,
-            @RequestParam(defaultValue = "1") Integer pageNum,
-            @RequestParam(defaultValue = "15") Integer pageSize) {
+            @RequestParam(defaultValue = "1") @Min(1) Integer pageNum,
+            @RequestParam(defaultValue = "15") @Min(1) @Max(CommunityConstants.MAX_PAGE_SIZE) Integer pageSize) {
         Long userId = (Long) authentication.getPrincipal();
         PageResult<PostVO> result;
 
@@ -158,8 +162,8 @@ public class CommunityController {
     @GetMapping("/my/comments")
     public Result<PageResult<MyCommentVO>> listMyComments(
             Authentication authentication,
-            @RequestParam(defaultValue = "1") Integer pageNum,
-            @RequestParam(defaultValue = "15") Integer pageSize) {
+            @RequestParam(defaultValue = "1") @Min(1) Integer pageNum,
+            @RequestParam(defaultValue = "15") @Min(1) @Max(CommunityConstants.MAX_PAGE_SIZE) Integer pageSize) {
         Long userId = (Long) authentication.getPrincipal();
         log.info("[社区] 查询我的评论, userId: {}, pageNum: {}", userId, pageNum);
         PageResult<MyCommentVO> result = communityService.listMyComments(userId, pageNum, pageSize);
@@ -179,8 +183,8 @@ public class CommunityController {
     public Result<PageResult<CommentVO>> listComments(
             Authentication authentication,
             @PathVariable Long postId,
-            @RequestParam(defaultValue = "1") Integer pageNum,
-            @RequestParam(defaultValue = "20") Integer pageSize) {
+            @RequestParam(defaultValue = "1") @Min(1) Integer pageNum,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(CommunityConstants.MAX_PAGE_SIZE) Integer pageSize) {
         Long userId = (Long) authentication.getPrincipal();
         log.info("[社区] 查询评论列表, userId: {}, postId: {}, pageNum: {}", userId, postId, pageNum);
         PageResult<CommentVO> result = communityService.listComments(postId, userId, pageNum, pageSize);
@@ -242,8 +246,8 @@ public class CommunityController {
             Authentication authentication,
             @PathVariable Long postId,
             @PathVariable Long commentId,
-            @RequestParam(defaultValue = "1") Integer pageNum,
-            @RequestParam(defaultValue = "20") Integer pageSize) {
+            @RequestParam(defaultValue = "1") @Min(1) Integer pageNum,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(CommunityConstants.MAX_PAGE_SIZE) Integer pageSize) {
         Long userId = (Long) authentication.getPrincipal();
         log.info("[社区] 查询回复列表, userId: {}, postId: {}, commentId: {}", userId, postId, commentId);
         PageResult<CommentVO> result = communityService.listReplies(postId, commentId, userId, pageNum, pageSize);
@@ -256,8 +260,8 @@ public class CommunityController {
     @GetMapping("/my/interactions")
     public Result<ReceivedInteractionVO> listReceivedInteractions(
             Authentication authentication,
-            @RequestParam(defaultValue = "1") Integer pageNum,
-            @RequestParam(defaultValue = "20") Integer pageSize) {
+            @RequestParam(defaultValue = "1") @Min(1) Integer pageNum,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(CommunityConstants.MAX_PAGE_SIZE) Integer pageSize) {
         Long userId = (Long) authentication.getPrincipal();
         log.info("[社区] 查询收到的互动信息, userId: {}, pageNum: {}", userId, pageNum);
         ReceivedInteractionVO result = communityService.listReceivedInteractions(userId, pageNum, pageSize);

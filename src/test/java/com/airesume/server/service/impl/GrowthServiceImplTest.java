@@ -5,12 +5,14 @@ import com.airesume.server.dto.growth.InterviewRadarResponse;
 import com.airesume.server.entity.InterviewDimensionScore;
 import com.airesume.server.entity.InterviewSession;
 import com.airesume.server.entity.ResumeDiagnosisTask;
+import com.airesume.server.entity.SysGrowthConfig;
 import com.airesume.server.mapper.InterviewDimensionScoreMapper;
 import com.airesume.server.mapper.MockInterviewJobTargetRecordMapper;
 import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
 import com.airesume.server.mapper.ResumeJobMatchRecordMapper;
 import com.airesume.server.mapper.ResumePolishRecordMapper;
 import com.airesume.server.repository.InterviewSessionRepository;
+import com.airesume.server.service.SysGrowthConfigService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,6 +42,7 @@ class GrowthServiceImplTest {
     @Mock private InterviewSessionRepository interviewSessionRepository;
     @Mock private MockInterviewJobTargetRecordMapper mockInterviewJobTargetRecordMapper;
     @Mock private InterviewDimensionScoreMapper dimensionScoreMapper;
+    @Mock private SysGrowthConfigService sysGrowthConfigService;
 
     private GrowthServiceImpl growthService;
 
@@ -52,6 +55,7 @@ class GrowthServiceImplTest {
                 interviewSessionRepository,
                 mockInterviewJobTargetRecordMapper,
                 dimensionScoreMapper,
+                sysGrowthConfigService,
                 new ObjectMapper());
     }
 
@@ -129,6 +133,12 @@ class GrowthServiceImplTest {
         when(interviewSessionRepository.countByUserIdAndStatus(userId, 1)).thenReturn(1L);
         when(resumeJobMatchRecordMapper.selectCount(any())).thenReturn(0L);
         when(resumePolishRecordMapper.selectCount(any())).thenReturn(0L);
+        when(sysGrowthConfigService.getByGroup("encouragement")).thenReturn(List.of(
+                buildGrowthConfig("encourage_resume_80", "你的简历质量已经超过 80 分，适合继续打磨岗位匹配。", "encouragement", "简历高分鼓励", 1)
+        ));
+        when(sysGrowthConfigService.getByGroup("milestone")).thenReturn(List.of(
+                buildGrowthConfig("milestone_first_interview", "完成第一次模拟面试", "milestone", "开始沉淀面试反馈", 1)
+        ));
 
         GrowthOverviewResponse response = growthService.getGrowthOverview(userId);
 
@@ -139,6 +149,12 @@ class GrowthServiceImplTest {
         assertEquals(1, response.getResumeScoreTrend().size());
         assertEquals(1, response.getInterviewScoreTrend().size());
         assertNotNull(response.getLatestInterviewFeedback());
+        assertEquals(List.of("你的简历质量已经超过 80 分，适合继续打磨岗位匹配。"),
+                response.getGrowthConfig().getEncouragementMessages());
+        assertEquals("milestone_first_interview",
+                response.getGrowthConfig().getMilestones().get(0).getConfigKey());
+        assertEquals("完成第一次模拟面试",
+                response.getGrowthConfig().getMilestones().get(0).getTitle());
     }
 
     private InterviewSession buildEndedSessionWithReport(String sessionId, Long userId) {
@@ -167,5 +183,19 @@ class GrowthServiceImplTest {
         dimensionScore.setCreateTime(LocalDateTime.now());
         dimensionScore.setIsDeleted(0);
         return dimensionScore;
+    }
+
+    private SysGrowthConfig buildGrowthConfig(String key,
+                                              String value,
+                                              String groupName,
+                                              String description,
+                                              Integer sort) {
+        SysGrowthConfig config = new SysGrowthConfig();
+        config.setConfigKey(key);
+        config.setConfigValue(value);
+        config.setGroupName(groupName);
+        config.setDescription(description);
+        config.setSort(sort);
+        return config;
     }
 }

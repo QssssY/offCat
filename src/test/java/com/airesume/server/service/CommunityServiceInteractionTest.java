@@ -11,6 +11,7 @@ import com.airesume.server.mapper.CommunityPostFavoriteMapper;
 import com.airesume.server.mapper.CommunityPostLikeMapper;
 import com.airesume.server.mapper.CommunityPostMapper;
 import com.airesume.server.mapper.SysUserMapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -130,6 +131,13 @@ class CommunityServiceInteractionTest {
         return user;
     }
 
+    private <T> Page<T> pageOf(long pageNum, long pageSize, long total, List<T> records) {
+        Page<T> page = new Page<>(pageNum, pageSize);
+        page.setTotal(total);
+        page.setRecords(records);
+        return page;
+    }
+
     // ==========================================================
     //  Feature 1: 收到的互动信息分页查询 (listReceivedInteractions)
     // ==========================================================
@@ -189,14 +197,13 @@ class CommunityServiceInteractionTest {
                     buildUser(USER_E_ID, "userE", "User E")
             );
 
-            // Mock: commentMapper.selectList is called 3 times:
-            //   1st -> allComments, 2nd -> allReplies, 3rd -> parent comment content
             when(postMapper.selectList(any())).thenReturn(myPosts).thenReturn(relatedPosts);
-            when(likeMapper.selectList(any())).thenReturn(allLikes);
-            when(commentMapper.selectList(any())).thenReturn(allComments)
-                    .thenReturn(allReplies)
-                    .thenReturn(Collections.emptyList());
-            when(favoriteMapper.selectList(any())).thenReturn(allFavorites);
+            when(likeMapper.selectPage(any(Page.class), any())).thenReturn(pageOf(1, 10, 5, allLikes));
+            when(commentMapper.selectPage(any(Page.class), any()))
+                    .thenReturn(pageOf(1, 10, 3, allComments))
+                    .thenReturn(pageOf(1, 10, 2, allReplies));
+            when(commentMapper.selectList(any())).thenReturn(Collections.emptyList());
+            when(favoriteMapper.selectPage(any(Page.class), any())).thenReturn(pageOf(1, 10, 4, allFavorites));
             when(userMapper.selectList(any())).thenReturn(users);
 
             // ====== When ======
@@ -215,10 +222,9 @@ class CommunityServiceInteractionTest {
             assertEquals(2, result.getReplies().size(), "replies list should contain all 2 replies");
             assertEquals(4, result.getFavorites().size(), "favorites list should contain all 4 favorites");
 
-            // Verify that selectList is used (not selectPage) -- documenting the full-table scan bug
-            verify(likeMapper).selectList(any());
-            verify(commentMapper, atLeast(2)).selectList(any());
-            verify(favoriteMapper).selectList(any());
+            verify(likeMapper).selectPage(any(Page.class), any());
+            verify(commentMapper, times(2)).selectPage(any(Page.class), any());
+            verify(favoriteMapper).selectPage(any(Page.class), any());
         }
 
         @Test
@@ -249,10 +255,11 @@ class CommunityServiceInteractionTest {
             );
 
             when(postMapper.selectList(any())).thenReturn(myPosts).thenReturn(myPosts);
-            when(likeMapper.selectList(any())).thenReturn(allLikes);
-            when(commentMapper.selectList(any())).thenReturn(noComments)
-                    .thenReturn(noReplies);
-            when(favoriteMapper.selectList(any())).thenReturn(noFavorites);
+            when(likeMapper.selectPage(any(Page.class), any())).thenReturn(pageOf(2, 10, 12, allLikes.subList(10, 12)));
+            when(commentMapper.selectPage(any(Page.class), any()))
+                    .thenReturn(pageOf(2, 10, 0, noComments))
+                    .thenReturn(pageOf(2, 10, 0, noReplies));
+            when(favoriteMapper.selectPage(any(Page.class), any())).thenReturn(pageOf(2, 10, 0, noFavorites));
             when(userMapper.selectList(any())).thenReturn(users);
 
             // ====== When ======
@@ -268,11 +275,14 @@ class CommunityServiceInteractionTest {
         }
 
         @Test
-        @DisplayName("Scenario 1.3 [P0] - 无帖子时返回空结果")
-        void shouldReturnEmptyWhenUserHasNoPosts() {
+        @DisplayName("Scenario 1.3 [P0] - 无互动时返回空结果")
+        void shouldReturnEmptyWhenUserHasNoInteractions() {
             // ====== Given ======
-            // User A has no posts
-            when(postMapper.selectList(any())).thenReturn(Collections.emptyList());
+            when(likeMapper.selectPage(any(Page.class), any())).thenReturn(pageOf(1, 10, 0, Collections.emptyList()));
+            when(commentMapper.selectPage(any(Page.class), any()))
+                    .thenReturn(pageOf(1, 10, 0, Collections.emptyList()))
+                    .thenReturn(pageOf(1, 10, 0, Collections.emptyList()));
+            when(favoriteMapper.selectPage(any(Page.class), any())).thenReturn(pageOf(1, 10, 0, Collections.emptyList()));
 
             // ====== When ======
             ReceivedInteractionVO result = communityService.listReceivedInteractions(USER_A_ID, 1, 10);
@@ -288,10 +298,7 @@ class CommunityServiceInteractionTest {
             assertEquals(0, result.getTotalReplies());
             assertEquals(0, result.getTotalFavorites());
 
-            // No further mapper calls should happen after the empty-post early return
-            verifyNoInteractions(likeMapper);
-            verifyNoInteractions(commentMapper);
-            verifyNoInteractions(favoriteMapper);
+            verifyNoInteractions(postMapper, userMapper);
         }
 
         @Test
@@ -317,10 +324,11 @@ class CommunityServiceInteractionTest {
             List<SysUser> users = List.of(buildUser(USER_B_ID, "userB", "User B"));
 
             when(postMapper.selectList(any())).thenReturn(myPosts).thenReturn(myPosts);
-            when(likeMapper.selectList(any())).thenReturn(allLikes);
-            when(commentMapper.selectList(any())).thenReturn(noComments)
-                    .thenReturn(noReplies);
-            when(favoriteMapper.selectList(any())).thenReturn(noFavorites);
+            when(likeMapper.selectPage(any(Page.class), any())).thenReturn(pageOf(1, 10, 1, allLikes));
+            when(commentMapper.selectPage(any(Page.class), any()))
+                    .thenReturn(pageOf(1, 10, 0, noComments))
+                    .thenReturn(pageOf(1, 10, 0, noReplies));
+            when(favoriteMapper.selectPage(any(Page.class), any())).thenReturn(pageOf(1, 10, 0, noFavorites));
             when(userMapper.selectList(any())).thenReturn(users);
 
             // ====== When ======
@@ -340,23 +348,17 @@ class CommunityServiceInteractionTest {
         @DisplayName("Scenario 1.5 [P0] - 请求超出总页数时返回空列表但总数正确")
         void shouldReturnEmptyListWhenPageExceedsTotal() {
             // ====== Given ======
-            CommunityPost myPost = buildPost(100L, USER_A_ID);
-            List<CommunityPost> myPosts = List.of(myPost);
-
             // Only 1 like record
-            CommunityPostLike singleLike = buildLike(1001L, 100L, USER_B_ID);
-            List<CommunityPostLike> allLikes = List.of(singleLike);
-
             List<CommunityComment> noComments = Collections.emptyList();
             List<CommunityComment> noReplies = Collections.emptyList();
             List<CommunityPostFavorite> noFavorites = Collections.emptyList();
 
-            when(postMapper.selectList(any())).thenReturn(myPosts).thenReturn(myPosts);
-            when(likeMapper.selectList(any())).thenReturn(allLikes);
-            when(commentMapper.selectList(any())).thenReturn(noComments)
-                    .thenReturn(noReplies);
-            when(favoriteMapper.selectList(any())).thenReturn(noFavorites);
-            when(userMapper.selectList(any())).thenReturn(Collections.emptyList());
+            when(likeMapper.selectPage(any(Page.class), any())).thenReturn(pageOf(5, 10, 1, Collections.emptyList()));
+            when(commentMapper.selectPage(any(Page.class), any()))
+                    .thenReturn(pageOf(5, 10, 0, noComments))
+                    .thenReturn(pageOf(5, 10, 0, noReplies));
+            when(favoriteMapper.selectPage(any(Page.class), any())).thenReturn(pageOf(5, 10, 0, noFavorites));
+            lenient().when(userMapper.selectList(any())).thenReturn(Collections.emptyList());
 
             // ====== When ======
             ReceivedInteractionVO result = communityService.listReceivedInteractions(USER_A_ID, 5, 10);
@@ -384,41 +386,8 @@ class CommunityServiceInteractionTest {
         @Test
         @DisplayName("Scenario 1.6 [P2] - 未读数量查询正确统计4类互动")
         void shouldCountUnreadInteractionsAcrossAllTypes() {
-            // ====== Given ======
-            // User A has 2 posts
-            CommunityPost post1 = buildPost(100L, USER_A_ID);
-            CommunityPost post2 = buildPost(200L, USER_A_ID);
-            List<CommunityPost> myPosts = List.of(post1, post2);
-
             LocalDateTime since = LocalDateTime.now().minusDays(1);
-
-            // Mock: postMapper.selectList returns myPosts for the initial query
-            when(postMapper.selectList(any())).thenReturn(myPosts);
-
-            // 2 unread likes (selectCount returns Long)
-            when(likeMapper.selectCount(any())).thenReturn(2L);
-
-            // 1 unread top-level comment
-            // commentMapper.selectCount is called twice: once for comments, once for replies
-            // But there's also a selectList call for myCommentIds in between.
-            // The execution order in getUnreadInteractionCount is:
-            //   1. postMapper.selectList -> myPosts
-            //   2. likeMapper.selectCount -> unread likes
-            //   3. commentMapper.selectCount -> unread comments
-            //   4. commentMapper.selectList -> my comment IDs
-            //   5. commentMapper.selectCount -> unread replies (conditional on non-empty myCommentIds)
-            //   6. favoriteMapper.selectCount -> unread favorites
-
-            // Set up User A's own comments (so reply counting code path executes)
-            CommunityComment myComment = buildComment(5000L, 100L, USER_A_ID, null, null);
-            when(commentMapper.selectList(any())).thenReturn(List.of(myComment));
-
-            // 3 unread replies to my comments
-            when(commentMapper.selectCount(any())).thenReturn(1L)   // unread top-level comments
-                    .thenReturn(3L);  // unread replies to my comments
-
-            // 1 unread favorite
-            when(favoriteMapper.selectCount(any())).thenReturn(1L);
+            when(commentMapper.countUnreadInteractions(USER_A_ID, since)).thenReturn(7);
 
             // ====== When ======
             int count = communityService.getUnreadInteractionCount(USER_A_ID, since);
@@ -427,58 +396,24 @@ class CommunityServiceInteractionTest {
             // 2 likes + 1 comment + 3 replies + 1 favorite = 7
             assertEquals(7, count, "Total unread count should be 2+1+3+1=7");
 
-            // Verify the method makes individual queries (documenting current N+1 behaviour)
-            verify(likeMapper).selectCount(any());
-            verify(commentMapper, times(2)).selectCount(any());  // comments + replies
-            verify(favoriteMapper).selectCount(any());
-            verify(commentMapper).selectList(any());  // my comment IDs lookup
+            verify(commentMapper).countUnreadInteractions(USER_A_ID, since);
+            verifyNoInteractions(postMapper, likeMapper, favoriteMapper);
         }
 
         @Test
-        @DisplayName("Scenario 1.6b [P2] - 无帖子时未读数量为0")
-        void shouldReturnZeroWhenUserHasNoPosts() {
-            // ====== Given ======
-            when(postMapper.selectList(any())).thenReturn(Collections.emptyList());
+        @DisplayName("Scenario 1.6b [P2] - 无未读互动时返回0")
+        void shouldReturnZeroWhenThereAreNoUnreadInteractions() {
             LocalDateTime since = LocalDateTime.now().minusDays(1);
+            when(commentMapper.countUnreadInteractions(USER_A_ID, since)).thenReturn(0);
 
             // ====== When ======
             int count = communityService.getUnreadInteractionCount(USER_A_ID, since);
 
             // ====== Then ======
-            assertEquals(0, count, "No posts means no interactions");
+            assertEquals(0, count, "No unread interactions should return zero");
 
-            // Early return -- no further queries
-            verifyNoInteractions(likeMapper);
-            verifyNoInteractions(commentMapper);
-            verifyNoInteractions(favoriteMapper);
-        }
-
-        @Test
-        @DisplayName("Scenario 1.6c [P2] - 无自己的评论时跳过回复查询")
-        void shouldSkipReplyCountWhenUserHasNoComments() {
-            // ====== Given ======
-            CommunityPost myPost = buildPost(100L, USER_A_ID);
-            when(postMapper.selectList(any())).thenReturn(List.of(myPost));
-
-            LocalDateTime since = LocalDateTime.now().minusDays(1);
-
-            when(likeMapper.selectCount(any())).thenReturn(1L);
-            // No top-level comments
-            when(commentMapper.selectCount(any())).thenReturn(0L);
-            // User A has no comments, so reply query is skipped
-            when(commentMapper.selectList(any())).thenReturn(Collections.emptyList());
-            when(favoriteMapper.selectCount(any())).thenReturn(0L);
-
-            // ====== When ======
-            int count = communityService.getUnreadInteractionCount(USER_A_ID, since);
-
-            // ====== Then ======
-            // 1 like + 0 comments + 0 replies + 0 favorites = 1
-            assertEquals(1, count, "Only the like should be counted");
-
-            // selectCount for comments is called once (for top-level),
-            // but NOT called a second time for replies since myCommentIds is empty
-            verify(commentMapper, times(1)).selectCount(any());
+            verify(commentMapper).countUnreadInteractions(USER_A_ID, since);
+            verifyNoInteractions(postMapper, likeMapper, favoriteMapper);
         }
     }
 }

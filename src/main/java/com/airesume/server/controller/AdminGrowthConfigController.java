@@ -12,6 +12,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -61,6 +62,7 @@ public class AdminGrowthConfigController {
     }
 
     @PostMapping
+    @CacheEvict(value = "user:growthOverview", allEntries = true)
     public Result<Long> createConfig(@Valid @RequestBody GrowthConfigCreateRequest request,
                                       Authentication authentication) {
         log.info("Admin create growth config, key: {}, group: {}", request.getConfigKey(), request.getGroupName());
@@ -85,6 +87,7 @@ public class AdminGrowthConfigController {
     }
 
     @PutMapping
+    @CacheEvict(value = "user:growthOverview", allEntries = true)
     public Result<Void> updateConfig(@Valid @RequestBody GrowthConfigUpdateRequest request,
                                       Authentication authentication) {
         log.info("Admin update growth config, id: {}", request.getId());
@@ -111,6 +114,7 @@ public class AdminGrowthConfigController {
     }
 
     @DeleteMapping("/{id}")
+    @CacheEvict(value = "user:growthOverview", allEntries = true)
     public Result<Void> deleteConfig(@PathVariable Long id, Authentication authentication) {
         log.info("Admin delete growth config, id: {}", id);
         sysGrowthConfigService.removeById(id);
@@ -118,6 +122,7 @@ public class AdminGrowthConfigController {
     }
 
     @PostMapping("/batch-delete")
+    @CacheEvict(value = "user:growthOverview", allEntries = true)
     public Result<Void> deleteConfigsBatch(@RequestBody List<Long> ids, Authentication authentication) {
         List<Long> safeIds = BatchValidator.validate(ids);
         log.info("Admin batch delete growth configs, ids: {}", safeIds);

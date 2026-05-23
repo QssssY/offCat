@@ -14,6 +14,7 @@ import com.airesume.server.mapper.CommunityPostLikeMapper;
 import com.airesume.server.mapper.CommunityPostMapper;
 import com.airesume.server.mapper.SysUserMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -123,8 +124,10 @@ class CommunityServicePostQueryDeleteTest {
             c3.setCreateTime(now.minusHours(1));
             allComments.add(c3);
 
-            // Mock: commentMapper.selectList 返回全部6条评论
-            when(commentMapper.selectList(any())).thenReturn(allComments);
+            Page<Long> postIdPage = new Page<>(1, 10);
+            postIdPage.setRecords(List.of(P1_ID, P2_ID, P3_ID));
+            postIdPage.setTotal(3);
+            when(commentMapper.selectDistinctPostIdsByUserId(any(Page.class), eq(USER_A_ID))).thenReturn(postIdPage);
 
             // Mock: postMapper.selectList 返回3个帖子
             CommunityPost p1 = buildPost(P1_ID, USER_A_ID, "P1 内容", 0, 5);
@@ -181,8 +184,18 @@ class CommunityServicePostQueryDeleteTest {
 
             users.add(buildUser(USER_A_ID, "userA", "用户A"));
 
-            when(commentMapper.selectList(any())).thenReturn(allComments);
-            when(postMapper.selectList(any())).thenReturn(allPosts);
+            Page<Long> pageOneIds = new Page<>(1, 10);
+            pageOneIds.setRecords(allPosts.stream().limit(10).map(CommunityPost::getId).toList());
+            pageOneIds.setTotal(15);
+            Page<Long> pageTwoIds = new Page<>(2, 10);
+            pageTwoIds.setRecords(allPosts.stream().skip(10).map(CommunityPost::getId).toList());
+            pageTwoIds.setTotal(15);
+            when(commentMapper.selectDistinctPostIdsByUserId(any(Page.class), eq(USER_A_ID)))
+                    .thenReturn(pageOneIds)
+                    .thenReturn(pageTwoIds);
+            when(postMapper.selectList(any()))
+                    .thenReturn(allPosts.subList(0, 10))
+                    .thenReturn(allPosts.subList(10, 15));
             when(userMapper.selectList(any())).thenReturn(users);
             when(likeMapper.selectList(any())).thenReturn(Collections.emptyList());
             when(favoriteMapper.selectList(any())).thenReturn(Collections.emptyList());
@@ -205,10 +218,85 @@ class CommunityServicePostQueryDeleteTest {
         }
 
         @Test
+        @DisplayName("Scenario 2.2.1 [P1] - 最后一页仍返回完整去重总数")
+        void lastPage_keepsDistinctPostTotal() {
+            List<CommunityComment> allComments = new ArrayList<>();
+            List<CommunityPost> allPosts = new ArrayList<>();
+            LocalDateTime now = LocalDateTime.now();
+
+            for (int i = 0; i < 21; i++) {
+                long postId = 9000L + i;
+                CommunityComment comment = new CommunityComment();
+                comment.setId(10000L + i);
+                comment.setPostId(postId);
+                comment.setUserId(USER_A_ID);
+                comment.setContent("评论 " + (i + 1));
+                comment.setCreateTime(now.minusMinutes(i));
+                allComments.add(comment);
+                allPosts.add(buildPost(postId, USER_A_ID, "帖子内容 " + (i + 1), 0, 1));
+            }
+
+            Page<Long> postIdPage = new Page<>(3, 10);
+            postIdPage.setRecords(List.of(9020L));
+            postIdPage.setTotal(21);
+            when(commentMapper.selectDistinctPostIdsByUserId(any(Page.class), eq(USER_A_ID))).thenReturn(postIdPage);
+            when(postMapper.selectList(any())).thenReturn(List.of(allPosts.get(20)));
+            when(userMapper.selectList(any())).thenReturn(List.of(buildUser(USER_A_ID, "userA", "用户A")));
+            when(likeMapper.selectList(any())).thenReturn(Collections.emptyList());
+            when(favoriteMapper.selectList(any())).thenReturn(Collections.emptyList());
+
+            PageResult<PostVO> result = communityService.listCommentedPosts(USER_A_ID, 3, 10);
+
+            assertEquals(1, result.getList().size());
+            assertEquals(21, result.getTotal());
+            assertEquals(3, result.getPageNum());
+            assertEquals(3, result.getTotalPages());
+        }
+
+        @Test
+        @DisplayName("Scenario 2.2.2 [P1] - 非法页码按第一页兜底")
+        void invalidPageNum_fallsBackToFirstPage() {
+            List<CommunityComment> allComments = new ArrayList<>();
+            List<CommunityPost> allPosts = new ArrayList<>();
+            LocalDateTime now = LocalDateTime.now();
+
+            for (int i = 0; i < 3; i++) {
+                long postId = 11000L + i;
+                CommunityComment comment = new CommunityComment();
+                comment.setId(12000L + i);
+                comment.setPostId(postId);
+                comment.setUserId(USER_A_ID);
+                comment.setContent("评论 " + (i + 1));
+                comment.setCreateTime(now.minusMinutes(i));
+                allComments.add(comment);
+                allPosts.add(buildPost(postId, USER_A_ID, "帖子内容 " + (i + 1), 0, 1));
+            }
+
+            Page<Long> postIdPage = new Page<>(1, 2);
+            postIdPage.setRecords(List.of(11000L, 11001L));
+            postIdPage.setTotal(3);
+            when(commentMapper.selectDistinctPostIdsByUserId(any(Page.class), eq(USER_A_ID))).thenReturn(postIdPage);
+            when(postMapper.selectList(any())).thenReturn(allPosts.subList(0, 2));
+            when(userMapper.selectList(any())).thenReturn(List.of(buildUser(USER_A_ID, "userA", "用户A")));
+            when(likeMapper.selectList(any())).thenReturn(Collections.emptyList());
+            when(favoriteMapper.selectList(any())).thenReturn(Collections.emptyList());
+
+            PageResult<PostVO> result = communityService.listCommentedPosts(USER_A_ID, 0, 2);
+
+            assertEquals(2, result.getList().size());
+            assertEquals(3, result.getTotal());
+            assertEquals(1, result.getPageNum());
+            assertEquals(2, result.getPageSize());
+        }
+
+        @Test
         @DisplayName("Scenario 2.3 [P0] - 无评论返回空结果")
         void noComments_returnsEmptyResult() {
             // Given: User A 没有任何评论
-            when(commentMapper.selectList(any())).thenReturn(Collections.emptyList());
+            Page<Long> postIdPage = new Page<>(1, 10);
+            postIdPage.setRecords(Collections.emptyList());
+            postIdPage.setTotal(0);
+            when(commentMapper.selectDistinctPostIdsByUserId(any(Page.class), eq(USER_A_ID))).thenReturn(postIdPage);
 
             // When
             PageResult<PostVO> result = communityService.listCommentedPosts(USER_A_ID, 1, 10);
@@ -225,24 +313,11 @@ class CommunityServicePostQueryDeleteTest {
         @Test
         @DisplayName("Scenario 2.4 [P0] - 已删除帖子不出现在结果中")
         void deletedPosts_excludedFromResults() {
-            // Given: User A 评论了 P1 和 P2，但 P1 已被逻辑删除
-            LocalDateTime now = LocalDateTime.now();
-
-            CommunityComment c1 = new CommunityComment();
-            c1.setId(8001L);
-            c1.setPostId(P1_ID);
-            c1.setUserId(USER_A_ID);
-            c1.setContent("P1 评论");
-            c1.setCreateTime(now.minusHours(2));
-
-            CommunityComment c2 = new CommunityComment();
-            c2.setId(8002L);
-            c2.setPostId(P2_ID);
-            c2.setUserId(USER_A_ID);
-            c2.setContent("P2 评论");
-            c2.setCreateTime(now.minusHours(1));
-
-            when(commentMapper.selectList(any())).thenReturn(List.of(c1, c2));
+            // Given: User A 评论了 P1 和 P2，但 SQL 去重分页已通过 JOIN 过滤掉逻辑删除的 P1。
+            Page<Long> postIdPage = new Page<>(1, 10);
+            postIdPage.setRecords(List.of(P2_ID));
+            postIdPage.setTotal(1);
+            when(commentMapper.selectDistinctPostIdsByUserId(any(Page.class), eq(USER_A_ID))).thenReturn(postIdPage);
 
             // Mock: postMapper.selectList 只返回 P2（P1 因 is_deleted=1 被 MyBatis-Plus 自动过滤）
             CommunityPost p2 = buildPost(P2_ID, USER_A_ID, "P2 内容", 0, 1);
@@ -264,8 +339,6 @@ class CommunityServicePostQueryDeleteTest {
             assertEquals(1, result.getList().size());
             assertEquals(P2_ID, result.getList().get(0).getId());
 
-            // total 是去重后的帖子ID数量（包含已删除的），但返回列表只有未删除的
-            // 当 hasMore=false 时，displayTotal = voList.size()
             assertEquals(1, result.getTotal());
         }
     }

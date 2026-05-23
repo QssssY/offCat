@@ -4,6 +4,7 @@ package com.airesume.server.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.airesume.server.common.result.Result;
 import com.airesume.server.common.result.ResultCode;
+import com.airesume.server.infrastructure.security.CriticalEndpointRateLimitFilter;
 import com.airesume.server.infrastructure.security.JwtAuthenticationFilter;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
@@ -22,6 +23,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.util.AntPathMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -35,7 +37,15 @@ import java.util.List;
 @RequiredArgsConstructor
 public class SecurityConfig {
 
+    private static final String PUBLIC_UPLOAD_PATTERN = "/uploads/community/**";
+    private static final String AUTH_REGISTER_PATH = "/api/auth/register";
+    private static final String AUTH_LOGIN_PATH = "/api/auth/login";
+    private static final String AUTH_RESET_PASSWORD_PATH = "/api/auth/reset-password";
+    private static final String AUTH_SECURITY_QUESTION_PATH = "/api/auth/security-question";
+    private static final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
+
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final CriticalEndpointRateLimitFilter criticalEndpointRateLimitFilter;
 
     /**
      * CORS配置源
@@ -73,12 +83,19 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/api/auth/**").permitAll()
-                        .requestMatchers("/actuator/**").permitAll()
+                        // 认证模块只开放注册、登录和找回密码入口；当前用户、改密等接口必须有有效 JWT。
+                        .requestMatchers(HttpMethod.POST,
+                                AUTH_REGISTER_PATH,
+                                AUTH_LOGIN_PATH,
+                                AUTH_RESET_PASSWORD_PATH).permitAll()
+                        .requestMatchers(HttpMethod.GET, AUTH_SECURITY_QUESTION_PATH).permitAll()
+                        .requestMatchers("/api/auth/**").authenticated()
+                        .requestMatchers("/actuator/health", "/actuator/info").permitAll()
+                        .requestMatchers("/actuator/**").hasRole("ADMIN")
                         // 静态资源（上传的图片等）放行 - img标签不会携带JWT token
-                        .requestMatchers("/uploads/**").permitAll()
-                        // 网络诊断接口放行 - 用于排查 DNS、代理、端口等网络问题，无需登录
-                        .requestMatchers("/api/diagnostic/**").permitAll()
+                        .requestMatchers(PUBLIC_UPLOAD_PATTERN).permitAll()
+                        // 网络诊断会暴露代理、DNS、端口等运行环境信息，只允许管理员排查。
+                        .requestMatchers("/api/diagnostic/**").hasRole("ADMIN")
                         // 用户端岗位选项需要由后台配置提供，前端不能再写死，所以这里开放只读岗位列表。
                         .requestMatchers(HttpMethod.GET, "/api/interview/job-roles").permitAll()
                         // 公开统计接口放行 - 首页展示平台数据
@@ -91,6 +108,8 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                // 关键高成本接口限流依赖 JWT 写入的认证上下文，必须挂在 JWT 过滤器之后。
+                .addFilterAfter(criticalEndpointRateLimitFilter, JwtAuthenticationFilter.class)
                 .exceptionHandling(exceptions -> exceptions
                         // 未认证：返回 401 JSON 而非默认重定向
                         .authenticationEntryPoint((request, response, authException) -> {
@@ -120,6 +139,28 @@ public class SecurityConfig {
                 || dispatcherType == DispatcherType.FORWARD
                 || dispatcherType == DispatcherType.INCLUDE
                 || dispatcherType == DispatcherType.ASYNC;
+    }
+
+    /**
+     * 判断上传路径是否属于可公开访问的社区图片目录。
+     */
+    static boolean supportsPublicUploadPath(String path) {
+        return path != null && PATH_MATCHER.match(PUBLIC_UPLOAD_PATTERN, path);
+    }
+
+    /**
+     * 判断认证模块接口是否允许匿名访问，避免把 /api/auth/me 等登录态接口误放行。
+     */
+    static boolean supportsPublicAuthEndpoint(HttpMethod method, String path) {
+        if (method == null || path == null) {
+            return false;
+        }
+        if (method == HttpMethod.POST) {
+            return AUTH_REGISTER_PATH.equals(path)
+                    || AUTH_LOGIN_PATH.equals(path)
+                    || AUTH_RESET_PASSWORD_PATH.equals(path);
+        }
+        return method == HttpMethod.GET && AUTH_SECURITY_QUESTION_PATH.equals(path);
     }
 
     /**

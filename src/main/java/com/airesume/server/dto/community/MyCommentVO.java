@@ -3,7 +3,6 @@ package com.airesume.server.dto.community;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import lombok.AllArgsConstructor;
-import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
@@ -14,7 +13,6 @@ import java.time.LocalDateTime;
  * 主体是评论，附带所属帖子信息
  */
 @Data
-@Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class MyCommentVO {

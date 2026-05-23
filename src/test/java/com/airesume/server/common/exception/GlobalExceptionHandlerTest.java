@@ -5,6 +5,8 @@ import com.airesume.server.common.result.ResultCode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpMethod;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -59,5 +61,14 @@ class GlobalExceptionHandlerTest {
         // 不应包含原始异常消息中的敏感信息
         assertFalse(result.getMessage().contains("secret-host"));
         assertFalse(result.getMessage().contains("jdbc"));
+    }
+
+    @Test
+    @DisplayName("缺失静态资源返回 404，不按系统异常处理")
+    void shouldHandleMissingStaticResourceAsNotFound() {
+        NoResourceFoundException ex = new NoResourceFoundException(HttpMethod.GET, "/uploads/community/missing.png");
+        Result<Void> result = handler.handleNoResourceFoundException(ex);
+        assertEquals(ResultCode.NOT_FOUND.getCode(), result.getCode());
+        assertEquals("资源不存在", result.getMessage());
     }
 }

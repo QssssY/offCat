@@ -11,8 +11,12 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
-        String uploadPath = Paths.get(System.getProperty("user.dir"), "uploads").toUri().toString();
-        registry.addResourceHandler("/uploads/**")
+        // 只暴露社区图片目录，简历等敏感上传文件继续通过鉴权接口下载。
+        String uploadPath = Paths.get(System.getProperty("user.dir"), "uploads", "community").toUri().toString();
+        if (!uploadPath.endsWith("/")) {
+            uploadPath = uploadPath + "/";
+        }
+        registry.addResourceHandler("/uploads/community/**")
                 .addResourceLocations(uploadPath);
     }
 }

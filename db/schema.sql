@@ -408,18 +408,6 @@ CREATE TABLE `user_notification` (
   INDEX `idx_notification_broadcast_id` (`broadcast_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户站内通知表';
 
--- ============================================================
--- 社区模块表
--- ============================================================
-
-CREATE TABLE `community_post` (
-  `id` BIGINT NOT NULL COMMENT '主键',
-  `user_id` BIGINT NOT NULL COMMENT '发布者用户ID',
-  `category` VARCHAR(32) NOT NULL COMMENT '帖子板块：interview_exp-面试经验分享，referral-内推广场',
-  `content` TEXT NOT NULL COMMENT '帖子内容',
-  `images` JSON NULL COMMENT '图片URL列表JSON数组',
-  `like_count` INT NOT NULL DEFAULT 0 COMMENT '点赞数',
-  `comment_count` INT NOT NULL DEFAULT 0 COMMENT '评论数',
 -- ========================================
 -- 管理端功能扩展表（V3.0）
 -- ========================================
@@ -458,6 +446,59 @@ CREATE TABLE `sys_admin_notification` (
   `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除标志',
   PRIMARY KEY (`id`),
+  INDEX `idx_admin_notification_status` (`status`),
+  INDEX `idx_admin_notification_type` (`type`),
+  INDEX `idx_admin_notification_create_time` (`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='系统公告表';
+
+CREATE TABLE `sys_version_log` (
+  `id` BIGINT NOT NULL COMMENT '主键',
+  `version` VARCHAR(32) NOT NULL COMMENT '版本号',
+  `title` VARCHAR(200) NOT NULL COMMENT '版本标题',
+  `content` TEXT NOT NULL COMMENT '更新内容（Markdown格式）',
+  `type` VARCHAR(16) NOT NULL DEFAULT 'minor' COMMENT '版本类型: major/minor/patch',
+  `status` TINYINT NOT NULL DEFAULT 0 COMMENT '0-draft, 1-published',
+  `published_at` DATETIME NULL DEFAULT NULL COMMENT '发布时间',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除标志',
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `uk_version_log_version` (`version`),
+  INDEX `idx_version_log_status` (`status`),
+  INDEX `idx_version_log_published_at` (`published_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='版本更新日志表';
+
+CREATE TABLE `sys_growth_config` (
+  `id` BIGINT NOT NULL COMMENT '主键',
+  `config_key` VARCHAR(64) NOT NULL COMMENT '配置键',
+  `config_value` TEXT NOT NULL COMMENT '配置值',
+  `description` VARCHAR(255) NULL DEFAULT NULL COMMENT '配置说明',
+  `group_name` VARCHAR(64) NOT NULL DEFAULT 'default' COMMENT '配置分组',
+  `sort` INT NOT NULL DEFAULT 0 COMMENT '排序',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除标志',
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `uk_growth_config_key` (`config_key`),
+  INDEX `idx_growth_config_group` (`group_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='成长中心配置表';
+
+-- ============================================================
+-- 社区模块表
+-- ============================================================
+
+CREATE TABLE `community_post` (
+  `id` BIGINT NOT NULL COMMENT '主键',
+  `user_id` BIGINT NOT NULL COMMENT '发布者用户ID',
+  `category` VARCHAR(32) NOT NULL COMMENT '帖子板块：interview_exp-面试经验分享，referral-内推广场',
+  `content` TEXT NOT NULL COMMENT '帖子内容',
+  `images` JSON NULL COMMENT '图片URL列表JSON数组',
+  `like_count` INT NOT NULL DEFAULT 0 COMMENT '点赞数',
+  `comment_count` INT NOT NULL DEFAULT 0 COMMENT '评论数',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除标志',
+  PRIMARY KEY (`id`),
   INDEX `idx_community_post_user_id` (`user_id`),
   INDEX `idx_community_post_category` (`category`),
   INDEX `idx_community_post_create_time` (`create_time`),
@@ -483,6 +524,7 @@ CREATE TABLE `community_comment` (
   INDEX `idx_community_comment_create_time` (`create_time`),
   INDEX `idx_community_comment_post_time` (`post_id`, `create_time`),
   INDEX `idx_community_comment_parent_id` (`parent_comment_id`),
+  INDEX `idx_community_comment_reply_user` (`reply_to_user_id`, `create_time`),
   CONSTRAINT `fk_community_comment_post_id` FOREIGN KEY (`post_id`) REFERENCES `community_post` (`id`),
   CONSTRAINT `fk_community_comment_user_id` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='社区评论表';
@@ -491,21 +533,7 @@ CREATE TABLE `community_post_like` (
   `id` BIGINT NOT NULL COMMENT '主键',
   `post_id` BIGINT NOT NULL COMMENT '帖子ID',
   `user_id` BIGINT NOT NULL COMMENT '点赞用户ID',
-  UNIQUE INDEX `uk_version_log_version` (`version`),
-  INDEX `idx_version_log_status` (`status`),
-  INDEX `idx_version_log_published_at` (`published_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='版本更新日志表';
-
-CREATE TABLE `sys_growth_config` (
-  `id` BIGINT NOT NULL COMMENT '主键',
-  `config_key` VARCHAR(64) NOT NULL COMMENT '配置键',
-  `config_value` TEXT NOT NULL COMMENT '配置值',
-  `description` VARCHAR(255) NULL DEFAULT NULL COMMENT '配置说明',
-  `group_name` VARCHAR(64) NOT NULL DEFAULT 'default' COMMENT '配置分组',
-  `sort` INT NOT NULL DEFAULT 0 COMMENT '排序',
   `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-  `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除标志',
   PRIMARY KEY (`id`),
   UNIQUE INDEX `uk_post_like_user` (`post_id`, `user_id`),
   INDEX `idx_community_post_like_user_id` (`user_id`),
@@ -519,8 +547,6 @@ CREATE TABLE `community_post_favorite` (
   `post_id` BIGINT NOT NULL COMMENT '帖子ID',
   `user_id` BIGINT NOT NULL COMMENT '收藏用户ID',
   `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-  `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除标志',
   PRIMARY KEY (`id`),
   UNIQUE INDEX `uk_post_favorite_user` (`post_id`, `user_id`),
   INDEX `idx_community_post_favorite_user_id` (`user_id`),
@@ -528,9 +554,6 @@ CREATE TABLE `community_post_favorite` (
   CONSTRAINT `fk_community_post_favorite_post_id` FOREIGN KEY (`post_id`) REFERENCES `community_post` (`id`),
   CONSTRAINT `fk_community_post_favorite_user_id` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='社区帖子收藏表';
-  UNIQUE INDEX `uk_growth_config_key` (`config_key`),
-  INDEX `idx_growth_config_group` (`group_name`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='成长中心配置表';
 
 CREATE TABLE IF NOT EXISTS `interview_dimension_score` (
   `id`             BIGINT       NOT NULL COMMENT '主键（雪花ID）',
