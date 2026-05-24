@@ -23,6 +23,7 @@
     "html2canvas": "^1.4.1",
     "html2pdf.js": "^0.14.0",
     "jspdf": "^4.2.1",
+    "motion-v": "^2.2.1",
     "naive-ui": "^2.44.1",
     "pdfjs-dist": "^5.7.284",
     "pinia": "^2.1.7",
