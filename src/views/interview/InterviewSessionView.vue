@@ -1749,8 +1749,8 @@ onBeforeUnmount(() => {
   content: "";
   position: absolute;
   inset: 0 0 auto;
-  height: 210px;
-  background: rgba(255, 140, 66, 0.08);
+  height: 238px;
+  background: rgba(255, 140, 66, 0.045);
   pointer-events: none;
 }
 
@@ -1782,10 +1782,10 @@ onBeforeUnmount(() => {
 .voice-avatar-wrap {
   position: relative;
   z-index: 1;
-  width: 196px;
-  height: 196px;
-  margin-top: 46px;
-  padding: 10px;
+  width: clamp(224px, 22vw, 252px);
+  height: clamp(224px, 22vw, 252px);
+  margin-top: 34px;
+  padding: 12px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.88);
   box-shadow: 0 14px 34px rgba(80, 52, 36, 0.14);
@@ -1893,6 +1893,14 @@ onBeforeUnmount(() => {
   font-size: 24px;
   box-shadow: 0 8px 22px rgba(53, 39, 28, 0.08);
   cursor: pointer;
+}
+
+.voice-icon-btn :deep(.feature-icon) {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .voice-icon-btn:hover {
@@ -2321,13 +2329,13 @@ onBeforeUnmount(() => {
   }
 
   .voice-call-window::before {
-    height: 188px;
+    height: 232px;
   }
 
   .voice-avatar-wrap {
-    width: 176px;
-    height: 176px;
-    margin-top: 34px;
+    width: min(224px, 62vw);
+    height: min(224px, 62vw);
+    margin-top: 24px;
   }
 
   .voice-wave {
@@ -2352,6 +2360,11 @@ onBeforeUnmount(() => {
     width: 56px;
     height: 56px;
     flex-basis: 56px;
+  }
+
+  .voice-icon-btn :deep(.feature-icon) {
+    width: 30px;
+    height: 30px;
   }
 
   .voice-session-stage {
@@ -2391,9 +2404,9 @@ onBeforeUnmount(() => {
 
   @media (max-height: 720px) {
     .voice-avatar-wrap {
-      width: 144px;
-      height: 144px;
-      margin-top: 20px;
+      width: 188px;
+      height: 188px;
+      margin-top: 14px;
     }
 
     .voice-wave {

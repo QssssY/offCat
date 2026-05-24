@@ -398,6 +398,17 @@ describe('InterviewSessionView', () => {
     expect(voiceSttStart).not.toHaveBeenCalled()
   })
 
+  it('keeps voice interview overlay icons visually centered and prominent', () => {
+    const source = viewSource()
+
+    expect(source).toContain('width: clamp(224px, 22vw, 252px);')
+    expect(source).toContain('height: clamp(224px, 22vw, 252px);')
+    expect(source).toContain('.voice-icon-btn :deep(.feature-icon)')
+    expect(source).toContain('width: 32px;')
+    expect(source).toContain('height: 32px;')
+    expect(source).toContain('background: rgba(255, 140, 66, 0.045);')
+  })
+
   it('starts voice call microphone without toggling text speech input', async () => {
     getInterviewSession.mockResolvedValue({
       data: {
