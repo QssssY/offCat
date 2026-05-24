@@ -133,12 +133,12 @@
     <!-- 悬浮按钮组 -->
     <div class="fab-group">
       <!-- 刷新按钮 -->
-      <button class="fab-button fab-refresh" @click="handleRefresh" :class="{ refreshing: isRefreshing }">
-        <FeatureIcon name="retry" size="sm" />
+      <button class="fab-button fab-refresh" aria-label="刷新帖子" @click="handleRefresh" :class="{ refreshing: isRefreshing }">
+        <FeatureIcon name="retry" size="md" />
       </button>
       <!-- 发布按钮 -->
-      <button class="fab-button fab-post" @click="showEditor = true">
-        <FeatureIcon name="edit" size="sm" />
+      <button class="fab-button fab-post" aria-label="发布帖子" @click="showEditor = true">
+        <FeatureIcon name="edit" size="md" />
       </button>
     </div>
 
@@ -154,7 +154,7 @@
     >
       <PostEditor
         v-if="showEditor"
-        @success="onPostSuccess"
+        @published="onPostPublished"
         @cancel="showEditor = false"
       />
     </el-dialog>
@@ -335,7 +335,7 @@ const copyLink = async () => {
   }
 }
 
-const onPostSuccess = () => {
+const onPostPublished = () => {
   showEditor.value = false
   fetchPosts(1)
 }
@@ -782,57 +782,95 @@ onUnmounted(() => {
   z-index: 100;
 }
 
-/* 【悬浮按钮】品牌渐变，带呼吸脉冲阴影 */
+/* 【悬浮按钮】使用浅暖色表面，避免深色圆底压住业务图标 */
 .fab-button {
-  width: 56px;
-  height: 56px;
+  --community-fab-bg: color-mix(in srgb, var(--bg-card) 78%, #fff0df 22%);
+  --community-fab-bg-hover: color-mix(in srgb, var(--bg-card) 66%, #ffe3c6 34%);
+  --community-fab-border: color-mix(in srgb, var(--orange-main) 42%, #ffffff 58%);
+  width: 64px;
+  height: 64px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--orange-main) 0%, var(--orange-deep) 100%);
-  border: none;
-  color: #fff;
+  background: var(--community-fab-bg);
+  border: 1px solid var(--community-fab-border);
+  color: var(--orange-deep);
   cursor: pointer;
-  box-shadow: 0 4px 16px rgba(255, 140, 66, 0.4);
+  box-shadow:
+    0 12px 26px rgba(132, 75, 32, 0.13),
+    inset 0 1px 0 rgba(255, 255, 255, 0.76);
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition:
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* 【发布按钮呼吸脉冲】阴影周期性放大缩小，吸引注意力 */
-.fab-post {
-  animation: fab-pulse 2.5s ease-in-out infinite;
-}
-
-@keyframes fab-pulse {
-  0%, 100% { box-shadow: 0 4px 16px rgba(255, 140, 66, 0.4); }
-  50% { box-shadow: 0 4px 24px rgba(255, 140, 66, 0.6); }
+.fab-button :deep(.feature-icon) {
+  width: 40px;
+  height: 40px;
 }
 
 .fab-button:hover {
-  transform: translateY(-2px) scale(1.06);
-  box-shadow: 0 8px 28px rgba(255, 140, 66, 0.5);
+  background: var(--community-fab-bg-hover);
+  border-color: color-mix(in srgb, var(--orange-main) 58%, #ffffff 42%);
+  box-shadow:
+    0 16px 32px rgba(132, 75, 32, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.fab-refresh:hover {
+  transform: translateY(-2px) scale(1.03);
+}
+
+.fab-refresh:hover :deep(.feature-icon),
+.fab-refresh.refreshing :deep(.feature-icon) {
+  animation: fabRefreshSpin 0.75s linear infinite;
 }
 
 .fab-post:hover {
-  animation: none;
+  transform: translate3d(0, -4px, 0) scale(1.02);
 }
 
 .fab-button:active {
-  transform: translateY(0) scale(0.97);
+  transform: translateY(0) scale(0.96);
 }
 
-.fab-button svg {
-  width: 24px;
-  height: 24px;
+.fab-post:active {
+  transform: translateY(-1px) scale(0.96);
 }
 
 /* 【刷新按钮】旋转动画 */
-.fab-refresh.refreshing svg {
-  animation: spin 0.8s linear infinite;
+@keyframes fabRefreshSpin {
+  to { transform: rotate(360deg); }
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
+:global(html[data-theme="dark"]) .fab-button {
+  --community-fab-bg: color-mix(in srgb, var(--bg-card) 82%, rgba(255, 176, 122, 0.16) 18%);
+  --community-fab-bg-hover: color-mix(in srgb, var(--bg-card) 72%, rgba(255, 176, 122, 0.24) 28%);
+  --community-fab-border: rgba(255, 176, 122, 0.28);
+  box-shadow:
+    0 14px 28px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 220, 190, 0.09);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fab-button {
+    transition-duration: 0.01ms;
+  }
+
+  .fab-refresh:hover,
+  .fab-post:hover,
+  .fab-button:active,
+  .fab-post:active {
+    transform: none;
+  }
+
+  .fab-refresh:hover :deep(.feature-icon),
+  .fab-refresh.refreshing :deep(.feature-icon) {
+    animation: none;
+  }
 }
 
 /* 【发布弹窗】统一圆角与阴影 */
@@ -902,13 +940,13 @@ onUnmounted(() => {
   }
 
   .fab-button {
-    width: 50px;
-    height: 50px;
+    width: 58px;
+    height: 58px;
   }
 
-  .fab-button svg {
-    width: 20px;
-    height: 20px;
+  .fab-button :deep(.feature-icon) {
+    width: 36px;
+    height: 36px;
   }
 }
 

@@ -57,9 +57,9 @@
       </AiLoadingState>
     </div>
 
-    <div v-else-if="hasReport" class="report-content">
-      <div class="hero-section">
-        <div class="hero-left">
+    <div v-else-if="hasReport" class="report-content interview-report-shell">
+      <div class="hero-section report-hero-shell">
+        <div class="hero-left report-score-panel">
           <div class="job-name">{{ sessionData?.jobRole || "-" }}</div>
           <div class="score-display">
             <span class="score-number">{{ displayScoreValue ?? "--" }}</span>
@@ -81,12 +81,32 @@
             >
           </div>
         </div>
-        <div class="hero-right">
+        <div class="hero-right report-summary-panel">
           <div class="summary-title">AI 评估总结</div>
           <p class="summary-text">{{ parsedReport?.summary || "暂无总结" }}</p>
         </div>
       </div>
 
+      <div
+        v-if="reportImmediateActions.length"
+        class="section-card priority-section"
+      >
+        <div class="section-header">
+          <h3 class="section-title">3 条立即能做的事</h3>
+        </div>
+        <div class="section-body action-plan-list report-priority-grid">
+          <div
+            v-for="(item, index) in reportImmediateActions"
+            :key="`immediate-action-${index}-${item}`"
+            class="action-plan-item"
+          >
+            <div class="action-plan-index">{{ index + 1 }}</div>
+            <div class="action-plan-text">{{ item }}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="report-section-grid report-diagnosis-stack">
       <div class="section-card grade-ref-card">
         <div class="section-header">
           <h3 class="section-title">评分参考</h3>
@@ -120,12 +140,12 @@
           </div>
           <div
             class="job-feedback-item"
-            v-if="jobTargetFeedback.strengths?.length"
+            v-if="jobTargetStrengths.length"
           >
             <div class="job-feedback-label">优势表现</div>
             <div class="tag-list">
               <el-tag
-                v-for="item in jobTargetFeedback.strengths"
+                v-for="item in jobTargetStrengths"
                 :key="`job-strength-${item}`"
                 type="success"
                 effect="plain"
@@ -136,12 +156,12 @@
           </div>
           <div
             class="job-feedback-item"
-            v-if="jobTargetFeedback.weaknesses?.length"
+            v-if="jobTargetWeaknesses.length"
           >
             <div class="job-feedback-label">不足表现</div>
             <div class="tag-list">
               <el-tag
-                v-for="item in jobTargetFeedback.weaknesses"
+                v-for="item in jobTargetWeaknesses"
                 :key="`job-weakness-${item}`"
                 type="warning"
                 effect="plain"
@@ -152,36 +172,17 @@
           </div>
           <div
             class="job-feedback-item"
-            v-if="jobTargetFeedback.improvementSuggestions?.length"
+            v-if="jobTargetSuggestions.length"
           >
             <div class="job-feedback-label">改进建议</div>
             <ul class="simple-list">
               <li
-                v-for="item in jobTargetFeedback.improvementSuggestions"
+                v-for="item in jobTargetSuggestions"
                 :key="`job-suggestion-${item}`"
               >
                 {{ item }}
               </li>
             </ul>
-          </div>
-        </div>
-      </div>
-
-      <div
-        v-if="reportImmediateActions.length"
-        class="section-card priority-section"
-      >
-        <div class="section-header">
-          <h3 class="section-title">3 条立即能做的事</h3>
-        </div>
-        <div class="section-body action-plan-list">
-          <div
-            v-for="(item, index) in reportImmediateActions"
-            :key="`immediate-action-${index}-${item}`"
-            class="action-plan-item"
-          >
-            <div class="action-plan-index">{{ index + 1 }}</div>
-            <div class="action-plan-text">{{ item }}</div>
           </div>
         </div>
       </div>
@@ -375,7 +376,7 @@
         </div>
       </div>
 
-      <div v-if="reportWeaknesses.length" class="section-card">
+      <div v-if="reportWeaknesses.length" class="section-card weakness-list">
         <div class="section-header">
           <h3 class="section-title">不足表现</h3>
         </div>
@@ -388,7 +389,7 @@
         </div>
       </div>
 
-      <div v-if="reportSuggestions.length" class="section-card">
+      <div v-if="reportSuggestions.length" class="section-card suggestion-list">
         <div class="section-header">
           <h3 class="section-title">改进建议</h3>
         </div>
@@ -401,7 +402,7 @@
         </div>
       </div>
 
-      <div v-if="dimensionCards.length" class="section-card">
+      <div v-if="dimensionCards.length" class="section-card dimension-detail-section">
         <div class="section-header">
           <h3 class="section-title">维度详情</h3>
         </div>
@@ -500,6 +501,7 @@
           </el-collapse>
         </div>
       </div>
+      </div>
 
       <div class="action-section">
         <div class="action-group">
@@ -516,7 +518,6 @@
       <ShareReportDialog
         v-model:visible="showShareDialog"
         :session-data="sessionData"
-        @success="onShareSuccess"
       />
     </div>
 
@@ -570,10 +571,6 @@ const REPORT_POLL_MAX_ROUNDS = 120;
 let reportPollingTimer = null;
 
 const showShareDialog = ref(false);
-
-const onShareSuccess = () => {
-  ElMessage.success("分享成功");
-};
 
 const isEnded = computed(() => sessionData.value?.status === 1);
 
@@ -672,29 +669,71 @@ const gradeScale = [
   { level: "D", range: "<60", label: "淘汰", hire: "不推荐" },
 ];
 
-const reportStrengths = computed(() => parsedReport.value?.strengths || []);
-const reportWeaknesses = computed(() => [
-  ...(parsedReport.value?.weaknesses || []),
-  ...(parsedReport.value?.missingCompetencies || []),
-]);
-const reportSuggestions = computed(() => [
-  ...(parsedReport.value?.improvementSuggestions || []),
-  ...(parsedReport.value?.suggestions || []),
-]);
+const uniqueTextList = (items = []) => {
+  const seen = new Set();
+  return items
+    .map((item) => String(item || "").trim())
+    .filter((item) => {
+      if (!item || seen.has(item)) {
+        return false;
+      }
+      seen.add(item);
+      return true;
+    });
+};
+
+const uniqueReportItems = (items = [], getKey) => {
+  const seen = new Set();
+  return items.filter((item) => {
+    const key = getKey(item);
+    if (!key || seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+};
+
+const reportStrengths = computed(() =>
+  uniqueTextList(parsedReport.value?.strengths || [])
+);
+const reportWeaknesses = computed(() =>
+  uniqueTextList([
+    ...(parsedReport.value?.weaknesses || []),
+    ...(parsedReport.value?.missingCompetencies || []),
+  ])
+);
+const reportSuggestions = computed(() =>
+  uniqueTextList([
+    ...(parsedReport.value?.improvementSuggestions || []),
+    ...(parsedReport.value?.suggestions || []),
+  ])
+);
 const reportQuestionPerformance = computed(
   () => parsedReport.value?.questionPerformance || []
 );
-const reportRoundReviews = computed(
-  () => parsedReport.value?.roundReviews || []
+const reportRoundReviews = computed(() =>
+  uniqueReportItems(parsedReport.value?.roundReviews || [], (item) =>
+    [
+      item?.roundNo,
+      item?.question,
+      item?.answer,
+      item?.replayAnalysis,
+      item?.missedFollowUp,
+      item?.nextPractice,
+    ]
+      .map((part) => String(part || "").trim())
+      .join("|")
+  )
 );
-const reportFollowUpLossPoints = computed(
-  () => parsedReport.value?.followUpLossPoints || []
+const reportFollowUpLossPoints = computed(() =>
+  uniqueTextList(parsedReport.value?.followUpLossPoints || [])
 );
-const reportCommonLossPatterns = computed(
-  () => parsedReport.value?.commonLossPatterns || []
+const reportCommonLossPatterns = computed(() =>
+  uniqueTextList(parsedReport.value?.commonLossPatterns || [])
 );
 const reportImmediateActions = computed(() =>
-  (parsedReport.value?.immediateActions || []).slice(0, 3)
+  uniqueTextList(parsedReport.value?.immediateActions || []).slice(0, 3)
 );
 const replayRounds = computed(() => sessionData.value?.replayRounds || []);
 
@@ -763,6 +802,15 @@ watch(
 
 const jobTargetFeedback = computed(
   () => sessionData.value?.jobTargetContext?.jobTargetedFeedback || null
+);
+const jobTargetStrengths = computed(() =>
+  uniqueTextList(jobTargetFeedback.value?.strengths || [])
+);
+const jobTargetWeaknesses = computed(() =>
+  uniqueTextList(jobTargetFeedback.value?.weaknesses || [])
+);
+const jobTargetSuggestions = computed(() =>
+  uniqueTextList(jobTargetFeedback.value?.improvementSuggestions || [])
 );
 
 const dimensionCards = computed(() => {
@@ -959,9 +1007,28 @@ onUnmounted(() => {
 
 <style scoped>
 .interview-report-view {
+  --report-bg: #fff7ef;
+  --report-bg-deep: #f7efe6;
+  --report-surface: rgba(255, 255, 255, 0.88);
+  --report-surface-solid: #ffffff;
+  --report-surface-soft: #fff6ed;
+  --report-border: rgba(214, 142, 88, 0.2);
+  --report-border-strong: rgba(255, 140, 66, 0.38);
+  --report-text: #2f261f;
+  --report-text-soft: #755b47;
+  --report-text-muted: #987966;
+  --report-accent: var(--orange-main, #ff8c42);
+  --report-accent-deep: #d9661e;
+  --report-green: #2f8a62;
+  --report-shadow: 0 22px 60px rgba(132, 73, 30, 0.12);
+  --report-shadow-soft: 0 12px 34px rgba(132, 73, 30, 0.08);
+  --report-ease: cubic-bezier(0.22, 1, 0.36, 1);
   min-height: 100%;
-  background: var(--bg-page, #f8f6f3);
-  padding: 24px;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(255, 183, 115, 0.28), transparent 32%),
+    linear-gradient(135deg, var(--report-bg) 0%, var(--report-bg-deep) 48%, #fffaf5 100%);
+  color: var(--report-text);
+  padding: clamp(16px, 3vw, 32px);
 }
 
 .page-back {
@@ -1020,29 +1087,66 @@ onUnmounted(() => {
 .report-content {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: clamp(16px, 2vw, 24px);
+  max-width: 1180px;
+  margin: 0 auto;
+  animation: reportSurfaceIn 520ms var(--report-ease) both;
 }
 
 .hero-section,
 .section-card {
-  background: var(--bg-card, #ffffff);
-  border-radius: 18px;
-  border: 1px solid var(--border-card, rgba(243, 216, 199, 0.5));
-  box-shadow: 0 4px 20px rgba(255, 140, 66, 0.06);
+  background: var(--report-surface);
+  border-radius: 22px;
+  border: 1px solid var(--report-border);
+  box-shadow: var(--report-shadow-soft);
+  backdrop-filter: blur(18px);
 }
 
 .hero-section {
   display: grid;
-  grid-template-columns: 240px 1fr;
-  gap: 24px;
-  padding: 28px 32px;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(0, 1.35fr);
+  gap: clamp(18px, 3vw, 32px);
+  padding: clamp(22px, 4vw, 40px);
+  overflow: hidden;
+  position: relative;
+  box-shadow: var(--report-shadow);
+}
+
+.hero-section::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 16% 12%, rgba(255, 140, 66, 0.16), transparent 26%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.72), transparent 56%);
+}
+
+.report-score-panel,
+.report-summary-panel {
+  position: relative;
+  min-width: 0;
+  animation: reportSectionIn 620ms var(--report-ease) both;
+}
+
+.report-summary-panel {
+  animation-delay: 110ms;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: clamp(18px, 3vw, 28px);
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.76), rgba(255, 247, 239, 0.72));
+  border: 1px solid rgba(255, 140, 66, 0.18);
 }
 
 .job-name {
-  font-size: 18px;
+  font-size: clamp(18px, 2.2vw, 24px);
   font-weight: 600;
-  color: var(--text-title, #2f2f2f);
-  margin-bottom: 14px;
+  color: var(--report-text);
+  margin-bottom: 16px;
+  line-height: 1.35;
 }
 
 .score-display {
@@ -1052,15 +1156,16 @@ onUnmounted(() => {
 }
 
 .score-number {
-  font-size: 56px;
-  font-weight: 700;
-  color: var(--orange-main, #ff8c42);
+  font-size: clamp(56px, 8vw, 92px);
+  font-weight: 800;
+  color: var(--report-accent);
   line-height: 1;
+  letter-spacing: 0;
 }
 
 .score-unit {
   font-size: 18px;
-  color: var(--orange-main, #ff8c42);
+  color: var(--report-accent-deep);
 }
 
 .hero-meta-row {
@@ -1071,17 +1176,17 @@ onUnmounted(() => {
 }
 
 .summary-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--orange-main, #ff8c42);
-  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--report-accent-deep);
+  margin-bottom: 12px;
 }
 
 .summary-text {
   margin: 0;
-  font-size: 14px;
+  font-size: clamp(14px, 1.5vw, 16px);
   line-height: 1.8;
-  color: var(--text-title, #2f2f2f);
+  color: var(--report-text);
 }
 
 .level-badge {
@@ -1108,14 +1213,18 @@ onUnmounted(() => {
   gap: 12px;
   padding: 10px 14px;
   border-radius: 10px;
-  background: var(--orange-light-bg, #fffaf7);
+  background: var(--report-surface-soft);
   border: 1px solid transparent;
-  transition: all 0.2s;
+  transition:
+    transform 180ms var(--report-ease),
+    border-color 180ms var(--report-ease),
+    background-color 180ms var(--report-ease),
+    box-shadow 180ms var(--report-ease);
 }
 
 .grade-row.active {
-  border-color: var(--orange-main, #ff8c42);
-  background: #fff5ed;
+  border-color: var(--report-accent);
+  background: #fff1e4;
   box-shadow: 0 2px 12px rgba(255, 140, 66, 0.12);
 }
 
@@ -1159,11 +1268,11 @@ onUnmounted(() => {
 
 .section-header {
   padding: 16px 20px;
-  border-bottom: 1px solid var(--border-divider, rgba(243, 216, 199, 0.3));
+  border-bottom: 1px solid var(--report-border);
   background: linear-gradient(
     135deg,
-    var(--orange-light-bg, #fff8f3) 0%,
-    var(--bg-card, #fff) 100%
+    rgba(255, 246, 237, 0.82) 0%,
+    rgba(255, 255, 255, 0.7) 100%
   );
 }
 
@@ -1176,6 +1285,10 @@ onUnmounted(() => {
   border: 0;
   cursor: pointer;
   text-align: left;
+  transition:
+    transform 180ms var(--report-ease),
+    border-color 180ms var(--report-ease),
+    background 180ms var(--report-ease);
 }
 
 .section-toggle:hover {
@@ -1184,6 +1297,7 @@ onUnmounted(() => {
     rgba(255, 140, 66, 0.1) 0%,
     var(--bg-card, #fff) 100%
   );
+  transform: translateY(-1px);
 }
 
 .section-title-wrap {
@@ -1222,29 +1336,59 @@ onUnmounted(() => {
 }
 
 .priority-section {
-  border-color: rgba(255, 140, 66, 0.35);
+  border-color: var(--report-border-strong);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(255, 244, 232, 0.86)),
+    var(--report-surface-solid);
 }
 
 .action-plan-list {
   display: grid;
-  gap: 12px;
+  gap: 14px;
+}
+
+.report-priority-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .action-plan-item {
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 14px;
   align-items: start;
+  padding: 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(255, 140, 66, 0.16);
+  animation: reportSectionIn 520ms var(--report-ease) both;
+  transition:
+    transform 180ms var(--report-ease),
+    border-color 180ms var(--report-ease),
+    box-shadow 180ms var(--report-ease);
+}
+
+.action-plan-item:nth-child(2) {
+  animation-delay: 80ms;
+}
+
+.action-plan-item:nth-child(3) {
+  animation-delay: 160ms;
+}
+
+.action-plan-item:hover {
+  transform: translateY(-3px);
+  border-color: var(--report-border-strong);
+  box-shadow: 0 14px 34px rgba(132, 73, 30, 0.12);
 }
 
 .action-plan-index {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--orange-main, #ff8c42);
+  background: linear-gradient(135deg, var(--report-accent), #ffb067);
   color: #ffffff;
   font-size: 14px;
   font-weight: 700;
@@ -1254,8 +1398,31 @@ onUnmounted(() => {
   min-width: 0;
   font-size: 14px;
   line-height: 1.8;
-  color: var(--text-title, #2f2f2f);
+  color: var(--report-text);
   overflow-wrap: anywhere;
+}
+
+.report-section-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: clamp(14px, 2vw, 20px);
+  align-items: stretch;
+}
+
+.report-diagnosis-stack {
+  align-items: start;
+}
+
+.report-section-grid > .section-card {
+  animation: reportSectionIn 520ms var(--report-ease) both;
+}
+
+.report-section-grid > .section-card:nth-child(3n + 2) {
+  animation-delay: 70ms;
+}
+
+.report-section-grid > .section-card:nth-child(3n) {
+  animation-delay: 140ms;
 }
 
 .job-feedback-body {
@@ -1283,26 +1450,35 @@ onUnmounted(() => {
 
 .job-feedback-item,
 .question-card {
-  background: var(--orange-light-bg, #fffaf7);
-  border: 1px solid var(--border-card, rgba(243, 216, 199, 0.35));
+  background: var(--report-surface-soft);
+  border: 1px solid var(--report-border);
   border-radius: 12px;
   padding: 14px 16px;
 }
 
 .dimension-grid {
   display: grid;
-  gap: 16px;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.dimension-card {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.28fr) 72px minmax(0, 1fr);
+  align-items: start;
+  gap: 14px;
 }
 
 .round-review-list {
   display: grid;
   gap: 14px;
+  animation: reportExpandIn 260ms var(--report-ease) both;
 }
 
 .replay-timeline {
   display: grid;
   gap: 16px;
+  animation: reportExpandIn 260ms var(--report-ease) both;
 }
 
 .replay-round {
@@ -1346,6 +1522,16 @@ onUnmounted(() => {
   font-size: 13px;
   font-weight: 700;
   text-align: left;
+  transition:
+    transform 180ms var(--report-ease),
+    border-color 180ms var(--report-ease),
+    box-shadow 180ms var(--report-ease);
+}
+
+.replay-round-toggle:hover {
+  transform: translateY(-1px);
+  border-color: var(--report-border-strong);
+  box-shadow: 0 10px 24px rgba(132, 73, 30, 0.08);
 }
 
 .replay-round-toggle-text {
@@ -1359,6 +1545,7 @@ onUnmounted(() => {
   display: grid;
   gap: 10px;
   min-width: 0;
+  animation: reportExpandIn 220ms var(--report-ease) both;
 }
 
 .replay-block {
@@ -1404,9 +1591,8 @@ onUnmounted(() => {
   margin-top: 12px;
   padding: 12px 14px;
   border: 1px solid rgba(255, 140, 66, 0.22);
-  border-left: 3px solid var(--orange-main, #ff8c42);
   border-radius: 8px;
-  background: #ffffff;
+  background: linear-gradient(135deg, rgba(255, 249, 243, 0.95), rgba(255, 255, 255, 0.86));
 }
 
 .replay-feedback-title {
@@ -1431,13 +1617,24 @@ onUnmounted(() => {
 }
 
 .round-review-item {
-  border-bottom: 1px solid var(--border-divider, rgba(243, 216, 199, 0.35));
-  padding-bottom: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--report-border);
+  border-radius: 14px;
+  background: var(--report-surface-soft);
+  transition:
+    transform 180ms var(--report-ease),
+    border-color 180ms var(--report-ease),
+    box-shadow 180ms var(--report-ease);
 }
 
 .round-review-item:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
+  padding-bottom: 14px;
+}
+
+.round-review-item:hover {
+  transform: translateY(-1px);
+  border-color: var(--report-border-strong);
+  box-shadow: 0 12px 28px rgba(132, 73, 30, 0.08);
 }
 
 .round-review-head {
@@ -1461,6 +1658,7 @@ onUnmounted(() => {
   line-height: 1.7;
   color: var(--text-title, #2f2f2f);
   overflow-wrap: anywhere;
+  white-space: pre-line;
 }
 
 .round-review-answer {
@@ -1481,16 +1679,23 @@ onUnmounted(() => {
 
 .round-review-block {
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
   margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--report-border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.48);
   font-size: 13px;
   line-height: 1.7;
   color: var(--text-title, #2f2f2f);
+  overflow-wrap: anywhere;
+  white-space: pre-line;
 }
 
 .round-review-block.warning {
-  color: #9a5a16;
+  color: var(--report-text);
+  background: rgba(255, 140, 66, 0.1);
 }
 
 .round-review-label {
@@ -1500,12 +1705,16 @@ onUnmounted(() => {
 
 .loss-pattern-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 20px;
 }
 
 .loss-pattern-column {
   min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--report-border);
+  border-radius: 14px;
+  background: var(--report-surface-soft);
 }
 
 .loss-pattern-title {
@@ -1513,9 +1722,9 @@ onUnmounted(() => {
 }
 
 .dimension-card {
-  background: var(--orange-light-bg, #fffaf7);
-  border: 1px solid var(--border-card, rgba(243, 216, 199, 0.35));
-  border-radius: 12px;
+  background: var(--report-surface-soft);
+  border: 1px solid var(--report-border);
+  border-radius: 14px;
   padding: 14px 16px;
 }
 
@@ -1527,16 +1736,18 @@ onUnmounted(() => {
 }
 
 .dimension-score {
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 700;
   color: var(--orange-main, #ff8c42);
-  margin-bottom: 6px;
+  margin-bottom: 0;
 }
 
 .dimension-comment {
   font-size: 13px;
   line-height: 1.7;
   color: var(--text-title, #2f2f2f);
+  overflow-wrap: anywhere;
+  white-space: pre-line;
 }
 
 .job-feedback-label {
@@ -1585,6 +1796,10 @@ onUnmounted(() => {
   column-gap: 8px;
   min-width: 0;
   overflow: hidden;
+  background: transparent;
+  transition:
+    color 180ms var(--report-ease),
+    background-color 180ms var(--report-ease);
 }
 
 :deep(.el-collapse-item__arrow) {
@@ -1643,6 +1858,7 @@ onUnmounted(() => {
 :deep(.el-collapse-item__content) {
   min-width: 0;
   max-width: 100%;
+  animation: reportExpandIn 240ms var(--report-ease) both;
 }
 
 .section-card {
@@ -1654,6 +1870,7 @@ onUnmounted(() => {
 .question-comment {
   word-break: break-word;
   overflow-wrap: anywhere;
+  white-space: pre-line;
 }
 
 .question-title {
@@ -1691,6 +1908,22 @@ onUnmounted(() => {
 .action-btn {
   border-radius: 24px;
   padding: 10px 24px;
+  transition:
+    transform 180ms var(--report-ease),
+    box-shadow 180ms var(--report-ease),
+    border-color 180ms var(--report-ease),
+    background-color 180ms var(--report-ease);
+}
+
+.action-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(132, 73, 30, 0.1);
+}
+
+.action-btn:active,
+.section-toggle:active,
+.replay-round-toggle:active {
+  transform: scale(0.99);
 }
 
 .action-btn.primary {
@@ -1722,12 +1955,50 @@ onUnmounted(() => {
   height: 16px;
 }
 
+@keyframes reportSurfaceIn {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes reportSectionIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes reportExpandIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @media (max-width: 900px) {
   .hero-section {
     grid-template-columns: 1fr;
   }
 
+  .report-section-grid,
   .radar-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .report-priority-grid {
     grid-template-columns: 1fr;
   }
 
@@ -1757,12 +2028,41 @@ onUnmounted(() => {
   }
 
   .action-group {
-    flex-direction: column;
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+
+  .action-btn {
+    min-width: min(100%, 180px);
+  }
+
+  .grade-row {
+    grid-template-columns: 40px 72px minmax(0, 1fr);
+  }
+
+  .grade-hire,
+  .grade-marker {
+    grid-column: 2 / -1;
+  }
+
+  .action-plan-item {
+    grid-template-columns: 36px minmax(0, 1fr);
+    padding: 14px;
+  }
+
+  .action-plan-index {
+    width: 36px;
+    height: 36px;
   }
 
   .round-review-block {
     grid-template-columns: 1fr;
     gap: 2px;
+  }
+
+  .dimension-card {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
   }
 
   .replay-round {
@@ -1775,67 +2075,211 @@ onUnmounted(() => {
   }
 }
 
+@media (max-width: 480px) {
+  .interview-report-view {
+    padding: 12px;
+  }
+
+  .hero-section,
+  .section-body {
+    padding: 16px;
+  }
+
+  .section-header {
+    padding: 14px 16px;
+  }
+
+  .score-number {
+    font-size: 48px;
+  }
+
+  .collapse-title {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .collapse-title-right {
+    justify-content: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .report-content,
+  .report-score-panel,
+  .report-summary-panel,
+  .report-section-grid > .section-card,
+  .replay-timeline,
+  .replay-round-body,
+  .round-review-list,
+  :deep(.el-collapse-item__content),
+  .action-plan-item {
+    animation-duration: 1ms;
+    animation-delay: 0ms;
+  }
+
+  .section-toggle,
+  .replay-round-toggle,
+  .action-plan-item,
+  .action-btn,
+  .round-review-item,
+  .grade-row {
+    transition-duration: 1ms;
+  }
+
+  .section-toggle:hover,
+  .replay-round-toggle:hover,
+  .action-plan-item:hover,
+  .action-btn:hover,
+  .round-review-item:hover {
+    transform: none;
+  }
+}
+
+:global(html[data-theme="dark"] .interview-report-view) {
+  --report-bg: #17110d;
+  --report-bg-deep: #24170f;
+  --report-surface: rgba(37, 28, 22, 0.9);
+  --report-surface-solid: #251c16;
+  --report-surface-soft: rgba(255, 140, 66, 0.08);
+  --report-border: rgba(255, 178, 115, 0.18);
+  --report-border-strong: rgba(255, 178, 115, 0.36);
+  --report-text: #fff3e9;
+  --report-text-soft: #e0c1aa;
+  --report-text-muted: #b8957c;
+  --report-accent: #ffad6b;
+  --report-accent-deep: #ffc18d;
+  --report-green: #74d6aa;
+  --report-shadow: 0 22px 60px rgba(0, 0, 0, 0.32);
+  --report-shadow-soft: 0 12px 34px rgba(0, 0, 0, 0.24);
+}
+
+:global(html[data-theme="dark"] .report-summary-panel),
+:global(html[data-theme="dark"] .priority-section),
+:global(html[data-theme="dark"] .action-plan-item) {
+  background: rgba(37, 28, 22, 0.78);
+}
+
+:global(html[data-theme="dark"] .section-header) {
+  background: linear-gradient(135deg, rgba(255, 140, 66, 0.12), rgba(37, 28, 22, 0.84));
+}
+
+:global(html[data-theme="dark"] .job-name),
+:global(html[data-theme="dark"] .summary-text),
+:global(html[data-theme="dark"] .grade-range),
+:global(html[data-theme="dark"] .action-plan-text),
+:global(html[data-theme="dark"] .section-title),
+:global(html[data-theme="dark"] .replay-text),
+:global(html[data-theme="dark"] .round-review-question),
+:global(html[data-theme="dark"] .round-review-block),
+:global(html[data-theme="dark"] .dimension-comment),
+:global(html[data-theme="dark"] .job-feedback-value),
+:global(html[data-theme="dark"] .question-answer),
+:global(html[data-theme="dark"] .question-comment),
+:global(html[data-theme="dark"] .simple-list),
+:global(html[data-theme="dark"] .collapse-question) {
+  color: var(--report-text);
+}
+
+:global(html[data-theme="dark"] .grade-label),
+:global(html[data-theme="dark"] .grade-hire),
+:global(html[data-theme="dark"] .replay-feedback-text),
+:global(html[data-theme="dark"] .round-review-answer),
+:global(html[data-theme="dark"] .replay-time) {
+  color: var(--report-text-soft);
+}
+
+:global(html[data-theme="dark"] .grade-row),
+:global(html[data-theme="dark"] .dimension-card),
+:global(html[data-theme="dark"] .loss-pattern-column),
+:global(html[data-theme="dark"] .round-review-item),
+:global(html[data-theme="dark"] .round-review-block),
+:global(html[data-theme="dark"] .job-feedback-item),
+:global(html[data-theme="dark"] .question-card),
+:global(html[data-theme="dark"] .replay-block),
+:global(html[data-theme="dark"] .replay-feedback-card) {
+  background: var(--report-surface-soft);
+  border-color: var(--report-border);
+}
+
+:global(html[data-theme="dark"]) :deep(.el-collapse),
+:global(html[data-theme="dark"]) :deep(.el-collapse-item),
+:global(html[data-theme="dark"]) :deep(.el-collapse-item__wrap),
+:global(html[data-theme="dark"]) :deep(.el-collapse-item__header),
+:global(html[data-theme="dark"]) :deep(.el-collapse-item__content) {
+  background: transparent;
+  border-color: var(--report-border);
+  color: var(--report-text);
+}
+
+:global(html[data-theme="dark"] .action-btn.secondary),
+:global(html[data-theme="dark"] .share-btn) {
+  background: rgba(37, 28, 22, 0.72);
+  color: var(--report-text);
+  border-color: var(--report-border);
+}
+
 /* ===== 暗色模式适配 ===== */
-[data-theme="dark"] .grade-row.active {
+:global(html[data-theme="dark"] .grade-row.active) {
   background: rgba(255, 140, 66, 0.1);
   box-shadow: 0 2px 12px rgba(255, 140, 66, 0.06);
 }
 
-[data-theme="dark"] .grade-marker {
+:global(html[data-theme="dark"] .grade-marker) {
   background: rgba(255, 140, 66, 0.22);
 }
 
 /* ===== 面试历史回放 暗色适配 ===== */
-[data-theme="dark"] .replay-round-marker {
+:global(html[data-theme="dark"] .replay-round-marker) {
   background: rgba(255, 140, 66, 0.12);
   border-color: rgba(255, 140, 66, 0.35);
 }
 
-[data-theme="dark"] .replay-round-toggle {
+:global(html[data-theme="dark"] .replay-round-toggle) {
   background: rgba(255, 140, 66, 0.06);
   color: #e0b090;
   border-color: rgba(255, 140, 66, 0.2);
 }
 
-[data-theme="dark"] .replay-block {
+:global(html[data-theme="dark"] .replay-block) {
   background: var(--bg-card);
 }
 
-[data-theme="dark"] .replay-block.answer {
+:global(html[data-theme="dark"] .replay-block.answer) {
   background: rgba(46, 125, 90, 0.08);
   border-color: rgba(46, 125, 90, 0.2);
 }
 
-[data-theme="dark"] .replay-block.feedback {
+:global(html[data-theme="dark"] .replay-block.feedback) {
   background: rgba(255, 140, 66, 0.06);
   border-color: rgba(255, 140, 66, 0.2);
 }
 
-[data-theme="dark"] .replay-label {
+:global(html[data-theme="dark"] .replay-label) {
   color: #d0a07a;
 }
 
-[data-theme="dark"] .replay-block.answer .replay-label {
+:global(html[data-theme="dark"] .replay-block.answer .replay-label) {
   color: #5db892;
 }
 
-[data-theme="dark"] .replay-feedback-card {
+:global(html[data-theme="dark"] .replay-feedback-card) {
   background: var(--bg-card);
 }
 
-[data-theme="dark"] .round-review-speaker {
+:global(html[data-theme="dark"] .round-review-speaker) {
   color: #d0a07a;
 }
 
-[data-theme="dark"] .round-review-speaker.candidate {
+:global(html[data-theme="dark"] .round-review-speaker.candidate) {
   color: #5db892;
 }
 
-[data-theme="dark"] .round-review-label {
+:global(html[data-theme="dark"] .round-review-label) {
   color: #d0a07a;
 }
 
-[data-theme="dark"] .round-review-block.warning {
+:global(html[data-theme="dark"] .round-review-block.warning) {
   color: #e8a040;
+  background: rgba(255, 140, 66, 0.1);
 }
 </style>

@@ -185,7 +185,7 @@
                 :class="{ unread: item.readStatus === 0 }"
                 @click="handleNotificationRead(item)"
               >
-                <NotificationTypeIcon class="panel-item-icon" :type="item.type" size="sm" />
+                <NotificationTypeIcon class="panel-item-icon" :type="item.type" size="sm" halo />
                 <div class="panel-item-content">
                   <div class="panel-item-title-row">
                     <div class="panel-item-title">{{ item.title }}</div>
@@ -868,6 +868,7 @@ onUnmounted(() => {
   padding: 0 24px;
   z-index: 1000;
   --header-motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --header-dropdown-icon-size: 28px;
 }
 
 .header-left {
@@ -1197,17 +1198,33 @@ onUnmounted(() => {
   height: 42px;
   border-radius: 50%;
   cursor: pointer;
-  transition: background-color 0.2s;
+  border: 1px solid transparent;
+  transition:
+    background-color 180ms var(--header-motion-ease),
+    border-color 180ms var(--header-motion-ease),
+    transform 160ms var(--header-motion-ease);
   margin-right: 4px;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .notification-bell:hover {
-  background-color: var(--bg-page);
+  background-color: var(--orange-light-bg);
+  border-color: rgba(255, 140, 66, 0.14);
+  transform: translateY(-1px);
+}
+
+.notification-bell:active {
+  transform: translateY(0) scale(0.94);
 }
 
 .notification-bell :deep(.feature-icon) {
   width: 30px;
   height: 30px;
+  transition: transform 180ms var(--header-motion-ease);
+}
+
+.notification-bell:hover :deep(.feature-icon) {
+  transform: scale(1.08);
 }
 
 .bell-badge {
@@ -1295,12 +1312,17 @@ onUnmounted(() => {
   gap: 10px;
   padding: 12px 16px;
   cursor: pointer;
-  transition: background-color 0.15s;
+  transition:
+    background-color 160ms var(--header-motion-ease),
+    box-shadow 180ms var(--header-motion-ease),
+    transform 180ms var(--header-motion-ease);
   position: relative;
 }
 
 .panel-item:hover {
   background-color: var(--bg-elevated);
+  box-shadow: inset 3px 0 0 rgba(255, 140, 66, 0.14);
+  transform: translateX(2px);
 }
 
 .panel-item.unread {
@@ -1308,43 +1330,26 @@ onUnmounted(() => {
 }
 
 .panel-item-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: var(--header-dropdown-icon-size);
+  height: var(--header-dropdown-icon-size);
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  transition:
+    filter 180ms var(--header-motion-ease),
+    transform 180ms var(--header-motion-ease);
 }
 
 .panel-item-icon svg {
-  width: 16px;
-  height: 16px;
+  width: var(--header-dropdown-icon-size);
+  height: var(--header-dropdown-icon-size);
 }
 
-.panel-item-icon.type-resume {
-  background: rgba(255, 140, 66, 0.1);
-  color: #ff8c42;
-}
-
-.panel-item-icon.type-polish {
-  background: rgba(64, 158, 255, 0.1);
-  color: #409eff;
-}
-
-.panel-item-icon.type-interview {
-  background: rgba(103, 194, 58, 0.1);
-  color: #67c23a;
-}
-
-.panel-item-icon.type-quota {
-  background: rgba(245, 108, 108, 0.1);
-  color: #f56c6c;
-}
-
-.panel-item-icon.type-system {
-  background: rgba(144, 147, 153, 0.1);
-  color: #909399;
+.panel-item:hover .panel-item-icon {
+  filter: drop-shadow(0 8px 14px rgba(255, 140, 66, 0.16));
+  transform: translateY(-1px) scale(1.04);
 }
 
 .panel-item-content {
@@ -1556,6 +1561,10 @@ onUnmounted(() => {
   .hamburger-btn,
   .mobile-nav-link,
   .mobile-nav-link :deep(.feature-icon),
+  .notification-bell,
+  .notification-bell :deep(.feature-icon),
+  .panel-item,
+  .panel-item-icon,
   .theme-toggle,
   .theme-toggle :deep(.feature-icon),
   .header-icon-btn,
@@ -1572,6 +1581,11 @@ onUnmounted(() => {
   .hamburger-btn:active,
   .mobile-nav-link:hover,
   .mobile-nav-link:hover :deep(.feature-icon),
+  .notification-bell:hover,
+  .notification-bell:active,
+  .notification-bell:hover :deep(.feature-icon),
+  .panel-item:hover,
+  .panel-item:hover .panel-item-icon,
   .theme-toggle:hover,
   .theme-toggle:active,
   .theme-toggle:hover :deep(.feature-icon),

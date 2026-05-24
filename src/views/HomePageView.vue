@@ -9,6 +9,19 @@
       <div class="hero-cloud hero-motion-cloud cloud-one" aria-hidden="true"></div>
       <div class="hero-cloud hero-motion-cloud cloud-two" aria-hidden="true"></div>
       <div class="hero-cloud hero-motion-cloud cloud-three" aria-hidden="true"></div>
+      <div class="hero-cloud hero-motion-cloud cloud-four" aria-hidden="true"></div>
+      <div class="hero-cloud hero-motion-cloud cloud-five" aria-hidden="true"></div>
+      <div class="hero-cloud hero-motion-cloud cloud-six" aria-hidden="true"></div>
+      <div class="hero-cloud hero-motion-cloud cloud-seven" aria-hidden="true"></div>
+      <div class="hero-starry-sky" aria-hidden="true">
+        <span
+          v-for="index in 12"
+          :key="index"
+          class="hero-star"
+          :class="`star-${index}`"
+        ></span>
+      </div>
+      <div class="hero-moon" data-phase="half" aria-hidden="true"></div>
       <motion.div
         class="hero-background-art"
         aria-hidden="true"
@@ -587,6 +600,15 @@ const handleInterview = () => {
   --home-cloud-bg: rgba(255, 255, 255, 0.76);
   --home-cloud-shadow-a: rgba(255, 255, 255, 0.68);
   --home-cloud-shadow-b: rgba(255, 255, 255, 0.62);
+  --home-moon-size: clamp(72px, 8vw, 116px);
+  --home-moon-top: clamp(46px, 7vw, 76px);
+  --home-moon-right: clamp(62px, 11vw, 156px);
+  --home-moon-bg: #ffe4bc;
+  --home-moon-shadow: rgba(255, 198, 128, 0.28);
+  --home-moon-soft-shadow: rgba(116, 58, 23, 0.2);
+  --home-moon-phase-shadow: rgba(78, 39, 18, 0.46);
+  --home-star-color: rgba(255, 235, 198, 0.94);
+  --home-star-glow: rgba(255, 203, 130, 0.36);
   --home-art-filter: drop-shadow(0 34px 54px rgba(141, 88, 40, 0.2));
   --home-art-image-filter: none;
   --home-text-strong: var(--text-title);
@@ -693,13 +715,120 @@ const handleInterview = () => {
   transform: translate3d(var(--cloud-drift-x, 0), 10px, 0);
   animation: cloud-enter 0.7s cubic-bezier(0.22, 1, 0.36, 1) var(--cloud-delay, 0s) both,
     cloud-drift var(--cloud-duration, 8s) ease-in-out calc(var(--cloud-delay, 0s) + 0.7s) infinite;
+  transition:
+    opacity 0.9s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 1s cubic-bezier(0.22, 1, 0.36, 1);
   will-change: transform, opacity;
+}
+
+.hero-starry-sky {
+  position: absolute;
+  top: clamp(38px, 6vw, 74px);
+  right: clamp(26px, 5vw, 84px);
+  z-index: 0;
+  width: min(46%, 520px);
+  height: min(42%, 300px);
+  pointer-events: none;
+  opacity: 0;
+  transform: translate3d(0, 14px, 0);
+  transition:
+    opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform, opacity;
+}
+
+.hero-star {
+  position: absolute;
+  left: var(--star-left);
+  top: var(--star-top);
+  width: var(--star-size, 3px);
+  height: var(--star-size, 3px);
+  border-radius: 999px;
+  background: var(--home-star-color);
+  box-shadow:
+    0 0 8px var(--home-star-glow),
+    0 0 15px rgba(255, 220, 169, 0.18);
+  opacity: 0;
+  transform: scale(0.72);
+  transform-origin: center;
+  transition:
+    opacity 0.58s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.58s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform, opacity;
+}
+
+.hero-moon {
+  position: absolute;
+  top: var(--home-moon-top);
+  right: var(--home-moon-right);
+  z-index: 1;
+  width: var(--home-moon-size);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 31% 28%, rgba(255, 248, 224, 0.95) 0 4px, transparent 5px),
+    radial-gradient(circle at 57% 30%, rgba(255, 236, 188, 0.75) 0 2px, transparent 3px),
+    radial-gradient(circle at 42% 66%, rgba(255, 245, 216, 0.7) 0 3px, transparent 4px),
+    radial-gradient(circle at 62% 58%, rgba(143, 82, 38, 0.2) 0 8px, transparent 10px),
+    radial-gradient(circle at 35% 54%, rgba(133, 73, 34, 0.16) 0 6px, transparent 8px),
+    radial-gradient(circle at 72% 38%, rgba(138, 77, 37, 0.13) 0 5px, transparent 7px),
+    radial-gradient(circle at 42% 34%, #fff6d7 0%, var(--home-moon-bg) 48%, #ffc874 100%);
+  box-shadow:
+    inset -12px -16px 22px var(--home-moon-soft-shadow),
+    inset 8px 8px 16px rgba(255, 249, 226, 0.22),
+    0 0 0 1px rgba(255, 229, 194, 0.34),
+    0 0 calc(var(--home-moon-size) * 0.36) rgba(255, 222, 166, 0.26),
+    0 0 calc(var(--home-moon-size) * 0.74) var(--home-moon-shadow);
+  filter: drop-shadow(0 14px 28px rgba(88, 38, 12, 0.16));
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(10px, 42px, 0) scale(0.84);
+  transition:
+    opacity 0.72s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform, opacity;
+  isolation: isolate;
+}
+
+.hero-moon::before {
+  position: absolute;
+  inset: -70%;
+  z-index: -1;
+  content: '';
+  border-radius: inherit;
+  background:
+    radial-gradient(circle, rgba(255, 226, 174, 0.34) 0%, rgba(255, 185, 105, 0.16) 33%, transparent 58%),
+    radial-gradient(circle, rgba(255, 205, 136, 0.2) 0%, rgba(255, 173, 92, 0.1) 47%, transparent 72%);
+  opacity: 0.74;
+  transform: scale(0.96);
+}
+
+.hero-moon::after {
+  position: absolute;
+  inset: 0;
+  content: '';
+  border-radius: inherit;
+  background:
+    linear-gradient(90deg, transparent 0%, transparent 43%, rgba(88, 44, 20, 0.26) 56%, var(--home-moon-phase-shadow) 100%),
+    radial-gradient(circle at 72% 46%, rgba(43, 23, 13, 0.36) 0%, rgba(43, 23, 13, 0.3) 36%, transparent 72%);
+  mix-blend-mode: multiply;
+  opacity: 0;
+}
+
+.hero-moon[data-phase="half"]::after {
+  opacity: 1;
+}
+
+.hero-moon[data-phase="full"]::after {
+  opacity: 0;
 }
 
 .cloud-one {
   --cloud-width: 150px;
   --cloud-delay: 0.16s;
   --cloud-drift-x: -8px;
+  --cloud-scatter-x: -34px;
+  --cloud-scatter-delay: 0s;
   --cloud-duration: 8.5s;
   --cloud-opacity: 0.74;
   top: 52px;
@@ -710,6 +839,8 @@ const handleInterview = () => {
   --cloud-width: 104px;
   --cloud-delay: 0.28s;
   --cloud-drift-x: 10px;
+  --cloud-scatter-x: 46px;
+  --cloud-scatter-delay: 0.06s;
   --cloud-duration: 9.4s;
   --cloud-opacity: 0.64;
   right: 48px;
@@ -720,10 +851,144 @@ const handleInterview = () => {
   --cloud-width: 122px;
   --cloud-delay: 0.38s;
   --cloud-drift-x: -6px;
+  --cloud-scatter-x: -28px;
+  --cloud-scatter-delay: 0.12s;
   --cloud-duration: 10.2s;
   --cloud-opacity: 0.52;
   right: 36%;
   bottom: 78px;
+}
+
+.cloud-four {
+  --cloud-width: 92px;
+  --cloud-delay: 0.44s;
+  --cloud-drift-x: 12px;
+  --cloud-scatter-x: 38px;
+  --cloud-scatter-delay: 0.16s;
+  --cloud-duration: 9s;
+  --cloud-opacity: 0.48;
+  top: 142px;
+  left: 7%;
+}
+
+.cloud-five {
+  --cloud-width: 132px;
+  --cloud-delay: 0.22s;
+  --cloud-drift-x: -12px;
+  --cloud-scatter-x: -42px;
+  --cloud-scatter-delay: 0.09s;
+  --cloud-duration: 10.8s;
+  --cloud-opacity: 0.5;
+  top: 204px;
+  right: 17%;
+}
+
+.cloud-six {
+  --cloud-width: 78px;
+  --cloud-delay: 0.36s;
+  --cloud-drift-x: 7px;
+  --cloud-scatter-x: 26px;
+  --cloud-scatter-delay: 0.19s;
+  --cloud-duration: 8.8s;
+  --cloud-opacity: 0.42;
+  top: 28px;
+  left: 35%;
+}
+
+.cloud-seven {
+  --cloud-width: 110px;
+  --cloud-delay: 0.5s;
+  --cloud-drift-x: -10px;
+  --cloud-scatter-x: -36px;
+  --cloud-scatter-delay: 0.22s;
+  --cloud-duration: 11.4s;
+  --cloud-opacity: 0.46;
+  right: 8%;
+  bottom: 172px;
+}
+
+.star-1 {
+  --star-left: 7%;
+  --star-top: 18%;
+  --star-size: 2px;
+  --star-delay: 0.32s;
+}
+
+.star-2 {
+  --star-left: 18%;
+  --star-top: 42%;
+  --star-size: 3px;
+  --star-delay: 0.74s;
+}
+
+.star-3 {
+  --star-left: 29%;
+  --star-top: 11%;
+  --star-size: 2px;
+  --star-delay: 1.08s;
+}
+
+.star-4 {
+  --star-left: 41%;
+  --star-top: 31%;
+  --star-size: 4px;
+  --star-delay: 0.48s;
+}
+
+.star-5 {
+  --star-left: 52%;
+  --star-top: 9%;
+  --star-size: 2px;
+  --star-delay: 1.32s;
+}
+
+.star-6 {
+  --star-left: 62%;
+  --star-top: 48%;
+  --star-size: 3px;
+  --star-delay: 0.9s;
+}
+
+.star-7 {
+  --star-left: 72%;
+  --star-top: 23%;
+  --star-size: 2px;
+  --star-delay: 1.56s;
+}
+
+.star-8 {
+  --star-left: 83%;
+  --star-top: 38%;
+  --star-size: 3px;
+  --star-delay: 0.62s;
+}
+
+.star-9 {
+  --star-left: 91%;
+  --star-top: 14%;
+  --star-size: 2px;
+  --star-delay: 1.18s;
+}
+
+.star-10 {
+  --star-left: 34%;
+  --star-top: 63%;
+  --star-size: 2px;
+  --star-delay: 0.84s;
+}
+
+.star-11 {
+  --star-left: 67%;
+  --star-top: 70%;
+  --star-size: 2px;
+  --star-delay: 1.44s;
+}
+
+.star-12 {
+  --star-left: 95%;
+  --star-top: 61%;
+  --star-size: 4px;
+  --star-delay: 0.38s;
 }
 
 .hero-badge,
@@ -746,10 +1011,6 @@ const handleInterview = () => {
   border-radius: 999px;
   background: var(--home-soft-surface);
   box-shadow: 0 8px 22px rgba(117, 72, 42, 0.06);
-}
-
-.badge-icon {
-  filter: drop-shadow(0 4px 8px rgba(255, 140, 66, 0.18));
 }
 
 .hero-title {
@@ -838,10 +1099,6 @@ const handleInterview = () => {
 
 .primary-btn :deep(.n-button__content) {
   color: #fff7ed;
-}
-
-.btn-icon {
-  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.12));
 }
 
 .hero-stats {
@@ -1066,9 +1323,8 @@ const handleInterview = () => {
   height: 84px;
   margin-left: -6px;
   background: transparent;
-  filter: drop-shadow(0 12px 18px var(--route-shadow, rgba(255, 140, 66, 0.18)));
   transform-origin: center;
-  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), filter 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .path-node-copy {
@@ -1142,7 +1398,6 @@ const handleInterview = () => {
 }
 
 .career-path-node:hover .route-icon {
-  filter: drop-shadow(0 16px 24px var(--route-shadow, rgba(255, 140, 66, 0.22)));
   transform: translateY(-2px) scale(1.04);
 }
 
@@ -1356,6 +1611,73 @@ const handleInterview = () => {
   }
 }
 
+@keyframes cloud-scatter {
+  0% {
+    opacity: var(--cloud-opacity, 0.68);
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  56% {
+    opacity: 0.36;
+    transform: translate3d(var(--cloud-drift-x, 0), -14px, 0) scale(1.015);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--cloud-scatter-x, var(--cloud-drift-x, 0)), -34px, 0) scale(0.96);
+  }
+}
+
+@keyframes star-field-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes star-twinkle {
+  0%,
+  100% {
+    opacity: 0.46;
+    transform: scale(0.84);
+  }
+
+  48% {
+    opacity: 1;
+    transform: scale(1.18);
+  }
+}
+
+@keyframes moon-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(10px, 42px, 0) scale(0.84);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes moon-glow-breathe {
+  0%,
+  100% {
+    opacity: 0.62;
+    transform: scale(0.96);
+  }
+
+  50% {
+    opacity: 0.9;
+    transform: scale(1.06);
+  }
+}
+
 .support-capability-item:hover {
   transform: translateY(-2px);
   border-color: rgba(255, 140, 66, 0.32);
@@ -1370,8 +1692,7 @@ const handleInterview = () => {
   height: 66px;
   background: transparent;
   flex: 0 0 auto;
-  filter: drop-shadow(0 12px 18px rgba(255, 140, 66, 0.14));
-  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), filter 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .support-copy {
@@ -1398,7 +1719,6 @@ const handleInterview = () => {
 }
 
 .support-capability-item:hover .support-icon {
-  filter: drop-shadow(0 16px 24px rgba(255, 140, 66, 0.18));
   transform: translateY(-2px) scale(1.04);
 }
 
@@ -1572,6 +1892,19 @@ const handleInterview = () => {
     padding: 20px;
   }
 
+  .landing-page {
+    --home-moon-size: 68px;
+    --home-moon-top: 42px;
+    --home-moon-right: 34px;
+  }
+
+  .hero-starry-sky {
+    top: 26px;
+    right: 12px;
+    width: 72%;
+    height: 240px;
+  }
+
   .cloud-one {
     top: 36px;
     left: 18px;
@@ -1585,6 +1918,26 @@ const handleInterview = () => {
   .cloud-three {
     right: 44%;
     bottom: 306px;
+  }
+
+  .cloud-four {
+    top: 176px;
+    left: 12%;
+  }
+
+  .cloud-five {
+    top: 226px;
+    right: 20px;
+  }
+
+  .cloud-six {
+    top: 76px;
+    left: 43%;
+  }
+
+  .cloud-seven {
+    right: 20%;
+    bottom: 374px;
   }
 
   .home-section,
@@ -1689,6 +2042,19 @@ const handleInterview = () => {
     font-size: 31px;
   }
 
+  .landing-page {
+    --home-moon-size: 56px;
+    --home-moon-top: 32px;
+    --home-moon-right: 22px;
+  }
+
+  .hero-starry-sky {
+    top: 20px;
+    right: 8px;
+    width: 76%;
+    height: 176px;
+  }
+
   .hero-quick-trails {
     gap: 8px;
   }
@@ -1726,16 +2092,9 @@ const handleInterview = () => {
 }
 
 :global(html[data-theme="dark"] .theme-aware-home) {
-  --text-title: #fff3e8;
-  --text-body: #e8c9b5;
-  --text-muted: #b9957e;
-  --border-card: rgba(255, 175, 108, 0.2);
-  --border-divider: rgba(255, 175, 108, 0.14);
-  --orange-deep: #ffb070;
-  --orange-border: rgba(255, 176, 122, 0.32);
-  --home-text-strong: #fff3e8;
-  --home-text-body: #f0d1bd;
-  --home-text-muted: #caa189;
+  --home-text-strong: var(--text-title);
+  --home-text-body: var(--text-body);
+  --home-text-muted: var(--text-muted);
   --home-page-bg:
     radial-gradient(circle at 17% 0%, rgba(255, 140, 66, 0.2), transparent 30%),
     radial-gradient(circle at 88% 12%, rgba(255, 205, 154, 0.13), transparent 24%),
@@ -1765,6 +2124,12 @@ const handleInterview = () => {
   --home-cloud-bg: rgba(255, 226, 191, 0.22);
   --home-cloud-shadow-a: rgba(255, 226, 191, 0.17);
   --home-cloud-shadow-b: rgba(255, 226, 191, 0.13);
+  --home-moon-bg: #ffe0ad;
+  --home-moon-shadow: rgba(255, 185, 105, 0.36);
+  --home-moon-soft-shadow: rgba(100, 45, 18, 0.28);
+  --home-moon-phase-shadow: rgba(45, 24, 14, 0.58);
+  --home-star-color: rgba(255, 235, 198, 0.96);
+  --home-star-glow: rgba(255, 192, 112, 0.44);
   --home-art-filter: drop-shadow(0 34px 54px rgba(40, 18, 7, 0.36));
   --home-art-image-filter: saturate(1.08) brightness(0.98);
   background: var(--home-page-bg);
@@ -1785,10 +2150,35 @@ const handleInterview = () => {
 }
 
 :global(html[data-theme="dark"] .hero-cloud) {
-  box-shadow:
-    calc(var(--cloud-width) * 0.18) calc(var(--cloud-width) * -0.1) 0 calc(var(--cloud-width) * 0.02) var(--home-cloud-shadow-a),
-    calc(var(--cloud-width) * 0.42) calc(var(--cloud-width) * -0.03) 0 calc(var(--cloud-width) * 0.04) var(--home-cloud-shadow-b),
-    0 14px 36px rgba(58, 32, 18, 0.18);
+  opacity: 0;
+  transform: translate3d(var(--cloud-scatter-x, var(--cloud-drift-x, 0)), -34px, 0) scale(0.96);
+  animation: cloud-scatter 1.18s cubic-bezier(0.22, 1, 0.36, 1) var(--cloud-scatter-delay, 0s) both;
+  box-shadow: none;
+  transition:
+    opacity 1.04s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 1.12s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+:global(html[data-theme="dark"] .hero-starry-sky) {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+  animation: star-field-rise 0.88s cubic-bezier(0.22, 1, 0.36, 1) 0.34s both;
+}
+
+:global(html[data-theme="dark"] .hero-star) {
+  opacity: 0.76;
+  transform: scale(1);
+  animation: star-twinkle 3.6s ease-in-out var(--star-delay, 0s) infinite;
+}
+
+:global(html[data-theme="dark"] .hero-moon) {
+  opacity: 1;
+  transform: translate3d(0, 0, 0) scale(1);
+  animation: moon-rise 1.05s cubic-bezier(0.22, 1, 0.36, 1) 1.52s both;
+}
+
+:global(html[data-theme="dark"] .hero-moon::before) {
+  animation: moon-glow-breathe 4.8s ease-in-out 2.2s infinite;
 }
 
 :global(html[data-theme="dark"] .hero-badge),
@@ -1859,6 +2249,9 @@ const handleInterview = () => {
 
 @media (prefers-reduced-motion: reduce) {
   .hero-background-art,
+  .hero-starry-sky,
+  .hero-star,
+  .hero-moon,
   .route-icon,
   .support-icon,
   .feature-route-card,
@@ -1876,18 +2269,56 @@ const handleInterview = () => {
   }
 
   .hero-background-art::after,
-  .hero-cloud {
+  .hero-cloud,
+  .hero-starry-sky,
+  .hero-star,
+  .hero-moon,
+  .hero-moon::before {
     animation: none;
-    transform: none;
+    transition: none;
     will-change: auto;
   }
 
   .hero-background-art::after {
     opacity: 0.96;
+    transform: none;
   }
 
   .hero-cloud {
     opacity: var(--cloud-opacity, 0.62);
+    transform: none;
+  }
+
+  .hero-moon {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  :global(html[data-theme="dark"] .hero-cloud) {
+    opacity: 0;
+    transform: translate3d(var(--cloud-scatter-x, var(--cloud-drift-x, 0)), -34px, 0) scale(0.96);
+    animation: none;
+    transition: none;
+  }
+
+  :global(html[data-theme="dark"] .hero-starry-sky) {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+    animation: none;
+    transition: none;
+  }
+
+  :global(html[data-theme="dark"] .hero-star) {
+    opacity: 0.8;
+    transform: scale(1);
+    animation: none;
+    transition: none;
+  }
+
+  :global(html[data-theme="dark"] .hero-moon) {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    animation: none;
+    transition: none;
   }
 
   .arrow-icon {

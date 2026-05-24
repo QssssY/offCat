@@ -114,7 +114,7 @@ import { ElMessage } from 'element-plus'
 import { createPost, uploadPostImage } from '@/api/community'
 import FeatureIcon from '@/components/common/FeatureIcon.vue'
 
-const emit = defineEmits(['success', 'cancel'])
+const emit = defineEmits(['published', 'cancel'])
 
 const form = ref({
   category: 'interview_exp',
@@ -178,7 +178,7 @@ const handleSubmit = async () => {
       images: form.value.images
     })
     ElMessage.success('发布成功')
-    emit('success')
+    emit('published')
   } catch (err) {
     console.error('发布失败:', err)
   } finally {

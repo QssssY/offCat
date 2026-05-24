@@ -1,5 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import AppHeader from '@/components/AppHeader.vue'
 import { useUserStore } from '@/stores/user'
 import { useThemeStore } from '@/stores/theme'
@@ -95,6 +97,9 @@ const mountHeader = () => mount(AppHeader, {
   }
 })
 
+const headerSource = () =>
+  readFileSync(resolve(process.cwd(), 'src/components/AppHeader.vue'), 'utf8')
+
 describe('AppHeader', () => {
   const fetchUserInfo = vi.fn(() => Promise.resolve())
 
@@ -168,5 +173,15 @@ describe('AppHeader', () => {
     await wrapper.find('.motion-hamburger-btn').trigger('click')
 
     expect(wrapper.vm.drawerVisible).toBe(true)
+  })
+
+  it('uses halo-sized header icons without hard notification type blocks', () => {
+    const source = headerSource()
+
+    expect(source).toContain('--header-dropdown-icon-size: 28px')
+    expect(source).toContain('notification-bell:hover :deep(.feature-icon)')
+    expect(source).toContain('panel-item:hover .panel-item-icon')
+    expect(source).not.toMatch(/\.panel-item-icon\.type-(resume|polish|interview|quota|system)\s*\{[\s\S]*?background:/)
+    expect(source).not.toContain('transition: all')
   })
 })

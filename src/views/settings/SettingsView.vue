@@ -17,7 +17,7 @@
           :class="{ active: activeSection === section.key }"
           @click="activeSection = section.key"
         >
-          <FeatureIcon :name="section.icon" size="sm" class="settings-nav-icon" />
+          <FeatureIcon :name="section.icon" size="md" class="settings-nav-icon" />
           <span>{{ section.label }}</span>
         </button>
       </aside>
@@ -199,7 +199,7 @@
                     :disabled="!previewTextToSpeech.isSupported.value"
                     @click="handleVoicePreview"
                   >
-                  <FeatureIcon name="voice-interview" size="sm" class="voice-preview-icon" />
+                  <FeatureIcon name="voice-interview" size="md" class="voice-preview-icon" />
                   </el-button>
                 </div>
               </div>
@@ -428,7 +428,7 @@
 
             <div v-else key="accountDeletion" class="account-delete-zone">
               <div class="account-delete-context account-delete-alert" role="alert">
-                <FeatureIcon name="account-security" size="sm" class="settings-alert-icon" />
+                <FeatureIcon name="account-security" size="md" class="settings-alert-icon" />
                 <span>注销后不可恢复，系统将永久清理你的面试、简历、通知等所有数据。</span>
               </div>
 
@@ -491,10 +491,10 @@
                 </el-form-item>
                 <el-button
                   type="danger"
-                  :disabled="accountDeleteCountdown > 0 || accountDeleteQuestionLoading || Boolean(accountDeleteQuestionError)"
+                  :disabled="accountDeleteQuestionLoading || Boolean(accountDeleteQuestionError)"
                   @click="handleAccountDeleteSubmit"
                 >
-                  {{ accountDeleteCountdown > 0 ? `等待 ${accountDeleteCountdown} 秒` : '确认注销' }}
+                  确认注销
                 </el-button>
               </el-form>
             </div>
@@ -515,7 +515,7 @@
               <!-- 第一段红色警告框 -->
               <div class="delete-warning-box">
               <div class="delete-warning-icon">
-                <FeatureIcon name="account-security" size="sm" />
+                <FeatureIcon name="account-security" size="md" />
               </div>
                 <div class="delete-warning-text">
                   <strong>此操作不可恢复！</strong>
@@ -563,7 +563,7 @@
                 :disabled="growthOverviewLoading"
                 @click="fetchGrowthOverview"
               >
-              <FeatureIcon name="growth-radar" size="sm" class="settings-refresh-icon" />
+              <FeatureIcon name="growth-radar" size="md" class="settings-refresh-icon" />
               </el-button>
             </el-tooltip>
           </div>
@@ -1024,7 +1024,7 @@ const accountDeleteSecurityQuestion = ref('')
 const accountDeleteQuestionLoading = ref(false)
 const accountDeleteQuestionError = ref('')
 const accountDeleteQuestionExpanded = ref(false)
-const accountDeleteCountdown = ref(15)
+const accountDeleteCountdown = ref(0)
 let accountDeleteTimer = null
 const accountDeleteConfirmText = ref('')
 const accountDeleteConfirmDialogVisible = ref(false)
@@ -1372,6 +1372,7 @@ const clearAccountDeleteTimer = () => {
     clearInterval(accountDeleteTimer)
     accountDeleteTimer = null
   }
+  accountDeleteCountdown.value = 0
 }
 
 const startAccountDeleteCountdown = () => {
@@ -1423,7 +1424,6 @@ const handleAccountDeleteSubmit = async () => {
   } catch {
     return
   }
-  if (accountDeleteCountdown.value > 0) return
   // 验证通过后仍进入强确认弹窗，要求用户输入指定文本，避免一次误点直接注销账号。
   accountDeleteConfirmText.value = ''
   accountDeleteConfirmDialogVisible.value = true
@@ -1734,11 +1734,11 @@ onBeforeUnmount(() => {
 
 .settings-nav-item {
   width: 100%;
-  min-height: 42px;
+  min-height: 50px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 12px;
+  gap: 12px;
+  padding: 10px 12px;
   border: 0;
   border-radius: 8px;
   background: transparent;
@@ -1752,6 +1752,15 @@ onBeforeUnmount(() => {
 .settings-nav-item.active {
   background: var(--orange-light-bg);
   color: var(--orange-deep);
+}
+
+.settings-nav-icon {
+  transition: transform 0.2s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.settings-nav-item:hover .settings-nav-icon,
+.settings-nav-item.active .settings-nav-icon {
+  transform: translateY(-1px) scale(1.06);
 }
 
 .settings-content {
@@ -1874,9 +1883,9 @@ onBeforeUnmount(() => {
 
 .account-delete-alert {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
   margin-bottom: 20px;
   border-radius: 8px;
   background: color-mix(in srgb, var(--bg-card) 88%, #f56c6c 12%);
@@ -1888,12 +1897,8 @@ onBeforeUnmount(() => {
 
 .settings-alert-icon {
   flex-shrink: 0;
+  margin-top: 1px;
   color: #f56c6c;
-}
-
-.settings-alert-icon :deep(.feature-icon) {
-  width: 20px;
-  height: 20px;
 }
 
 .account-delete-form {
@@ -2253,9 +2258,9 @@ onBeforeUnmount(() => {
 }
 
 .voice-preview-button {
-  width: 42px;
-  min-width: 42px;
-  height: 40px;
+  width: 52px;
+  min-width: 52px;
+  height: 48px;
   padding: 0;
   border-radius: 10px;
   transition:
@@ -2342,6 +2347,8 @@ onBeforeUnmount(() => {
 }
 
 .data-overview-refresh-btn {
+  width: 48px;
+  height: 48px;
   transition: background-color 0.25s, border-color 0.25s, box-shadow 0.25s;
 }
 
@@ -2443,14 +2450,14 @@ onBeforeUnmount(() => {
   .voice-control {
     width: 100%;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 44px;
+    grid-template-columns: minmax(0, 1fr) 52px;
     align-items: center;
   }
 
   .voice-preview-button {
-    width: 44px;
-    min-width: 44px;
-    height: 44px;
+    width: 52px;
+    min-width: 52px;
+    height: 48px;
   }
 
   .browser-voice-select {
@@ -2478,7 +2485,9 @@ onBeforeUnmount(() => {
 
 @media (prefers-reduced-motion: reduce) {
   .voice-preview-button,
-  .voice-preview-icon {
+  .voice-preview-icon,
+  .settings-nav-icon,
+  .settings-refresh-icon {
     transition-duration: 0.01ms;
   }
 }
@@ -2527,8 +2536,8 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   background: rgba(229, 57, 53, 0.12);
   margin-bottom: 10px;
@@ -2536,8 +2545,8 @@ onBeforeUnmount(() => {
 }
 
 .delete-warning-box .delete-warning-icon :deep(.feature-icon) {
-  width: 20px;
-  height: 20px;
+  width: 32px;
+  height: 32px;
 }
 
 .delete-warning-text strong {
@@ -2626,8 +2635,8 @@ onBeforeUnmount(() => {
     padding: 12px;
   }
   .delete-warning-box .delete-warning-icon {
-    width: 28px;
-    height: 28px;
+    width: 40px;
+    height: 40px;
     margin-bottom: 8px;
   }
   .delete-warning-text strong {

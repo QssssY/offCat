@@ -100,7 +100,7 @@
           />
 
           <!-- 类型图标 -->
-          <NotificationTypeIcon class="item-icon" :type="item.type" size="md" />
+          <NotificationTypeIcon class="item-icon" :type="item.type" size="md" halo />
 
           <!-- 内容区 -->
           <div class="item-content">
@@ -577,13 +577,17 @@ onUnmounted(() => {
   border: 1px solid var(--border-card, #f0f0f0);
   border-radius: 12px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition:
+    border-color 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
   position: relative;
 }
 
 .notification-item:hover {
   border-color: var(--orange-light-bg, #ffecd9);
-  box-shadow: 0 2px 8px rgba(255, 140, 66, 0.08);
+  box-shadow: 0 10px 24px rgba(255, 140, 66, 0.1);
+  transform: translateY(-1px);
 }
 
 .notification-item.unread {
@@ -604,67 +608,39 @@ onUnmounted(() => {
 .item-delete-btn {
   flex-shrink: 0;
   opacity: 0;
-  transition: opacity 0.2s;
+  transform: scale(0.96);
+  transition:
+    opacity 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .notification-item:hover .item-delete-btn {
   opacity: 1;
+  transform: scale(1);
 }
 
 /* 类型图标 */
 .item-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
+  width: 44px;
+  height: 44px;
+  border-radius: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  transition:
+    filter 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .item-icon svg {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
 }
 
-.item-icon.type-resume {
-  background: rgba(255, 140, 66, 0.1);
-  color: var(--orange-main);
-}
-
-.item-icon.type-polish {
-  background: rgba(64, 158, 255, 0.1);
-  color: #409eff;
-}
-
-.item-icon.type-interview {
-  background: rgba(103, 194, 58, 0.1);
-  color: var(--color-success);
-}
-
-.item-icon.type-quota {
-  background: rgba(245, 108, 108, 0.1);
-  color: var(--color-danger);
-}
-
-.item-icon.type-system {
-  background: rgba(144, 147, 153, 0.1);
-  color: var(--text-muted);
-}
-
-.item-icon.type-activity {
-  background: rgba(230, 162, 60, 0.12);
-  color: #e6a23c;
-}
-
-.item-icon.type-update {
-  background: rgba(64, 158, 255, 0.1);
-  color: #409eff;
-}
-
-.item-icon.type-maintenance {
-  background: rgba(245, 108, 108, 0.1);
-  color: var(--color-danger);
+.notification-item:hover .item-icon {
+  filter: drop-shadow(0 10px 18px rgba(255, 140, 66, 0.16));
+  transform: translateY(-2px) scale(1.04);
 }
 
 /* 内容区 */
@@ -781,6 +757,24 @@ onUnmounted(() => {
     padding-bottom: 4px;
   }
 
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-feature-icon {
+    animation: none;
+  }
+
+  .notification-item,
+  .item-delete-btn,
+  .item-icon {
+    transition-duration: 0.01ms;
+  }
+
+  .notification-item:hover,
+  .notification-item:hover .item-delete-btn,
+  .notification-item:hover .item-icon {
+    transform: none;
+  }
 }
 </style>
 

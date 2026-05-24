@@ -480,7 +480,7 @@ async function completeGuide() {
 .step-title {
   font-size: 24px;
   font-weight: 600;
-  color: var(--text-title, #1a1a2e);
+  color: var(--text-title, #2F2F2F);
   margin: 0 0 12px;
   line-height: 1.4;
   letter-spacing: -0.02em;

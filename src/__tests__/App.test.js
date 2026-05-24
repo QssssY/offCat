@@ -59,7 +59,11 @@ describe('App', () => {
     expect(provider.exists()).toBe(true)
     expect(provider.props('theme')).toBeTruthy()
     expect(provider.props('themeOverrides').common.primaryColor).toBe('#FF8C42')
-    expect(provider.props('themeOverrides').common.bodyColor).toBe('#201510')
+    expect(provider.props('themeOverrides').common.bodyColor).toBe('#1F1511')
+    expect(provider.props('themeOverrides').common.cardColor).toBe('#2A1B14')
+    expect(provider.props('themeOverrides').common.textColor1).toBe('#FFF3E8')
+    expect(provider.props('themeOverrides').common.textColor2).toBe('#F0D1BD')
+    expect(provider.props('themeOverrides').common.textColor3).toBe('#CAA189')
   })
 
   it('should keep Naive UI in light mode when resolved theme is light', () => {

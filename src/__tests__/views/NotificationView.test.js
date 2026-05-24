@@ -1,5 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import NotificationView from '@/views/notification/NotificationView.vue'
 import { getNotifications, getUnreadCount } from '@/api/notification'
 import { saveSettingsPreferences } from '@/utils/settingsPreferences'
@@ -22,9 +24,13 @@ vi.mock('@/api/notification', () => ({
 vi.mock('@/components/notification/NotificationTypeIcon.vue', () => ({
   default: {
     name: 'NotificationTypeIcon',
-    template: '<span class="notification-type-icon-stub"></span>'
+    props: ['type', 'size', 'halo'],
+    template: '<span class="notification-type-icon-stub" :data-halo="String(!!halo)"></span>'
   }
 }))
+
+const viewSource = () =>
+  readFileSync(resolve(process.cwd(), 'src/views/notification/NotificationView.vue'), 'utf8')
 
 describe('NotificationView', () => {
   beforeEach(() => {
@@ -56,5 +62,18 @@ describe('NotificationView', () => {
       type: 'resume',
       readStatus: 0
     })
+  })
+
+  it('uses compact halos only on interactive notification list icons', () => {
+    const source = viewSource()
+
+    expect(source).toContain('<NotificationTypeIcon class="item-icon" :type="item.type" size="md" halo />')
+    expect(source).toContain('<NotificationTypeIcon :type="selectedAnnouncement.type" size="sm" />')
+    expect(source).toContain('notification-item:hover .item-icon')
+    expect(source).toContain('prefers-reduced-motion: reduce')
+    expect(source).toMatch(/\.item-icon\s*\{[\s\S]*?width:\s*44px/)
+    expect(source).toMatch(/\.item-icon\s+svg\s*\{[\s\S]*?width:\s*24px/)
+    expect(source).not.toContain('transition: all')
+    expect(source).not.toMatch(/\.item-icon\.type-(resume|polish|interview|quota|system|activity|update|maintenance)\s*\{[\s\S]*?background:/)
   })
 })

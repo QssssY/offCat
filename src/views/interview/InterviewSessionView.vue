@@ -1,5 +1,5 @@
 <template>
-  <div class="interview-session-view">
+  <div class="interview-session-view interview-session-shell">
     <div class="session-status-bar">
       <div class="status-bar-left">
         <FeatureIcon name="ai-interviewer" size="sm" class="title-icon" />
@@ -66,7 +66,7 @@
       </el-result>
     </div>
 
-    <div v-else class="session-content">
+    <div v-else class="session-content session-main-surface">
       <div
         class="chat-stage"
         :class="{
@@ -74,7 +74,7 @@
           'voice-call-collapsed-stage': isVoiceSession && voiceCallCollapsed,
         }"
       >
-        <div class="chat-container">
+        <div class="chat-container conversation-surface">
           <div class="chat-messages" ref="chatContainer">
             <!-- 开场白加载中 -->
             <div v-if="openingPending" class="opening-pending">
@@ -87,7 +87,7 @@
 
             <template v-else-if="groupedChatLogs.length > 0">
               <!-- 原有聊天记录代码 -->
-              <template v-for="item in groupedChatLogs" :key="item.id || item.tempId || item.date">
+              <template v-for="(item, itemIndex) in groupedChatLogs" :key="item.id || item.tempId || item.date">
                 <!-- 原有代码保持不变 -->
                 <div v-if="item.type === 'date-separator'" class="date-separator">
                   <span class="date-separator-line"></span>
@@ -95,7 +95,11 @@
                   <span class="date-separator-line"></span>
                 </div>
 
-                <div v-else-if="item.messageRole === 'assistant'" class="message-row assistant-row">
+                <div
+                  v-else-if="item.messageRole === 'assistant'"
+                  class="message-row message-entrance assistant-row"
+                  :style="{ '--message-index': itemIndex }"
+                >
                   <div class="message-avatar assistant-avatar">
                     <img :src="assistantAvatar" alt="AI面试官" @error="handleImageError" />
                   </div>
@@ -138,19 +142,24 @@
                       <div class="feedback-card-body">{{ getAssistantDisplay(item).feedbackContent }}</div>
                     </div>
                     <div class="message-meta assistant-meta">
-                      <span class="role-tag">面试官</span>
+                      <span class="role-tag message-role-pill">面试官</span>
                       <span class="time-tag">{{ formatTime(item.createTime) }}</span>
                     </div>
                   </div>
                 </div>
 
-                <div v-else class="message-row user-row">
+                <div
+                  v-else
+                  class="message-row message-entrance user-row"
+                  :style="{ '--message-index': itemIndex }"
+                >
                   <div class="message-avatar user-avatar">
                     <img :src="userAvatar" alt="用户" @error="handleImageError" />
                   </div>
                   <div class="message-content">
                     <div class="message-bubble user-bubble">{{ item.content }}</div>
                     <div class="message-meta user-meta">
+                      <span class="role-tag message-role-pill">我</span>
                       <span class="time-tag">{{ formatTime(item.createTime) }}</span>
                     </div>
                   </div>
@@ -1157,10 +1166,26 @@ onBeforeUnmount(() => {
 <style scoped>
 .interview-session-view {
   height: 100vh;
-  background: var(--bg-page);
+  --interview-bg: #fff7ef;
+  --interview-bg-soft: #fffaf5;
+  --interview-surface: rgba(255, 255, 255, 0.94);
+  --interview-surface-strong: rgba(255, 255, 255, 0.98);
+  --interview-border: rgba(229, 177, 135, 0.32);
+  --interview-border-strong: rgba(255, 140, 66, 0.34);
+  --interview-shadow: 0 18px 48px rgba(117, 72, 38, 0.12);
+  --interview-shadow-soft: 0 8px 24px rgba(117, 72, 38, 0.08);
+  --interview-ink: var(--text-title);
+  --interview-muted: var(--text-muted);
+  --interview-accent: #ff8c42;
+  --interview-accent-strong: #f97316;
+  --interview-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  background:
+    radial-gradient(circle at 14% 12%, rgba(255, 180, 92, 0.18), transparent 30%),
+    linear-gradient(180deg, var(--interview-bg-soft) 0%, var(--interview-bg) 48%, var(--bg-page) 100%);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  color: var(--interview-ink);
 }
 
 .session-status-bar {
@@ -1172,10 +1197,10 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   align-items: center;
   padding: 12px 24px;
-  background: rgba(255, 255, 255, 0.98);
-  backdrop-filter: blur(16px);
-  border-bottom: 1px solid rgba(243, 216, 199, 0.5);
-  box-shadow: 0 2px 12px rgba(255, 140, 66, 0.06);
+  background: var(--interview-surface-strong);
+  border-bottom: 1px solid var(--interview-border);
+  box-shadow: 0 8px 26px rgba(117, 72, 38, 0.07);
+  animation: sessionSurfaceIn 420ms var(--interview-ease) both;
 }
 
 .status-bar-left,
@@ -1345,6 +1370,30 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
+.session-main-surface::before,
+.session-main-surface::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  border-radius: 999px;
+}
+
+.session-main-surface::before {
+  width: 360px;
+  height: 360px;
+  right: -110px;
+  top: 9%;
+  background: radial-gradient(circle, rgba(255, 140, 66, 0.13), transparent 68%);
+}
+
+.session-main-surface::after {
+  width: 240px;
+  height: 240px;
+  left: -96px;
+  bottom: 12%;
+  background: radial-gradient(circle, rgba(255, 210, 150, 0.16), transparent 70%);
+}
+
 .chat-stage {
   flex: 1;
   display: flex;
@@ -1371,30 +1420,43 @@ onBeforeUnmount(() => {
 
 .chat-container {
   flex: 1;
-  max-width: 900px;
+  max-width: 960px;
   width: 100%;
   margin: 0 auto;
-  padding: 24px;
+  padding: clamp(16px, 3vw, 28px);
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+
+.conversation-surface {
+  position: relative;
+  z-index: 1;
+  animation: sessionSurfaceIn 520ms var(--interview-ease) both;
 }
 
 .chat-messages {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 8px 16px 8px 0;
+  padding: 24px 16px 12px 0;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 22px;
   min-height: 0;
+  scroll-behavior: smooth;
+  scroll-padding-top: 24px;
 }
 
 .message-row {
   display: flex;
-  gap: 14px;
+  gap: 16px;
   align-items: flex-start;
+}
+
+.message-entrance {
+  animation: messageFloatIn 360ms var(--interview-ease) both;
+  animation-delay: min(calc(var(--message-index) * 42ms), 220ms);
 }
 
 .user-row {
@@ -1402,12 +1464,13 @@ onBeforeUnmount(() => {
 }
 
 .message-avatar {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   overflow: hidden;
-  background: var(--bg-card);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  background: var(--interview-surface);
+  border: 1px solid rgba(255, 140, 66, 0.16);
+  box-shadow: var(--interview-shadow-soft);
   flex-shrink: 0;
 }
 
@@ -1418,7 +1481,7 @@ onBeforeUnmount(() => {
 }
 
 .message-content {
-  max-width: 75%;
+  max-width: min(76%, 720px);
   display: flex;
   flex-direction: column;
 }
@@ -1432,19 +1495,26 @@ onBeforeUnmount(() => {
 }
 
 .message-bubble {
-  padding: 14px 18px;
-  border-radius: 16px;
-  font-size: 14px;
+  padding: 15px 18px;
+  border-radius: 18px;
+  font-size: 14.5px;
   line-height: 1.7;
   word-break: break-word;
   white-space: pre-line;
+  transition: transform 220ms var(--interview-ease), box-shadow 220ms var(--interview-ease), border-color 220ms var(--interview-ease);
 }
 
 .assistant-bubble {
-  background: var(--bg-card);
-  border: 1px solid rgba(243, 216, 199, 0.6);
-  color: var(--text-title);
-  border-top-left-radius: 4px;
+  background: var(--interview-surface);
+  border: 1px solid var(--interview-border);
+  color: var(--interview-ink);
+  border-top-left-radius: 6px;
+  box-shadow: 0 12px 32px rgba(117, 72, 38, 0.08);
+}
+
+.assistant-row:hover .assistant-bubble,
+.user-row:hover .user-bubble {
+  transform: translateY(-2px);
 }
 
 .thinking-bubble {
@@ -1479,11 +1549,11 @@ onBeforeUnmount(() => {
   padding: 12px 14px;
   max-width: 100%;
   border: 1px solid rgba(255, 140, 66, 0.22);
-  border-left: 3px solid var(--orange-main);
   border-radius: 8px;
   background: rgba(255, 248, 244, 0.96);
   color: var(--text-body);
   line-height: 1.65;
+  box-shadow: 0 8px 22px rgba(255, 140, 66, 0.07);
 }
 
 .feedback-card-title {
@@ -1500,9 +1570,10 @@ onBeforeUnmount(() => {
 }
 
 .user-bubble {
-  background: linear-gradient(135deg, #ff8c42 0%, #ff7a30 100%);
+  background: linear-gradient(135deg, var(--interview-accent) 0%, var(--interview-accent-strong) 100%);
   color: var(--bg-card);
-  border-top-right-radius: 4px;
+  border-top-right-radius: 6px;
+  box-shadow: 0 14px 30px rgba(255, 128, 48, 0.22);
 }
 
 .message-meta {
@@ -1517,6 +1588,18 @@ onBeforeUnmount(() => {
 .role-tag {
   color: var(--orange-main);
   font-weight: 500;
+}
+
+.message-role-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 140, 66, 0.1);
+  color: var(--interview-accent-strong);
+  font-size: 11px;
+  line-height: 1;
 }
 
 .thinking-indicator {
@@ -1624,6 +1707,39 @@ onBeforeUnmount(() => {
   }
 }
 
+@keyframes sessionSurfaceIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes messageFloatIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes voiceCallEnter {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 .error-text {
   color: var(--color-danger);
 }
@@ -1700,21 +1816,23 @@ onBeforeUnmount(() => {
 .input-container {
   max-width: 900px;
   margin: 0 auto;
-  background: var(--bg-card);
-  border: 1px solid rgba(243, 216, 199, 0.6);
+  background: var(--interview-surface-strong);
+  border: 1px solid var(--interview-border);
   border-radius: 16px;
-  box-shadow: 0 -4px 24px rgba(255, 140, 66, 0.1), 0 2px 12px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--interview-shadow);
   padding: 16px;
+  animation: sessionSurfaceIn 420ms var(--interview-ease) both;
 }
 
 .voice-call-panel {
   max-width: 820px;
   margin: 0 auto;
   padding: 14px 18px;
-  border: 1px solid rgba(243, 216, 199, 0.7);
-  border-radius: 8px;
-  background: var(--bg-card);
-  box-shadow: 0 6px 18px rgba(80, 52, 36, 0.08);
+  border: 1px solid var(--interview-border);
+  border-radius: 14px;
+  background: var(--interview-surface-strong);
+  box-shadow: var(--interview-shadow-soft);
+  animation: sessionSurfaceIn 360ms var(--interview-ease) both;
 }
 
 .voice-call-overlay {
@@ -1724,7 +1842,9 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #fff8f2;
+  background:
+    radial-gradient(circle at 50% 12%, rgba(255, 172, 86, 0.18), transparent 34%),
+    var(--interview-bg);
   pointer-events: auto;
   padding: clamp(20px, 5vh, 56px) 24px;
 }
@@ -1743,6 +1863,7 @@ onBeforeUnmount(() => {
   background: rgba(255, 255, 255, 0.98);
   box-shadow: 0 22px 54px rgba(53, 39, 28, 0.18);
   pointer-events: auto;
+  animation: voiceCallEnter 460ms var(--interview-ease) both;
 }
 
 .voice-call-window::before {
@@ -1773,10 +1894,12 @@ onBeforeUnmount(() => {
   font-size: 24px;
   line-height: 1;
   cursor: pointer;
+  transition: transform 180ms var(--interview-ease), background-color 180ms var(--interview-ease);
 }
 
 .voice-window-btn:hover {
   background: rgba(0, 0, 0, 0.05);
+  transform: translateY(-1px);
 }
 
 .voice-avatar-wrap {
@@ -1893,6 +2016,7 @@ onBeforeUnmount(() => {
   font-size: 24px;
   box-shadow: 0 8px 22px rgba(53, 39, 28, 0.08);
   cursor: pointer;
+  transition: transform 180ms var(--interview-ease), box-shadow 180ms var(--interview-ease), background-color 180ms var(--interview-ease), color 180ms var(--interview-ease);
 }
 
 .voice-icon-btn :deep(.feature-icon) {
@@ -1906,6 +2030,13 @@ onBeforeUnmount(() => {
 .voice-icon-btn:hover {
   background: rgba(255, 248, 242, 0.96);
   color: var(--text-title);
+  transform: translateY(-3px);
+  box-shadow: 0 14px 28px rgba(53, 39, 28, 0.12);
+}
+
+.voice-icon-btn:active,
+.voice-window-btn:active {
+  transform: translateY(0) scale(0.96);
 }
 
 .voice-icon-btn:disabled {
@@ -2046,7 +2177,7 @@ onBeforeUnmount(() => {
 }
 
 .voice-call-panel-collapsed {
-  box-shadow: 0 -4px 24px rgba(255, 140, 66, 0.1), 0 2px 12px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--interview-shadow);
 }
 
 .input-container :deep(.el-textarea__inner) {
@@ -2092,6 +2223,12 @@ onBeforeUnmount(() => {
 .send-btn {
   border-radius: 20px;
   padding: 8px 20px;
+  transition: transform 180ms var(--interview-ease), box-shadow 180ms var(--interview-ease);
+}
+
+.send-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(255, 128, 48, 0.2);
 }
 
 .ended-notice {
@@ -2118,7 +2255,7 @@ onBeforeUnmount(() => {
 }
 
 .mic-btn {
-  transition: all 0.3s;
+  transition: transform 180ms var(--interview-ease), box-shadow 180ms var(--interview-ease), background-color 180ms var(--interview-ease);
 }
 
 .mic-btn.is-recording {
@@ -2126,7 +2263,7 @@ onBeforeUnmount(() => {
   box-shadow: 0 0 0 0 rgba(245, 108, 108, 0.6);
 }
 
-[data-theme="dark"] .mic-btn.is-recording {
+:global(html[data-theme="dark"] .mic-btn.is-recording) {
   box-shadow: 0 0 0 0 rgba(245, 108, 108, 0.4);
 }
 
@@ -2171,6 +2308,10 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 767px) {
+  .chat-messages {
+    padding-top: 18px;
+  }
+
   /* 移动端导航栏：单行紧凑布局，所有元素水平排列以节省竖向空间 */
   .session-status-bar {
     padding: 10px 12px;
@@ -2314,7 +2455,7 @@ onBeforeUnmount(() => {
     top: 0;
     align-items: flex-end;
     padding: 0;
-    background: #fff;
+    background: var(--interview-bg);
   }
 
   .voice-call-window {
@@ -2325,7 +2466,11 @@ onBeforeUnmount(() => {
     border-radius: 0;
     box-shadow: none;
     overflow-y: auto;
-    padding: calc(14px + env(safe-area-inset-top)) 24px calc(28px + env(safe-area-inset-bottom));
+    padding: calc(20px + env(safe-area-inset-top)) 24px calc(28px + env(safe-area-inset-bottom));
+  }
+
+  .voice-window-bar {
+    display: none;
   }
 
   .voice-call-window::before {
@@ -2335,7 +2480,7 @@ onBeforeUnmount(() => {
   .voice-avatar-wrap {
     width: min(224px, 62vw);
     height: min(224px, 62vw);
-    margin-top: 24px;
+    margin-top: 8px;
   }
 
   .voice-wave {
@@ -2432,107 +2577,141 @@ onBeforeUnmount(() => {
   }
 }
 
-/* ===== 暗色模式适配 ===== */
-[data-theme="dark"] .session-status-bar {
-  background: rgba(34, 34, 59, 0.98);
-  border-bottom-color: var(--border-card);
-  box-shadow: none;
+:global(html[data-theme="dark"] .interview-session-view) {
+  --interview-bg: #16110e;
+  --interview-bg-soft: #201713;
+  --interview-surface: rgba(38, 29, 24, 0.92);
+  --interview-surface-strong: rgba(34, 25, 21, 0.98);
+  --interview-border: rgba(255, 173, 104, 0.2);
+  --interview-border-strong: rgba(255, 173, 104, 0.34);
+  --interview-shadow: 0 18px 48px rgba(0, 0, 0, 0.36);
+  --interview-shadow-soft: 0 8px 26px rgba(0, 0, 0, 0.28);
+  --interview-ink: #f7e9dc;
+  --interview-muted: #c9a994;
+  background:
+    radial-gradient(circle at 12% 8%, rgba(255, 140, 66, 0.16), transparent 30%),
+    linear-gradient(180deg, var(--interview-bg-soft) 0%, var(--interview-bg) 54%, var(--bg-page) 100%);
 }
 
-[data-theme="dark"] .difficulty-badge.difficulty-1 {
+:global(html[data-theme="dark"] .session-status-bar) {
+  background: var(--interview-surface-strong);
+  border-bottom-color: var(--interview-border);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.25);
+}
+
+:global(html[data-theme="dark"] .difficulty-badge.difficulty-1) {
   background: rgba(76, 175, 80, 0.15);
   color: #81c784;
 }
 
-[data-theme="dark"] .difficulty-badge.difficulty-2 {
+:global(html[data-theme="dark"] .difficulty-badge.difficulty-2) {
   background: rgba(255, 152, 0, 0.15);
   color: #ffb74d;
 }
 
-[data-theme="dark"] .difficulty-badge.difficulty-3 {
+:global(html[data-theme="dark"] .difficulty-badge.difficulty-3) {
   background: rgba(244, 67, 54, 0.15);
   color: #ef9a9a;
 }
 
-[data-theme="dark"] .status-dot {
+:global(html[data-theme="dark"] .status-dot) {
   background: #81c784;
 }
 
-[data-theme="dark"] .status-indicator.ended .status-dot {
+:global(html[data-theme="dark"] .status-indicator.ended .status-dot) {
   background: var(--text-muted);
 }
 
-[data-theme="dark"] .job-target-banner {
-  background: var(--bg-elevated);
-  border-bottom: 1px solid var(--border-card);
-  border-left: 3px solid var(--orange-main);
+:global(html[data-theme="dark"] .job-target-banner) {
+  background: var(--interview-surface-strong);
+  border-bottom: 1px solid var(--interview-border);
 }
 
-[data-theme="dark"] .job-target-banner-title {
+:global(html[data-theme="dark"] .job-target-banner-title) {
   color: #FFB877;
-  margin-left: -3px;
 }
 
-[data-theme="dark"] .job-target-banner-desc {
+:global(html[data-theme="dark"] .job-target-banner-desc) {
   color: var(--text-muted);
 }
 
-[data-theme="dark"] .empty-icon-wrapper {
+:global(html[data-theme="dark"] .empty-icon-wrapper) {
   background: linear-gradient(135deg, var(--orange-light-bg) 0%, rgba(255, 140, 66, 0.06) 100%);
 }
 
-[data-theme="dark"] .ended-notice {
-  background: rgba(0, 0, 0, 0.3);
-  border-top-color: var(--border-card);
+:global(html[data-theme="dark"] .assistant-bubble),
+:global(html[data-theme="dark"] .input-container),
+:global(html[data-theme="dark"] .voice-call-panel) {
+  background: var(--interview-surface-strong);
+  border-color: var(--interview-border);
 }
 
-[data-theme="dark"] .ended-notice .el-icon {
+:global(html[data-theme="dark"] .message-avatar) {
+  background: var(--interview-surface);
+  border-color: var(--interview-border);
+}
+
+:global(html[data-theme="dark"] .date-separator-text) {
+  background: var(--interview-bg);
+}
+
+:global(html[data-theme="dark"] .ended-notice) {
+  background: rgba(22, 17, 14, 0.86);
+  border-top-color: var(--interview-border);
+}
+
+:global(html[data-theme="dark"] .ended-notice .el-icon) {
   color: var(--color-success);
 }
 
-[data-theme="dark"] .voice-call-window {
-  background: rgba(31, 31, 31, 0.98);
+:global(html[data-theme="dark"] .voice-call-window) {
+  background: var(--interview-surface-strong);
+  border-color: var(--interview-border);
   box-shadow: 0 18px 42px rgba(0, 0, 0, 0.38);
 }
 
-[data-theme="dark"] .voice-call-overlay {
-  background: var(--bg-page);
+:global(html[data-theme="dark"] .voice-call-overlay) {
+  background:
+    radial-gradient(circle at 50% 10%, rgba(255, 140, 66, 0.14), transparent 34%),
+    var(--interview-bg);
 }
 
-[data-theme="dark"] .voice-call-window::before {
+:global(html[data-theme="dark"] .voice-call-window::before) {
   background: rgba(255, 140, 66, 0.1);
 }
 
-[data-theme="dark"] .voice-window-btn:hover,
-[data-theme="dark"] .voice-icon-btn:hover {
+:global(html[data-theme="dark"] .voice-window-btn:hover),
+:global(html[data-theme="dark"] .voice-icon-btn:hover) {
   background: rgba(255, 255, 255, 0.08);
 }
 
-[data-theme="dark"] .voice-icon-btn {
-  border-color: var(--border-card);
+:global(html[data-theme="dark"] .voice-icon-btn) {
+  border-color: var(--interview-border);
   background: rgba(48, 48, 48, 0.92);
+  color: #f7e9dc;
 }
 
-[data-theme="dark"] .voice-hangup-btn {
+:global(html[data-theme="dark"] .voice-hangup-btn) {
   border-color: #ff5a54;
   background: #ff5a54;
 }
 
-[data-theme="dark"] .voice-wave span {
+:global(html[data-theme="dark"] .voice-wave span) {
   background: #d8d8d8;
 }
 
-[data-theme="dark"] .message-feedback-card {
+:global(html[data-theme="dark"] .message-feedback-card) {
   background: rgba(255, 140, 66, 0.06);
+  border-color: rgba(255, 184, 119, 0.2);
 }
 
-[data-theme="dark"] .thinking-bubble {
+:global(html[data-theme="dark"] .thinking-bubble) {
   border-color: rgba(255, 184, 119, 0.22);
   background: linear-gradient(135deg, rgba(255, 140, 66, 0.08) 0%, var(--bg-card) 100%);
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.22);
 }
 
-[data-theme="dark"] .thinking-bubble::after {
+:global(html[data-theme="dark"] .thinking-bubble::after) {
   background: linear-gradient(
     110deg,
     transparent 0%,
@@ -2543,11 +2722,28 @@ onBeforeUnmount(() => {
   );
 }
 
-[data-theme="dark"] .thinking-dot {
+:global(html[data-theme="dark"] .thinking-dot) {
   background: #ffb877;
 }
 
 @media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .session-status-bar,
+  .conversation-surface,
+  .input-container,
+  .voice-call-panel,
+  .voice-call-window,
+  .message-entrance {
+    animation: none;
+  }
+
+  /* sessionSurfaceIn, messageFloatIn, voiceCallEnter */
   .thinking-bubble,
   .thinking-bubble::after,
   .thinking-indicator,

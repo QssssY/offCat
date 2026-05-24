@@ -158,6 +158,36 @@ const handleLogout = () => {
   background: var(--bg-page);
 }
 
+:global(html[data-theme="dark"] .admin-layout) {
+  --bg-page: #171D26;
+  --bg-card: #202838;
+  --bg-card-hover: #263044;
+  --bg-input: #263044;
+  --bg-header: #1B2230;
+  --bg-elevated: #222B3A;
+  --text-title: #F2F5FA;
+  --text-body: #C5CDD8;
+  --text-muted: #8994A6;
+  --border-card: rgba(148, 163, 184, 0.22);
+  --border-input: rgba(148, 163, 184, 0.28);
+  --border-divider: rgba(148, 163, 184, 0.16);
+  --shadow-card: 0 2px 12px rgba(0, 0, 0, 0.28);
+  --shadow-hover: 0 4px 16px rgba(0, 0, 0, 0.36);
+  /* 管理端局部接管 Element Plus 暗色变量，避免用户端暖棕主题扩散到运营后台组件。 */
+  --el-bg-color: #171D26;
+  --el-bg-color-overlay: #202838;
+  --el-bg-color-page: #171D26;
+  --el-text-color-primary: #F2F5FA;
+  --el-text-color-regular: #C5CDD8;
+  --el-text-color-secondary: #8994A6;
+  --el-text-color-placeholder: #6F7A8C;
+  --el-border-color: rgba(148, 163, 184, 0.22);
+  --el-border-color-light: rgba(148, 163, 184, 0.16);
+  --el-border-color-lighter: rgba(148, 163, 184, 0.1);
+  --el-fill-color-blank: #202838;
+  --el-fill-color-light: #263044;
+}
+
 .admin-header {
   height: 60px;
   padding: 0 24px;

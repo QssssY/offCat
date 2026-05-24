@@ -433,9 +433,11 @@
 
             <div class="job-match-actions">
               <n-button type="primary" :loading="jobMatchLoading" @click="submitJobMatchAnalysis">
+                <FeatureIcon name="job-match-analysis" size="xs" class="button-feature-icon" />
                 {{ jobMatchLoading ? '分析中...' : '开始分析' }}
               </n-button>
               <n-button secondary :loading="polishLoading" @click="triggerAiPolishPlaceholder">
+                <FeatureIcon name="resume-optimization" size="xs" class="button-feature-icon" />
                 {{ polishLoading ? '润色中...' : '去 AI 润色' }}
               </n-button>
             </div>
@@ -2377,6 +2379,10 @@ const exportResumeImage = async () => {
   gap: 12px;
   margin-top: 16px;
   flex-wrap: wrap;
+}
+
+.button-feature-icon {
+  margin-right: 4px;
 }
 
 .job-match-result {

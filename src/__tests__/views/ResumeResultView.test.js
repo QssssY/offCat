@@ -1,5 +1,7 @@
 import { flushPromises, shallowMount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { reactive } from 'vue'
 import ResumeResultView from '@/views/resume/ResultView.vue'
 import { getResumeTask, retryResumeTask } from '@/api/resume'
@@ -93,6 +95,9 @@ const mountView = () => shallowMount(ResumeResultView, {
   },
 })
 
+const viewSource = () =>
+  readFileSync(resolve(process.cwd(), 'src/views/resume/ResultView.vue'), 'utf8')
+
 describe('ResumeResultView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -161,5 +166,12 @@ describe('ResumeResultView', () => {
 
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:image-url')
     expect(message.error).toHaveBeenCalled()
+  })
+
+  it('renders local feature icons on job match analysis and AI polish action buttons', () => {
+    const source = viewSource()
+
+    expect(source).toContain('<FeatureIcon name="job-match-analysis" size="xs" class="button-feature-icon" />')
+    expect(source).toContain('<FeatureIcon name="resume-optimization" size="xs" class="button-feature-icon" />')
   })
 })

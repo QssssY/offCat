@@ -1,5 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import ElementPlus, { ElMessageBox } from 'element-plus'
 import SettingsView from '@/views/settings/SettingsView.vue'
 import { getGrowthOverview } from '@/api/growth'
@@ -111,6 +113,9 @@ const mountView = () => {
 
 const waitForSecurityTransition = () => new Promise((resolve) => setTimeout(resolve, 220))
 
+const settingsViewSource = () =>
+  readFileSync(resolve(process.cwd(), 'src/views/settings/SettingsView.vue'), 'utf8')
+
 describe('SettingsView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -146,6 +151,7 @@ describe('SettingsView', () => {
   afterEach(() => {
     currentWrapper?.unmount()
     currentWrapper = null
+    vi.useRealTimers()
   })
 
   it('renders all settings sections', async () => {
@@ -168,6 +174,18 @@ describe('SettingsView', () => {
     expect(wrapper.text()).toContain('新手引导')
     expect(wrapper.text()).toContain('会员与额度')
   }, 15000)
+
+  it('uses readable local feature icon sizes inside the personal settings center', () => {
+    const source = settingsViewSource()
+
+    expect(source).toContain('<FeatureIcon :name="section.icon" size="md" class="settings-nav-icon" />')
+    expect(source).toContain('<FeatureIcon name="voice-interview" size="md" class="voice-preview-icon" />')
+    expect(source).toContain('<FeatureIcon name="account-security" size="md" class="settings-alert-icon" />')
+    expect(source).toContain('<FeatureIcon name="growth-radar" size="md" class="settings-refresh-icon" />')
+    expect(source).toContain('<FeatureIcon name="account-security" size="md" />')
+    expect(source).toContain('.settings-nav-item:hover .settings-nav-icon')
+    expect(source).toContain('width: 48px;')
+  })
 
   it('shows subscription plan name without exposing internal identifiers', async () => {
     const wrapper = mountView()
@@ -478,7 +496,7 @@ describe('SettingsView', () => {
     expect(clearUserInfo).not.toHaveBeenCalled()
   }, 15000)
 
-  it('loads security question and keeps account delete button disabled during cooldown', async () => {
+  it('loads security question without blocking account delete form before confirmation dialog', async () => {
     const wrapper = mountView()
     await flushPromises()
 
@@ -490,8 +508,30 @@ describe('SettingsView', () => {
     expect(getCurrentAccountSecurityQuestion).toHaveBeenCalled()
     expect(wrapper.text()).toContain('注销后不可恢复')
     expect(wrapper.text()).toContain('你的出生城市是哪里？')
-    expect(wrapper.find('.account-delete-form button.el-button--danger').attributes('disabled')).toBeDefined()
+    const submitButton = wrapper.find('.account-delete-form button.el-button--danger')
+    expect(submitButton.attributes('disabled')).toBeUndefined()
+    expect(submitButton.text()).toContain('确认注销')
   }, 15000)
+
+  it('starts account deletion countdown only inside the confirmation dialog', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    vi.useFakeTimers()
+
+    expect(wrapper.vm.accountDeleteCountdown).toBe(0)
+
+    wrapper.vm.onDialogOpen()
+
+    expect(wrapper.vm.accountDeleteCountdown).toBe(15)
+    expect(wrapper.vm.dialogConfirmButtonText).toBe('等待 15 秒')
+
+    vi.advanceTimersByTime(3000)
+    expect(wrapper.vm.accountDeleteCountdown).toBe(12)
+
+    vi.advanceTimersByTime(12000)
+    expect(wrapper.vm.accountDeleteCountdown).toBe(0)
+    expect(wrapper.vm.dialogConfirmButtonText).toBe('确认注销')
+  })
 
   it('submits account deletion from security tab after cooldown with existing payload', async () => {
     const wrapper = mountView()
@@ -501,7 +541,6 @@ describe('SettingsView', () => {
     wrapper.vm.handleSecurityModeChange('accountDeletion')
     await flushPromises()
     await waitForSecurityTransition()
-    wrapper.vm.accountDeleteCountdown = 0
     wrapper.vm.accountDeleteForm = {
       oldPassword: 'current-password',
       confirmPassword: 'current-password',
@@ -512,6 +551,7 @@ describe('SettingsView', () => {
     await wrapper.vm.handleAccountDeleteSubmit()
     expect(deleteAccount).not.toHaveBeenCalled()
 
+    wrapper.vm.accountDeleteCountdown = 0
     wrapper.vm.accountDeleteConfirmText = wrapper.vm.accountDeleteExpectedText
     await wrapper.vm.handleDialogConfirm()
 
@@ -530,7 +570,6 @@ describe('SettingsView', () => {
     wrapper.vm.handleSecurityModeChange('accountDeletion')
     await flushPromises()
     await waitForSecurityTransition()
-    wrapper.vm.accountDeleteCountdown = 0
     wrapper.vm.accountDeleteForm = {
       oldPassword: 'current-password',
       confirmPassword: 'current-password',

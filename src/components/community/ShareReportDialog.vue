@@ -1,9 +1,11 @@
 <template>
+  <!-- 报告页有入场 transform，弹窗挂到 body 可避免只出现遮罩、面板被定位到不可见区域。 -->
   <el-dialog
     :model-value="visible"
     title="分享面试报告到社区"
     width="600px"
     :close-on-click-modal="false"
+    :append-to-body="true"
     @update:model-value="$emit('update:visible', $event)"
     @open="initContent"
   >
@@ -62,7 +64,7 @@ const props = defineProps({
   sessionData: { type: Object, default: null }
 })
 
-const emit = defineEmits(['update:visible', 'success'])
+const emit = defineEmits(['update:visible'])
 
 const userText = ref('')
 const reportSummary = ref('')
@@ -182,7 +184,6 @@ async function handleSubmit() {
     })
     ElMessage.success('分享成功')
     emit('update:visible', false)
-    emit('success')
   } catch {
     ElMessage.error('分享失败，请重试')
   } finally {

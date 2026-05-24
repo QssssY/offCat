@@ -1,5 +1,8 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import CommunityView from '@/views/community/CommunityView.vue'
 import { getPostList, togglePostLike, togglePostFavorite, getInteractionUnreadCount } from '@/api/community'
 import { ElMessage } from 'element-plus'
@@ -62,6 +65,8 @@ vi.mock('element-plus', async () => {
 // ── Helpers ────────────────────────────────────────────────────────────
 
 const mountedWrappers = []
+const viewSource = () =>
+  readFileSync(resolve(process.cwd(), 'src/views/community/CommunityView.vue'), 'utf8')
 
 const mountView = () => {
   const wrapper = mount(CommunityView, {
@@ -72,6 +77,8 @@ const mountView = () => {
           template: '<div class="post-card-stub" @like="$emit(\'like\')" @favorite="$emit(\'favorite\')" />'
         },
         PostEditor: {
+          name: 'PostEditor',
+          emits: ['success', 'published', 'cancel'],
           template: '<div class="post-editor-stub" />'
         },
         ElDialog: {
@@ -117,6 +124,69 @@ describe('CommunityView', () => {
   afterEach(() => {
     mountedWrappers.splice(0).forEach((wrapper) => {
       if (wrapper.exists()) wrapper.unmount()
+    })
+  })
+
+  describe('post editor completion event ownership', () => {
+    const openEditor = async (wrapper) => {
+      wrapper.vm.showEditor = true
+      await nextTick()
+      return wrapper.findComponent({ name: 'PostEditor' })
+    }
+
+    it('ignores the legacy generic success event to avoid duplicate success toasts', async () => {
+      const wrapper = mountView()
+      await flushPromises()
+      getPostList.mockClear()
+
+      const editor = await openEditor(wrapper)
+      editor.vm.$emit('success')
+      await nextTick()
+
+      expect(wrapper.vm.showEditor).toBe(true)
+      expect(getPostList).not.toHaveBeenCalled()
+      expect(ElMessage.success).not.toHaveBeenCalled()
+    })
+
+    it('closes and refreshes only when PostEditor emits the published business event', async () => {
+      const wrapper = mountView()
+      await flushPromises()
+      getPostList.mockClear()
+
+      const editor = await openEditor(wrapper)
+      editor.vm.$emit('published')
+      await flushPromises()
+
+      expect(wrapper.vm.showEditor).toBe(false)
+      expect(getPostList).toHaveBeenCalledWith({
+        pageNum: 1,
+        pageSize: 8,
+        sort: 'latest'
+      })
+      expect(ElMessage.success).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('floating action button visual polish', () => {
+    it('uses readable medium icons for refresh and new post actions', async () => {
+      const wrapper = mountView()
+      await flushPromises()
+
+      expect(wrapper.find('.fab-refresh .feature-icon.size-md').exists()).toBe(true)
+      expect(wrapper.find('.fab-post .feature-icon.size-md').exists()).toBe(true)
+      expect(wrapper.find('.fab-refresh .feature-icon.size-sm').exists()).toBe(false)
+      expect(wrapper.find('.fab-post .feature-icon.size-sm').exists()).toBe(false)
+    })
+
+    it('uses a light fab surface with purposeful hover motion and reduced-motion fallback', () => {
+      const source = viewSource()
+
+      expect(source).toContain('--community-fab-bg')
+      expect(source).toContain('animation: fabRefreshSpin 0.75s linear infinite')
+      expect(source).toContain('.fab-post:hover')
+      expect(source).toContain('translate3d(0, -4px, 0)')
+      expect(source).toContain('@media (prefers-reduced-motion: reduce)')
+      expect(source).not.toMatch(/\.fab-button\s*\{[\s\S]*?background:\s*linear-gradient\(135deg,\s*var\(--orange-main\)[\s\S]*?var\(--orange-deep\)/)
     })
   })
 

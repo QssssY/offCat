@@ -1,5 +1,8 @@
 <template>
-  <div class="notification-type-icon" :class="[`type-${meta.key}`, `size-${size}`]">
+  <div
+    class="notification-type-icon"
+    :class="[`type-${meta.key}`, `size-${size}`, { 'notification-icon-halo': halo }]"
+  >
     <FeatureIcon :name="meta.featureIcon" :label="meta.label" :size="iconSize" />
   </div>
 </template>
@@ -17,57 +20,75 @@ const props = defineProps({
   size: {
     type: String,
     default: 'md'
+  },
+  halo: {
+    type: Boolean,
+    default: false
   }
 })
 
 const meta = computed(() => getNotificationTypeMeta(props.type))
-const iconSize = computed(() => (props.size === 'sm' ? 'md' : 'lg'))
+const iconSize = computed(() => (props.size === 'sm' ? 'sm' : 'md'))
 </script>
 
 <style scoped>
 .notification-type-icon {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  border-radius: 10px;
-  overflow: hidden;
+  border-radius: 16px;
+  overflow: visible;
+  transform-origin: center;
+  transition:
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.notification-icon-halo::before {
+  position: absolute;
+  inset: 2px;
+  content: '';
+  border: 1px solid rgba(255, 176, 122, 0.22);
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 28% 22%, rgba(255, 255, 255, 0.5), transparent 42%),
+    rgba(255, 247, 239, 0.36);
+  box-shadow:
+    0 8px 22px rgba(132, 75, 32, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.42);
+  pointer-events: none;
+}
+
+.notification-type-icon :deep(.feature-icon) {
+  position: relative;
+  z-index: 1;
 }
 
 .size-sm {
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
 }
 
 .size-md {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
 }
 
-.type-resume {
-  background: rgba(255, 140, 66, 0.1);
+:global(html[data-theme="dark"]) .notification-icon-halo::before {
+  border-color: rgba(255, 176, 122, 0.18);
+  background:
+    radial-gradient(circle at 28% 22%, rgba(255, 176, 122, 0.14), transparent 44%),
+    rgba(255, 140, 66, 0.08);
+  box-shadow:
+    0 8px 22px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 220, 190, 0.08);
 }
 
-.type-polish,
-.type-update {
-  background: rgba(64, 158, 255, 0.1);
-}
-
-.type-interview {
-  background: rgba(103, 194, 58, 0.1);
-}
-
-.type-quota,
-.type-maintenance {
-  background: rgba(245, 108, 108, 0.1);
-}
-
-.type-system,
-.type-unknown {
-  background: rgba(144, 147, 153, 0.1);
-}
-
-.type-activity {
-  background: rgba(230, 162, 60, 0.12);
+@media (prefers-reduced-motion: reduce) {
+  .notification-type-icon {
+    transition-duration: 0.01ms;
+  }
 }
 </style>

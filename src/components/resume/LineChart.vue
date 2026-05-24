@@ -53,7 +53,7 @@ const chartData = computed(() => ({
     backgroundColor: ds.backgroundColor || 'rgba(255, 140, 66, 0.1)',
     borderWidth: 2,
     pointBackgroundColor: ds.borderColor || '#FF8C42',
-    pointBorderColor: isDark.value ? '#1a1a2e' : '#fff',
+    pointBorderColor: isDark.value ? '#1F1511' : '#fff',
     pointBorderWidth: 2,
     pointRadius: 4,
     pointHoverRadius: 6,
@@ -77,12 +77,12 @@ const chartOptions = computed(() => ({
   scales: {
     x: {
       grid: { color: isDark.value ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)' },
-      ticks: { font: { size: 11 }, color: isDark.value ? '#7A7A90' : '#999' }
+      ticks: { font: { size: 11 }, color: isDark.value ? '#CAA189' : '#999' }
     },
     y: {
       min: 0,
       max: 100,
-      ticks: { stepSize: 20, font: { size: 11 }, color: isDark.value ? '#7A7A90' : '#999' },
+      ticks: { stepSize: 20, font: { size: 11 }, color: isDark.value ? '#CAA189' : '#999' },
       grid: { color: isDark.value ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)' }
     }
   }

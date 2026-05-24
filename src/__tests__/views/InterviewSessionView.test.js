@@ -409,6 +409,47 @@ describe('InterviewSessionView', () => {
     expect(source).toContain('background: rgba(255, 140, 66, 0.045);')
   })
 
+  it('exposes refined session surface hooks for the redesigned conversation UI', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('.interview-session-shell').exists()).toBe(true)
+    expect(wrapper.find('.session-main-surface').exists()).toBe(true)
+    expect(wrapper.find('.conversation-surface').exists()).toBe(true)
+    expect(wrapper.findAll('.message-row.message-entrance')).toHaveLength(2)
+    expect(wrapper.find('.assistant-row .message-role-pill').exists()).toBe(true)
+    expect(wrapper.find('.user-row .message-role-pill').exists()).toBe(true)
+  })
+
+  it('keeps interview session dark mode and motion rules scoped correctly', () => {
+    const source = viewSource()
+
+    expect(source).toContain(':global(html[data-theme="dark"] .interview-session-view)')
+    expect(source).toContain('@keyframes sessionSurfaceIn')
+    expect(source).toContain('@keyframes messageFloatIn')
+    expect(source).toContain('@keyframes voiceCallEnter')
+    expect(source).toContain('animation: messageFloatIn')
+    expect(source).toContain('prefers-reduced-motion: reduce')
+    expect(source).toContain('sessionSurfaceIn,')
+    expect(source).not.toMatch(/\n\[data-theme="dark"\]\s+\.session-status-bar/)
+  })
+
+  it('keeps the first assistant message fully visible below the top status bar', () => {
+    const source = viewSource()
+
+    expect(source).toContain('scroll-padding-top: 24px;')
+    expect(source).toMatch(/\.chat-messages\s*\{[\s\S]*padding:\s*24px 16px 12px 0;/)
+    expect(source).toMatch(/@media \(max-width: 767px\)[\s\S]*\.chat-messages\s*\{[\s\S]*padding-top:\s*18px;/)
+  })
+
+  it('hides duplicate top voice window controls on mobile because dock controls remain available', () => {
+    const source = viewSource()
+
+    expect(source).toContain('@media (max-width: 767px)')
+    expect(source).toMatch(/@media \(max-width: 767px\)[\s\S]*\.voice-window-bar\s*\{[\s\S]*display:\s*none;/)
+    expect(source).toMatch(/@media \(max-width: 767px\)[\s\S]*\.voice-dock-actions\s*\{/)
+  })
+
   it('starts voice call microphone without toggling text speech input', async () => {
     getInterviewSession.mockResolvedValue({
       data: {

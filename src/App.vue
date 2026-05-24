@@ -41,15 +41,15 @@ const naiveThemeOverrides = computed(() => {
       primaryColorPressed: '#E67A35',
       primaryColorSuppl: '#FF8C42',
       borderRadius: '8px',
-      bodyColor: isDark ? '#201510' : '#FFF8F3',
+      bodyColor: isDark ? '#1F1511' : '#FFF8F3',
       cardColor: isDark ? '#2A1B14' : '#FFFFFF',
       modalColor: isDark ? '#2A1B14' : '#FFFFFF',
       popoverColor: isDark ? '#2A1B14' : '#FFFFFF',
       textColorBase: isDark ? '#FFF3E8' : '#2F2F2F',
       textColor1: isDark ? '#FFF3E8' : '#2F2F2F',
-      textColor2: isDark ? '#E8C9B5' : '#555555',
-      textColor3: isDark ? '#B9957E' : '#888888',
-      borderColor: isDark ? 'rgba(255, 140, 66, 0.22)' : '#F3D8C7'
+      textColor2: isDark ? '#F0D1BD' : '#555555',
+      textColor3: isDark ? '#CAA189' : '#888888',
+      borderColor: isDark ? 'rgba(255, 175, 108, 0.24)' : '#F3D8C7'
     },
     Button: {
       borderRadiusLarge: '999px',
