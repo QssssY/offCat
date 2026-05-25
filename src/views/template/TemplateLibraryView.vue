@@ -33,13 +33,16 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, defineAsyncComponent } from 'vue'
 import { useRouter } from 'vue-router'
 import { industries } from '@/data/industries.js'
 import { templates } from '@/data/templates.js'
 import IndustryFilter from '@/components/template/IndustryFilter.vue'
 import TemplateCard from '@/components/template/TemplateCard.vue'
-import TemplatePreviewDialog from '@/components/template/TemplatePreviewDialog.vue'
+
+const TemplatePreviewDialog = defineAsyncComponent(() =>
+  import('@/components/template/TemplatePreviewDialog.vue')
+)
 
 const router = useRouter()
 const selectedIndustry = ref('all')

@@ -337,12 +337,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, defineAsyncComponent } from 'vue'
 import { getGrowthOverview, getInterviewRadar } from '@/api/growth'
 import FeatureIcon from '@/components/common/FeatureIcon.vue'
-import LineChart from '@/components/resume/LineChart.vue'
-import RadarChart from '@/components/resume/RadarChart.vue'
-import RadarScorePanel from '@/components/resume/RadarScorePanel.vue'
+
+const LineChart = defineAsyncComponent(() => import('@/components/resume/LineChart.vue'))
+const RadarChart = defineAsyncComponent(() => import('@/components/resume/RadarChart.vue'))
+const RadarScorePanel = defineAsyncComponent(() => import('@/components/resume/RadarScorePanel.vue'))
 
 /** 加载状态 */
 const loading = ref(true)
@@ -847,6 +848,11 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
+  min-height: 340px;
+}
+
+.chart-card :deep(.line-chart-wrapper) {
+  min-height: 260px;
 }
 
 .chart-empty {
@@ -1158,6 +1164,11 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
+  min-height: 360px;
+}
+
+.radar-chart-col :deep(.radar-chart-wrapper) {
+  min-height: 320px;
 }
 
 .radar-session-info {
@@ -1168,6 +1179,7 @@ onMounted(() => {
 
 .radar-panel-col {
   min-width: 0;
+  min-height: 320px;
 }
 
 .radar-trend-card {
@@ -1175,6 +1187,11 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
+  min-height: 340px;
+}
+
+.radar-trend-card :deep(.line-chart-wrapper) {
+  min-height: 260px;
 }
 
 .sub-title {

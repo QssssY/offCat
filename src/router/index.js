@@ -1,6 +1,11 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { isLoggedIn } from '@/utils/auth'
 import { hasAdminRole, isAdminLoggedIn } from '@/utils/adminAuth'
+import {
+  communityRouteLoader,
+  growthCenterRouteLoader,
+  templateLibraryRouteLoader
+} from '@/router/routeLoaders'
 
 // 路由表说明：
 // 1. 用户端保持现有路由结构。
@@ -134,7 +139,7 @@ const routes = [
   {
     path: '/growth',
     name: 'GrowthCenter',
-    component: () => import('@/views/growth/GrowthCenterView.vue'),
+    component: growthCenterRouteLoader,
     meta: { requiresAuth: true, useLayout: true }
   },
   {
@@ -200,7 +205,7 @@ const routes = [
   {
     path: '/templates',
     name: 'TemplateLibrary',
-    component: () => import('@/views/template/TemplateLibraryView.vue'),
+    component: templateLibraryRouteLoader,
     meta: { requiresAuth: true, useLayout: true }
   },
   {
@@ -212,7 +217,7 @@ const routes = [
   {
     path: '/community',
     name: 'Community',
-    component: () => import('@/views/community/CommunityView.vue'),
+    component: communityRouteLoader,
     meta: { requiresAuth: true, useLayout: true }
   },
   {

@@ -131,6 +131,7 @@ describe('CommunityView', () => {
     const openEditor = async (wrapper) => {
       wrapper.vm.showEditor = true
       await nextTick()
+      await flushPromises()
       return wrapper.findComponent({ name: 'PostEditor' })
     }
 
@@ -187,6 +188,19 @@ describe('CommunityView', () => {
       expect(source).toContain('translate3d(0, -4px, 0)')
       expect(source).toContain('@media (prefers-reduced-motion: reduce)')
       expect(source).not.toMatch(/\.fab-button\s*\{[\s\S]*?background:\s*linear-gradient\(135deg,\s*var\(--orange-main\)[\s\S]*?var\(--orange-deep\)/)
+    })
+  })
+
+  describe('route switch performance', () => {
+    it('lazy-loads the post editor and isolates rendered feed cards', () => {
+      const source = viewSource()
+
+      expect(source).toContain('defineAsyncComponent')
+      expect(source).toContain("const PostEditor = defineAsyncComponent(() => import('@/components/community/PostEditor.vue'))")
+      expect(source).toContain('v-if="showEditor"')
+      expect(source).toContain('const pageSize = 8')
+      expect(source).toContain('content-visibility: auto')
+      expect(source).toContain('contain-intrinsic-size')
     })
   })
 

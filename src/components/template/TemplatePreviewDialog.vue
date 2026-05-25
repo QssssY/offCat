@@ -7,6 +7,7 @@
   >
     <div class="preview-container" v-if="template">
       <div class="preview-paper">
+        <component :is="'style'" v-if="templateStyle" v-html="templateStyle" />
         <TemplateRenderer
           :template-id="template.id"
           :resume-data="sampleData"
@@ -21,10 +22,11 @@
 </template>
 
 <script setup>
+import { ref, watch } from 'vue'
 import TemplateRenderer from './TemplateRenderer.vue'
 import { defaultResumeData } from '@/data/contents/_default.js'
 
-defineProps({
+const props = defineProps({
   visible: { type: Boolean, default: false },
   template: { type: Object, default: null }
 })
@@ -32,6 +34,42 @@ defineProps({
 defineEmits(['update:visible', 'use-template'])
 
 const sampleData = defaultResumeData
+const templateStyle = ref('')
+let loadSequence = 0
+
+async function loadTemplateStyle(templateId) {
+  const sequence = ++loadSequence
+
+  if (!templateId) {
+    templateStyle.value = ''
+    return
+  }
+
+  try {
+    const styleModule = await import(`@/data/styles/${templateId}.css?raw`)
+    if (sequence === loadSequence) {
+      templateStyle.value = styleModule.default
+    }
+  } catch (error) {
+    if (sequence === loadSequence) {
+      templateStyle.value = ''
+    }
+    console.error('加载模板预览样式失败:', error)
+  }
+}
+
+watch(
+  () => [props.visible, props.template?.id],
+  ([visible, templateId]) => {
+    if (visible) {
+      loadTemplateStyle(templateId)
+      return
+    }
+
+    templateStyle.value = ''
+  },
+  { immediate: true }
+)
 </script>
 
 <style scoped>

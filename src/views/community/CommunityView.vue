@@ -179,13 +179,14 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, defineAsyncComponent } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getPostList, togglePostLike, togglePostFavorite, getInteractionUnreadCount } from '@/api/community'
 import FeatureIcon from '@/components/common/FeatureIcon.vue'
 import PostCard from '@/components/community/PostCard.vue'
-import PostEditor from '@/components/community/PostEditor.vue'
+
+const PostEditor = defineAsyncComponent(() => import('@/components/community/PostEditor.vue'))
 
 const router = useRouter()
 
@@ -616,6 +617,8 @@ onUnmounted(() => {
 
 .post-feed-card {
   display: block;
+  content-visibility: auto;
+  contain-intrinsic-size: 180px;
 }
 
 /* 【骨架屏】闪光扫光动画（shimmer），视觉更高级 */

@@ -190,4 +190,23 @@ describe('AppHeader', () => {
     expect(source).not.toMatch(/\.panel-item-icon\.type-(resume|polish|interview|quota|system)\s*\{[\s\S]*?background:/)
     expect(source).not.toContain('transition: all')
   })
+
+  it('prefetches only high-frequency user navigation routes on intent signals', () => {
+    const source = headerSource()
+    const routeLoaderSource = readFileSync(resolve(process.cwd(), 'src/router/routeLoaders.js'), 'utf8')
+
+    expect(source).toContain('prefetchUserRoute')
+    expect(source).toContain("@mouseenter=\"prefetchNavigationRoute('/templates')\"")
+    expect(source).toContain("@mouseenter=\"prefetchNavigationRoute('/community')\"")
+    expect(source).toContain("@mouseenter=\"prefetchNavigationRoute('/growth')\"")
+    expect(source).toContain("@touchstart.passive=\"prefetchNavigationRoute('/templates')\"")
+    expect(source).toContain("@touchstart.passive=\"prefetchNavigationRoute('/community')\"")
+    expect(source).toContain("@touchstart.passive=\"prefetchNavigationRoute('/growth')\"")
+    expect(routeLoaderSource).toContain("'/templates': templateLibraryRouteLoader")
+    expect(routeLoaderSource).toContain("'/community': communityRouteLoader")
+    expect(routeLoaderSource).toContain("'/growth': growthCenterRouteLoader")
+    expect(routeLoaderSource).not.toContain("'/offer'")
+    expect(routeLoaderSource).not.toContain("'/resume/upload'")
+    expect(source).not.toMatch(/rel=["']preload["'][^>]*routes?/)
+  })
 })

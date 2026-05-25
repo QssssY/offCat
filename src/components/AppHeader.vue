@@ -46,6 +46,9 @@
         to="/templates"
         class="nav-link"
         :class="{ active: isTemplateActive }"
+        @mouseenter="prefetchNavigationRoute('/templates')"
+        @focus="prefetchNavigationRoute('/templates')"
+        @touchstart.passive="prefetchNavigationRoute('/templates')"
       >
         <FeatureIcon name="template-library" size="xs" class="nav-feature-icon" critical />
         模板库
@@ -57,6 +60,9 @@
         to="/community"
         class="nav-link"
         :class="{ active: isCommunityActive }"
+        @mouseenter="prefetchNavigationRoute('/community')"
+        @focus="prefetchNavigationRoute('/community')"
+        @touchstart.passive="prefetchNavigationRoute('/community')"
       >
         <FeatureIcon name="community-hub" size="xs" class="nav-feature-icon" critical />
         社区
@@ -68,6 +74,9 @@
         to="/growth"
         class="nav-link"
         :class="{ active: isGrowthActive }"
+        @mouseenter="prefetchNavigationRoute('/growth')"
+        @focus="prefetchNavigationRoute('/growth')"
+        @touchstart.passive="prefetchNavigationRoute('/growth')"
       >
         <FeatureIcon name="growth-center" size="xs" class="nav-feature-icon" critical />
         成长中心
@@ -339,6 +348,8 @@
           v-if="isLoggedIn"
           to="/templates"
           class="mobile-nav-link"
+          @touchstart.passive="prefetchNavigationRoute('/templates')"
+          @focus="prefetchNavigationRoute('/templates')"
           @click="drawerVisible = false"
         >
           <FeatureIcon name="template-library" size="sm" />
@@ -348,6 +359,8 @@
           v-if="isLoggedIn"
           to="/community"
           class="mobile-nav-link"
+          @touchstart.passive="prefetchNavigationRoute('/community')"
+          @focus="prefetchNavigationRoute('/community')"
           @click="drawerVisible = false"
         >
           <FeatureIcon name="community-hub" size="sm" />
@@ -357,6 +370,8 @@
           v-if="isLoggedIn"
           to="/growth"
           class="mobile-nav-link"
+          @touchstart.passive="prefetchNavigationRoute('/growth')"
+          @focus="prefetchNavigationRoute('/growth')"
           @click="drawerVisible = false"
         >
           <FeatureIcon name="growth-center" size="sm" />
@@ -491,6 +506,7 @@ import OptimizedImage from "@/components/common/OptimizedImage.vue";
 import NotificationTypeIcon from "@/components/notification/NotificationTypeIcon.vue";
 import { formatNotificationTime, getNotificationTypeMeta, isAdminAnnouncementType } from "@/utils/notificationMeta";
 import { optimizedImages } from "@/utils/optimizedImages";
+import { prefetchUserRoute } from "@/router/routeLoaders";
 import { getSettingsPreferences, SETTINGS_PREFERENCES_UPDATED_EVENT } from "@/utils/settingsPreferences";
 
 const router = useRouter();
@@ -507,6 +523,12 @@ const nicknameForm = ref({ nickname: "" });
 const isLoggedIn = computed(() => userStore.isLoggedIn());
 
 const notificationRealtimeEnabled = computed(() => settingsPreferences.value.notificationRealtimeEnabled !== false);
+
+const prefetchNavigationRoute = (path) => {
+  prefetchUserRoute(path)?.catch((error) => {
+    console.debug("导航路由预取失败", path, error);
+  });
+};
 
 // ===== 消息通知相关状态 =====
 /** 未读通知数量 */

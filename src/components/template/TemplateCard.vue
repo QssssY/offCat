@@ -1,19 +1,11 @@
 <template>
   <div class="template-card" @click="$emit('use')">
     <div class="card-thumbnail">
-      <div class="thumbnail-container" ref="containerRef">
-        <div
-          class="thumbnail-wrapper"
-          :style="{ transform: `scale(${scaleRatio})` }"
-        >
-          <!-- 注入模板专属CSS，确保缩略图与编辑器预览一致 -->
-          <component :is="'style'" v-if="templateStyle" v-html="templateStyle" />
-          <TemplateRenderer
-            :template-id="template.id"
-            :resume-data="sampleData"
-          />
-        </div>
-      </div>
+      <TemplatePreviewImage
+        :template-id="template.id"
+        :color="template.colorAccent"
+        :bg-color="previewBgColor"
+      />
     </div>
     <div class="card-info">
       <div class="card-name">{{ template.name }}</div>
@@ -30,9 +22,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
-import TemplateRenderer from './TemplateRenderer.vue'
-import { defaultResumeData } from '@/data/contents/_default.js'
+import { computed } from 'vue'
+import TemplatePreviewImage from './TemplatePreviewImage.vue'
 
 const props = defineProps({
   template: { type: Object, required: true }
@@ -40,44 +31,10 @@ const props = defineProps({
 
 defineEmits(['use', 'preview'])
 
-const sampleData = defaultResumeData
-const containerRef = ref(null)
-const scaleRatio = ref(0.2)
-const templateStyle = ref('')
-
-// 动态加载模板CSS，与TemplateEditorView使用相同的import方式
-async function loadTemplateStyle(id) {
-  try {
-    const styleModule = await import(`@/data/styles/${id}.css?raw`)
-    templateStyle.value = styleModule.default
-  } catch (e) {
-    templateStyle.value = ''
-  }
-}
-
-let resizeObserver = null
-
-onMounted(() => {
-  // 加载当前模板的CSS
-  loadTemplateStyle(props.template.id)
-
-  if (!containerRef.value) return
-
-  const updateScale = () => {
-    const container = containerRef.value
-    if (!container) return
-    const containerWidth = container.clientWidth
-    scaleRatio.value = containerWidth / 800
-  }
-
-  resizeObserver = new ResizeObserver(updateScale)
-  resizeObserver.observe(containerRef.value)
-  updateScale()
-})
-
-onUnmounted(() => {
-  resizeObserver?.disconnect()
-})
+const darkPreviewTemplates = ['tech-dark', 'finance-classic', 'legal-authoritative']
+const previewBgColor = computed(() => (
+  darkPreviewTemplates.includes(props.template.id) ? '#111827' : '#ffffff'
+))
 </script>
 
 <style scoped>
@@ -88,6 +45,7 @@ onUnmounted(() => {
   overflow: hidden;
   cursor: pointer;
   transition: all 0.3s;
+  contain: layout paint style;
 }
 
 .template-card:hover {
@@ -100,18 +58,6 @@ onUnmounted(() => {
   aspect-ratio: 210 / 297;
   overflow: hidden;
   background: #f8f8f8;
-}
-
-.thumbnail-container {
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-}
-
-.thumbnail-wrapper {
-  width: 800px;
-  transform-origin: top left;
-  pointer-events: none;
 }
 
 .card-info {
