@@ -101,7 +101,7 @@
                   :style="{ '--message-index': itemIndex }"
                 >
                   <div class="message-avatar assistant-avatar">
-                    <img :src="assistantAvatar" alt="AI面试官" @error="handleImageError" />
+                    <OptimizedImage :sources="assistantAvatar" alt="AI面试官" @error="handleImageError" />
                   </div>
                   <div class="message-content">
                     <div
@@ -154,7 +154,7 @@
                   :style="{ '--message-index': itemIndex }"
                 >
                   <div class="message-avatar user-avatar">
-                    <img :src="userAvatar" alt="用户" @error="handleImageError" />
+                    <OptimizedImage :sources="userAvatar" alt="用户" @error="handleImageError" />
                   </div>
                   <div class="message-content">
                     <div class="message-bubble user-bubble">{{ item.content }}</div>
@@ -195,7 +195,7 @@
           </div>
 
           <div class="voice-avatar-wrap">
-            <img class="voice-avatar" :src="assistantAvatar" alt="AI面试官" @error="handleImageError" />
+            <OptimizedImage :sources="assistantAvatar" alt="AI面试官" img-class="voice-avatar" @error="handleImageError" />
           </div>
 
           <div class="voice-wave" :class="{ active: voiceCall.isListening.value, speaking: voiceCall.isAiSpeaking.value }" aria-hidden="true">
@@ -378,12 +378,12 @@ import { ElMessage } from "element-plus";
 import { getToken } from "@/utils/auth";
 import { getSettingsPreferences } from "@/utils/settingsPreferences";
 import FeatureIcon from "@/components/common/FeatureIcon.vue";
+import OptimizedImage from "@/components/common/OptimizedImage.vue";
 import { useSpeechToText } from "@/composables/useSpeechToText";
 import { useTextToSpeech } from "@/composables/useTextToSpeech";
 import { useVoiceCall } from "@/composables/useVoiceCall";
 
-import assistantAvatarImg from "@/assets/assistant.png";
-import userAvatarImg from "@/assets/user.png";
+import { optimizedImages } from "@/utils/optimizedImages";
 
 const router = useRouter();
 const route = useRoute();
@@ -554,8 +554,8 @@ watch(voiceCall.error, (err) => {
   if (err) ElMessage.warning(err);
 });
 
-const assistantAvatar = assistantAvatarImg;
-const userAvatar = userAvatarImg;
+const assistantAvatar = optimizedImages.assistantAvatar;
+const userAvatar = optimizedImages.userAvatar;
 
 const isInProgress = computed(() => sessionData.value?.status === 0);
 const isEnded = computed(() => sessionData.value?.status === 1);
@@ -1480,6 +1480,13 @@ onBeforeUnmount(() => {
   object-fit: cover;
 }
 
+.message-avatar :deep(img) {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
 .message-content {
   max-width: min(76%, 720px);
   display: flex;
@@ -1919,6 +1926,14 @@ onBeforeUnmount(() => {
   height: 100%;
   border-radius: 50%;
   object-fit: cover;
+}
+
+.voice-avatar-wrap :deep(.voice-avatar) {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
 }
 
 .voice-wave {

@@ -21,7 +21,7 @@
           <div class="identity-left">
             <div class="avatar-wrapper avatar-lg">
               <div class="avatar-ring avatar-lg">
-                <img src="@/assets/user.png" class="avatar-img avatar-lg" alt="用户头像" />
+                <OptimizedImage :sources="optimizedImages.userAvatar" img-class="avatar-img avatar-lg" alt="用户头像" />
               </div>
             </div>
             <div class="user-info">
@@ -258,7 +258,9 @@ import { getInterviewHistory } from "@/api/interview";
 import { getMonthlyStats } from "@/api/stats";
 import { getOnboardingTasks } from "@/api/onboarding";
 import FeatureIcon from "@/components/common/FeatureIcon.vue";
+import OptimizedImage from "@/components/common/OptimizedImage.vue";
 import OnboardingTaskCard from "@/components/OnboardingTaskCard.vue";
+import { optimizedImages } from "@/utils/optimizedImages";
 
 const router = useRouter();
 const userStore = useUserStore();

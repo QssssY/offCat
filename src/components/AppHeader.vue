@@ -5,7 +5,7 @@
     <div class="header-left">
       <router-link to="/" class="brand-mark motion-brand-mark">
         <span class="logo-box">
-          <img src="@/assets/logo.png" class="logo-img" alt="Logo" />
+          <OptimizedImage :sources="optimizedImages.logo" img-class="logo-img" alt="Logo" loading="eager" fetch-priority="high" />
         </span>
         <h1 class="brand-text">offerCat</h1>
       </router-link>
@@ -14,7 +14,7 @@
     <nav class="header-nav desktop-nav motion-desktop-nav">
       <!-- 首页始终显示 -->
       <router-link to="/" class="nav-link" :class="{ active: isHomeActive }">
-        <FeatureIcon name="home-dashboard" size="xs" class="nav-feature-icon" />
+        <FeatureIcon name="home-dashboard" size="xs" class="nav-feature-icon" critical />
         首页
       </router-link>
 
@@ -25,7 +25,7 @@
         class="nav-link"
         :class="{ active: isResumeActive }"
       >
-        <FeatureIcon name="resume-upload" size="xs" class="nav-feature-icon" />
+        <FeatureIcon name="resume-upload" size="xs" class="nav-feature-icon" critical />
         简历诊断
       </router-link>
 
@@ -36,7 +36,7 @@
         class="nav-link"
         :class="{ active: isInterviewActive }"
       >
-        <FeatureIcon name="mock-interview" size="xs" class="nav-feature-icon" />
+        <FeatureIcon name="mock-interview" size="xs" class="nav-feature-icon" critical />
         模拟面试
       </router-link>
 
@@ -47,7 +47,7 @@
         class="nav-link"
         :class="{ active: isTemplateActive }"
       >
-        <FeatureIcon name="template-library" size="xs" class="nav-feature-icon" />
+        <FeatureIcon name="template-library" size="xs" class="nav-feature-icon" critical />
         模板库
       </router-link>
 
@@ -58,7 +58,7 @@
         class="nav-link"
         :class="{ active: isCommunityActive }"
       >
-        <FeatureIcon name="community-hub" size="xs" class="nav-feature-icon" />
+        <FeatureIcon name="community-hub" size="xs" class="nav-feature-icon" critical />
         社区
       </router-link>
 
@@ -69,7 +69,7 @@
         class="nav-link"
         :class="{ active: isGrowthActive }"
       >
-        <FeatureIcon name="growth-center" size="xs" class="nav-feature-icon" />
+        <FeatureIcon name="growth-center" size="xs" class="nav-feature-icon" critical />
         成长中心
       </router-link>
 
@@ -80,7 +80,7 @@
         class="nav-link"
         :class="{ active: isOfferActive }"
       >
-        <FeatureIcon name="offer-assistant" size="xs" class="nav-feature-icon" />
+        <FeatureIcon name="offer-assistant" size="xs" class="nav-feature-icon" critical />
         Offer 辅助
       </router-link>
 
@@ -91,7 +91,7 @@
             class="nav-link history-trigger"
             :class="{ active: isHistoryActive }"
           >
-            <FeatureIcon name="history-records" size="xs" class="nav-feature-icon" />
+            <FeatureIcon name="history-records" size="xs" class="nav-feature-icon" critical />
             历史记录
             <FeatureIcon name="expand" size="xs" class="dropdown-arrow" />
           </span>
@@ -119,14 +119,14 @@
 
     <!-- 小屏汉堡按钮 -->
     <button class="hamburger-btn motion-hamburger-btn" @click="drawerVisible = true">
-      <FeatureIcon name="menu" size="sm" />
+      <FeatureIcon name="menu" size="sm" critical />
     </button>
 
     <div class="header-right">
       <!-- 主题切换按钮 -->
       <el-tooltip :content="themeStore.resolvedTheme === 'dark' ? '切换亮色模式' : '切换暗色模式'" placement="bottom" :show-after="300">
         <button class="theme-toggle" @click="themeStore.toggleTheme()" :aria-label="themeStore.resolvedTheme === 'dark' ? '切换为亮色模式' : '切换为暗色模式'">
-          <FeatureIcon :name="themeStore.resolvedTheme === 'light' ? 'dark-mode' : 'light-mode'" size="sm" />
+          <FeatureIcon :name="themeStore.resolvedTheme === 'light' ? 'dark-mode' : 'light-mode'" size="sm" critical />
         </button>
       </el-tooltip>
 
@@ -146,7 +146,7 @@
           >
             <template #reference>
               <div ref="bellRef" class="notification-bell">
-                <FeatureIcon name="notification-center" size="sm" />
+                <FeatureIcon name="notification-center" size="sm" critical />
                 <span v-if="unreadCount > 0" class="bell-badge">{{ unreadCount > 99 ? '99+' : unreadCount }}</span>
               </div>
             </template>
@@ -212,7 +212,7 @@
         <!-- 设置中心齿轮按钮：桌面端保持独立入口，避免回退到头像下拉菜单中。 -->
         <el-tooltip content="设置中心" placement="bottom" :show-after="300">
           <router-link to="/settings" class="header-icon-btn" :class="{ active: isSettingsActive }" aria-label="设置中心">
-            <FeatureIcon name="settings" size="sm" />
+            <FeatureIcon name="settings" size="sm" critical />
           </router-link>
         </el-tooltip>
 
@@ -244,7 +244,7 @@
         <el-dropdown trigger="click" @command="handleCommand">
           <div class="avatar-wrapper avatar-sm">
             <div class="avatar-ring avatar-sm">
-              <img src="@/assets/user.png" class="avatar-img avatar-sm" alt="用户头像" />
+              <OptimizedImage :sources="optimizedImages.userAvatar" img-class="avatar-img avatar-sm" alt="用户头像" />
             </div>
           </div>
           <template #dropdown>
@@ -252,7 +252,7 @@
               <!-- 用户信息区 -->
               <div class="user-info-header">
                 <div class="user-info-avatar-wrapper">
-                  <img src="@/assets/user.png" alt="用户头像" />
+                  <OptimizedImage :sources="optimizedImages.userAvatar" alt="用户头像" />
                 </div>
                 <div class="user-info-content">
                   <div class="user-info-name">
@@ -447,7 +447,7 @@
       >
         <div class="nickname-current">
           <div class="nickname-current-avatar">
-            <img src="@/assets/user.png" alt="用户头像" />
+            <OptimizedImage :sources="optimizedImages.userAvatar" alt="用户头像" />
           </div>
           <div class="nickname-current-text">
             <span>当前昵称</span>
@@ -487,8 +487,10 @@ import { removeToken } from "@/utils/auth";
 import { updateNickname } from "@/api/auth";
 import { getNotifications, getUnreadCount, markAsRead, markAllAsRead, connectNotificationStream } from "@/api/notification";
 import FeatureIcon from "@/components/common/FeatureIcon.vue";
+import OptimizedImage from "@/components/common/OptimizedImage.vue";
 import NotificationTypeIcon from "@/components/notification/NotificationTypeIcon.vue";
 import { formatNotificationTime, getNotificationTypeMeta, isAdminAnnouncementType } from "@/utils/notificationMeta";
+import { optimizedImages } from "@/utils/optimizedImages";
 import { getSettingsPreferences, SETTINGS_PREFERENCES_UPDATED_EVENT } from "@/utils/settingsPreferences";
 
 const router = useRouter();
@@ -908,6 +910,12 @@ onUnmounted(() => {
 .logo-img {
   height: 100%;
   width: 100%;
+  object-fit: contain;
+}
+
+.logo-box :deep(.logo-img) {
+  width: 100%;
+  height: 100%;
   object-fit: contain;
 }
 

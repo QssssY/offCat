@@ -15,7 +15,7 @@
     <div class="auth-wrapper">
       <div class="auth-brand">
         <router-link to="/" class="brand-logo-link">
-          <img :src="brandLogo" alt="Logo" class="brand-logo" />
+          <OptimizedImage :sources="optimizedImages.logo" alt="Logo" img-class="brand-logo" loading="eager" fetch-priority="high" />
           <div class="brand-text">
             <div class="brand-title">offerCat</div>
             <div class="brand-subtitle">AI 求职辅助平台</div>
@@ -262,7 +262,8 @@ import { ElMessage } from "element-plus";
 import { useUserStore } from "@/stores/user";
 import { register, getSecurityQuestion, resetPasswordBySecurity } from "@/api/auth";
 import FeatureIcon from "@/components/common/FeatureIcon.vue";
-import brandLogo from "@/assets/logo.png";
+import OptimizedImage from "@/components/common/OptimizedImage.vue";
+import { optimizedImages } from "@/utils/optimizedImages";
 
 const router = useRouter();
 const route = useRoute();
@@ -653,6 +654,16 @@ const handleResetPassword = async () => {
 }
 
 .brand-logo {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  object-fit: contain;
+  background: var(--bg-card);
+  padding: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+.brand-logo-link :deep(.brand-logo) {
   width: 52px;
   height: 52px;
   border-radius: 12px;

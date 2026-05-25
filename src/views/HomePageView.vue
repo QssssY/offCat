@@ -1,10 +1,13 @@
 <template>
   <MotionConfig reducedMotion="user">
-  <div class="landing-page theme-aware-home">
+  <div
+    class="landing-page theme-aware-home"
+    :class="{ 'is-light-return': isLightReturning }"
+  >
     <section
       class="hero-section background-hero-section"
       aria-labelledby="home-hero-title"
-      :style="{ '--home-hero-bg': `url(${homeBackground})` }"
+      :style="heroBackgroundStyle"
     >
       <div class="hero-cloud hero-motion-cloud cloud-one" aria-hidden="true"></div>
       <div class="hero-cloud hero-motion-cloud cloud-two" aria-hidden="true"></div>
@@ -36,7 +39,7 @@
         animate="visible"
       >
         <motion.div class="hero-badge" :variants="heroItemVariants">
-          <FeatureIcon name="ai-loading" size="xs" class="badge-icon" />
+          <FeatureIcon name="ai-loading" size="xs" class="badge-icon" critical />
           <span>AI 驱动的求职准备室</span>
         </motion.div>
 
@@ -56,7 +59,7 @@
             @click="handleResume"
           >
             <template #icon>
-            <FeatureIcon name="resume-analysis" size="md" class="btn-icon" />
+            <FeatureIcon name="resume-analysis" size="md" class="btn-icon" critical />
             </template>
             开始简历诊断
           </n-button>
@@ -66,7 +69,7 @@
             @click="handleInterview"
           >
             <template #icon>
-            <FeatureIcon name="ai-interviewer" size="md" class="btn-icon" />
+            <FeatureIcon name="ai-interviewer" size="md" class="btn-icon" critical />
             </template>
             开始模拟面试
           </n-button>
@@ -104,7 +107,7 @@
             :whilePress="tapFeedback"
             @click="goProtected(item.path)"
           >
-            <FeatureIcon :name="item.icon" size="md" />
+            <FeatureIcon :name="item.icon" size="md" critical />
             {{ item.title }}
           </motion.button>
         </motion.div>
@@ -286,7 +289,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onBeforeUnmount, onMounted } from 'vue'
 import { motion, MotionConfig } from 'motion-v'
 import { NButton, NSkeleton, NTag } from 'naive-ui'
 import { useRouter } from 'vue-router'
@@ -294,11 +297,38 @@ import { getLatestVersionLogs } from '@/api/versionLog'
 import { isLoggedIn } from '@/utils/auth'
 import { getPublicStats } from '@/api/stats'
 import FeatureIcon from '@/components/common/FeatureIcon.vue'
-import homeBackground from '@/assets/background.png'
+import { optimizedImages, toCssImageSet } from '@/utils/optimizedImages'
 
 const router = useRouter()
 
 const versionLogs = ref([])
+const isLightReturning = ref(false)
+const heroBackgroundStyle = {
+  '--home-hero-bg': toCssImageSet(
+    optimizedImages.homeBackground.desktopWebp,
+    optimizedImages.homeBackground.png
+  ),
+  '--home-hero-bg-mobile': toCssImageSet(
+    optimizedImages.homeBackground.mobileWebp,
+    optimizedImages.homeBackground.png
+  )
+}
+
+let themeObserver = null
+let lightReturnTimer = null
+
+const getCurrentTheme = () => document.documentElement.getAttribute('data-theme') || 'light'
+
+const triggerLightReturn = () => {
+  isLightReturning.value = true
+  if (lightReturnTimer) {
+    clearTimeout(lightReturnTimer)
+  }
+  lightReturnTimer = setTimeout(() => {
+    isLightReturning.value = false
+    lightReturnTimer = null
+  }, 3000)
+}
 
 const easeOut = [0.22, 1, 0.36, 1]
 const revealInitial = { opacity: 0, y: 18 }
@@ -536,6 +566,19 @@ const getVersionTagType = (type) => {
 }
 
 onMounted(async () => {
+  let previousTheme = getCurrentTheme()
+  themeObserver = new MutationObserver(() => {
+    const currentTheme = getCurrentTheme()
+    if (previousTheme === 'dark' && currentTheme !== 'dark') {
+      triggerLightReturn()
+    }
+    previousTheme = currentTheme
+  })
+  themeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['data-theme']
+  })
+
   try {
     const versionRes = await getLatestVersionLogs(3)
     versionLogs.value = versionRes?.data || []
@@ -551,6 +594,17 @@ onMounted(async () => {
     // 获取失败时保持默认值 0，不影响首页公开展示。
   } finally {
     statsLoading.value = false
+  }
+})
+
+onBeforeUnmount(() => {
+  if (themeObserver) {
+    themeObserver.disconnect()
+    themeObserver = null
+  }
+  if (lightReturnTimer) {
+    clearTimeout(lightReturnTimer)
+    lightReturnTimer = null
   }
 })
 
@@ -1628,6 +1682,23 @@ const handleInterview = () => {
   }
 }
 
+@keyframes cloud-regather {
+  0% {
+    opacity: 0;
+    transform: translate3d(var(--cloud-scatter-x, var(--cloud-drift-x, 0)), -34px, 0) scale(0.96);
+  }
+
+  48% {
+    opacity: 0.42;
+    transform: translate3d(var(--cloud-drift-x, 0), -12px, 0) scale(1.01);
+  }
+
+  100% {
+    opacity: var(--cloud-opacity, 0.68);
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
 @keyframes star-field-rise {
   from {
     opacity: 0;
@@ -1637,6 +1708,18 @@ const handleInterview = () => {
   to {
     opacity: 1;
     transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes star-field-fade {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
   }
 }
 
@@ -1665,6 +1748,18 @@ const handleInterview = () => {
   }
 }
 
+@keyframes moon-set {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: translate3d(10px, 42px, 0) scale(0.84);
+  }
+}
+
 @keyframes moon-glow-breathe {
   0%,
   100% {
@@ -1675,6 +1770,18 @@ const handleInterview = () => {
   50% {
     opacity: 0.9;
     transform: scale(1.06);
+  }
+}
+
+@keyframes moon-glow-fade {
+  from {
+    opacity: 0.82;
+    transform: scale(1.04);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(0.9);
   }
 }
 
@@ -1884,6 +1991,10 @@ const handleInterview = () => {
     width: clamp(520px, 112vw, 680px);
     opacity: 0.86;
     background-position: right bottom;
+  }
+
+  .hero-background-art::after {
+    background: var(--home-hero-bg-mobile) center bottom / contain no-repeat;
   }
 
   .hero-main {
@@ -2181,6 +2292,34 @@ const handleInterview = () => {
   animation: moon-glow-breathe 4.8s ease-in-out 2.2s infinite;
 }
 
+.theme-aware-home.is-light-return .hero-cloud {
+  opacity: var(--cloud-opacity, 0.68);
+  transform: translate3d(0, 0, 0) scale(1);
+  animation: cloud-regather 1.35s cubic-bezier(0.22, 1, 0.36, 1) calc(1.1s + var(--cloud-scatter-delay, 0s)) both;
+}
+
+.theme-aware-home.is-light-return .hero-starry-sky {
+  opacity: 0;
+  transform: translate3d(0, 10px, 0);
+  animation: star-field-fade 0.72s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.theme-aware-home.is-light-return .hero-star {
+  opacity: 0;
+  transform: scale(0.72);
+  animation: none;
+}
+
+.theme-aware-home.is-light-return .hero-moon {
+  opacity: 0;
+  transform: translate3d(10px, 42px, 0) scale(0.84);
+  animation: moon-set 1.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.theme-aware-home.is-light-return .hero-moon::before {
+  animation: moon-glow-fade 1.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 :global(html[data-theme="dark"] .hero-badge),
 :global(html[data-theme="dark"] .hero-trail-pill),
 :global(html[data-theme="dark"] .route-tag) {
@@ -2319,6 +2458,26 @@ const handleInterview = () => {
     transform: translate3d(0, 0, 0) scale(1);
     animation: none;
     transition: none;
+  }
+
+  .theme-aware-home.is-light-return .hero-cloud {
+    opacity: var(--cloud-opacity, 0.68);
+    transform: none;
+    animation: none;
+    transition: none;
+  }
+
+  .theme-aware-home.is-light-return .hero-starry-sky,
+  .theme-aware-home.is-light-return .hero-star,
+  .theme-aware-home.is-light-return .hero-moon,
+  .theme-aware-home.is-light-return .hero-moon::before {
+    opacity: 0;
+    animation: none;
+    transition: none;
+  }
+
+  .theme-aware-home.is-light-return .hero-moon {
+    transform: translate3d(10px, 42px, 0) scale(0.84);
   }
 
   .arrow-icon {

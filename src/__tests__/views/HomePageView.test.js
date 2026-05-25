@@ -1,5 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import HomePageView from '@/views/HomePageView.vue'
@@ -43,6 +43,12 @@ const homePageSource = () => readFileSync(
 describe('HomePageView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    document.documentElement.removeAttribute('data-theme')
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    document.documentElement.removeAttribute('data-theme')
   })
 
   it('should render latest logs with title ellipsis hook and theme-driven section classes', async () => {
@@ -174,6 +180,37 @@ describe('HomePageView', () => {
     expect(wrapper.find('.version-item').exists()).toBe(true)
   })
 
+  it('should trigger a light return class when switching from dark mode back to light mode', async () => {
+    vi.useFakeTimers()
+    document.documentElement.setAttribute('data-theme', 'dark')
+    getLatestVersionLogs.mockResolvedValue({ data: [] })
+    getPublicStats.mockResolvedValue({
+      data: {
+        userCount: 0,
+        diagnosisCount: 0,
+        interviewCount: 0
+      }
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    document.documentElement.setAttribute('data-theme', 'light')
+    await flushPromises()
+
+    expect(wrapper.find('.theme-aware-home').classes()).toContain('is-light-return')
+
+    vi.advanceTimersByTime(1900)
+    await flushPromises()
+
+    expect(wrapper.find('.theme-aware-home').classes()).toContain('is-light-return')
+
+    vi.advanceTimersByTime(1300)
+    await flushPromises()
+
+    expect(wrapper.find('.theme-aware-home').classes()).not.toContain('is-light-return')
+  })
+
   it('should drive homepage dark mode through scoped theme variables instead of light hardcoded surfaces', () => {
     const source = homePageSource()
     const darkHomeBlock = source.match(/:global\(html\[data-theme="dark"\]\s+\.theme-aware-home\)\s*\{[\s\S]*?\n\}/)?.[0] || ''
@@ -181,6 +218,10 @@ describe('HomePageView', () => {
     const darkMoonBlock = source.match(/:global\(html\[data-theme="dark"\]\s+\.hero-moon\)\s*\{[\s\S]*?\n\}/)?.[0] || ''
 
     expect(source).toContain('--home-page-bg')
+    expect(source).toContain('--home-hero-bg-mobile')
+    expect(source).toContain('toCssImageSet')
+    expect(source).toContain('optimizedImages.homeBackground.desktopWebp')
+    expect(source).toContain('optimizedImages.homeBackground.mobileWebp')
     expect(source).toContain('--home-hero-surface')
     expect(source).toContain('--home-card-surface')
     expect(source).toContain('--home-workflow-bg')
@@ -197,7 +238,16 @@ describe('HomePageView', () => {
     expect(source).toContain('moon-rise')
     expect(source).toContain('moon-glow-breathe')
     expect(source).toContain('cloud-scatter')
+    expect(source).toContain('cloud-regather')
+    expect(source).toContain('moon-set')
+    expect(source).toContain('is-light-return')
+    expect(source).toContain('MutationObserver')
     expect(source).toContain('star-twinkle')
+    expect(source).toContain('setTimeout(() => {')
+    expect(source).toContain('}, 3000)')
+    expect(source).toContain('moon-set 1.45s')
+    expect(source).toContain('cloud-regather 1.35s')
+    expect(source).toContain('calc(1.1s + var(--cloud-scatter-delay, 0s)) both')
     expect(darkCloudBlock).toContain('cloud-scatter 1.18s')
     expect(darkMoonBlock).toContain('moon-rise 1.05s cubic-bezier(0.22, 1, 0.36, 1) 1.52s both')
     expect(source).toContain('@media (prefers-reduced-motion: reduce)')

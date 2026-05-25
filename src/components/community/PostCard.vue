@@ -65,8 +65,10 @@
 <script setup>
 import FeatureIcon from '@/components/common/FeatureIcon.vue'
 import ImageGrid from './ImageGrid.vue'
-import defaultAvatar from '@/assets/user.png'
+import { optimizedImages } from '@/utils/optimizedImages'
 import { formatTime, categoryLabel } from '@/utils/community'
+
+const defaultAvatar = optimizedImages.userAvatar.webp
 
 defineProps({
   post: {

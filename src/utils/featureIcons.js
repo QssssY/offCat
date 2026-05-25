@@ -1,196 +1,242 @@
-import beginnerGuideIcon from '@/assets/feature-icons/old/beginner-guide.png'
-import communityHubIcon from '@/assets/feature-icons/old/community-hub.png'
-import dataManagementIcon from '@/assets/feature-icons/old/data-management.png'
-import eventNotificationsIcon from '@/assets/feature-icons/old/event-notifications.png'
-import growthCenterIcon from '@/assets/feature-icons/old/growth-center.png'
-import historyRecordsIcon from '@/assets/feature-icons/old/history-records.png'
-import homeDashboardIcon from '@/assets/feature-icons/old/home-dashboard.png'
-import interviewNotificationsIcon from '@/assets/feature-icons/old/interview-notifications.png'
-import interviewReportIcon from '@/assets/feature-icons/old/interview-report.png'
-import membershipCenterIcon from '@/assets/feature-icons/old/membership-center.png'
-import membershipCreditsIcon from '@/assets/feature-icons/old/membership-credits.png'
-import mockInterviewIcon from '@/assets/feature-icons/old/mock-interview.png'
-import offerAssistantIcon from '@/assets/feature-icons/old/offer-assistant.png'
-import resumeAnalysisIcon from '@/assets/feature-icons/old/resume-analysis.png'
-import resumeNotificationsIcon from '@/assets/feature-icons/old/resume-notifications.png'
-import resumeOptimizationIcon from '@/assets/feature-icons/old/resume-optimization.png'
-import resumePolishNotificationsIcon from '@/assets/feature-icons/old/resume-polish-notifications.png'
-import resumeUploadIcon from '@/assets/feature-icons/old/resume-upload.png'
-import settingsIcon from '@/assets/feature-icons/old/settings.png'
-import systemNotificationsIcon from '@/assets/feature-icons/old/system-notifications.png'
-import templateLibraryIcon from '@/assets/feature-icons/old/template-library.png'
-import userProfileIcon from '@/assets/feature-icons/old/user-profile.png'
+const criticalFeatureIconNames = [
+  'home-dashboard',
+  'resume-upload',
+  'resume-analysis',
+  'mock-interview',
+  'template-library',
+  'community-hub',
+  'growth-center',
+  'offer-assistant',
+  'history-records',
+  'menu',
+  'dark-mode',
+  'light-mode',
+  'notification-center',
+  'settings',
+  'ai-loading',
+  'ai-interviewer',
+  'system-notifications'
+]
 
-import accountSecurityIcon from '@/assets/feature-icons/new/account-security.png'
-import aiInterviewerIcon from '@/assets/feature-icons/new/ai-interviewer.png'
-import aiLoadingIcon from '@/assets/feature-icons/new/ai-loading.png'
-import announcementIcon from '@/assets/feature-icons/new/announcement.png'
-import attachmentIcon from '@/assets/feature-icons/new/attachment.png'
-import backIcon from '@/assets/feature-icons/new/back.png'
-import closeIcon from '@/assets/feature-icons/new/close.png'
-import collapseIcon from '@/assets/feature-icons/new/collapse.png'
-import commentIcon from '@/assets/feature-icons/new/comment.png'
-import communityActivityIcon from '@/assets/feature-icons/new/community-activity.png'
-import copyIcon from '@/assets/feature-icons/new/copy.png'
-import darkModeIcon from '@/assets/feature-icons/new/dark-mode.png'
-import dataCleanupIcon from '@/assets/feature-icons/new/data-cleanup.png'
-import deleteIcon from '@/assets/feature-icons/new/delete.png'
-import downloadIcon from '@/assets/feature-icons/new/download.png'
-import editIcon from '@/assets/feature-icons/new/edit.png'
-import emptyStateIcon from '@/assets/feature-icons/new/empty-state.png'
-import errorIcon from '@/assets/feature-icons/new/error.png'
-import exitFullscreenIcon from '@/assets/feature-icons/new/exit-fullscreen.png'
-import expandIcon from '@/assets/feature-icons/new/expand.png'
-import favoriteIcon from '@/assets/feature-icons/new/favorite.png'
-import feedbackCenterIcon from '@/assets/feature-icons/new/feedback-center.png'
-import fullscreenIcon from '@/assets/feature-icons/new/fullscreen.png'
-import growthMilestoneIcon from '@/assets/feature-icons/new/growth-milestone.png'
-import growthRadarIcon from '@/assets/feature-icons/new/growth-radar.png'
-import imageUploadIcon from '@/assets/feature-icons/new/image-upload.png'
-import interviewAnswerIcon from '@/assets/feature-icons/new/interview-answer.png'
-import interviewEndIcon from '@/assets/feature-icons/new/interview-end.png'
-import interviewFeedbackIcon from '@/assets/feature-icons/new/interview-feedback.png'
-import interviewPauseIcon from '@/assets/feature-icons/new/interview-pause.png'
-import interviewQuestionIcon from '@/assets/feature-icons/new/interview-question.png'
-import interviewReplayIcon from '@/assets/feature-icons/new/interview-replay.png'
-import interviewStartIcon from '@/assets/feature-icons/new/interview-start.png'
-import jobMatchAnalysisIcon from '@/assets/feature-icons/new/job-match-analysis.png'
-import lightModeIcon from '@/assets/feature-icons/new/light-mode.png'
-import likedIcon from '@/assets/feature-icons/new/liked.png'
-import loadingIcon from '@/assets/feature-icons/new/loading.png'
-import markReadIcon from '@/assets/feature-icons/new/mark-read.png'
-import menuIcon from '@/assets/feature-icons/new/menu.png'
-import messageIcon from '@/assets/feature-icons/new/message.png'
-import microphoneOffIcon from '@/assets/feature-icons/new/microphone-off.png'
-import microphoneOnIcon from '@/assets/feature-icons/new/microphone-on.png'
-import moreIcon from '@/assets/feature-icons/new/more.png'
-import nextIcon from '@/assets/feature-icons/new/next.png'
-import notificationCenterIcon from '@/assets/feature-icons/new/notification-center.png'
-import notificationSettingsIcon from '@/assets/feature-icons/new/notification-settings.png'
-import offerComparisonIcon from '@/assets/feature-icons/new/offer-comparison.png'
-import onboardingTaskIcon from '@/assets/feature-icons/new/onboarding-task.png'
-import passwordIcon from '@/assets/feature-icons/new/password.png'
-import previewIcon from '@/assets/feature-icons/new/preview.png'
-import previousIcon from '@/assets/feature-icons/new/previous.png'
-import privacyIcon from '@/assets/feature-icons/new/privacy.png'
-import processingIcon from '@/assets/feature-icons/new/processing.png'
-import profileEditIcon from '@/assets/feature-icons/new/profile-edit.png'
-import resumeEditorIcon from '@/assets/feature-icons/new/resume-editor.png'
-import resumeExportIcon from '@/assets/feature-icons/new/resume-export.png'
-import resumeScoreIcon from '@/assets/feature-icons/new/resume-score.png'
-import retryIcon from '@/assets/feature-icons/new/retry.png'
-import salaryNegotiationIcon from '@/assets/feature-icons/new/salary-negotiation.png'
-import salaryScriptIcon from '@/assets/feature-icons/new/salary-script.png'
-import saveIcon from '@/assets/feature-icons/new/save.png'
-import searchIcon from '@/assets/feature-icons/new/search.png'
-import securityQuestionIcon from '@/assets/feature-icons/new/security-question.png'
-import shareIcon from '@/assets/feature-icons/new/share.png'
-import successIcon from '@/assets/feature-icons/new/success.png'
-import templateEditorIcon from '@/assets/feature-icons/new/template-editor.png'
-import unreadIcon from '@/assets/feature-icons/new/unread.png'
-import uploadFileIcon from '@/assets/feature-icons/new/upload-file.png'
-import versionLogIcon from '@/assets/feature-icons/new/version-log.png'
-import voiceInterviewIcon from '@/assets/feature-icons/new/voice-interview.png'
-import voiceSettingsIcon from '@/assets/feature-icons/new/voice-settings.png'
-import warningIcon from '@/assets/feature-icons/new/warning.png'
+const criticalPngIconModules = import.meta.glob([
+  '/src/assets/feature-icons/png-fallback/old/home-dashboard.png',
+  '/src/assets/feature-icons/png-fallback/old/resume-upload.png',
+  '/src/assets/feature-icons/png-fallback/old/resume-analysis.png',
+  '/src/assets/feature-icons/png-fallback/old/mock-interview.png',
+  '/src/assets/feature-icons/png-fallback/old/template-library.png',
+  '/src/assets/feature-icons/png-fallback/old/community-hub.png',
+  '/src/assets/feature-icons/png-fallback/old/growth-center.png',
+  '/src/assets/feature-icons/png-fallback/old/offer-assistant.png',
+  '/src/assets/feature-icons/png-fallback/old/history-records.png',
+  '/src/assets/feature-icons/png-fallback/old/settings.png',
+  '/src/assets/feature-icons/png-fallback/old/system-notifications.png',
+  '/src/assets/feature-icons/png-fallback/new/menu.png',
+  '/src/assets/feature-icons/png-fallback/new/dark-mode.png',
+  '/src/assets/feature-icons/png-fallback/new/light-mode.png',
+  '/src/assets/feature-icons/png-fallback/new/notification-center.png',
+  '/src/assets/feature-icons/png-fallback/new/ai-loading.png',
+  '/src/assets/feature-icons/png-fallback/new/ai-interviewer.png'
+], {
+  eager: true,
+  import: 'default'
+})
 
-export const featureIcons = {
-  'home-dashboard': homeDashboardIcon,
-  'resume-upload': resumeUploadIcon,
-  'resume-analysis': resumeAnalysisIcon,
-  'resume-optimization': resumeOptimizationIcon,
-  'mock-interview': mockInterviewIcon,
-  'interview-report': interviewReportIcon,
-  'history-records': historyRecordsIcon,
-  'template-library': templateLibraryIcon,
-  'community-hub': communityHubIcon,
-  'growth-center': growthCenterIcon,
-  'offer-assistant': offerAssistantIcon,
-  settings: settingsIcon,
-  'resume-notifications': resumeNotificationsIcon,
-  'resume-polish-notifications': resumePolishNotificationsIcon,
-  'interview-notifications': interviewNotificationsIcon,
-  'membership-credits': membershipCreditsIcon,
-  'system-notifications': systemNotificationsIcon,
-  'event-notifications': eventNotificationsIcon,
-  'user-profile': userProfileIcon,
-  'membership-center': membershipCenterIcon,
-  'beginner-guide': beginnerGuideIcon,
-  'data-management': dataManagementIcon,
+const criticalWebpIconModules = import.meta.glob([
+  '/src/assets/feature-icons/old/home-dashboard.webp',
+  '/src/assets/feature-icons/old/resume-upload.webp',
+  '/src/assets/feature-icons/old/resume-analysis.webp',
+  '/src/assets/feature-icons/old/mock-interview.webp',
+  '/src/assets/feature-icons/old/template-library.webp',
+  '/src/assets/feature-icons/old/community-hub.webp',
+  '/src/assets/feature-icons/old/growth-center.webp',
+  '/src/assets/feature-icons/old/offer-assistant.webp',
+  '/src/assets/feature-icons/old/history-records.webp',
+  '/src/assets/feature-icons/old/settings.webp',
+  '/src/assets/feature-icons/old/system-notifications.webp',
+  '/src/assets/feature-icons/new/menu.webp',
+  '/src/assets/feature-icons/new/dark-mode.webp',
+  '/src/assets/feature-icons/new/light-mode.webp',
+  '/src/assets/feature-icons/new/notification-center.webp',
+  '/src/assets/feature-icons/new/ai-loading.webp',
+  '/src/assets/feature-icons/new/ai-interviewer.webp'
+], {
+  eager: true,
+  import: 'default'
+})
 
-  'account-security': accountSecurityIcon,
-  'ai-interviewer': aiInterviewerIcon,
-  'ai-loading': aiLoadingIcon,
-  announcement: announcementIcon,
-  attachment: attachmentIcon,
-  back: backIcon,
-  close: closeIcon,
-  collapse: collapseIcon,
-  comment: commentIcon,
-  'community-activity': communityActivityIcon,
-  copy: copyIcon,
-  'dark-mode': darkModeIcon,
-  'data-cleanup': dataCleanupIcon,
-  delete: deleteIcon,
-  download: downloadIcon,
-  edit: editIcon,
-  'empty-state': emptyStateIcon,
-  error: errorIcon,
-  'exit-fullscreen': exitFullscreenIcon,
-  expand: expandIcon,
-  favorite: favoriteIcon,
-  'feedback-center': feedbackCenterIcon,
-  fullscreen: fullscreenIcon,
-  'growth-milestone': growthMilestoneIcon,
-  'growth-radar': growthRadarIcon,
-  'image-upload': imageUploadIcon,
-  'interview-answer': interviewAnswerIcon,
-  'interview-end': interviewEndIcon,
-  'interview-feedback': interviewFeedbackIcon,
-  'interview-pause': interviewPauseIcon,
-  'interview-question': interviewQuestionIcon,
-  'interview-replay': interviewReplayIcon,
-  'interview-start': interviewStartIcon,
-  'job-match-analysis': jobMatchAnalysisIcon,
-  'light-mode': lightModeIcon,
-  liked: likedIcon,
-  loading: loadingIcon,
-  'mark-read': markReadIcon,
-  menu: menuIcon,
-  message: messageIcon,
-  'microphone-off': microphoneOffIcon,
-  'microphone-on': microphoneOnIcon,
-  more: moreIcon,
-  next: nextIcon,
-  'notification-center': notificationCenterIcon,
-  'notification-settings': notificationSettingsIcon,
-  'offer-comparison': offerComparisonIcon,
-  'onboarding-task': onboardingTaskIcon,
-  password: passwordIcon,
-  preview: previewIcon,
-  previous: previousIcon,
-  privacy: privacyIcon,
-  processing: processingIcon,
-  'profile-edit': profileEditIcon,
-  'resume-editor': resumeEditorIcon,
-  'resume-export': resumeExportIcon,
-  'resume-score': resumeScoreIcon,
-  retry: retryIcon,
-  'salary-negotiation': salaryNegotiationIcon,
-  'salary-script': salaryScriptIcon,
-  save: saveIcon,
-  search: searchIcon,
-  'security-question': securityQuestionIcon,
-  share: shareIcon,
-  success: successIcon,
-  'template-editor': templateEditorIcon,
-  unread: unreadIcon,
-  'upload-file': uploadFileIcon,
-  'version-log': versionLogIcon,
-  'voice-interview': voiceInterviewIcon,
-  'voice-settings': voiceSettingsIcon,
-  warning: warningIcon
-}
+const pngIconModules = import.meta.glob([
+  '/src/assets/feature-icons/png-fallback/{old,new}/*.png',
+  '!/src/assets/feature-icons/png-fallback/old/home-dashboard.png',
+  '!/src/assets/feature-icons/png-fallback/old/resume-upload.png',
+  '!/src/assets/feature-icons/png-fallback/old/resume-analysis.png',
+  '!/src/assets/feature-icons/png-fallback/old/mock-interview.png',
+  '!/src/assets/feature-icons/png-fallback/old/template-library.png',
+  '!/src/assets/feature-icons/png-fallback/old/community-hub.png',
+  '!/src/assets/feature-icons/png-fallback/old/growth-center.png',
+  '!/src/assets/feature-icons/png-fallback/old/offer-assistant.png',
+  '!/src/assets/feature-icons/png-fallback/old/history-records.png',
+  '!/src/assets/feature-icons/png-fallback/old/settings.png',
+  '!/src/assets/feature-icons/png-fallback/old/system-notifications.png',
+  '!/src/assets/feature-icons/png-fallback/new/menu.png',
+  '!/src/assets/feature-icons/png-fallback/new/dark-mode.png',
+  '!/src/assets/feature-icons/png-fallback/new/light-mode.png',
+  '!/src/assets/feature-icons/png-fallback/new/notification-center.png',
+  '!/src/assets/feature-icons/png-fallback/new/ai-loading.png',
+  '!/src/assets/feature-icons/png-fallback/new/ai-interviewer.png'
+], {
+  import: 'default'
+})
+const webpIconModules = import.meta.glob([
+  '/src/assets/feature-icons/{old,new}/*.webp',
+  '!/src/assets/feature-icons/old/home-dashboard.webp',
+  '!/src/assets/feature-icons/old/resume-upload.webp',
+  '!/src/assets/feature-icons/old/resume-analysis.webp',
+  '!/src/assets/feature-icons/old/mock-interview.webp',
+  '!/src/assets/feature-icons/old/template-library.webp',
+  '!/src/assets/feature-icons/old/community-hub.webp',
+  '!/src/assets/feature-icons/old/growth-center.webp',
+  '!/src/assets/feature-icons/old/offer-assistant.webp',
+  '!/src/assets/feature-icons/old/history-records.webp',
+  '!/src/assets/feature-icons/old/settings.webp',
+  '!/src/assets/feature-icons/old/system-notifications.webp',
+  '!/src/assets/feature-icons/new/menu.webp',
+  '!/src/assets/feature-icons/new/dark-mode.webp',
+  '!/src/assets/feature-icons/new/light-mode.webp',
+  '!/src/assets/feature-icons/new/notification-center.webp',
+  '!/src/assets/feature-icons/new/ai-loading.webp',
+  '!/src/assets/feature-icons/new/ai-interviewer.webp'
+], {
+  import: 'default'
+})
+
+const featureIconNames = [
+  'home-dashboard',
+  'resume-upload',
+  'resume-analysis',
+  'resume-optimization',
+  'mock-interview',
+  'interview-report',
+  'history-records',
+  'template-library',
+  'community-hub',
+  'growth-center',
+  'offer-assistant',
+  'settings',
+  'resume-notifications',
+  'resume-polish-notifications',
+  'interview-notifications',
+  'membership-credits',
+  'system-notifications',
+  'event-notifications',
+  'user-profile',
+  'membership-center',
+  'beginner-guide',
+  'data-management',
+  'account-security',
+  'ai-interviewer',
+  'ai-loading',
+  'announcement',
+  'attachment',
+  'back',
+  'close',
+  'collapse',
+  'comment',
+  'community-activity',
+  'copy',
+  'dark-mode',
+  'data-cleanup',
+  'delete',
+  'download',
+  'edit',
+  'empty-state',
+  'error',
+  'exit-fullscreen',
+  'expand',
+  'favorite',
+  'feedback-center',
+  'fullscreen',
+  'growth-milestone',
+  'growth-radar',
+  'image-upload',
+  'interview-answer',
+  'interview-end',
+  'interview-feedback',
+  'interview-pause',
+  'interview-question',
+  'interview-replay',
+  'interview-start',
+  'job-match-analysis',
+  'light-mode',
+  'liked',
+  'loading',
+  'mark-read',
+  'menu',
+  'message',
+  'microphone-off',
+  'microphone-on',
+  'more',
+  'next',
+  'notification-center',
+  'notification-settings',
+  'offer-comparison',
+  'onboarding-task',
+  'password',
+  'preview',
+  'previous',
+  'privacy',
+  'processing',
+  'profile-edit',
+  'resume-editor',
+  'resume-export',
+  'resume-score',
+  'retry',
+  'salary-negotiation',
+  'salary-script',
+  'save',
+  'search',
+  'security-question',
+  'share',
+  'success',
+  'template-editor',
+  'unread',
+  'upload-file',
+  'version-log',
+  'voice-interview',
+  'voice-settings',
+  'warning'
+]
+
+const iconFilenamePattern = /\/([^/]+)\.(png|webp)$/
+
+const toIconMap = (modules) =>
+  Object.entries(modules).reduce((icons, [path, src]) => {
+    const match = path.match(iconFilenamePattern)
+    if (match) {
+      icons[match[1]] = src
+    }
+    return icons
+  }, {})
+
+const criticalPngFeatureIconsByName = toIconMap(criticalPngIconModules)
+const criticalWebpFeatureIconsByName = toIconMap(criticalWebpIconModules)
+const pngFeatureIconLoadersByName = toIconMap(pngIconModules)
+const webpFeatureIconLoadersByName = toIconMap(webpIconModules)
+
+export const featureIcons = Object.fromEntries(
+  criticalFeatureIconNames.map((name) => [name, criticalPngFeatureIconsByName[name]])
+)
+
+export const criticalFeatureIconSources = Object.fromEntries(
+  criticalFeatureIconNames.map((name) => [
+    name,
+    {
+      png: criticalPngFeatureIconsByName[name],
+      webp: criticalWebpFeatureIconsByName[name]
+    }
+  ])
+)
+
+export const featureIconSources = criticalFeatureIconSources
 
 export const featureIconLabels = {
   'home-dashboard': '首页看板',
@@ -296,6 +342,27 @@ export const featureIconLabels = {
  */
 export function getFeatureIcon(name) {
   return featureIcons[name] || featureIcons['system-notifications']
+}
+
+export function getCriticalFeatureIconSource(name) {
+  return criticalFeatureIconSources[name] || null
+}
+
+export function getFeatureIconSource(name) {
+  return getCriticalFeatureIconSource(name) || criticalFeatureIconSources['system-notifications']
+}
+
+export async function loadFeatureIconSource(name) {
+  const resolvedName = featureIconNames.includes(name) ? name : 'system-notifications'
+  const webpLoader = webpFeatureIconLoadersByName[resolvedName]
+  const pngLoader = pngFeatureIconLoadersByName[resolvedName]
+
+  if (!webpLoader || !pngLoader) {
+    return criticalFeatureIconSources['system-notifications']
+  }
+
+  const [webp, png] = await Promise.all([webpLoader(), pngLoader()])
+  return { webp, png }
 }
 
 export function getFeatureIconLabel(name) {

@@ -179,6 +179,12 @@ describe('AppHeader', () => {
     const source = headerSource()
 
     expect(source).toContain('--header-dropdown-icon-size: 28px')
+    expect(source).toContain('fetch-priority="high"')
+    expect(source).toContain('<OptimizedImage :sources="optimizedImages.logo"')
+    expect(source).toContain('optimizedImages.userAvatar')
+    expect(source).toContain('.logo-box :deep(.logo-img)')
+    expect(source).toContain('class="nav-feature-icon" critical')
+    expect(source).toContain('name="menu" size="sm" critical')
     expect(source).toContain('notification-bell:hover :deep(.feature-icon)')
     expect(source).toContain('panel-item:hover .panel-item-icon')
     expect(source).not.toMatch(/\.panel-item-icon\.type-(resume|polish|interview|quota|system)\s*\{[\s\S]*?background:/)

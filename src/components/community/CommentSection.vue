@@ -254,11 +254,13 @@ import { ref, reactive, onMounted, onUnmounted, computed, watch, nextTick } from
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getComments, createComment, deleteComment, getReplies, uploadPostImage } from '@/api/community'
 import { useUserStore } from '@/stores/user'
-import defaultAvatar from '@/assets/user.png'
+import { optimizedImages } from '@/utils/optimizedImages'
 import FeatureIcon from '@/components/common/FeatureIcon.vue'
 import ImageGrid from '@/components/community/ImageGrid.vue'
 import { formatTime } from '@/utils/community'
 import { useScrollToComment } from '@/composables/useScrollToComment'
+
+const defaultAvatar = optimizedImages.userAvatar.webp
 
 const props = defineProps({
   postId: {

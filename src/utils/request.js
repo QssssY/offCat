@@ -9,7 +9,33 @@ const request = axios.create({
   timeout: 30000
 })
 
-// 请求拦截器：自动注入登录态 token
+// 用户端 401 处理锁：同一个失效 token 只提示一次；用户重新登录拿到新 token 后仍可再次提示。
+let handledUnauthorizedToken = undefined
+let isHandlingUnauthorized = false
+
+const handleUnauthorized = () => {
+  const currentToken = getToken()
+  if (isHandlingUnauthorized && (!currentToken || handledUnauthorizedToken === currentToken)) {
+    return
+  }
+
+  handledUnauthorizedToken = currentToken
+  isHandlingUnauthorized = true
+  removeToken()
+  ElMessage.error('登录已过期，请重新登录')
+
+  const currentPath = router.currentRoute.value.fullPath
+  if (currentPath === '/login') {
+    return
+  }
+
+  router.push({
+    path: '/login',
+    query: { redirect: currentPath }
+  })
+}
+
+// 请求拦截器：自动注入登录态 token。
 request.interceptors.request.use(
   (config) => {
     if (isLoggedIn()) {
@@ -25,7 +51,7 @@ request.interceptors.request.use(
   }
 )
 
-// 响应拦截器：统一处理业务码与网络异常
+// 响应拦截器：统一处理业务码与网络异常。
 request.interceptors.response.use(
   (response) => {
     const res = response.data
@@ -33,12 +59,18 @@ request.interceptors.response.use(
       return res
     }
 
-    // 某些长耗时接口会在页面内自行处理异常，此处允许跳过默认弹窗
+    // 后端业务码 401 也表示登录态失效，必须和 HTTP 401 共用同一把锁避免重复弹窗。
+    if (res.code === 401) {
+      handleUnauthorized()
+      return Promise.reject(new Error(res.message || '登录已过期，请重新登录'))
+    }
+
+    // 某些长耗时接口会在页面内自行处理异常，此处允许跳过默认弹窗。
     if (response.config?.skipDefaultErrorHandler) {
       return Promise.reject(new Error(res.message || '请求失败'))
     }
 
-    // 优先使用错误码映射获取用户友好提示
+    // 优先使用错误码映射获取用户友好提示。
     const errorInfo = getErrorMessage(res.code, res.message)
     if (errorInfo) {
       ElMessage({
@@ -52,7 +84,7 @@ request.interceptors.response.use(
     return Promise.reject(new Error(res.message || '请求失败'))
   },
   (error) => {
-    // 允许单个请求自行兜底处理超时、重试和状态回查
+    // 允许单个请求自行兜底处理超时、重试和状态回查。
     if (error.config?.skipDefaultErrorHandler) {
       return Promise.reject(error)
     }
@@ -63,13 +95,7 @@ request.interceptors.response.use(
       const { status, data } = error.response
       switch (status) {
         case 401: {
-          removeToken()
-          ElMessage.error('登录已过期，请重新登录')
-          const currentPath = router.currentRoute.value.fullPath
-          router.push({
-            path: '/login',
-            query: { redirect: currentPath }
-          })
+          handleUnauthorized()
           break
         }
         case 403:

@@ -4,13 +4,27 @@
     :class="[`size-${size}`, { 'feature-icon-halo': hasHalo }]"
     aria-hidden="true"
   >
-    <img :src="iconSrc" :alt="resolvedLabel" loading="lazy" decoding="async" />
+    <picture>
+      <source v-if="iconSources.webp" :srcset="iconSources.webp" type="image/webp" />
+      <img
+        :src="iconSources.png"
+        :alt="resolvedLabel"
+        :loading="resolvedLoading"
+        decoding="async"
+        :fetchpriority="resolvedFetchPriority"
+      />
+    </picture>
   </span>
 </template>
 
 <script setup>
-import { computed } from 'vue'
-import { getFeatureIcon, getFeatureIconLabel } from '@/utils/featureIcons'
+import { computed, ref, watch } from 'vue'
+import {
+  getCriticalFeatureIconSource,
+  getFeatureIconLabel,
+  getFeatureIconSource,
+  loadFeatureIconSource
+} from '@/utils/featureIcons'
 
 const props = defineProps({
   name: {
@@ -28,12 +42,50 @@ const props = defineProps({
   halo: {
     type: Boolean,
     default: false
+  },
+  critical: {
+    type: Boolean,
+    default: false
+  },
+  loading: {
+    type: String,
+    default: '',
+    validator: (value) => ['', 'lazy', 'eager'].includes(value)
+  },
+  fetchPriority: {
+    type: String,
+    default: '',
+    validator: (value) => ['', 'high', 'low', 'auto'].includes(value)
   }
 })
 
-const iconSrc = computed(() => getFeatureIcon(props.name))
+const iconSources = ref(getFeatureIconSource(props.name))
 const resolvedLabel = computed(() => props.label || getFeatureIconLabel(props.name))
 const hasHalo = computed(() => props.halo)
+const resolvedLoading = computed(() => props.loading || (props.critical ? 'eager' : 'lazy'))
+// 关键首屏图标同步命中，非首屏图标延后异步加载，避免整套插画进入首屏包。
+const resolvedFetchPriority = computed(() => props.fetchPriority || (props.critical ? 'high' : null))
+let loadSequence = 0
+
+watch(
+  () => props.name,
+  async (name) => {
+    const sequence = ++loadSequence
+    const criticalSource = getCriticalFeatureIconSource(name)
+
+    if (criticalSource) {
+      iconSources.value = criticalSource
+      return
+    }
+
+    iconSources.value = getFeatureIconSource(name)
+    const loadedSource = await loadFeatureIconSource(name)
+    if (sequence === loadSequence) {
+      iconSources.value = loadedSource
+    }
+  },
+  { immediate: true }
+)
 </script>
 
 <style scoped>
@@ -81,11 +133,19 @@ const hasHalo = computed(() => props.halo)
   border-radius: 18px;
 }
 
+.feature-icon picture,
 .feature-icon img {
   position: relative;
   z-index: 1;
   width: 100%;
   height: 100%;
+}
+
+.feature-icon picture {
+  display: block;
+}
+
+.feature-icon img {
   object-fit: contain;
   display: block;
 }

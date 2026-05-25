@@ -32,7 +32,7 @@
           </div>
 
           <div class="profile-summary">
-            <img src="@/assets/user.png" alt="用户头像" class="profile-avatar" />
+            <OptimizedImage :sources="optimizedImages.userAvatar" alt="用户头像" img-class="profile-avatar" />
             <div class="profile-main">
               <div class="profile-name-row">
                 <div class="profile-name">{{ displayName }}</div>
@@ -902,6 +902,8 @@ import { useThemeStore } from '@/stores/theme'
 import { useUserStore } from '@/stores/user'
 import { removeToken } from '@/utils/auth'
 import FeatureIcon from '@/components/common/FeatureIcon.vue'
+import OptimizedImage from '@/components/common/OptimizedImage.vue'
+import { optimizedImages } from '@/utils/optimizedImages'
 import {
   clearLocalSettingsCache,
   DEFAULT_SETTINGS_PREFERENCES,
@@ -1807,6 +1809,14 @@ onBeforeUnmount(() => {
   height: 52px;
   border-radius: 50%;
   object-fit: cover;
+}
+
+.profile-summary :deep(.profile-avatar) {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
 }
 
 .profile-main {

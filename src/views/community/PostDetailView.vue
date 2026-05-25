@@ -111,8 +111,10 @@ import { getPostDetail, togglePostLike, togglePostFavorite } from '@/api/communi
 import FeatureIcon from '@/components/common/FeatureIcon.vue'
 import ImageGrid from '@/components/community/ImageGrid.vue'
 import CommentSection from '@/components/community/CommentSection.vue'
-import defaultAvatar from '@/assets/user.png'
+import { optimizedImages } from '@/utils/optimizedImages'
 import { formatTime, categoryLabel } from '@/utils/community'
+
+const defaultAvatar = optimizedImages.userAvatar.webp
 
 const router = useRouter()
 const route = useRoute()
