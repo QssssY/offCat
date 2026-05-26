@@ -179,6 +179,10 @@
 </template>
 
 <script setup>
+defineOptions({
+  name: 'CommunityView'
+})
+
 import { ref, onMounted, onUnmounted, nextTick, defineAsyncComponent } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'

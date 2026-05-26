@@ -37,7 +37,10 @@ defineEmits(['update:modelValue'])
   color: var(--text-body);
   font-size: 14px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition:
+    border-color 0.2s ease,
+    color 0.2s ease,
+    background-color 0.2s ease;
 }
 
 .filter-tag:hover {

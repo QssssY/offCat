@@ -339,6 +339,10 @@
 <script setup>
 import { ref, computed, onMounted, defineAsyncComponent } from 'vue'
 import { getGrowthOverview, getInterviewRadar } from '@/api/growth'
+
+defineOptions({
+  name: 'GrowthCenterView'
+})
 import FeatureIcon from '@/components/common/FeatureIcon.vue'
 
 const LineChart = defineAsyncComponent(() => import('@/components/resume/LineChart.vue'))

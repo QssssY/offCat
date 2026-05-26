@@ -44,7 +44,11 @@ const previewBgColor = computed(() => (
   border-radius: 12px;
   overflow: hidden;
   cursor: pointer;
-  transition: all 0.3s;
+  transition:
+    transform 0.3s,
+    box-shadow 0.3s,
+    border-color 0.3s,
+    background-color 0.3s;
   contain: layout paint style;
 }
 

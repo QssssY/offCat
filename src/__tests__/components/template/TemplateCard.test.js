@@ -61,6 +61,7 @@ describe('TemplateCard', () => {
     const cardSource = sourceFile('src/components/template/TemplateCard.vue')
 
     expect(cardSource).toContain('contain: layout paint style')
+    expect(cardSource).not.toContain('transition: all')
     expect(cardSource).not.toContain('content-visibility: auto')
     expect(cardSource).not.toContain('contain-intrinsic-size')
   })

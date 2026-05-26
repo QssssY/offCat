@@ -14,8 +14,6 @@
 
 <script setup>
 import { ref } from 'vue'
-import html2canvas from 'html2canvas'
-import jsPDF from 'jspdf'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { exportPdfFromHtml, downloadPdfFile, serializeElementToHtml, stripScopedSelectors } from '@/api/resumePdf'
 import resumeExportCss from '@/components/resume/resumeExportStyles'
@@ -35,6 +33,7 @@ async function captureCanvas() {
     ElMessage.warning('预览内容未就绪，请稍后重试')
     return null
   }
+  const html2canvas = (await import('html2canvas')).default
   return await html2canvas(props.targetRef, {
     scale: 2,
     useCORS: true,
@@ -42,7 +41,8 @@ async function captureCanvas() {
   })
 }
 
-function canvasToPdf(canvas, fileName) {
+async function canvasToPdf(canvas, fileName) {
+  const { default: jsPDF } = await import('jspdf')
   const imgData = canvas.toDataURL('image/png')
   const pdf = new jsPDF('p', 'mm', 'a4')
   const pdfWidth = pdf.internal.pageSize.getWidth()
@@ -76,7 +76,7 @@ async function exportImagePdf() {
   try {
     const canvas = await captureCanvas()
     if (!canvas) return
-    canvasToPdf(canvas, props.fileName)
+    await canvasToPdf(canvas, props.fileName)
     ElMessage.success('PDF 已导出（图片型）')
   } catch (err) {
     console.error('[PDF导出-图片型] 失败:', err)

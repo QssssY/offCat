@@ -40,6 +40,10 @@ import { templates } from '@/data/templates.js'
 import IndustryFilter from '@/components/template/IndustryFilter.vue'
 import TemplateCard from '@/components/template/TemplateCard.vue'
 
+defineOptions({
+  name: 'TemplateLibraryView'
+})
+
 const TemplatePreviewDialog = defineAsyncComponent(() =>
   import('@/components/template/TemplatePreviewDialog.vue')
 )

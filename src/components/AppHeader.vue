@@ -24,6 +24,9 @@
         to="/resume/upload"
         class="nav-link"
         :class="{ active: isResumeActive }"
+        @mouseenter="prefetchNavigationRoute('/resume/upload')"
+        @focus="prefetchNavigationRoute('/resume/upload')"
+        @touchstart.passive="prefetchNavigationRoute('/resume/upload')"
       >
         <FeatureIcon name="resume-upload" size="xs" class="nav-feature-icon" critical />
         简历诊断
@@ -35,6 +38,9 @@
         to="/interview/entry"
         class="nav-link"
         :class="{ active: isInterviewActive }"
+        @mouseenter="prefetchNavigationRoute('/interview/entry')"
+        @focus="prefetchNavigationRoute('/interview/entry')"
+        @touchstart.passive="prefetchNavigationRoute('/interview/entry')"
       >
         <FeatureIcon name="mock-interview" size="xs" class="nav-feature-icon" critical />
         模拟面试
@@ -88,6 +94,9 @@
         to="/offer"
         class="nav-link"
         :class="{ active: isOfferActive }"
+        @mouseenter="prefetchNavigationRoute('/offer')"
+        @focus="prefetchNavigationRoute('/offer')"
+        @touchstart.passive="prefetchNavigationRoute('/offer')"
       >
         <FeatureIcon name="offer-assistant" size="xs" class="nav-feature-icon" critical />
         Offer 辅助
@@ -330,6 +339,8 @@
           v-if="isLoggedIn"
           to="/resume/upload"
           class="mobile-nav-link"
+          @touchstart.passive="prefetchNavigationRoute('/resume/upload')"
+          @focus="prefetchNavigationRoute('/resume/upload')"
           @click="drawerVisible = false"
         >
           <FeatureIcon name="resume-upload" size="sm" />
@@ -339,6 +350,8 @@
           v-if="isLoggedIn"
           to="/interview/entry"
           class="mobile-nav-link"
+          @touchstart.passive="prefetchNavigationRoute('/interview/entry')"
+          @focus="prefetchNavigationRoute('/interview/entry')"
           @click="drawerVisible = false"
         >
           <FeatureIcon name="mock-interview" size="sm" />
@@ -381,6 +394,8 @@
           v-if="isLoggedIn"
           to="/offer"
           class="mobile-nav-link"
+          @touchstart.passive="prefetchNavigationRoute('/offer')"
+          @focus="prefetchNavigationRoute('/offer')"
           @click="drawerVisible = false"
         >
           <FeatureIcon name="offer-assistant" size="sm" />
@@ -506,7 +521,7 @@ import OptimizedImage from "@/components/common/OptimizedImage.vue";
 import NotificationTypeIcon from "@/components/notification/NotificationTypeIcon.vue";
 import { formatNotificationTime, getNotificationTypeMeta, isAdminAnnouncementType } from "@/utils/notificationMeta";
 import { optimizedImages } from "@/utils/optimizedImages";
-import { prefetchUserRoute } from "@/router/routeLoaders";
+import { prefetchUserRoute, warmupHighFrequencyUserRoutes } from "@/router/routeLoaders";
 import { getSettingsPreferences, SETTINGS_PREFERENCES_UPDATED_EVENT } from "@/utils/settingsPreferences";
 
 const router = useRouter();
@@ -865,6 +880,10 @@ watch([isLoggedIn, notificationRealtimeEnabled], ([loggedIn, realtimeEnabled]) =
 onMounted(() => {
   if (typeof window !== "undefined") {
     window.addEventListener(SETTINGS_PREFERENCES_UPDATED_EVENT, handleSettingsPreferencesUpdated);
+  }
+
+  if (isLoggedIn.value) {
+    warmupHighFrequencyUserRoutes();
   }
 });
 

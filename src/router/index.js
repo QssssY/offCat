@@ -4,6 +4,9 @@ import { hasAdminRole, isAdminLoggedIn } from '@/utils/adminAuth'
 import {
   communityRouteLoader,
   growthCenterRouteLoader,
+  interviewEntryRouteLoader,
+  offerAssistRouteLoader,
+  resumeUploadRouteLoader,
   templateLibraryRouteLoader
 } from '@/router/routeLoaders'
 
@@ -140,12 +143,12 @@ const routes = [
     path: '/growth',
     name: 'GrowthCenter',
     component: growthCenterRouteLoader,
-    meta: { requiresAuth: true, useLayout: true }
+    meta: { requiresAuth: true, useLayout: true, keepAlive: true }
   },
   {
     path: '/offer',
     name: 'OfferAssist',
-    component: () => import('@/views/offer/OfferAssistView.vue'),
+    component: offerAssistRouteLoader,
     meta: { requiresAuth: true, useLayout: true }
   },
   {
@@ -163,7 +166,7 @@ const routes = [
   {
     path: '/resume/upload',
     name: 'ResumeUpload',
-    component: () => import('@/views/resume/UploadView.vue'),
+    component: resumeUploadRouteLoader,
     meta: { requiresAuth: true, useLayout: true }
   },
   {
@@ -181,7 +184,7 @@ const routes = [
   {
     path: '/interview/entry',
     name: 'InterviewEntry',
-    component: () => import('@/views/interview/InterviewEntryView.vue'),
+    component: interviewEntryRouteLoader,
     meta: { requiresAuth: true, useLayout: true }
   },
   {
@@ -206,7 +209,7 @@ const routes = [
     path: '/templates',
     name: 'TemplateLibrary',
     component: templateLibraryRouteLoader,
-    meta: { requiresAuth: true, useLayout: true }
+    meta: { requiresAuth: true, useLayout: true, keepAlive: true }
   },
   {
     path: '/templates/editor/:templateId',
@@ -218,7 +221,7 @@ const routes = [
     path: '/community',
     name: 'Community',
     component: communityRouteLoader,
-    meta: { requiresAuth: true, useLayout: true }
+    meta: { requiresAuth: true, useLayout: true, keepAlive: true }
   },
   {
     path: '/community/post/:postId',
