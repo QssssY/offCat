@@ -86,6 +86,8 @@ public class RedisConfig {
         cacheConfigMap.put("resume:task", defaultConfig.entryTtl(Duration.ofSeconds(10)));
         cacheConfigMap.put("user:monthlyStats", defaultConfig.entryTtl(Duration.ofMinutes(5)));
         cacheConfigMap.put("user:growthOverview", defaultConfig.entryTtl(Duration.ofMinutes(5)));
+        cacheConfigMap.put("config:aiEngine", defaultConfig.entryTtl(Duration.ofMinutes(30)));
+        cacheConfigMap.put("config:prompt", defaultConfig.entryTtl(Duration.ofMinutes(30)));
 
         return RedisCacheManager.builder(connectionFactory)
                 .cacheDefaults(defaultConfig)

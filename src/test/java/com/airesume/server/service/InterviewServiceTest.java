@@ -61,6 +61,7 @@ class InterviewServiceTest {
     @Mock private MockInterviewJobTargetService mockInterviewJobTargetService;
     @Mock private NotificationService notificationService;
     @Mock private InterviewDimensionScoreMapper dimensionScoreMapper;
+    @Mock private InterviewDimensionScoreService dimensionScoreService;
     @Mock private Executor aiAsyncExecutor;
     @Mock private CacheManager cacheManager;
     @Mock private Cache interviewRadarCache;
@@ -81,7 +82,7 @@ class InterviewServiceTest {
                 interviewSessionRepository, interviewMessageService, mockInterviewService,
                 interviewMessageRepository, interviewAiService, objectMapper, sysJobRoleService,
                 transactionTemplate, userQuotaService, mockInterviewJobTargetService,
-                notificationService, dimensionScoreMapper, aiAsyncExecutor);
+                notificationService, dimensionScoreMapper, dimensionScoreService, aiAsyncExecutor);
         ReflectionTestUtils.setField(interviewService, "cacheManager", cacheManager);
         lenient().when(cacheManager.getCache("user:interviewRadar")).thenReturn(interviewRadarCache);
         lenient().when(cacheManager.getCache("user:growthOverview")).thenReturn(growthOverviewCache);
@@ -305,6 +306,7 @@ class InterviewServiceTest {
                 anyList(),
                 eq(request.getContent()),
                 eq(session.getJobRoleCode()),
+                eq(session.getJobRole()),
                 eq(session.getDifficulty()),
                 any(),
                 eq("immediate"),
@@ -319,6 +321,7 @@ class InterviewServiceTest {
                 anyList(),
                 eq(request.getContent()),
                 eq(session.getJobRoleCode()),
+                eq(session.getJobRole()),
                 eq(session.getDifficulty()),
                 any(),
                 eq("immediate"),
@@ -355,6 +358,7 @@ class InterviewServiceTest {
                 anyList(),
                 eq(request.getContent()),
                 eq(session.getJobRoleCode()),
+                eq(session.getJobRole()),
                 eq(session.getDifficulty()),
                 same(latestResumeContext),
                 eq("after_interview"),
@@ -370,6 +374,7 @@ class InterviewServiceTest {
                 anyList(),
                 eq(request.getContent()),
                 eq(session.getJobRoleCode()),
+                eq(session.getJobRole()),
                 eq(session.getDifficulty()),
                 same(latestResumeContext),
                 eq("after_interview"),

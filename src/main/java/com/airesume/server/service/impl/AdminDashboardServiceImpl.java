@@ -13,6 +13,8 @@ import com.airesume.server.dto.admin.HotJobRoleResponse;
 import com.airesume.server.dto.admin.MonitorOverviewResponse;
 import com.airesume.server.entity.InterviewSession;
 import com.airesume.server.entity.ResumeDiagnosisTask;
+import com.airesume.server.mapper.InterviewSessionMapper;
+import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
 import org.springframework.cache.annotation.Cacheable;
 import com.airesume.server.entity.SysAiEngineConfig;
 import com.airesume.server.entity.SysJobRole;
@@ -36,6 +38,8 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.sql.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -59,6 +63,8 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
     private final SysAiEngineConfigService sysAiEngineConfigService;
     private final InterviewSessionService interviewSessionService;
     private final ResumeDiagnosisTaskService resumeDiagnosisTaskService;
+    private final InterviewSessionMapper interviewSessionMapper;
+    private final ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper;
 
     @Override
     public DashboardOverviewResponse getDashboardOverview(LocalDate startDate, LocalDate endDate) {
@@ -98,20 +104,21 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
     @Cacheable(value = "admin:dashboardTrends", key = "#startDate + ':' + #endDate", unless = "#result == null || #result.isEmpty()")
     public List<DashboardTrendResponse> getDashboardTrends(LocalDate startDate, LocalDate endDate) {
         DateRange range = resolveDateRange(startDate, endDate, DateRangeDefault.LAST_7_DAYS);
+        Map<LocalDate, Long> interviewCountByDate = toCountByDateMap(
+                interviewSessionMapper.countByCreateDate(range.startDateTime(), range.endExclusiveDateTime()));
+        Map<LocalDate, Long> resumeCountByDate = toCountByDateMap(
+                resumeDiagnosisTaskMapper.countByCreateDate(range.startDateTime(), range.endExclusiveDateTime()));
         List<DashboardTrendResponse> trends = new ArrayList<>();
 
         // 按日期升序返回，前端图表可直接消费。
         LocalDate cursor = range.startDate();
         while (!cursor.isAfter(range.endDate())) {
-            LocalDateTime dayStart = cursor.atStartOfDay();
-            LocalDateTime dayEnd = cursor.plusDays(1).atStartOfDay();
-
             trends.add(DashboardTrendResponse.builder()
                     .date(cursor)
-                    // 面试趋势口径使用 interview_session.create_time。
-                    .interviewSessionCount(countInterviewSessionsBetween(dayStart, dayEnd))
-                    // 简历趋势口径使用 resume_diagnosis_task.create_time。
-                    .resumeDiagnosisCount(countResumeTasksBetween(dayStart, dayEnd))
+                    // 面试趋势口径使用 interview_session.create_time 聚合结果，缺失日期补 0。
+                    .interviewSessionCount(interviewCountByDate.getOrDefault(cursor, 0L))
+                    // 简历趋势口径使用 resume_diagnosis_task.create_time 聚合结果，缺失日期补 0。
+                    .resumeDiagnosisCount(resumeCountByDate.getOrDefault(cursor, 0L))
                     .build());
             cursor = cursor.plusDays(1);
         }
@@ -285,6 +292,31 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
             return number.longValue();
         }
         return value == null ? 0L : Long.parseLong(String.valueOf(value));
+    }
+
+    /**
+     * 将 Mapper 聚合行转换为日期到数量的映射，兼容 JDBC Date、LocalDate 和字符串日期。
+     */
+    private Map<LocalDate, Long> toCountByDateMap(List<Map<String, Object>> rows) {
+        Map<LocalDate, Long> countByDate = new HashMap<>();
+        if (rows == null || rows.isEmpty()) {
+            return countByDate;
+        }
+        for (Map<String, Object> row : rows) {
+            LocalDate statDate = toLocalDateValue(row.get("statDate"));
+            countByDate.put(statDate, toLongValue(row.get("totalCount")));
+        }
+        return countByDate;
+    }
+
+    private LocalDate toLocalDateValue(Object value) {
+        if (value instanceof LocalDate localDate) {
+            return localDate;
+        }
+        if (value instanceof Date sqlDate) {
+            return sqlDate.toLocalDate();
+        }
+        return LocalDate.parse(String.valueOf(value));
     }
 
     private String toStringValue(Object value) {

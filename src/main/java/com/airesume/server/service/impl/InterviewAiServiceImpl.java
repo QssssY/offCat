@@ -37,9 +37,12 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
+import io.netty.resolver.DefaultAddressResolverGroup;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
+import reactor.netty.http.client.HttpClient;
 import reactor.core.publisher.FluxSink;
 import reactor.core.scheduler.Schedulers;
 
@@ -124,8 +127,12 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 .baseUrl(this.resolvedBaseUrl)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .build();
+        // 使用 JDK DNS 解析器，避免 Netty 异步解析器在 Windows 上无法解析部分域名
+        HttpClient httpClient = HttpClient.create()
+                .resolver(DefaultAddressResolverGroup.INSTANCE);
         this.webClient = WebClient.builder()
                 .baseUrl(this.resolvedBaseUrl)
+                .clientConnector(new ReactorClientHttpConnector(httpClient))
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .build();
         String tag = this.provider.toUpperCase();
@@ -227,7 +234,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
 
     @Override
     public String generateReply(String sessionId, List<ChatMessageItem> history, String userMessage,
-                                 String jobRoleCode, Integer difficulty,
+                                 String jobRoleCode, String jobRole, Integer difficulty,
                                  InterviewJobTargetContext jobTargetContext,
                                  String feedbackMode,
                                  String interviewMode,
@@ -252,7 +259,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 compressedHistory == null ? 0 : compressedHistory.size(),
                 userMessage == null ? 0 : userMessage.length(), jobRoleCode, difficulty, resolvedInterviewMode, feedbackMode);
 
-        String currentJobRole = resolveCurrentJobRole(sessionId, history, jobRoleCode);
+        String currentJobRole = resolveCurrentJobRole(sessionId, history, jobRoleCode, jobRole);
         List<Message> messages = buildConversationMessages(
                 compressedHistory,
                 userMessage,
@@ -282,7 +289,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
 
     @Override
     public Publisher<String> generateReplyStream(String sessionId, List<ChatMessageItem> history, String userMessage,
-                                                   String jobRoleCode, Integer difficulty,
+                                                   String jobRoleCode, String jobRole, Integer difficulty,
                                                    InterviewJobTargetContext jobTargetContext,
                                                    String feedbackMode,
                                                    String interviewMode,
@@ -306,7 +313,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 tag, sessionId, history == null ? 0 : history.size(),
                 compressedHistory == null ? 0 : compressedHistory.size(), jobRoleCode, difficulty, resolvedInterviewMode, feedbackMode);
 
-        String currentJobRole = resolveCurrentJobRole(sessionId, history, jobRoleCode);
+        String currentJobRole = resolveCurrentJobRole(sessionId, history, jobRoleCode, jobRole);
         List<Message> messages = buildConversationMessages(
                 compressedHistory,
                 userMessage,
@@ -365,6 +372,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
 
         WebClient runtimeWebClient = webClientBuilder
                 .baseUrl(runtimeConfig.baseUrl())
+                .clientConnector(new ReactorClientHttpConnector(
+                        HttpClient.create().resolver(DefaultAddressResolverGroup.INSTANCE)))
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .build();
 
@@ -1219,7 +1228,17 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      * 优先从当前会话读取真实岗位名称。
      * 说明：多轮对话阶段如果只依赖历史消息推断岗位，容易退化成"软件工程师"这种泛化岗位。
      */
-    private String resolveCurrentJobRole(String sessionId, List<ChatMessageItem> history, String jobRoleCode) {
+    private String resolveCurrentJobRole(String sessionId, List<ChatMessageItem> history,
+                                          String jobRoleCode, String providedJobRole) {
+        // 优先使用调用方传入的 jobRole（从预加载 session 获取）
+        if (providedJobRole != null && !providedJobRole.isBlank()) {
+            return providedJobRole;
+        }
+        String mappedJobRole = mapJobRoleCodeToName(jobRoleCode);
+        if (!mappedJobRole.isBlank()) {
+            return mappedJobRole;
+        }
+        // 兜底：从 DB 查询（兼容其他调用方未传 jobRole 的场景）
         if (sessionId != null && !sessionId.isBlank()) {
             try {
                 InterviewSession session = interviewSessionMapper.selectOne(
@@ -1233,10 +1252,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             } catch (Exception e) {
                 log.warn("根据 sessionId 读取岗位名称失败, sessionId: {}", sessionId, e);
             }
-        }
-        String mappedJobRole = mapJobRoleCodeToName(jobRoleCode);
-        if (!mappedJobRole.isBlank()) {
-            return mappedJobRole;
         }
         if (history != null && !history.isEmpty()) {
             String first = history.get(0).content();

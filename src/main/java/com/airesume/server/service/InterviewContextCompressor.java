@@ -3,8 +3,13 @@ package com.airesume.server.service;
 import com.airesume.server.config.AiTokenLimitConfig;
 import com.airesume.server.util.TokenEstimator;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
@@ -37,22 +42,32 @@ public class InterviewContextCompressor {
 
     private final AiTokenLimitConfig tokenLimitConfig;
     private final AiChatClient aiChatClient;
+    private final Clock clock;
 
     /** 摘要缓存：sessionId → 上次生成的摘要信息，避免每轮都重新调用 AI */
     private final ConcurrentHashMap<String, CachedSummary> summaryCache = new ConcurrentHashMap<>();
+
+    /** 摘要缓存最长保留时间，防止用户中断面试后缓存长期占用内存。 */
+    private static final Duration SUMMARY_CACHE_TTL = Duration.ofHours(2);
 
     /** 获取重新摘要间隔（从配置读取，默认 6 条消息 = 3 轮对话） */
     private int getResummarizeThreshold() {
         return tokenLimitConfig.getResummarizeInterval();
     }
 
+    @Autowired
     public InterviewContextCompressor(AiTokenLimitConfig tokenLimitConfig, AiChatClient aiChatClient) {
+        this(tokenLimitConfig, aiChatClient, Clock.systemDefaultZone());
+    }
+
+    InterviewContextCompressor(AiTokenLimitConfig tokenLimitConfig, AiChatClient aiChatClient, Clock clock) {
         this.tokenLimitConfig = tokenLimitConfig;
         this.aiChatClient = aiChatClient;
+        this.clock = clock;
     }
 
     /** 摘要缓存条目 */
-    private record CachedSummary(String summary, int messageCount) {}
+    private record CachedSummary(String summary, int messageCount, Instant updatedAt) {}
 
     // ==================== AI 摘要 Prompt 常量 ====================
 
@@ -167,7 +182,7 @@ public class InterviewContextCompressor {
                 summaryContent = "[历史对话摘要 - AI 生成]\n" + aiResult;
                 // 更新缓存
                 if (sessionId != null) {
-                    summaryCache.put(sessionId, new CachedSummary(summaryContent, summaryCount));
+                    summaryCache.put(sessionId, new CachedSummary(summaryContent, summaryCount, Instant.now(clock)));
                 }
             } else {
                 summaryContent = buildTruncatedSummary(earlyMessages);
@@ -204,6 +219,28 @@ public class InterviewContextCompressor {
             summaryCache.remove(sessionId);
             log.debug("已清除会话 {} 的摘要缓存", sessionId);
         }
+    }
+
+    /**
+     * 定时清理过期摘要缓存，兜底处理用户直接离开页面导致 evictCache 未触发的场景。
+     */
+    @Scheduled(fixedDelayString = "${app.interview.summary-cache-cleanup-interval-ms:600000}")
+    public void cleanupExpiredSummaryCacheScheduled() {
+        cleanupExpiredSummaryCache();
+    }
+
+    /**
+     * 清理超过 TTL 的摘要缓存，返回清理数量便于单元测试和运行日志观测。
+     */
+    int cleanupExpiredSummaryCache() {
+        Instant expireBefore = Instant.now(clock).minus(SUMMARY_CACHE_TTL);
+        int beforeSize = summaryCache.size();
+        summaryCache.entrySet().removeIf(entry -> entry.getValue().updatedAt().isBefore(expireBefore));
+        int cleaned = beforeSize - summaryCache.size();
+        if (cleaned > 0) {
+            log.debug("已清理过期面试摘要缓存 {} 条，剩余 {} 条", cleaned, summaryCache.size());
+        }
+        return cleaned;
     }
 
     /**

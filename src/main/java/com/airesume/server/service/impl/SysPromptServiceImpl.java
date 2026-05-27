@@ -10,6 +10,8 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,6 +26,7 @@ public class SysPromptServiceImpl extends ServiceImpl<SysPromptMapper, SysPrompt
     private final SysJobRoleMapper sysJobRoleMapper;
 
     @Override
+    @Cacheable(value = "config:prompt", key = "'content::' + #scenarioType", unless = "#result == null")
     public String getActivePromptContent(Integer scenarioType) {
         if (scenarioType == null) {
             return null;
@@ -44,6 +47,7 @@ public class SysPromptServiceImpl extends ServiceImpl<SysPromptMapper, SysPrompt
     }
 
     @Override
+    @Cacheable(value = "config:prompt", key = "#scenarioType + '::' + #jobRoleCode + '::' + #difficulty", unless = "#result == null")
     public SysPrompt getActivePromptByJobRole(Integer scenarioType, String jobRoleCode, Integer difficulty) {
         if (scenarioType == null || jobRoleCode == null || difficulty == null) {
             return null;
@@ -69,6 +73,7 @@ public class SysPromptServiceImpl extends ServiceImpl<SysPromptMapper, SysPrompt
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "config:prompt", allEntries = true)
     public void deactivateOtherPrompts(Integer scenarioType, String jobRoleCode, Integer difficulty) {
         if (scenarioType == null || jobRoleCode == null || difficulty == null) {
             return;

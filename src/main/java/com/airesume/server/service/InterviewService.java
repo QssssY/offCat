@@ -44,6 +44,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter
 
 import java.io.IOException;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -78,6 +79,7 @@ public class InterviewService {
     private final MockInterviewJobTargetService mockInterviewJobTargetService;
     private final NotificationService notificationService;
     private final InterviewDimensionScoreMapper dimensionScoreMapper;
+    private final InterviewDimensionScoreService dimensionScoreService;
     private final Executor aiAsyncExecutor;
 
     /** Spring Cache 管理器，用于按逻辑缓存名清理成长中心聚合数据。 */
@@ -238,6 +240,7 @@ public class InterviewService {
                 history,
                 request.getContent(),
                 session.getJobRoleCode(),
+                session.getJobRole(),
                 session.getDifficulty(),
                 jobTargetContext,
                 resolvedFeedbackMode,
@@ -397,8 +400,8 @@ public class InterviewService {
     }
 
     /**
-     * 从评估报告 JSON 中提取 6 维度评分并写入 interview_dimension_score 表。
-     * 失败时仅记录日志，不影响报告主流程。同时清除雷达缓存。
+     * 从评估报告 JSON 中提取 6 维度评分并批量写入 interview_dimension_score 表。
+     * 使用 transactionTemplate 保证事务，失败时回滚并记录日志，不影响报告主流程。
      */
     private void persistDimensionScores(InterviewSession session, String reportJson) {
         try {
@@ -411,25 +414,32 @@ public class InterviewService {
                     "pressureResistance", Objects.requireNonNullElse(report.getPressureResistance(), new InterviewEvaluationReport.DimensionScore()),
                     "jobMatch", Objects.requireNonNullElse(report.getJobMatch(), new InterviewEvaluationReport.DimensionScore())
             );
+
+            List<InterviewDimensionScore> entities = new ArrayList<>();
             for (Map.Entry<String, InterviewEvaluationReport.DimensionScore> entry : dims.entrySet()) {
                 InterviewEvaluationReport.DimensionScore ds = entry.getValue();
                 if (ds.getScore() == null) continue;
+                InterviewDimensionScore entity = new InterviewDimensionScore();
+                entity.setUserId(session.getUserId());
+                entity.setSessionId(session.getSessionId());
+                entity.setDimensionKey(entry.getKey());
+                entity.setScore(ds.getScore());
+                entity.setComment(ds.getComment());
+                entity.setStrengths(ds.getStrengths() != null ? objectMapper.writeValueAsString(ds.getStrengths()) : null);
+                entity.setWeaknesses(ds.getWeaknesses() != null ? objectMapper.writeValueAsString(ds.getWeaknesses()) : null);
+                entities.add(entity);
+            }
+
+            if (!entities.isEmpty()) {
                 try {
-                    InterviewDimensionScore entity = new InterviewDimensionScore();
-                    entity.setUserId(session.getUserId());
-                    entity.setSessionId(session.getSessionId());
-                    entity.setDimensionKey(entry.getKey());
-                    entity.setScore(ds.getScore());
-                    entity.setComment(ds.getComment());
-                    entity.setStrengths(ds.getStrengths() != null ? objectMapper.writeValueAsString(ds.getStrengths()) : null);
-                    entity.setWeaknesses(ds.getWeaknesses() != null ? objectMapper.writeValueAsString(ds.getWeaknesses()) : null);
-                    dimensionScoreMapper.insert(entity);
+                    transactionTemplate.executeWithoutResult(status -> dimensionScoreService.saveBatch(entities));
                 } catch (DuplicateKeyException ignored) {
-                    // UNIQUE INDEX 保护
+                    // CAS 保护下重复写入概率极低，UNIQUE INDEX 兜底
                 } catch (Exception e) {
-                    log.warn("[面试维度评分] 写入失败，sessionId={}, dim={}: {}", session.getSessionId(), entry.getKey(), e.getMessage());
+                    log.warn("[面试维度评分] 批量写入失败，sessionId={}: {}", session.getSessionId(), e.getMessage());
                 }
             }
+
             evictGrowthCaches(session.getUserId());
             log.info("[面试维度评分] 写入完成, sessionId={}, userId={}", session.getSessionId(), session.getUserId());
         } catch (Exception e) {
@@ -561,6 +571,47 @@ public class InterviewService {
                 && InterviewConstants.ROLE_USER.equalsIgnoreCase(latestMessage.getMessageRole())
                 && Objects.equals(latestMessage.getContent(), content)) {
             log.warn("检测到重复的流式用户消息，跳过写入, sessionId: {}, userId: {}", sessionId, userId);
+            return;
+        }
+
+        InterviewChatLog userMessage = new InterviewChatLog();
+        userMessage.setId(IdWorker.getId());
+        userMessage.setSessionId(sessionId);
+        userMessage.setMessageRole(InterviewConstants.ROLE_USER);
+        userMessage.setContent(content);
+        userMessage.setCreateTime(LocalDateTime.now());
+        userMessage.setUpdateTime(LocalDateTime.now());
+        userMessage.setIsDeleted(0);
+        interviewMessageRepository.save(userMessage);
+    }
+
+    // ===== 预加载 session 的重载方法（避免流式路径重复查询 interview_session）=====
+
+    @Transactional(readOnly = true)
+    public List<InterviewChatLog> getChatLogsForStream(InterviewSession session) {
+        assertSessionInProgress(session);
+        return interviewMessageService.getMessageList(session.getSessionId());
+    }
+
+    public void validateSessionForStream(InterviewSession session) {
+        assertSessionInProgress(session);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void saveUserMessage(InterviewSession session, String content) {
+        assertSessionInProgress(session);
+        if (session.getOpeningGenerated() == null || session.getOpeningGenerated() == 0) {
+            throw new BusinessException("开场白正在生成中，请稍候再发送消息");
+        }
+        String sessionId = session.getSessionId();
+
+        InterviewChatLog latestMessage = interviewMessageRepository
+                .findFirstBySessionIdAndIsDeletedOrderByCreateTimeDesc(sessionId, 0)
+                .orElse(null);
+        if (latestMessage != null
+                && InterviewConstants.ROLE_USER.equalsIgnoreCase(latestMessage.getMessageRole())
+                && Objects.equals(latestMessage.getContent(), content)) {
+            log.warn("检测到重复的流式用户消息，跳过写入, sessionId: {}", sessionId);
             return;
         }
 
@@ -1189,7 +1240,7 @@ public class InterviewService {
     /**
      * 按归属查询会话，不存在则抛错。
      */
-    private InterviewSession getSessionByOwnerOrThrow(String sessionId, Long userId) {
+    public InterviewSession getSessionByOwnerOrThrow(String sessionId, Long userId) {
         return interviewSessionRepository.findBySessionIdAndUserId(sessionId, userId)
                 .orElseThrow(() -> new BusinessException("会话不存在或无权访问"));
     }
@@ -1213,7 +1264,7 @@ public class InterviewService {
     /**
      * 统一拦截非进行中会话的继续发送行为。
      */
-    private void assertSessionInProgress(InterviewSession session) {
+    public void assertSessionInProgress(InterviewSession session) {
         if (!isSessionInProgress(session)) {
             throw new BusinessException("会话已结束，无法继续发送消息");
         }

@@ -39,6 +39,7 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
     private static final String SECURITY_QUESTION_PATH = "/api/auth/security-question";
     private static final String RESET_PASSWORD_PATH = "/api/auth/reset-password";
     private static final String RESUME_UPLOAD_PATH = "/api/resume/upload";
+    private static final String RESUME_EXPORT_PDF_PATH = "/api/resume/export-pdf";
     private static final String INTERVIEW_SESSION_PATH = "/api/interview/session";
     private static final String INTERVIEW_SESSION_PREFIX = "/api/interview/session/";
     private static final String INTERVIEW_STREAM_SUFFIX = "/message/stream";
@@ -53,6 +54,9 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
             "reset_password", RESET_PASSWORD_PATH, MatchType.EXACT, 5, Duration.ofMinutes(15).toMillis(), KeyStrategy.IP_ONLY);
     private static final RateLimitPolicy RESUME_UPLOAD_POLICY = new RateLimitPolicy(
             "resume_upload", RESUME_UPLOAD_PATH, MatchType.EXACT, 10, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
+    // PDF 导出会启动浏览器进程生成文件，成本高于普通查询，单独限制频率保护 CPU 和内存。
+    private static final RateLimitPolicy RESUME_EXPORT_PDF_POLICY = new RateLimitPolicy(
+            "resume_export_pdf", RESUME_EXPORT_PDF_PATH, MatchType.EXACT, 5, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
     private static final RateLimitPolicy INTERVIEW_CREATE_POLICY = new RateLimitPolicy(
             "interview_create", INTERVIEW_SESSION_PATH, MatchType.EXACT, 10, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
     // 面试 SSE 流式接口是单次成本最高的端点：每次都会触发一次真 AI 调用。
@@ -205,6 +209,9 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
         }
         if (RESUME_UPLOAD_POLICY.matches(requestMethod, requestUri)) {
             return RESUME_UPLOAD_POLICY;
+        }
+        if (RESUME_EXPORT_PDF_POLICY.matches(requestMethod, requestUri)) {
+            return RESUME_EXPORT_PDF_POLICY;
         }
         if (INTERVIEW_CREATE_POLICY.matches(requestMethod, requestUri)) {
             return INTERVIEW_CREATE_POLICY;

@@ -282,6 +282,7 @@ public class AdminController {
      * 新增 AI 引擎配置
      */
     @PostMapping("/ai-engines")
+    @CacheEvict(value = "config:aiEngine", allEntries = true)
     public Result<Long> createAiEngineConfig(@Valid @RequestBody AiEngineConfigCreateRequest request,
                                              Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
@@ -320,6 +321,7 @@ public class AdminController {
      * 修改 AI 引擎配置
      */
     @PutMapping("/ai-engines")
+    @CacheEvict(value = "config:aiEngine", allEntries = true)
     public Result<Void> updateAiEngineConfig(@Valid @RequestBody AiEngineConfigUpdateRequest request,
                                              Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
@@ -423,6 +425,7 @@ public class AdminController {
      * 后端需要在这里保证同一 businessType 最多只有一个启用配置。
      */
     @PutMapping("/ai-engines/{id}/active")
+    @CacheEvict(value = "config:aiEngine", allEntries = true)
     public Result<Void> toggleAiEngineConfigActive(@PathVariable Long id,
                                                    @RequestParam Integer isActive,
                                                    Authentication authentication) {
@@ -442,6 +445,7 @@ public class AdminController {
      * 注意：如果删除的引擎正处于启用状态，需要谨慎操作。
      */
     @DeleteMapping("/ai-engines/{id}")
+    @CacheEvict(value = "config:aiEngine", allEntries = true)
     public Result<Void> deleteAiEngine(@PathVariable Long id, Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         checkAdminPermission(userId);
@@ -464,6 +468,7 @@ public class AdminController {
      * 管理员可以批量物理删除 AI 引擎配置，删除后数据无法恢复。
      */
     @PostMapping("/ai-engines/batch-delete")
+    @CacheEvict(value = "config:aiEngine", allEntries = true)
     public Result<Void> deleteAiEnginesBatch(@RequestBody List<Long> ids, Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         checkAdminPermission(userId);
@@ -491,6 +496,7 @@ public class AdminController {
      */
     @Transactional(rollbackFor = Exception.class)
     @PutMapping("/ai-engines/batch/active")
+    @CacheEvict(value = "config:aiEngine", allEntries = true)
     public Result<Void> toggleAiEnginesBatchActive(@Valid @RequestBody BatchActiveRequest request,
                                                Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
@@ -610,6 +616,7 @@ public class AdminController {
      */
     @Transactional(rollbackFor = Exception.class)
     @PostMapping("/prompts")
+    @CacheEvict(value = "config:prompt", allEntries = true)
     public Result<Long> createPrompt(@Valid @RequestBody PromptCreateRequest request,
                                        Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
@@ -649,6 +656,7 @@ SysPrompt prompt = new SysPrompt();
      */
     @Transactional(rollbackFor = Exception.class)
     @PutMapping("/prompts")
+    @CacheEvict(value = "config:prompt", allEntries = true)
     public Result<Void> updatePrompt(@Valid @RequestBody PromptUpdateRequest request,
                                       Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
@@ -703,6 +711,7 @@ SysPrompt prompt = new SysPrompt();
      */
     @Transactional(rollbackFor = Exception.class)
     @PutMapping("/prompts/{id}/active")
+    @CacheEvict(value = "config:prompt", allEntries = true)
     public Result<Void> togglePromptActive(@PathVariable Long id,
                                              @RequestParam Integer isActive,
                                              Authentication authentication) {
@@ -740,6 +749,7 @@ SysPrompt prompt = new SysPrompt();
      * 注意：如果删除的 Prompt 正处于启用状态，需要谨慎操作。
      */
     @DeleteMapping("/prompts/{id}")
+    @CacheEvict(value = "config:prompt", allEntries = true)
     public Result<Void> deletePrompt(@PathVariable Long id, Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         checkAdminPermission(userId);
@@ -762,6 +772,7 @@ SysPrompt prompt = new SysPrompt();
      * 管理员可以批量物理删除 Prompt 模板，删除后数据无法恢复。
      */
     @PostMapping("/prompts/batch-delete")
+    @CacheEvict(value = "config:prompt", allEntries = true)
     public Result<Void> deletePromptsBatch(@RequestBody List<Long> ids, Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         checkAdminPermission(userId);
@@ -789,6 +800,7 @@ SysPrompt prompt = new SysPrompt();
      */
     @Transactional(rollbackFor = Exception.class)
     @PutMapping("/prompts/batch/active")
+    @CacheEvict(value = "config:prompt", allEntries = true)
     public Result<Void> togglePromptsBatchActive(@Valid @RequestBody BatchActiveRequest request,
                                                 Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();

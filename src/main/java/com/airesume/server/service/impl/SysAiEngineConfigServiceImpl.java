@@ -8,6 +8,8 @@ import com.airesume.server.service.SysAiEngineConfigService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -65,6 +67,7 @@ public class SysAiEngineConfigServiceImpl extends ServiceImpl<SysAiEngineConfigM
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "config:aiEngine", allEntries = true)
     public void saveConfig(SysAiEngineConfig config) {
         String businessType = normalizeBusinessType(config.getBusinessType());
         validateBusinessType(businessType);
@@ -79,6 +82,7 @@ public class SysAiEngineConfigServiceImpl extends ServiceImpl<SysAiEngineConfigM
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "config:aiEngine", allEntries = true)
     public void updateConfig(SysAiEngineConfig config) {
         String businessType = normalizeBusinessType(config.getBusinessType());
         validateBusinessType(businessType);
@@ -93,6 +97,7 @@ public class SysAiEngineConfigServiceImpl extends ServiceImpl<SysAiEngineConfigM
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "config:aiEngine", allEntries = true)
     public void switchActive(Long id, Integer isActive) {
         validateActiveFlag(isActive);
 
@@ -110,6 +115,7 @@ public class SysAiEngineConfigServiceImpl extends ServiceImpl<SysAiEngineConfigM
     }
 
     @Override
+    @Cacheable(value = "config:aiEngine", key = "#businessType", unless = "#result == null")
     public SysAiEngineConfig getActiveByBusinessType(String businessType) {
         String normalizedBusinessType = normalizeBusinessType(businessType);
         validateBusinessType(normalizedBusinessType);

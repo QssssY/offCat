@@ -42,7 +42,7 @@ public class MockInterviewAiServiceImpl implements InterviewAiService {
 
     @Override
     public String generateReply(String sessionId, List<ChatMessageItem> history, String userMessage,
-                                String jobRoleCode, Integer difficulty, InterviewJobTargetContext jobTargetContext,
+                                String jobRoleCode, String jobRole, Integer difficulty, InterviewJobTargetContext jobTargetContext,
                                 String feedbackMode, String interviewMode, Integer interactionType) {
         log.info("[MOCK] 生成面试官回复, sessionId: {}, historySize: {}, targeted: {}",
                 sessionId, history == null ? 0 : history.size(),
@@ -54,7 +54,7 @@ public class MockInterviewAiServiceImpl implements InterviewAiService {
 
     @Override
     public Publisher<String> generateReplyStream(String sessionId, List<ChatMessageItem> history, String userMessage,
-                                                 String jobRoleCode, Integer difficulty,
+                                                 String jobRoleCode, String jobRole, Integer difficulty,
                                                  InterviewJobTargetContext jobTargetContext,
                                                  String feedbackMode, String interviewMode, Integer interactionType) {
         log.info("[MOCK] 流式生成面试官回复, sessionId: {}, historySize: {}, targeted: {}",

@@ -10,6 +10,7 @@ import org.apache.ibatis.annotations.Update;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 简历诊断任务Mapper接口
@@ -17,6 +18,22 @@ import java.util.List;
  */
 @Mapper
 public interface ResumeDiagnosisTaskMapper extends BaseMapper<ResumeDiagnosisTask> {
+
+    /**
+     * 按创建日期聚合简历诊断任务数量，避免管理后台趋势图逐日循环查询。
+     */
+    @Select("""
+            SELECT DATE(create_time) AS statDate,
+                   COUNT(*) AS totalCount
+            FROM resume_diagnosis_task
+            WHERE create_time >= #{startTime}
+              AND create_time < #{endExclusiveTime}
+              AND is_deleted = 0
+            GROUP BY DATE(create_time)
+            ORDER BY statDate ASC
+            """)
+    List<Map<String, Object>> countByCreateDate(@Param("startTime") LocalDateTime startTime,
+                                                @Param("endExclusiveTime") LocalDateTime endExclusiveTime);
 
     /**
      * 原子抢占待处理任务，避免同一任务被多个线程重复消费。

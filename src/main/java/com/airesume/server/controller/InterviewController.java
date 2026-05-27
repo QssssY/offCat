@@ -114,8 +114,12 @@ public class InterviewController {
                     return;
                 }
 
+                // 加载 session 一次，后续全部复用（替代原来 4 次重复查询）
+                InterviewSession session = interviewService.getSessionByOwnerOrThrow(sessionId, userId);
+                interviewService.assertSessionInProgress(session);
+
                 StringBuilder fullReply = new StringBuilder();
-                List<InterviewChatLog> chatLogs = interviewService.getChatLogsForStream(sessionId, userId);
+                List<InterviewChatLog> chatLogs = interviewService.getChatLogsForStream(session);
                 if (shouldSkipClosedStream(sessionId, streamClosed)) {
                     return;
                 }
@@ -126,24 +130,22 @@ public class InterviewController {
                         .map(log -> new InterviewAiService.ChatMessageItem(log.getMessageRole(), log.getContent()))
                         .toList();
 
-                interviewService.validateSessionForStream(sessionId, userId);
+                interviewService.validateSessionForStream(session);
                 if (shouldSkipClosedStream(sessionId, streamClosed)) {
                     return;
                 }
 
                 // 先落用户消息，再让服务层按会话归属继续完成流式问答。
-                interviewService.saveUserMessage(sessionId, userId, request.getContent());
+                interviewService.saveUserMessage(session, request.getContent());
                 if (shouldSkipClosedStream(sessionId, streamClosed)) {
                     return;
                 }
 
-                InterviewSession session = interviewService.getSessionByOwner(sessionId, userId);
-                String jobRoleCode = session != null ? session.getJobRoleCode() : null;
-                Integer difficulty = session != null ? session.getDifficulty() : null;
-                String interviewMode = session != null ? session.getInterviewMode() : null;
-                Integer interactionType = session != null
-                        ? interviewService.resolveInteractionType(session.getInteractionType())
-                        : InterviewConstants.INTERACTION_TYPE_TEXT;
+                String jobRoleCode = session.getJobRoleCode();
+                String jobRole = session.getJobRole();
+                Integer difficulty = session.getDifficulty();
+                String interviewMode = session.getInterviewMode();
+                Integer interactionType = interviewService.resolveInteractionType(session.getInteractionType());
                 InterviewJobTargetContext jobTargetContext =
                         mockInterviewJobTargetService.getSessionContext(userId, sessionId);
                 if (jobTargetContext == null
@@ -153,13 +155,14 @@ public class InterviewController {
                 }
                 String resolvedFeedbackMode = interviewService.resolveFeedbackMode(request.getFeedbackMode(), session);
                 log.info("流式面试消息配置解析完成, sessionId: {}, requestFeedbackMode: {}, sessionFeedbackMode: {}, resolvedFeedbackMode: {}",
-                        sessionId, request.getFeedbackMode(), session == null ? null : session.getFeedbackMode(), resolvedFeedbackMode);
+                        sessionId, request.getFeedbackMode(), session.getFeedbackMode(), resolvedFeedbackMode);
 
                 Publisher<String> publisher = interviewAiService.generateReplyStream(
                         sessionId,
                         history,
                         request.getContent(),
                         jobRoleCode,
+                        jobRole,
                         difficulty,
                         jobTargetContext,
                         resolvedFeedbackMode,

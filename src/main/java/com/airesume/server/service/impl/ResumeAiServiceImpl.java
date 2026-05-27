@@ -27,9 +27,12 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
+import io.netty.resolver.DefaultAddressResolverGroup;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
+import reactor.netty.http.client.HttpClient;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -431,6 +434,8 @@ public class ResumeAiServiceImpl implements ResumeAiService {
 
         WebClient runtimeWebClient = webClientBuilder
                 .baseUrl(runtimeConfig.baseUrl())
+                .clientConnector(new ReactorClientHttpConnector(
+                        HttpClient.create().resolver(DefaultAddressResolverGroup.INSTANCE)))
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .build();
 

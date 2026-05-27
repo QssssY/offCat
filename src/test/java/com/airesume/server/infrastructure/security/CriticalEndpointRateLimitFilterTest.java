@@ -181,6 +181,71 @@ class CriticalEndpointRateLimitFilterTest {
     }
 
     @Test
+    void shouldBlockResumePdfExportAfterLimitReached() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-05-15T00:00:00Z"));
+        CriticalEndpointRateLimitFilter filter = new CriticalEndpointRateLimitFilter(new ObjectMapper(), clock);
+
+        for (int i = 0; i < 5; i++) {
+            MockHttpServletRequest request = buildRequest("POST", "/api/resume/export-pdf", "10.0.0.30");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            verify(chain).doFilter(request, response);
+            assertEquals(200, response.getStatus());
+        }
+
+        MockHttpServletRequest blockedRequest = buildRequest("POST", "/api/resume/export-pdf", "10.0.0.30");
+        MockHttpServletResponse blockedResponse = new MockHttpServletResponse();
+        FilterChain blockedChain = mock(FilterChain.class);
+
+        filter.doFilter(blockedRequest, blockedResponse, blockedChain);
+
+        verify(blockedChain, never()).doFilter(blockedRequest, blockedResponse);
+        assertEquals(429, blockedResponse.getStatus());
+    }
+
+    @Test
+    void shouldUseAuthenticatedUserAsResumePdfExportRateLimitKey() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-05-15T00:00:00Z"));
+        CriticalEndpointRateLimitFilter filter = new CriticalEndpointRateLimitFilter(new ObjectMapper(), clock);
+
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(300L, null));
+        for (int i = 0; i < 5; i++) {
+            MockHttpServletRequest request = buildRequest("POST", "/api/resume/export-pdf", "10.0.0.31");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            verify(chain).doFilter(request, response);
+            assertEquals(200, response.getStatus());
+        }
+
+        MockHttpServletRequest blockedRequest = buildRequest("POST", "/api/resume/export-pdf", "10.0.0.31");
+        MockHttpServletResponse blockedResponse = new MockHttpServletResponse();
+        FilterChain blockedChain = mock(FilterChain.class);
+
+        filter.doFilter(blockedRequest, blockedResponse, blockedChain);
+
+        verify(blockedChain, never()).doFilter(blockedRequest, blockedResponse);
+        assertEquals(429, blockedResponse.getStatus());
+
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(301L, null));
+        MockHttpServletRequest anotherUserRequest = buildRequest("POST", "/api/resume/export-pdf", "10.0.0.31");
+        MockHttpServletResponse anotherUserResponse = new MockHttpServletResponse();
+        FilterChain anotherUserChain = mock(FilterChain.class);
+
+        filter.doFilter(anotherUserRequest, anotherUserResponse, anotherUserChain);
+
+        verify(anotherUserChain).doFilter(anotherUserRequest, anotherUserResponse);
+        assertEquals(200, anotherUserResponse.getStatus());
+    }
+
+    @Test
     void shouldAllowRequestsAgainAfterWindowExpires() throws Exception {
         MutableClock clock = new MutableClock(Instant.parse("2026-05-15T00:00:00Z"));
         CriticalEndpointRateLimitFilter filter = new CriticalEndpointRateLimitFilter(new ObjectMapper(), clock);
