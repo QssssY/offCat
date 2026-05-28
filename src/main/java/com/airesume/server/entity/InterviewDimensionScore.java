@@ -3,9 +3,6 @@ package com.airesume.server.entity;
 import com.airesume.server.common.entity.BaseEntity;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Table;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
@@ -16,8 +13,6 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("interview_dimension_score")
-@Entity
-@Table(name = "interview_dimension_score")
 public class InterviewDimensionScore extends BaseEntity {
 
     /** 用户ID */
@@ -42,11 +37,9 @@ public class InterviewDimensionScore extends BaseEntity {
 
     /** 加分项列表（JSON 字符串） */
     @TableField("strengths")
-    @Column(columnDefinition = "json")
     private String strengths;
 
     /** 扣分项列表（JSON 字符串） */
     @TableField("weaknesses")
-    @Column(columnDefinition = "json")
     private String weaknesses;
 }

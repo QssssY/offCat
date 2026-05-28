@@ -3,8 +3,6 @@ package com.airesume.server.entity;
 import com.airesume.server.common.entity.BaseEntity;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Table;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
@@ -17,8 +15,6 @@ import java.time.LocalDateTime;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("resume_diagnosis_task")
-@Entity
-@Table(name = "resume_diagnosis_task")
 public class ResumeDiagnosisTask extends BaseEntity {
 
     /**
@@ -49,7 +45,7 @@ public class ResumeDiagnosisTask extends BaseEntity {
     /**
      * AI返回的结构化诊断报告（JSON格式）
      */
-    @TableField("diagnosis_result")
+    @TableField(value = "diagnosis_result", select = false)
     private String diagnosisResult;
 
     /**
@@ -68,7 +64,7 @@ public class ResumeDiagnosisTask extends BaseEntity {
      * 简历提取的文本内容
      * 用于缓存PDF解析结果，避免每次查询都重新解析
      */
-    @TableField("resume_text")
+    @TableField(value = "resume_text", select = false)
     private String resumeText;
 
     /**

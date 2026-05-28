@@ -3,8 +3,6 @@ package com.airesume.server.entity;
 import com.airesume.server.common.entity.BaseEntity;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Table;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
@@ -14,8 +12,6 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("resume_job_match_record")
-@Entity
-@Table(name = "resume_job_match_record")
 public class ResumeJobMatchRecord extends BaseEntity {
 
     /**
@@ -33,13 +29,13 @@ public class ResumeJobMatchRecord extends BaseEntity {
     /**
      * 简历文本快照。
      */
-    @TableField("resume_text")
+    @TableField(value = "resume_text", select = false)
     private String resumeText;
 
     /**
      * JD 文本快照。
      */
-    @TableField("jd_text")
+    @TableField(value = "jd_text", select = false)
     private String jdText;
 
     /**

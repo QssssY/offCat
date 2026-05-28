@@ -5,6 +5,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.io.Serializable;
+
 /**
  * 看板业务分布响应参数。
  *
@@ -14,7 +16,9 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class BusinessDistributionResponse {
+public class BusinessDistributionResponse implements Serializable {
+
+    private static final long serialVersionUID = 1L;
 
     /** 查询开始日期（含），格式 yyyy-MM-dd。 */
     private String startDate;

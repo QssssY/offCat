@@ -3,8 +3,6 @@ package com.airesume.server.entity;
 import com.airesume.server.common.entity.BaseEntity;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Table;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
@@ -14,8 +12,6 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("mock_interview_job_target_record")
-@Entity
-@Table(name = "mock_interview_job_target_record")
 public class MockInterviewJobTargetRecord extends BaseEntity {
 
     /**
@@ -39,7 +35,7 @@ public class MockInterviewJobTargetRecord extends BaseEntity {
     /**
      * 本次会话实际使用的 JD 文本快照。
      */
-    @TableField("jd_text")
+    @TableField(value = "jd_text", select = false)
     private String jdText;
 
     /**
@@ -51,13 +47,13 @@ public class MockInterviewJobTargetRecord extends BaseEntity {
     /**
      * 首轮岗位定向问题快照。
      */
-    @TableField("generated_questions")
+    @TableField(value = "generated_questions", select = false)
     private String generatedQuestions;
 
     /**
      * 岗位定向反馈结构化 JSON。
      */
-    @TableField("job_targeted_feedback")
+    @TableField(value = "job_targeted_feedback", select = false)
     private String jobTargetedFeedback;
 
     /**

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AI Resume Service — Spring Boot 3.2.3 backend for an AI-powered mock interview and resume diagnosis system. Java 21, MyBatis-Plus 3.5.7, MySQL, Redis, RabbitMQ, JWT auth.
+AI Resume Service — Spring Boot 3.2.3 backend for an AI-powered mock interview and resume diagnosis system. Java 17, MyBatis-Plus 3.5.7, MySQL, Redis, RabbitMQ, JWT auth.
 
 ## Build & Run
 
@@ -42,7 +42,6 @@ com.airesume.server/
 ├── infrastructure/      # Security: JwtAuthenticationFilter, JwtUtil, JwtProperties
 ├── mock/                # Mock implementations (MockDiagnosisResultGenerator, MockInterviewService)
 ├── mq/                  # RabbitMQ: ResumeDiagnosisProducer, ResumeDiagnosisConsumer, message DTOs
-├── repository/          # JPA repositories (used alongside MyBatis-Plus)
 └── util/                # TokenEstimator, AiInputCompressor
 ```
 

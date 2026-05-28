@@ -1871,8 +1871,12 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         String resumeText = jobTargetContext.getResumeText();
         if ((resumeText == null || resumeText.isBlank()) && jobTargetContext.getResumeTaskId() != null) {
             try {
-                ResumeDiagnosisTask resumeTask = resumeDiagnosisTaskMapper.selectById(
-                        Long.parseLong(jobTargetContext.getResumeTaskId()));
+                ResumeDiagnosisTask resumeTask = resumeDiagnosisTaskMapper.selectOne(
+                        new LambdaQueryWrapper<ResumeDiagnosisTask>()
+                                // Prompt 兜底需要 resume_text，显式补回默认不加载的大字段。
+                                .select(ResumeDiagnosisTask::getId, ResumeDiagnosisTask::getResumeText)
+                                .eq(ResumeDiagnosisTask::getId, Long.parseLong(jobTargetContext.getResumeTaskId()))
+                                .last("limit 1"));
                 if (resumeTask != null && resumeTask.getResumeText() != null
                         && !resumeTask.getResumeText().isBlank()) {
                     resumeText = resumeTask.getResumeText();
@@ -2152,6 +2156,12 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             MockInterviewJobTargetRecord latestRecord = mockInterviewJobTargetRecordMapper.selectOne(
                     new LambdaQueryWrapper<MockInterviewJobTargetRecord>()
                             .eq(MockInterviewJobTargetRecord::getSessionId, sessionId)
+                            // 旧链路按 JD 判断岗位定向，必须读取 jd_text 快照。
+                            .select(MockInterviewJobTargetRecord::getId,
+                                    MockInterviewJobTargetRecord::getSessionId,
+                                    MockInterviewJobTargetRecord::getResumeTaskId,
+                                    MockInterviewJobTargetRecord::getJdText,
+                                    MockInterviewJobTargetRecord::getCreateTime)
                             .orderByDesc(MockInterviewJobTargetRecord::getCreateTime)
                             .last("limit 1")
             );
@@ -2159,7 +2169,12 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             if (latestRecord != null && latestRecord.getResumeTaskId() != null) {
                 // 根据 jdText 是否存在判断是否为岗位定向面试
                 boolean isJobTargeted = latestRecord.getJdText() != null && !latestRecord.getJdText().isBlank();
-                ResumeDiagnosisTask resumeTask = resumeDiagnosisTaskMapper.selectById(latestRecord.getResumeTaskId());
+                ResumeDiagnosisTask resumeTask = resumeDiagnosisTaskMapper.selectOne(
+                        new LambdaQueryWrapper<ResumeDiagnosisTask>()
+                                // 普通/岗位面试兜底上下文需要简历文本。
+                                .select(ResumeDiagnosisTask::getId, ResumeDiagnosisTask::getResumeText)
+                                .eq(ResumeDiagnosisTask::getId, latestRecord.getResumeTaskId())
+                                .last("limit 1"));
                 if (resumeTask != null && resumeTask.getResumeText() != null && !resumeTask.getResumeText().isBlank()) {
                     log.debug("通过岗位定向记录找到简历，sessionId: {}, resumeTaskId: {}, jobTargeted: {}",
                             sessionId, resumeTask.getId(), isJobTargeted);
@@ -2187,6 +2202,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             ResumeDiagnosisTask resumeTask = resumeDiagnosisTaskMapper.selectOne(
                     new LambdaQueryWrapper<ResumeDiagnosisTask>()
                             .eq(ResumeDiagnosisTask::getUserId, session.getUserId())
+                            .select(ResumeDiagnosisTask::getId, ResumeDiagnosisTask::getUserId,
+                                    ResumeDiagnosisTask::getResumeText, ResumeDiagnosisTask::getCreateTime)
                             .orderByDesc(ResumeDiagnosisTask::getCreateTime)
                             .last("limit 1")
             );

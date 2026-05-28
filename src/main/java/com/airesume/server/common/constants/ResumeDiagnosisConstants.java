@@ -25,6 +25,11 @@ public class ResumeDiagnosisConstants {
 
     public static final String ROUTING_KEY_RESUME_DIAGNOSIS_DLQ = "routing.key.resume.diagnosis.dlq";
 
+    /**
+     * 简历诊断消息存活时间。使用单条消息 TTL，避免给已存在队列追加 x-message-ttl 导致 RabbitMQ 启动声明失败。
+     */
+    public static final String MESSAGE_TTL_MS = "3600000";
+
     public static final int SCENARIO_TYPE_RESUME = 2;
 
     // 诊断子阶段（仅 status=PROCESSING 时有效）

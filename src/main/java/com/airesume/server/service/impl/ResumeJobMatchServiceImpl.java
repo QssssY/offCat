@@ -117,6 +117,11 @@ public class ResumeJobMatchServiceImpl extends ServiceImpl<ResumeJobMatchRecordM
         LambdaQueryWrapper<ResumeJobMatchRecord> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(ResumeJobMatchRecord::getUserId, userId)
                 .eq(ResumeJobMatchRecord::getResumeTaskId, resumeTaskId)
+                // 最新记录可能被润色/岗位定向链路复用，需要显式补回文本快照。
+                .select(ResumeJobMatchRecord::getId, ResumeJobMatchRecord::getUserId,
+                        ResumeJobMatchRecord::getResumeTaskId, ResumeJobMatchRecord::getResumeText,
+                        ResumeJobMatchRecord::getJdText, ResumeJobMatchRecord::getMatchScore,
+                        ResumeJobMatchRecord::getAnalysisResult, ResumeJobMatchRecord::getCreateTime)
                 .orderByDesc(ResumeJobMatchRecord::getCreateTime)
                 .last("limit 1");
         return getOne(wrapper, false);
@@ -126,6 +131,11 @@ public class ResumeJobMatchServiceImpl extends ServiceImpl<ResumeJobMatchRecordM
     public ResumeJobMatchRecord getLatestRecord(Long userId) {
         LambdaQueryWrapper<ResumeJobMatchRecord> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(ResumeJobMatchRecord::getUserId, userId)
+                // 岗位定向/润色复用最近记录时需要 JD、简历快照和分析 JSON。
+                .select(ResumeJobMatchRecord::getId, ResumeJobMatchRecord::getUserId,
+                        ResumeJobMatchRecord::getResumeTaskId, ResumeJobMatchRecord::getResumeText,
+                        ResumeJobMatchRecord::getJdText, ResumeJobMatchRecord::getMatchScore,
+                        ResumeJobMatchRecord::getAnalysisResult, ResumeJobMatchRecord::getCreateTime)
                 .orderByDesc(ResumeJobMatchRecord::getCreateTime)
                 .last("limit 1");
         return getOne(wrapper, false);
@@ -139,6 +149,11 @@ public class ResumeJobMatchServiceImpl extends ServiceImpl<ResumeJobMatchRecordM
         LambdaQueryWrapper<ResumeJobMatchRecord> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(ResumeJobMatchRecord::getId, recordId)
                 .eq(ResumeJobMatchRecord::getUserId, userId)
+                // 指定记录用于岗位定向上下文，需要完整文本快照和分析结果。
+                .select(ResumeJobMatchRecord::getId, ResumeJobMatchRecord::getUserId,
+                        ResumeJobMatchRecord::getResumeTaskId, ResumeJobMatchRecord::getResumeText,
+                        ResumeJobMatchRecord::getJdText, ResumeJobMatchRecord::getMatchScore,
+                        ResumeJobMatchRecord::getAnalysisResult, ResumeJobMatchRecord::getCreateTime)
                 .last("limit 1");
         return getOne(wrapper, false);
     }
@@ -223,7 +238,14 @@ public class ResumeJobMatchServiceImpl extends ServiceImpl<ResumeJobMatchRecordM
     }
 
     private ResumeDiagnosisTask loadOwnedTask(Long userId, Long resumeTaskId) {
-        ResumeDiagnosisTask task = resumeDiagnosisTaskMapper.selectById(resumeTaskId);
+        ResumeDiagnosisTask task = resumeDiagnosisTaskMapper.selectOne(new LambdaQueryWrapper<ResumeDiagnosisTask>()
+                // JD 匹配需要读取任务缓存简历文本，避免 select=false 后误判为空。
+                .select(ResumeDiagnosisTask::getId, ResumeDiagnosisTask::getUserId,
+                        ResumeDiagnosisTask::getFileUrl, ResumeDiagnosisTask::getResumeText,
+                        ResumeDiagnosisTask::getParseMode, ResumeDiagnosisTask::getParseMessage,
+                        ResumeDiagnosisTask::getIsDeleted)
+                .eq(ResumeDiagnosisTask::getId, resumeTaskId)
+                .last("limit 1"));
         if (task == null) {
             throw new BusinessException("简历诊断任务不存在");
         }

@@ -105,6 +105,32 @@ public interface ResumeDiagnosisTaskMapper extends BaseMapper<ResumeDiagnosisTas
                                             @Param("limit") int limit);
 
     /**
+     * 分批查询使用全局默认保留期的过期终态简历诊断任务。
+     * 已显式配置保留天数的用户由用户级清理逻辑处理，避免默认 30 天覆盖用户设置。
+     */
+    @Select("""
+            <script>
+            SELECT t.id
+            FROM resume_diagnosis_task t
+            LEFT JOIN user_settings s
+              ON s.user_id = t.user_id
+             AND s.is_deleted = 0
+            WHERE t.status IN
+              <foreach collection="terminalStatuses" item="status" open="(" separator="," close=")">
+                #{status}
+              </foreach>
+              AND t.create_time &lt; #{cutoffTime}
+              AND t.is_deleted = 0
+              AND (s.id IS NULL OR s.resume_retention_days IS NULL OR s.resume_retention_days &lt;= 0)
+            ORDER BY t.create_time ASC
+            LIMIT #{limit}
+            </script>
+            """)
+    List<Long> selectDefaultExpiredTerminalTaskIds(@Param("terminalStatuses") Collection<Integer> terminalStatuses,
+                                                   @Param("cutoffTime") LocalDateTime cutoffTime,
+                                                   @Param("limit") int limit);
+
+    /**
      * 查询指定任务对应的上传文件路径，文件清理必须在主记录逻辑删除前拿到路径。
      */
     @Select("""

@@ -8,6 +8,7 @@ import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
 import com.airesume.server.mapper.ResumeJobMatchRecordMapper;
 import com.airesume.server.mapper.ResumePolishRecordMapper;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
@@ -22,6 +23,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -89,6 +91,25 @@ class ResumeDiagnosisTaskServiceImplTest {
 
         String fileName = (String) method.invoke(service);
         assertTrue(fileName.matches("\\d+_[a-f0-9]+\\.pdf"), "Expected format: timestamp_uuid.pdf, got: " + fileName);
+    }
+
+    @Test
+    void shouldRejectResumeUploadWhenDiskFreeSpaceBelowThreshold() {
+        ResumeDiagnosisTaskServiceImpl lowSpaceService = new TestableResumeDiagnosisTaskServiceImpl(512L * 1024L * 1024L);
+        ReflectionTestUtils.setField(lowSpaceService, "minFreeSpaceMb", 1024L);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> lowSpaceService.ensureUploadDirectoryHasEnoughSpace(Path.of("uploads", "resumes")));
+
+        assertEquals(ResultCode.RESUME_STORAGE_SPACE_LOW.getCode(), exception.getCode());
+    }
+
+    @Test
+    void shouldAllowResumeUploadWhenDiskFreeSpaceMeetsThreshold() throws Exception {
+        ResumeDiagnosisTaskServiceImpl enoughSpaceService = new TestableResumeDiagnosisTaskServiceImpl(2L * 1024L * 1024L * 1024L);
+        ReflectionTestUtils.setField(enoughSpaceService, "minFreeSpaceMb", 1024L);
+
+        assertDoesNotThrow(() -> enoughSpaceService.ensureUploadDirectoryHasEnoughSpace(Path.of("uploads", "resumes")));
     }
 
     @Test
@@ -217,12 +238,27 @@ class ResumeDiagnosisTaskServiceImplTest {
         task.setFailedAt(LocalDateTime.now().minusHours(25));
         task.setUpdateTime(LocalDateTime.now());
         ResumeDiagnosisTaskServiceImpl spyService = spy(service);
-        doReturn(task).when(spyService).getById(100L);
+        when(resumeDiagnosisTaskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(task);
 
         BusinessException exception = assertThrows(BusinessException.class,
                 () -> spyService.retryFailedTask(100L, userId));
 
         assertEquals(ResultCode.RESUME_TASK_RETRY_EXPIRED.getCode(), exception.getCode());
         verify(spyService, never()).createTask(anyLong(), anyString());
+    }
+
+    private static class TestableResumeDiagnosisTaskServiceImpl extends ResumeDiagnosisTaskServiceImpl {
+
+        private final long usableSpace;
+
+        TestableResumeDiagnosisTaskServiceImpl(long usableSpace) {
+            super(null, null, null, null, null, null, null, null, null);
+            this.usableSpace = usableSpace;
+        }
+
+        @Override
+        protected long usableSpace(Path uploadDirPath) {
+            return usableSpace;
+        }
     }
 }

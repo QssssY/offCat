@@ -5,20 +5,39 @@ spring:
     username: ${DB_USER}
     password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 8
+      minimum-idle: 2
+      connection-timeout: 30000
+      idle-timeout: 300000
+      max-lifetime: 1800000
   data:
     redis:
       host: ${REDIS_HOST}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD}
+      timeout: 3000ms
       lettuce:
         pool:
+          max-active: 8
           max-wait: 3000ms
+          max-idle: 8
+          min-idle: 0
   rabbitmq:
     host: ${MQ_HOST}
     port: ${MQ_PORT:5672}
     username: ${MQ_USER:guest}
     password: ${MQ_PASSWORD}
     virtual-host: /
+
+server:
+  tomcat:
+    threads:
+      max: 100
+      min-spare: 10
+    max-connections: 2000
+    accept-count: 100
+    connection-timeout: 20000
 
 # JWT 配置 - 生产环境必须通过环境变量设置密钥
 jwt:
@@ -53,3 +72,5 @@ app:
     base-url: ${INTERVIEW_BASE_URL}
     model: ${INTERVIEW_MODEL}
     thinking-mode: ${INTERVIEW_THINKING_MODE:none}
+  diagnosis:
+    direct-threshold: 1

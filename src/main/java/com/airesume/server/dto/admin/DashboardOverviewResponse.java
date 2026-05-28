@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.io.Serializable;
 import java.math.BigDecimal;
 
 /**
@@ -16,7 +17,9 @@ import java.math.BigDecimal;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class DashboardOverviewResponse {
+public class DashboardOverviewResponse implements Serializable {
+
+    private static final long serialVersionUID = 1L;
 
     /** 用户总数。 */
     private Long totalUserCount;

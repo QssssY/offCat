@@ -268,6 +268,7 @@ CREATE TABLE `resume_diagnosis_task` (
   INDEX `idx_resume_task_create_time` (`create_time`),
   INDEX `idx_resume_task_user_status` (`user_id`, `status`),
   INDEX `idx_resume_task_retention_cleanup` (`user_id`, `status`, `is_deleted`, `create_time`),
+  INDEX `idx_resume_task_status_failed_at` (`status`, `failed_at`),
   CONSTRAINT `fk_resume_task_user_id` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Resume diagnosis task table';
 
@@ -552,6 +553,7 @@ CREATE TABLE `community_comment` (
   INDEX `idx_community_comment_create_time` (`create_time`),
   INDEX `idx_community_comment_post_time` (`post_id`, `create_time`),
   INDEX `idx_community_comment_parent_id` (`parent_comment_id`),
+  INDEX `idx_community_comment_parent_time` (`parent_comment_id`, `create_time`),
   INDEX `idx_community_comment_reply_user` (`reply_to_user_id`, `create_time`),
   CONSTRAINT `fk_community_comment_post_id` FOREIGN KEY (`post_id`) REFERENCES `community_post` (`id`),
   CONSTRAINT `fk_community_comment_user_id` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`)

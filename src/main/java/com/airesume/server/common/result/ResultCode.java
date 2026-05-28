@@ -35,6 +35,7 @@ public enum ResultCode {
     POLISH_ALREADY_USED(2014, "该简历已使用过AI润色"),
     JD_MATCH_QUOTA_EXHAUSTED(2015, "今日JD岗位匹配次数已用完"),
     TEMPLATE_QUOTA_EXHAUSTED(2016, "今日模板使用次数已用完"),
+    RESUME_STORAGE_SPACE_LOW(2017, "服务器存储空间不足，请稍后再试"),
 
     // === 面试模块 (3xxx) ===
     INTERVIEW_QUOTA_EXHAUSTED(3001, "今日模拟面试次数已用完"),

@@ -5,6 +5,7 @@ import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.ResultCode;
 import com.airesume.server.dto.resume.ResumeDiagnosisResult;
 import com.airesume.server.entity.ResumeDiagnosisTask;
+import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
 import com.airesume.server.service.NotificationService;
 import com.airesume.server.service.ResumeAiService;
 import com.airesume.server.service.ResumeContentExtractor;
@@ -13,6 +14,7 @@ import com.airesume.server.service.ResumeInfoExtractor;
 import com.airesume.server.service.UserQuotaService;
 import com.airesume.server.service.resume.ResumeParseResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -29,6 +31,7 @@ import java.util.concurrent.TimeoutException;
 public class ResumeDiagnosisProcessor {
 
     private final ResumeDiagnosisTaskService resumeDiagnosisTaskService;
+    private final ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper;
     private final ResumeContentExtractor resumeContentExtractor;
     private final ResumeAiService resumeAiService;
     private final ResumeInfoExtractor resumeInfoExtractor;
@@ -42,7 +45,11 @@ public class ResumeDiagnosisProcessor {
 
         try {
             // 状态校验与缓存文本检查合并为一次查询，避免 getTaskStatus + getById 两次 SELECT
-            ResumeDiagnosisTask currentTask = resumeDiagnosisTaskService.getById(taskId);
+            ResumeDiagnosisTask currentTask = resumeDiagnosisTaskMapper.selectOne(new QueryWrapper<ResumeDiagnosisTask>()
+                    // 处理器需要读取缓存简历文本，必须显式补回 resume_text 大字段。
+                    .select("id", "status", "resume_text", "is_deleted")
+                    .eq("id", taskId)
+                    .last("limit 1"));
             if (currentTask == null) {
                 log.warn("任务不存在，跳过处理, taskId: {}", taskId);
                 refundQuotaIfNeeded(userId, taskId);

@@ -5,6 +5,7 @@ import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.ResultCode;
 import com.airesume.server.dto.resume.ResumeDiagnosisResult;
 import com.airesume.server.entity.ResumeDiagnosisTask;
+import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
 import com.airesume.server.service.NotificationService;
 import com.airesume.server.service.ResumeAiService;
 import com.airesume.server.service.ResumeContentExtractor;
@@ -25,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -34,6 +36,7 @@ class ResumeDiagnosisProcessorTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private ResumeDiagnosisTaskService taskService;
+    private ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper;
     private ResumeContentExtractor resumeContentExtractor;
     private ResumeAiService resumeAiService;
     private ResumeInfoExtractor resumeInfoExtractor;
@@ -44,6 +47,7 @@ class ResumeDiagnosisProcessorTest {
     @BeforeEach
     void setUp() {
         taskService = mock(ResumeDiagnosisTaskService.class);
+        resumeDiagnosisTaskMapper = mock(ResumeDiagnosisTaskMapper.class);
         resumeContentExtractor = mock(ResumeContentExtractor.class);
         resumeAiService = mock(ResumeAiService.class);
         resumeInfoExtractor = mock(ResumeInfoExtractor.class);
@@ -51,6 +55,7 @@ class ResumeDiagnosisProcessorTest {
         notificationService = mock(NotificationService.class);
         processor = new ResumeDiagnosisProcessor(
                 taskService,
+                resumeDiagnosisTaskMapper,
                 resumeContentExtractor,
                 resumeAiService,
                 resumeInfoExtractor,
@@ -61,7 +66,7 @@ class ResumeDiagnosisProcessorTest {
 
     @Test
     void processTaskShouldNormalizeMinimalDiagnosisResult() throws Exception {
-        when(taskService.getById(1L)).thenReturn(newPendingTask());
+        when(resumeDiagnosisTaskMapper.selectOne(any())).thenReturn(newPendingTask());
         when(taskService.updateStatusToProcessing(1L)).thenReturn(true);
         when(resumeContentExtractor.extract("/resume.pdf")).thenReturn(
                 ResumeParseResult.builder().text("张三 13800000000 zhangsan@test.com").parseMode("TEXT").build());
@@ -96,7 +101,7 @@ class ResumeDiagnosisProcessorTest {
 
     @Test
     void processTaskShouldRecalculateOverallScoreFromDimensionScores() throws Exception {
-        when(taskService.getById(1L)).thenReturn(newPendingTask());
+        when(resumeDiagnosisTaskMapper.selectOne(any())).thenReturn(newPendingTask());
         when(taskService.updateStatusToProcessing(1L)).thenReturn(true);
         when(resumeContentExtractor.extract("/resume.pdf")).thenReturn(
                 ResumeParseResult.builder().text("Java 后端开发 简历内容").parseMode("TEXT").build());
@@ -126,7 +131,7 @@ class ResumeDiagnosisProcessorTest {
 
     @Test
     void processTaskShouldRenormalizeOverallScoreWhenDimensionScoreMissing() throws Exception {
-        when(taskService.getById(1L)).thenReturn(newPendingTask());
+        when(resumeDiagnosisTaskMapper.selectOne(any())).thenReturn(newPendingTask());
         when(taskService.updateStatusToProcessing(1L)).thenReturn(true);
         when(resumeContentExtractor.extract("/resume.pdf")).thenReturn(
                 ResumeParseResult.builder().text("Java 后端开发 简历内容").parseMode("TEXT").build());
@@ -155,7 +160,7 @@ class ResumeDiagnosisProcessorTest {
 
     @Test
     void processTaskShouldFailAndRefundOnTimeout() {
-        when(taskService.getById(1L)).thenReturn(newPendingTask());
+        when(resumeDiagnosisTaskMapper.selectOne(any())).thenReturn(newPendingTask());
         when(taskService.updateStatusToProcessing(1L)).thenReturn(true);
         when(resumeContentExtractor.extract("/resume.pdf")).thenReturn(
                 ResumeParseResult.builder().text("简历内容").parseMode("TEXT").build());
@@ -170,7 +175,7 @@ class ResumeDiagnosisProcessorTest {
 
     @Test
     void processTaskShouldMapStructuredAiBusinessException() {
-        when(taskService.getById(1L)).thenReturn(newPendingTask());
+        when(resumeDiagnosisTaskMapper.selectOne(any())).thenReturn(newPendingTask());
         when(taskService.updateStatusToProcessing(1L)).thenReturn(true);
         when(resumeContentExtractor.extract("/resume.pdf")).thenReturn(
                 ResumeParseResult.builder().text("简历内容").parseMode("TEXT").build());
@@ -185,7 +190,7 @@ class ResumeDiagnosisProcessorTest {
 
     @Test
     void processTaskShouldMapBlankAiResponseToStructuredMessage() {
-        when(taskService.getById(1L)).thenReturn(newPendingTask());
+        when(resumeDiagnosisTaskMapper.selectOne(any())).thenReturn(newPendingTask());
         when(taskService.updateStatusToProcessing(1L)).thenReturn(true);
         when(resumeContentExtractor.extract("/resume.pdf")).thenReturn(
                 ResumeParseResult.builder().text("简历内容").parseMode("TEXT").build());
@@ -198,7 +203,7 @@ class ResumeDiagnosisProcessorTest {
 
     @Test
     void processTaskShouldSkipWhenTaskAlreadyClaimedByAnotherWorker() {
-        when(taskService.getById(1L)).thenReturn(newPendingTask());
+        when(resumeDiagnosisTaskMapper.selectOne(any())).thenReturn(newPendingTask());
         when(taskService.updateStatusToProcessing(1L)).thenReturn(false);
 
         processor.processTask(1L, 2L, "/resume.pdf");

@@ -4,16 +4,16 @@ import com.airesume.server.common.constants.InterviewConstants;
 import com.airesume.server.common.constants.ResumeDiagnosisConstants;
 import com.airesume.server.entity.UserSettings;
 import com.airesume.server.mapper.MockInterviewJobTargetRecordMapper;
+import com.airesume.server.mapper.InterviewChatLogMapper;
+import com.airesume.server.mapper.InterviewSessionMapper;
 import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
 import com.airesume.server.mapper.ResumeJobMatchRecordMapper;
 import com.airesume.server.mapper.ResumePolishRecordMapper;
 import com.airesume.server.mapper.UserSettingsMapper;
-import com.airesume.server.repository.InterviewMessageRepository;
-import com.airesume.server.repository.InterviewSessionRepository;
 import com.airesume.server.service.UserDataRetentionCleanupService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.PageRequest;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,14 +35,18 @@ public class UserDataRetentionCleanupServiceImpl implements UserDataRetentionCle
 
     private static final int BATCH_SIZE = 200;
     private static final int MAX_BATCHES_PER_USER = 10;
+    private static final int MAX_DEFAULT_BATCHES = 20;
     private static final List<Integer> RESUME_TERMINAL_STATUSES = List.of(
             ResumeDiagnosisConstants.STATUS_COMPLETED,
             ResumeDiagnosisConstants.STATUS_FAILED
     );
 
+    @Value("${app.upload.default-resume-retention-days:30}")
+    private int defaultResumeRetentionDays;
+
     private final UserSettingsMapper userSettingsMapper;
-    private final InterviewSessionRepository interviewSessionRepository;
-    private final InterviewMessageRepository interviewMessageRepository;
+    private final InterviewSessionMapper interviewSessionMapper;
+    private final InterviewChatLogMapper interviewChatLogMapper;
     private final MockInterviewJobTargetRecordMapper mockInterviewJobTargetRecordMapper;
     private final ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper;
     private final ResumeJobMatchRecordMapper resumeJobMatchRecordMapper;
@@ -71,6 +75,11 @@ public class UserDataRetentionCleanupServiceImpl implements UserDataRetentionCle
                 log.warn("简历诊断记录自动清理失败, userId: {}", settings.getUserId(), e);
             }
         }
+        try {
+            total += cleanupDefaultExpiredResumeRecords();
+        } catch (Exception e) {
+            log.warn("简历诊断默认保留期清理失败", e);
+        }
         return total;
     }
 
@@ -87,20 +96,20 @@ public class UserDataRetentionCleanupServiceImpl implements UserDataRetentionCle
         int deleted = 0;
         LocalDateTime cutoffTime = LocalDateTime.now().minusDays(retentionDays);
         for (int batchNo = 0; batchNo < MAX_BATCHES_PER_USER; batchNo++) {
-            List<String> sessionIds = interviewSessionRepository.findExpiredSessionIds(
+            List<String> sessionIds = interviewSessionMapper.selectExpiredSessionIds(
                     userId,
                     InterviewConstants.STATUS_ENDED,
                     cutoffTime,
-                    PageRequest.of(0, BATCH_SIZE)
+                    BATCH_SIZE
             );
             if (sessionIds.isEmpty()) {
                 break;
             }
 
             LocalDateTime now = LocalDateTime.now();
-            interviewMessageRepository.logicalDeleteBySessionIdIn(sessionIds, now);
+            interviewChatLogMapper.logicalDeleteBySessionIdIn(sessionIds, now);
             mockInterviewJobTargetRecordMapper.logicalDeleteBySessionIds(sessionIds);
-            deleted += interviewSessionRepository.logicalDeleteBySessionIdIn(sessionIds, now);
+            deleted += interviewSessionMapper.logicalDeleteBySessionIdIn(sessionIds, now);
         }
         return deleted;
     }
@@ -133,6 +142,40 @@ public class UserDataRetentionCleanupServiceImpl implements UserDataRetentionCle
             deleted += resumeDiagnosisTaskMapper.logicalDeleteByTaskIds(taskIds);
             deleteResumeFilesIfExists(fileUrls);
         }
+        return deleted;
+    }
+
+    /**
+     * 清理未配置个人保留期的过期终态简历记录。
+     * 默认策略只作为兜底，不覆盖用户已显式设置的保留天数。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public int cleanupDefaultExpiredResumeRecords() {
+        if (defaultResumeRetentionDays <= 0) {
+            return 0;
+        }
+
+        int deleted = 0;
+        LocalDateTime cutoffTime = LocalDateTime.now().minusDays(defaultResumeRetentionDays);
+        for (int batchNo = 0; batchNo < MAX_DEFAULT_BATCHES; batchNo++) {
+            List<Long> taskIds = resumeDiagnosisTaskMapper.selectDefaultExpiredTerminalTaskIds(
+                    RESUME_TERMINAL_STATUSES,
+                    cutoffTime,
+                    BATCH_SIZE);
+            if (taskIds.isEmpty()) {
+                break;
+            }
+            deleted += cleanupResumeTaskBatch(taskIds);
+        }
+        return deleted;
+    }
+
+    private int cleanupResumeTaskBatch(List<Long> taskIds) {
+        List<String> fileUrls = resumeDiagnosisTaskMapper.selectActiveFileUrlsByTaskIds(taskIds);
+        resumeJobMatchRecordMapper.logicalDeleteByResumeTaskIds(taskIds);
+        resumePolishRecordMapper.logicalDeleteByResumeTaskIds(taskIds);
+        int deleted = resumeDiagnosisTaskMapper.logicalDeleteByTaskIds(taskIds);
+        deleteResumeFilesIfExists(fileUrls);
         return deleted;
     }
 

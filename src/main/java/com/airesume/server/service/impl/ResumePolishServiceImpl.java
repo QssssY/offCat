@@ -128,6 +128,12 @@ public class ResumePolishServiceImpl extends ServiceImpl<ResumePolishRecordMappe
         LambdaQueryWrapper<ResumePolishRecord> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(ResumePolishRecord::getUserId, userId)
                 .eq(ResumePolishRecord::getResumeTaskId, resumeTaskId)
+                // 结果页需要润色全文和结构化文档，显式补回默认不查询的大字段。
+                .select(ResumePolishRecord::getId, ResumePolishRecord::getUserId,
+                        ResumePolishRecord::getResumeTaskId, ResumePolishRecord::getPolishedResumeText,
+                        ResumePolishRecord::getDocumentJson, ResumePolishRecord::getEditedPlainText,
+                        ResumePolishRecord::getModificationNotes, ResumePolishRecord::getSourceType,
+                        ResumePolishRecord::getCreateTime)
                 .orderByDesc(ResumePolishRecord::getCreateTime)
                 .last("limit 1");
 
@@ -150,7 +156,11 @@ public class ResumePolishServiceImpl extends ServiceImpl<ResumePolishRecordMappe
 
     @Override
     public void updateDocument(Long userId, Long polishRecordId, ResumeDocumentUpdateRequest request) {
-        ResumePolishRecord record = getById(polishRecordId);
+        ResumePolishRecord record = getOne(new LambdaQueryWrapper<ResumePolishRecord>()
+                // 保存文档只校验归属，不加载润色全文等大字段。
+                .select(ResumePolishRecord::getId, ResumePolishRecord::getUserId)
+                .eq(ResumePolishRecord::getId, polishRecordId)
+                .last("limit 1"), false);
         if (record == null) {
             throw new BusinessException("润色记录不存在");
         }
@@ -209,13 +219,25 @@ public class ResumePolishServiceImpl extends ServiceImpl<ResumePolishRecordMappe
         LambdaQueryWrapper<ResumeJobMatchRecord> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(ResumeJobMatchRecord::getUserId, userId)
                 .eq(ResumeJobMatchRecord::getResumeTaskId, resumeTaskId)
+                // 润色缺少 JD 入参时需要复用最近 JD 文本快照。
+                .select(ResumeJobMatchRecord::getId, ResumeJobMatchRecord::getUserId,
+                        ResumeJobMatchRecord::getResumeTaskId, ResumeJobMatchRecord::getResumeText,
+                        ResumeJobMatchRecord::getJdText, ResumeJobMatchRecord::getAnalysisResult,
+                        ResumeJobMatchRecord::getMatchScore, ResumeJobMatchRecord::getCreateTime)
                 .orderByDesc(ResumeJobMatchRecord::getCreateTime)
                 .last("limit 1");
         return resumeJobMatchRecordMapper.selectOne(wrapper);
     }
 
     private ResumeDiagnosisTask loadOwnedTask(Long userId, Long resumeTaskId) {
-        ResumeDiagnosisTask task = resumeDiagnosisTaskMapper.selectById(resumeTaskId);
+        ResumeDiagnosisTask task = resumeDiagnosisTaskMapper.selectOne(new LambdaQueryWrapper<ResumeDiagnosisTask>()
+                // 润色链路需要任务缓存文本，避免大字段默认不加载导致重复解析。
+                .select(ResumeDiagnosisTask::getId, ResumeDiagnosisTask::getUserId,
+                        ResumeDiagnosisTask::getFileUrl, ResumeDiagnosisTask::getResumeText,
+                        ResumeDiagnosisTask::getParseMode, ResumeDiagnosisTask::getParseMessage,
+                        ResumeDiagnosisTask::getIsDeleted)
+                .eq(ResumeDiagnosisTask::getId, resumeTaskId)
+                .last("limit 1"));
         if (task == null) {
             throw new BusinessException("简历诊断任务不存在");
         }

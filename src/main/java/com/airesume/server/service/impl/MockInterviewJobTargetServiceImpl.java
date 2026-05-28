@@ -158,6 +158,13 @@ public class MockInterviewJobTargetServiceImpl
         LambdaQueryWrapper<MockInterviewJobTargetRecord> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(MockInterviewJobTargetRecord::getUserId, userId)
                 .eq(MockInterviewJobTargetRecord::getSessionId, sessionId)
+                // 会话详情需要 JD 快照和岗位定向反馈，显式补回大字段。
+                .select(MockInterviewJobTargetRecord::getId, MockInterviewJobTargetRecord::getUserId,
+                        MockInterviewJobTargetRecord::getSessionId, MockInterviewJobTargetRecord::getResumeTaskId,
+                        MockInterviewJobTargetRecord::getJdText, MockInterviewJobTargetRecord::getJobMatchRecordId,
+                        MockInterviewJobTargetRecord::getGeneratedQuestions,
+                        MockInterviewJobTargetRecord::getJobTargetedFeedback,
+                        MockInterviewJobTargetRecord::getSourceType, MockInterviewJobTargetRecord::getCreateTime)
                 .last("limit 1");
         MockInterviewJobTargetRecord record = getOne(wrapper, false);
         if (record == null) {
@@ -207,6 +214,10 @@ public class MockInterviewJobTargetServiceImpl
         LambdaQueryWrapper<MockInterviewJobTargetRecord> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(MockInterviewJobTargetRecord::getUserId, userId)
                 .in(MockInterviewJobTargetRecord::getSessionId, sessionIds)
+                // 历史列表只读轻字段，不加载 JD、问题快照和反馈正文。
+                .select(MockInterviewJobTargetRecord::getId, MockInterviewJobTargetRecord::getUserId,
+                        MockInterviewJobTargetRecord::getSessionId, MockInterviewJobTargetRecord::getSourceType,
+                        MockInterviewJobTargetRecord::getCreateTime)
                 .orderByDesc(MockInterviewJobTargetRecord::getCreateTime)
                 .orderByDesc(MockInterviewJobTargetRecord::getId);
 
@@ -255,7 +266,10 @@ public class MockInterviewJobTargetServiceImpl
             return;
         }
         LambdaQueryWrapper<MockInterviewJobTargetRecord> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(MockInterviewJobTargetRecord::getSessionId, sessionId).last("limit 1");
+        wrapper.eq(MockInterviewJobTargetRecord::getSessionId, sessionId)
+                // 只更新反馈字段，查询轻字段即可完成存在性判断。
+                .select(MockInterviewJobTargetRecord::getId, MockInterviewJobTargetRecord::getSessionId)
+                .last("limit 1");
         MockInterviewJobTargetRecord record = getOne(wrapper, false);
         if (record == null) {
             return;
@@ -324,7 +338,14 @@ public class MockInterviewJobTargetServiceImpl
         if (resumeTaskId == null) {
             return "";
         }
-        ResumeDiagnosisTask task = resumeDiagnosisTaskMapper.selectById(resumeTaskId);
+        ResumeDiagnosisTask task = resumeDiagnosisTaskMapper.selectOne(new LambdaQueryWrapper<ResumeDiagnosisTask>()
+                // 面试上下文需要简历文本，显式补回 resume_text。
+                .select(ResumeDiagnosisTask::getId, ResumeDiagnosisTask::getUserId,
+                        ResumeDiagnosisTask::getFileUrl, ResumeDiagnosisTask::getResumeText,
+                        ResumeDiagnosisTask::getParseMode, ResumeDiagnosisTask::getParseMessage,
+                        ResumeDiagnosisTask::getIsDeleted)
+                .eq(ResumeDiagnosisTask::getId, resumeTaskId)
+                .last("limit 1"));
         if (task == null) {
             throw new BusinessException("简历诊断任务不存在");
         }
@@ -439,6 +460,10 @@ public class MockInterviewJobTargetServiceImpl
         LambdaQueryWrapper<ResumeDiagnosisTask> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(ResumeDiagnosisTask::getUserId, userId)
                 .eq(ResumeDiagnosisTask::getStatus, ResumeDiagnosisConstants.STATUS_COMPLETED)
+                // 这里只取最近任务 ID，后续 loadResumeText 再显式读取简历文本。
+                .select(ResumeDiagnosisTask::getId, ResumeDiagnosisTask::getUserId,
+                        ResumeDiagnosisTask::getStatus, ResumeDiagnosisTask::getUpdateTime,
+                        ResumeDiagnosisTask::getCreateTime)
                 .orderByDesc(ResumeDiagnosisTask::getUpdateTime)
                 .orderByDesc(ResumeDiagnosisTask::getCreateTime)
                 .last("limit 1");

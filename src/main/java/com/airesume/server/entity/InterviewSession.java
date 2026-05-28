@@ -3,8 +3,6 @@ package com.airesume.server.entity;
 import com.airesume.server.common.entity.BaseEntity;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Table;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
@@ -15,8 +13,6 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("interview_session")
-@Entity
-@Table(name = "interview_session")
 public class InterviewSession extends BaseEntity {
 
     /**
@@ -70,7 +66,7 @@ public class InterviewSession extends BaseEntity {
     /**
      * 面试结束后的综合评价报告（JSON格式）
      */
-    @TableField("evaluation_report")
+    @TableField(value = "evaluation_report", select = false)
     private String evaluationReport;
 
     /**

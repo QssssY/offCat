@@ -12,11 +12,11 @@ import com.airesume.server.entity.ResumeJobMatchRecord;
 import com.airesume.server.entity.ResumePolishRecord;
 import com.airesume.server.entity.SysGrowthConfig;
 import com.airesume.server.mapper.InterviewDimensionScoreMapper;
+import com.airesume.server.mapper.InterviewSessionMapper;
 import com.airesume.server.mapper.MockInterviewJobTargetRecordMapper;
 import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
 import com.airesume.server.mapper.ResumeJobMatchRecordMapper;
 import com.airesume.server.mapper.ResumePolishRecordMapper;
-import com.airesume.server.repository.InterviewSessionRepository;
 import com.airesume.server.service.GrowthService;
 import com.airesume.server.service.SysGrowthConfigService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -27,7 +27,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 import java.time.format.DateTimeFormatter;
@@ -51,7 +50,7 @@ public class GrowthServiceImpl implements GrowthService {
     private final ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper;
     private final ResumeJobMatchRecordMapper resumeJobMatchRecordMapper;
     private final ResumePolishRecordMapper resumePolishRecordMapper;
-    private final InterviewSessionRepository interviewSessionRepository;
+    private final InterviewSessionMapper interviewSessionMapper;
     private final MockInterviewJobTargetRecordMapper mockInterviewJobTargetRecordMapper;
     private final InterviewDimensionScoreMapper dimensionScoreMapper;
     private final SysGrowthConfigService sysGrowthConfigService;
@@ -141,17 +140,35 @@ public class GrowthServiceImpl implements GrowthService {
      * 查询用户已结束且有评分的面试会话（最近TREND_LIMIT条）
      */
     private List<InterviewSession> queryCompletedInterviewSessions(Long userId) {
-        return interviewSessionRepository
-                .findTop10ByUserIdAndStatusAndComprehensiveScoreIsNotNullAndIsDeletedOrderByCreateTimeDesc(
-                        userId, INTERVIEW_STATUS_ENDED, 0);
+        QueryWrapper<InterviewSession> wrapper = new QueryWrapper<>();
+        // 成长趋势和最近反馈共用最近 10 条；为保持原返回结构，显式补回 evaluation_report。
+        wrapper.select("id", "session_id", "user_id", "job_role", "interview_mode",
+                        "status", "comprehensive_score", "evaluation_report", "create_time", "update_time")
+                .eq("user_id", userId)
+                .eq("status", INTERVIEW_STATUS_ENDED)
+                .eq("is_deleted", 0)
+                .isNotNull("comprehensive_score")
+                .orderByDesc("create_time")
+                .last("limit " + TREND_LIMIT);
+        return interviewSessionMapper.selectList(wrapper);
     }
 
     /**
      * 查询最近有评估报告的面试会话，雷达图依赖 evaluation_report 中的维度明细而不是综合分。
      */
     private List<InterviewSession> queryInterviewSessionsWithEvaluationReport(Long userId) {
-        return interviewSessionRepository.findRecentEndedSessionsWithEvaluationReport(
-                userId, INTERVIEW_STATUS_ENDED, 0, PageRequest.of(0, TREND_LIMIT));
+        QueryWrapper<InterviewSession> wrapper = new QueryWrapper<>();
+        // 雷达图依赖 evaluation_report，仅该读路径显式补回。
+        wrapper.select("id", "session_id", "user_id", "job_role", "interview_mode",
+                        "status", "comprehensive_score", "evaluation_report", "create_time", "update_time")
+                .eq("user_id", userId)
+                .eq("status", INTERVIEW_STATUS_ENDED)
+                .eq("is_deleted", 0)
+                .isNotNull("evaluation_report")
+                .ne("evaluation_report", "")
+                .orderByDesc("create_time")
+                .last("limit " + TREND_LIMIT);
+        return interviewSessionMapper.selectList(wrapper);
     }
 
     /**
@@ -272,7 +289,10 @@ public class GrowthServiceImpl implements GrowthService {
 
         // 累计模拟面试次数
         Integer mockInterviewCount = Math.toIntExact(
-                interviewSessionRepository.countByUserIdAndStatus(userId, INTERVIEW_STATUS_ENDED));
+                interviewSessionMapper.selectCount(new QueryWrapper<InterviewSession>()
+                        .eq("user_id", userId)
+                        .eq("status", INTERVIEW_STATUS_ENDED)
+                        .eq("is_deleted", 0)));
 
         // 累计JD匹配次数
         Integer jobMatchCount = Math.toIntExact(resumeJobMatchRecordMapper.selectCount(
@@ -408,6 +428,11 @@ public class GrowthServiceImpl implements GrowthService {
             LambdaQueryWrapper<MockInterviewJobTargetRecord> wrapper = new LambdaQueryWrapper<>();
             wrapper.eq(MockInterviewJobTargetRecord::getUserId, userId)
                     .eq(MockInterviewJobTargetRecord::getSessionId, latest.getSessionId())
+                    // 最近面试反馈需要岗位定向反馈 JSON。
+                    .select(MockInterviewJobTargetRecord::getId,
+                            MockInterviewJobTargetRecord::getUserId,
+                            MockInterviewJobTargetRecord::getSessionId,
+                            MockInterviewJobTargetRecord::getJobTargetedFeedback)
                     .last("limit 1");
             MockInterviewJobTargetRecord targetRecord = mockInterviewJobTargetRecordMapper.selectOne(wrapper);
             if (targetRecord != null && targetRecord.getJobTargetedFeedback() != null

@@ -4,15 +4,16 @@ import com.airesume.server.entity.InterviewChatLog;
 import com.airesume.server.entity.InterviewSession;
 import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.mock.MockInterviewService;
-import com.airesume.server.repository.InterviewMessageRepository;
-import com.airesume.server.repository.InterviewSessionRepository;
 import com.airesume.server.dto.interview.CreateSessionRequest;
 import com.airesume.server.dto.interview.InterviewEvaluationReport;
 import com.airesume.server.dto.interview.InterviewHistoryResponse;
 import com.airesume.server.dto.interview.InterviewJobTargetContext;
 import com.airesume.server.dto.interview.InterviewSessionResponse;
 import com.airesume.server.dto.interview.SendMessageRequest;
+import com.airesume.server.mapper.InterviewChatLogMapper;
 import com.airesume.server.mapper.InterviewDimensionScoreMapper;
+import com.airesume.server.mapper.InterviewSessionMapper;
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -27,7 +28,6 @@ import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscription;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
-import org.springframework.data.domain.PageImpl;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionCallbackWithoutResult;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -36,7 +36,6 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter
 import java.lang.reflect.Method;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -50,10 +49,10 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class InterviewServiceTest {
 
-    @Mock private InterviewSessionRepository interviewSessionRepository;
+    @Mock private InterviewSessionMapper interviewSessionMapper;
     @Mock private InterviewMessageService interviewMessageService;
     @Mock private MockInterviewService mockInterviewService;
-    @Mock private InterviewMessageRepository interviewMessageRepository;
+    @Mock private InterviewChatLogMapper interviewChatLogMapper;
     @Mock private InterviewAiService interviewAiService;
     @Mock private SysJobRoleService sysJobRoleService;
     @Mock private TransactionTemplate transactionTemplate;
@@ -79,8 +78,8 @@ class InterviewServiceTest {
     @BeforeEach
     void setUp() {
         interviewService = new InterviewService(
-                interviewSessionRepository, interviewMessageService, mockInterviewService,
-                interviewMessageRepository, interviewAiService, objectMapper, sysJobRoleService,
+                interviewSessionMapper, interviewMessageService, mockInterviewService,
+                interviewChatLogMapper, interviewAiService, objectMapper, sysJobRoleService,
                 transactionTemplate, userQuotaService, mockInterviewJobTargetService,
                 notificationService, dimensionScoreMapper, dimensionScoreService, aiAsyncExecutor);
         ReflectionTestUtils.setField(interviewService, "cacheManager", cacheManager);
@@ -115,7 +114,7 @@ class InterviewServiceTest {
                 sessionId, emitter, publisher, fullReply,
                 new AtomicBoolean(false), new AtomicBoolean(false), new AtomicReference<>());
 
-        verify(interviewMessageRepository).save(chatLogCaptor.capture());
+        verify(interviewChatLogMapper).insert(chatLogCaptor.capture());
         InterviewChatLog savedMessage = chatLogCaptor.getValue();
         assertEquals(sessionId, savedMessage.getSessionId());
         assertEquals("assistant", savedMessage.getMessageRole());
@@ -165,7 +164,7 @@ class InterviewServiceTest {
                 sessionId, emitter, publisher, fullReply,
                 new AtomicBoolean(false), new AtomicBoolean(false), new AtomicReference<>());
 
-        verify(interviewMessageRepository, never()).save(any());
+        verify(interviewChatLogMapper, never()).insert(any(InterviewChatLog.class));
         verify(emitter, atLeastOnce()).send(anyString());
         verify(emitter).complete();
     }
@@ -192,7 +191,7 @@ class InterviewServiceTest {
         // 触发 onTimeout 后 streamClosed 应翻转为 true，立即完成 emitter 并取消上游订阅。
         verify(emitter).complete();
         verify(subscription).cancel();
-        verify(interviewMessageRepository, never()).save(any());
+        verify(interviewChatLogMapper, never()).insert(any(InterviewChatLog.class));
     }
 
     @Test
@@ -213,7 +212,7 @@ class InterviewServiceTest {
                 .summary("summary")
                 .build();
 
-        when(interviewSessionRepository.findBySessionId(sessionId)).thenReturn(Optional.of(session));
+        when(interviewSessionMapper.selectOne(any())).thenReturn(session);
         when(interviewMessageService.getMessageList(sessionId)).thenReturn(List.of());
         when(interviewAiService.generateEvaluationReport(eq(sessionId), anyList(), anyString(), any(), any(), anyString(), any()))
                 .thenReturn(report);
@@ -275,7 +274,7 @@ class InterviewServiceTest {
                 buildChatLog(5L, sessionId, "assistant", "支付模块可以继续补充稳定性设计。", 4)
         );
 
-        when(interviewSessionRepository.findBySessionIdAndUserId(sessionId, userId)).thenReturn(Optional.of(session));
+        when(interviewSessionMapper.selectOne(any())).thenReturn(session);
         when(interviewMessageService.getMessageList(sessionId)).thenReturn(chatLogs);
 
         InterviewSessionResponse response = interviewService.getSessionDetail(userId, sessionId);
@@ -297,7 +296,7 @@ class InterviewServiceTest {
         SendMessageRequest request = new SendMessageRequest();
         request.setContent("我负责支付模块的幂等和回调处理");
 
-        when(interviewSessionRepository.findBySessionIdAndUserId(sessionId, userId)).thenReturn(Optional.of(session));
+        when(interviewSessionMapper.selectOne(any())).thenReturn(session);
         when(interviewMessageService.getMessageList(sessionId)).thenReturn(List.of(
                 buildChatLog(1L, sessionId, "assistant", "你负责过什么项目？", 0)
         ));
@@ -349,7 +348,7 @@ class InterviewServiceTest {
                 .resumeText("候选人有前端项目经验")
                 .build();
 
-        when(interviewSessionRepository.findBySessionIdAndUserId(sessionId, userId)).thenReturn(Optional.of(session));
+        when(interviewSessionMapper.selectOne(any())).thenReturn(session);
         when(interviewMessageService.getMessageList(sessionId)).thenReturn(List.of());
         when(mockInterviewJobTargetService.getSessionContext(userId, sessionId)).thenReturn(emptyContext);
         when(mockInterviewJobTargetService.resolveLatestResumeContext(userId)).thenReturn(latestResumeContext);
@@ -390,7 +389,7 @@ class InterviewServiceTest {
         InterviewSession session = buildInProgressSession(sessionId, userId);
         session.setFeedbackMode("immediate");
 
-        when(interviewSessionRepository.findBySessionIdAndUserId(sessionId, userId)).thenReturn(Optional.of(session));
+        when(interviewSessionMapper.selectOne(any())).thenReturn(session);
         when(interviewMessageService.getMessageList(sessionId)).thenReturn(List.of());
 
         InterviewSessionResponse response = interviewService.getSessionDetail(userId, sessionId);
@@ -408,7 +407,7 @@ class InterviewServiceTest {
 
         InterviewSessionResponse response = interviewService.createSession(123L, request);
 
-        verify(interviewSessionRepository).saveAndFlush(sessionCaptor.capture());
+        verify(interviewSessionMapper).insert(sessionCaptor.capture());
         assertEquals(0, sessionCaptor.getValue().getInteractionType());
         assertEquals(0, response.getInteractionType());
     }
@@ -424,7 +423,7 @@ class InterviewServiceTest {
 
         InterviewSessionResponse response = interviewService.createSession(123L, request);
 
-        verify(interviewSessionRepository).saveAndFlush(sessionCaptor.capture());
+        verify(interviewSessionMapper).insert(sessionCaptor.capture());
         assertEquals(1, sessionCaptor.getValue().getInteractionType());
         assertEquals(1, response.getInteractionType());
     }
@@ -436,7 +435,7 @@ class InterviewServiceTest {
         when(sysJobRoleService.isActiveRoleName("Java工程师")).thenReturn(true);
 
         assertThrows(BusinessException.class, () -> interviewService.createSession(123L, request));
-        verify(interviewSessionRepository, never()).saveAndFlush(any());
+        verify(interviewSessionMapper, never()).insert(any(InterviewSession.class));
     }
 
     @Test
@@ -446,7 +445,12 @@ class InterviewServiceTest {
         InterviewSession session = buildInProgressSession(sessionId, userId);
         session.setFeedbackMode("immediate");
 
-        when(interviewSessionRepository.findByUserId(eq(userId), any())).thenReturn(new PageImpl<>(List.of(session)));
+        doAnswer(invocation -> {
+            com.baomidou.mybatisplus.extension.plugins.pagination.Page<InterviewSession> page = invocation.getArgument(0);
+            page.setRecords(List.of(session));
+            page.setTotal(1);
+            return page;
+        }).when(interviewSessionMapper).selectPage(any(), any());
         when(interviewMessageService.getMessageCountMap(any())).thenReturn(java.util.Map.of(sessionId, 2));
         when(mockInterviewJobTargetService.getSessionContextSummaryMap(eq(userId), any())).thenReturn(java.util.Map.of());
 
@@ -463,12 +467,17 @@ class InterviewServiceTest {
         InterviewSession session = buildInProgressSession(sessionId, userId);
         session.setInteractionType(1);
 
-        when(interviewSessionRepository.findBySessionIdAndUserId(sessionId, userId)).thenReturn(Optional.of(session));
+        when(interviewSessionMapper.selectOne(any())).thenReturn(session);
         when(interviewMessageService.getMessageList(sessionId)).thenReturn(List.of());
         InterviewSessionResponse detail = interviewService.getSessionDetail(userId, sessionId);
         assertEquals(1, detail.getInteractionType());
 
-        when(interviewSessionRepository.findByUserId(eq(userId), any())).thenReturn(new PageImpl<>(List.of(session)));
+        doAnswer(invocation -> {
+            com.baomidou.mybatisplus.extension.plugins.pagination.Page<InterviewSession> page = invocation.getArgument(0);
+            page.setRecords(List.of(session));
+            page.setTotal(1);
+            return page;
+        }).when(interviewSessionMapper).selectPage(any(), any());
         when(interviewMessageService.getMessageCountMap(any())).thenReturn(java.util.Map.of(sessionId, 0));
         when(mockInterviewJobTargetService.getSessionContextSummaryMap(eq(userId), any())).thenReturn(java.util.Map.of());
         List<InterviewHistoryResponse> history = interviewService.getHistory(userId, 1, 5).getList();
@@ -483,29 +492,28 @@ class InterviewServiceTest {
         InterviewSession session = buildInProgressSession(sessionId, userId);
         InterviewChatLog latestMessage = buildChatLog(99L, sessionId, "user", content, 5);
 
-        when(interviewSessionRepository.findBySessionIdAndUserId(sessionId, userId)).thenReturn(Optional.of(session));
-        when(interviewMessageRepository.findFirstBySessionIdAndIsDeletedOrderByCreateTimeDesc(sessionId, 0))
-                .thenReturn(Optional.of(latestMessage));
+        when(interviewSessionMapper.selectOne(any())).thenReturn(session);
+        when(interviewChatLogMapper.selectOne(any())).thenReturn(latestMessage);
 
         interviewService.saveUserMessage(sessionId, userId, content);
 
-        verify(interviewMessageRepository, never()).save(any(InterviewChatLog.class));
+        verify(interviewChatLogMapper, never()).insert(any(InterviewChatLog.class));
     }
 
     @Test
     void shouldClearOwnedInterviewHistoryWithRelatedRecords() {
         Long userId = 123L;
         List<String> sessionIds = List.of("session-a", "session-b");
-        when(interviewSessionRepository.findActiveSessionIdsByUserId(userId)).thenReturn(sessionIds);
-        when(interviewSessionRepository.logicalDeleteByUserId(eq(userId), any(LocalDateTime.class))).thenReturn(2);
+        when(interviewSessionMapper.selectActiveSessionIdsByUserId(userId)).thenReturn(sessionIds);
+        when(interviewSessionMapper.logicalDeleteByUserId(eq(userId), any(LocalDateTime.class))).thenReturn(2);
 
         int deletedCount = interviewService.clearHistory(userId);
 
         assertEquals(2, deletedCount);
-        verify(interviewMessageRepository).logicalDeleteBySessionIdIn(eq(sessionIds), any(LocalDateTime.class));
+        verify(interviewChatLogMapper).logicalDeleteBySessionIdIn(eq(sessionIds), any(LocalDateTime.class));
         verify(mockInterviewJobTargetService).logicalDeleteByUserId(userId);
         verify(dimensionScoreMapper).logicalDeleteBySessionIds(eq(sessionIds), any(LocalDateTime.class));
-        verify(interviewSessionRepository).logicalDeleteByUserId(eq(userId), any(LocalDateTime.class));
+        verify(interviewSessionMapper).logicalDeleteByUserId(eq(userId), any(LocalDateTime.class));
         verify(interviewRadarCache).evict(userId);
         verify(growthOverviewCache).evict(userId);
     }
@@ -513,15 +521,15 @@ class InterviewServiceTest {
     @Test
     void shouldReturnZeroWhenNoInterviewHistoryToClear() {
         Long userId = 123L;
-        when(interviewSessionRepository.findActiveSessionIdsByUserId(userId)).thenReturn(List.of());
+        when(interviewSessionMapper.selectActiveSessionIdsByUserId(userId)).thenReturn(List.of());
 
         int deletedCount = interviewService.clearHistory(userId);
 
         assertEquals(0, deletedCount);
-        verify(interviewMessageRepository, never()).logicalDeleteBySessionIdIn(any(), any());
+        verify(interviewChatLogMapper, never()).logicalDeleteBySessionIdIn(any(), any());
         verify(mockInterviewJobTargetService, never()).logicalDeleteByUserId(anyLong());
         verify(dimensionScoreMapper, never()).logicalDeleteBySessionIds(any(List.class), any(LocalDateTime.class));
-        verify(interviewSessionRepository, never()).logicalDeleteByUserId(anyLong(), any());
+        verify(interviewSessionMapper, never()).logicalDeleteByUserId(anyLong(), any());
         verify(interviewRadarCache, never()).evict(any());
         verify(growthOverviewCache, never()).evict(any());
     }
@@ -531,15 +539,15 @@ class InterviewServiceTest {
         Long userId = 123L;
         String sessionId = "session-delete";
         InterviewSession session = buildEndedSession(sessionId, userId, 80);
-        when(interviewSessionRepository.findBySessionIdAndUserId(sessionId, userId)).thenReturn(Optional.of(session));
+        when(interviewSessionMapper.selectOne(any())).thenReturn(session);
 
         boolean deleted = interviewService.deleteSession(userId, sessionId);
 
         assertTrue(deleted);
-        verify(interviewMessageRepository).logicalDeleteBySessionIdIn(eq(List.of(sessionId)), any(LocalDateTime.class));
+        verify(interviewChatLogMapper).logicalDeleteBySessionIdIn(eq(List.of(sessionId)), any(LocalDateTime.class));
         verify(mockInterviewJobTargetService).logicalDeleteBySessionIds(List.of(sessionId));
         verify(dimensionScoreMapper).logicalDeleteBySessionIds(eq(List.of(sessionId)), any(LocalDateTime.class));
-        verify(interviewSessionRepository).logicalDeleteBySessionIdIn(eq(List.of(sessionId)), any(LocalDateTime.class));
+        verify(interviewSessionMapper).logicalDeleteBySessionIdIn(eq(List.of(sessionId)), any(LocalDateTime.class));
         verify(interviewRadarCache).evict(userId);
         verify(growthOverviewCache).evict(userId);
     }
@@ -555,7 +563,7 @@ class InterviewServiceTest {
                         .jobTargeted(true)
                         .build();
 
-        when(interviewSessionRepository.findBySessionIdAndUserId(sessionId, userId)).thenReturn(Optional.of(session));
+        when(interviewSessionMapper.selectOne(any())).thenReturn(session);
         when(interviewMessageService.getMessageList(sessionId)).thenReturn(List.of());
         when(mockInterviewJobTargetService.getSessionContext(userId, sessionId)).thenReturn(context);
 
@@ -573,7 +581,7 @@ class InterviewServiceTest {
         InterviewSession session = buildInProgressSession(sessionId, userId);
         session.setInterviewMode("big_company_hr");
 
-        when(interviewSessionRepository.findBySessionIdAndUserId(sessionId, userId)).thenReturn(Optional.of(session));
+        when(interviewSessionMapper.selectOne(any())).thenReturn(session);
         when(interviewMessageService.getMessageList(sessionId)).thenReturn(List.of());
 
         InterviewSessionResponse response = interviewService.getSessionDetail(userId, sessionId);
@@ -589,7 +597,7 @@ class InterviewServiceTest {
         InterviewSession session = buildInProgressSession(sessionId, userId);
         session.setInterviewMode("foreign_interviewer");
 
-        when(interviewSessionRepository.findBySessionIdAndUserId(sessionId, userId)).thenReturn(Optional.of(session));
+        when(interviewSessionMapper.selectOne(any())).thenReturn(session);
         when(interviewMessageService.getMessageList(sessionId)).thenReturn(List.of());
 
         InterviewSessionResponse response = interviewService.getSessionDetail(userId, sessionId);
@@ -605,7 +613,7 @@ class InterviewServiceTest {
         InterviewSession session = buildInProgressSession(sessionId, userId);
         session.setInterviewMode(null);
 
-        when(interviewSessionRepository.findBySessionIdAndUserId(sessionId, userId)).thenReturn(Optional.of(session));
+        when(interviewSessionMapper.selectOne(any())).thenReturn(session);
         when(interviewMessageService.getMessageList(sessionId)).thenReturn(List.of());
 
         InterviewSessionResponse response = interviewService.getSessionDetail(userId, sessionId);

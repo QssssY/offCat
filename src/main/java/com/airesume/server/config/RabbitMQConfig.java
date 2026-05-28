@@ -10,6 +10,9 @@ import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.retry.backoff.ExponentialBackOffPolicy;
+import org.springframework.retry.policy.SimpleRetryPolicy;
+import org.springframework.retry.support.RetryTemplate;
 
 /**
  * RabbitMQ配置类
@@ -17,6 +20,14 @@ import org.springframework.context.annotation.Configuration;
  */
 @Configuration
 public class RabbitMQConfig {
+
+    private static final int RABBIT_TEMPLATE_MAX_ATTEMPTS = 3;
+
+    private static final long RABBIT_TEMPLATE_INITIAL_INTERVAL_MS = 500L;
+
+    private static final double RABBIT_TEMPLATE_MULTIPLIER = 2.0;
+
+    private static final long RABBIT_TEMPLATE_MAX_INTERVAL_MS = 2_000L;
 
     @Bean
     public MessageConverter jsonMessageConverter() {
@@ -27,7 +38,25 @@ public class RabbitMQConfig {
     public RabbitTemplate rabbitTemplate(ConnectionFactory connectionFactory, MessageConverter messageConverter) {
         RabbitTemplate rabbitTemplate = new RabbitTemplate(connectionFactory);
         rabbitTemplate.setMessageConverter(messageConverter);
+        rabbitTemplate.setRetryTemplate(rabbitTemplateRetryTemplate());
         return rabbitTemplate;
+    }
+
+    @Bean
+    public RetryTemplate rabbitTemplateRetryTemplate() {
+        RetryTemplate retryTemplate = new RetryTemplate();
+
+        SimpleRetryPolicy retryPolicy = new SimpleRetryPolicy();
+        retryPolicy.setMaxAttempts(RABBIT_TEMPLATE_MAX_ATTEMPTS);
+        retryTemplate.setRetryPolicy(retryPolicy);
+
+        ExponentialBackOffPolicy backOffPolicy = new ExponentialBackOffPolicy();
+        backOffPolicy.setInitialInterval(RABBIT_TEMPLATE_INITIAL_INTERVAL_MS);
+        backOffPolicy.setMultiplier(RABBIT_TEMPLATE_MULTIPLIER);
+        backOffPolicy.setMaxInterval(RABBIT_TEMPLATE_MAX_INTERVAL_MS);
+        retryTemplate.setBackOffPolicy(backOffPolicy);
+
+        return retryTemplate;
     }
 
     @Bean

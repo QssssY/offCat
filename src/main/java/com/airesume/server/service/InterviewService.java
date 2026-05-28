@@ -16,9 +16,11 @@ import com.airesume.server.entity.InterviewChatLog;
 import com.airesume.server.entity.InterviewDimensionScore;
 import com.airesume.server.entity.InterviewSession;
 import com.airesume.server.mapper.InterviewDimensionScoreMapper;
+import com.airesume.server.mapper.InterviewSessionMapper;
+import com.airesume.server.mapper.InterviewChatLogMapper;
 import com.airesume.server.mock.MockInterviewService;
-import com.airesume.server.repository.InterviewMessageRepository;
-import com.airesume.server.repository.InterviewSessionRepository;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -31,10 +33,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.dao.DuplicateKeyException;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -67,10 +65,10 @@ import java.util.stream.Collectors;
 @Slf4j
 public class InterviewService {
 
-    private final InterviewSessionRepository interviewSessionRepository;
+    private final InterviewSessionMapper interviewSessionMapper;
     private final InterviewMessageService interviewMessageService;
     private final MockInterviewService mockInterviewService;
-    private final InterviewMessageRepository interviewMessageRepository;
+    private final InterviewChatLogMapper interviewChatLogMapper;
     private final InterviewAiService interviewAiService;
     private final ObjectMapper objectMapper;
     private final SysJobRoleService sysJobRoleService;
@@ -125,7 +123,7 @@ public class InterviewService {
         session.setOpeningGenerated(0);
         session.setCreateTime(LocalDateTime.now());
         session.setUpdateTime(LocalDateTime.now());
-        interviewSessionRepository.saveAndFlush(session);
+        interviewSessionMapper.insert(session);
 
         // 事务提交后异步生成开场白，避免前端长时间等待 AI 响应。
         if (TransactionSynchronizationManager.isActualTransactionActive()
@@ -182,11 +180,11 @@ public class InterviewService {
                     welcomeMessage.setCreateTime(LocalDateTime.now());
                     welcomeMessage.setUpdateTime(LocalDateTime.now());
                     welcomeMessage.setIsDeleted(0);
-                    interviewMessageRepository.save(welcomeMessage);
+                    interviewChatLogMapper.insert(welcomeMessage);
 
                     mockInterviewJobTargetService.saveSessionContext(userId, sessionId, jobTargetContext, welcomeMessage.getContent());
 
-                    interviewSessionRepository.updateOpeningGenerated(sessionId, 1, LocalDateTime.now());
+                    interviewSessionMapper.updateOpeningGenerated(sessionId, 1, LocalDateTime.now());
                 });
 
                 log.info("开场白已生成(硬编码模板), sessionId: {}", sessionId);
@@ -203,9 +201,9 @@ public class InterviewService {
                         errorMessage.setCreateTime(LocalDateTime.now());
                         errorMessage.setUpdateTime(LocalDateTime.now());
                         errorMessage.setIsDeleted(0);
-                        interviewMessageRepository.save(errorMessage);
+                        interviewChatLogMapper.insert(errorMessage);
 
-                        interviewSessionRepository.updateOpeningGenerated(sessionId, 1, LocalDateTime.now());
+                        interviewSessionMapper.updateOpeningGenerated(sessionId, 1, LocalDateTime.now());
                     });
                 } catch (Exception ex) {
                     log.error("保存开场白失败消息时发生异常, sessionId: {}", sessionId, ex);
@@ -280,7 +278,7 @@ public class InterviewService {
             return;
         }
 
-        int updatedRows = interviewSessionRepository.updateStatusIfCurrentStatus(
+        int updatedRows = interviewSessionMapper.updateStatusIfCurrentStatus(
                 sessionId,
                 userId,
                 InterviewConstants.STATUS_IN_PROGRESS,
@@ -320,7 +318,7 @@ public class InterviewService {
      * 岗位定向反馈由同一份结构化报告二次提取，避免再起一套 AI 调用。
      */
     private void generateAndPersistEvaluationReport(String sessionId) {
-        InterviewSession session = interviewSessionRepository.findBySessionId(sessionId).orElse(null);
+        InterviewSession session = selectSessionBySessionId(sessionId, true);
         if (session == null) {
             log.warn("异步生成报告时会话不存在, sessionId: {}", sessionId);
             return;
@@ -375,7 +373,7 @@ public class InterviewService {
         Integer finalScore = score;
         String finalReportJson = evaluationReportJson;
         final int[] updatedRows = {0};
-        transactionTemplate.executeWithoutResult(status -> updatedRows[0] = interviewSessionRepository.updateEvaluationReportIfAbsent(
+        transactionTemplate.executeWithoutResult(status -> updatedRows[0] = interviewSessionMapper.updateEvaluationReportIfAbsent(
                 sessionId,
                 finalScore,
                 finalReportJson,
@@ -477,10 +475,20 @@ public class InterviewService {
      */
     @Transactional(readOnly = true)
     public PageResult<InterviewHistoryResponse> getHistory(Long userId, Integer pageNum, Integer pageSize) {
-        Pageable pageable = PageRequest.of(pageNum - 1, pageSize, Sort.by(Sort.Direction.DESC, "createTime"));
-        Page<InterviewSession> page = interviewSessionRepository.findByUserId(userId, pageable);
-        List<InterviewHistoryResponse> list = buildHistoryResponses(userId, page.getContent());
-        return PageResult.of(list, page.getTotalElements(), pageNum, pageSize);
+        com.baomidou.mybatisplus.extension.plugins.pagination.Page<InterviewSession> page =
+                new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(pageNum, pageSize);
+        QueryWrapper<InterviewSession> wrapper = new QueryWrapper<>();
+        // 历史列表不需要 evaluation_report 大字段，保持轻查询。
+        wrapper.select("id", "session_id", "user_id", "job_role", "job_role_code", "difficulty",
+                        "interview_mode", "status", "comprehensive_score", "opening_generated",
+                        "feedback_mode", "interaction_type", "create_time", "update_time")
+                .eq("user_id", userId)
+                .eq("is_deleted", 0)
+                .orderByDesc("create_time");
+        com.baomidou.mybatisplus.extension.plugins.pagination.Page<InterviewSession> resultPage =
+                interviewSessionMapper.selectPage(page, wrapper);
+        List<InterviewHistoryResponse> list = buildHistoryResponses(userId, resultPage.getRecords());
+        return PageResult.of(list, resultPage.getTotal(), pageNum, pageSize);
     }
 
     /**
@@ -489,7 +497,13 @@ public class InterviewService {
     @Deprecated
     @Transactional(readOnly = true)
     public List<InterviewHistoryResponse> getAllHistory(Long userId) {
-        List<InterviewSession> sessions = interviewSessionRepository.findByUserIdOrderByCreateTimeDesc(userId);
+        List<InterviewSession> sessions = interviewSessionMapper.selectList(new QueryWrapper<InterviewSession>()
+                .select("id", "session_id", "user_id", "job_role", "job_role_code", "difficulty",
+                        "interview_mode", "status", "comprehensive_score", "opening_generated",
+                        "feedback_mode", "interaction_type", "create_time", "update_time")
+                .eq("user_id", userId)
+                .eq("is_deleted", 0)
+                .orderByDesc("create_time"));
         return buildHistoryResponses(userId, sessions);
     }
 
@@ -499,16 +513,16 @@ public class InterviewService {
      */
     @Transactional(rollbackFor = Exception.class)
     public int clearHistory(Long userId) {
-        List<String> sessionIds = interviewSessionRepository.findActiveSessionIdsByUserId(userId);
+        List<String> sessionIds = interviewSessionMapper.selectActiveSessionIdsByUserId(userId);
         if (sessionIds == null || sessionIds.isEmpty()) {
             return 0;
         }
 
         LocalDateTime now = LocalDateTime.now();
-        interviewMessageRepository.logicalDeleteBySessionIdIn(sessionIds, now);
+        interviewChatLogMapper.logicalDeleteBySessionIdIn(sessionIds, now);
         mockInterviewJobTargetService.logicalDeleteByUserId(userId);
         dimensionScoreMapper.logicalDeleteBySessionIds(sessionIds, now);
-        int deletedCount = interviewSessionRepository.logicalDeleteByUserId(userId, now);
+        int deletedCount = interviewSessionMapper.logicalDeleteByUserId(userId, now);
         evictGrowthCaches(userId);
         return deletedCount;
     }
@@ -524,10 +538,10 @@ public class InterviewService {
     public boolean deleteSession(Long userId, String sessionId) {
         InterviewSession session = getSessionByOwnerOrThrow(sessionId, userId);
         LocalDateTime now = LocalDateTime.now();
-        interviewMessageRepository.logicalDeleteBySessionIdIn(List.of(sessionId), now);
+        interviewChatLogMapper.logicalDeleteBySessionIdIn(List.of(sessionId), now);
         mockInterviewJobTargetService.logicalDeleteBySessionIds(List.of(sessionId));
         dimensionScoreMapper.logicalDeleteBySessionIds(List.of(sessionId), now);
-        interviewSessionRepository.logicalDeleteBySessionIdIn(List.of(sessionId), now);
+        interviewSessionMapper.logicalDeleteBySessionIdIn(List.of(sessionId), now);
         evictGrowthCaches(userId);
         return true;
     }
@@ -564,9 +578,7 @@ public class InterviewService {
         }
 
         // 流式回答断线后可能重复请求同一条消息；若最新一条仍是相同用户消息，则直接跳过，避免重复落库。
-        InterviewChatLog latestMessage = interviewMessageRepository
-                .findFirstBySessionIdAndIsDeletedOrderByCreateTimeDesc(sessionId, 0)
-                .orElse(null);
+        InterviewChatLog latestMessage = selectLatestMessage(sessionId);
         if (latestMessage != null
                 && InterviewConstants.ROLE_USER.equalsIgnoreCase(latestMessage.getMessageRole())
                 && Objects.equals(latestMessage.getContent(), content)) {
@@ -582,7 +594,7 @@ public class InterviewService {
         userMessage.setCreateTime(LocalDateTime.now());
         userMessage.setUpdateTime(LocalDateTime.now());
         userMessage.setIsDeleted(0);
-        interviewMessageRepository.save(userMessage);
+        interviewChatLogMapper.insert(userMessage);
     }
 
     // ===== 预加载 session 的重载方法（避免流式路径重复查询 interview_session）=====
@@ -605,9 +617,7 @@ public class InterviewService {
         }
         String sessionId = session.getSessionId();
 
-        InterviewChatLog latestMessage = interviewMessageRepository
-                .findFirstBySessionIdAndIsDeletedOrderByCreateTimeDesc(sessionId, 0)
-                .orElse(null);
+        InterviewChatLog latestMessage = selectLatestMessage(sessionId);
         if (latestMessage != null
                 && InterviewConstants.ROLE_USER.equalsIgnoreCase(latestMessage.getMessageRole())
                 && Objects.equals(latestMessage.getContent(), content)) {
@@ -623,7 +633,7 @@ public class InterviewService {
         userMessage.setCreateTime(LocalDateTime.now());
         userMessage.setUpdateTime(LocalDateTime.now());
         userMessage.setIsDeleted(0);
-        interviewMessageRepository.save(userMessage);
+        interviewChatLogMapper.insert(userMessage);
     }
 
     /**
@@ -790,7 +800,7 @@ public class InterviewService {
             assistantMessage.setCreateTime(LocalDateTime.now());
             assistantMessage.setUpdateTime(LocalDateTime.now());
             assistantMessage.setIsDeleted(0);
-            interviewMessageRepository.save(assistantMessage);
+            interviewChatLogMapper.insert(assistantMessage);
         });
     }
 
@@ -1241,15 +1251,62 @@ public class InterviewService {
      * 按归属查询会话，不存在则抛错。
      */
     public InterviewSession getSessionByOwnerOrThrow(String sessionId, Long userId) {
-        return interviewSessionRepository.findBySessionIdAndUserId(sessionId, userId)
-                .orElseThrow(() -> new BusinessException("会话不存在或无权访问"));
+        InterviewSession session = selectSessionBySessionIdAndUserId(sessionId, userId, true);
+        if (session == null) {
+            throw new BusinessException("会话不存在或无权访问");
+        }
+        return session;
     }
 
     /**
      * 获取用户归属会话，兼容旧 Controller 的空值判断。
      */
     public InterviewSession getSessionByOwner(String sessionId, Long userId) {
-        return interviewSessionRepository.findBySessionIdAndUserId(sessionId, userId).orElse(null);
+        return selectSessionBySessionIdAndUserId(sessionId, userId, true);
+    }
+
+    /**
+     * 按 sessionId 查询会话；详情和报告生成需要 evaluation_report 时由调用方显式开启。
+     */
+    private InterviewSession selectSessionBySessionId(String sessionId, boolean includeEvaluationReport) {
+        QueryWrapper<InterviewSession> wrapper = baseSessionQuery(includeEvaluationReport)
+                .eq("session_id", sessionId)
+                .eq("is_deleted", 0)
+                .last("limit 1");
+        return interviewSessionMapper.selectOne(wrapper);
+    }
+
+    /**
+     * 查询当前用户归属的会话，显式控制是否补回评估报告大字段。
+     */
+    private InterviewSession selectSessionBySessionIdAndUserId(String sessionId, Long userId, boolean includeEvaluationReport) {
+        QueryWrapper<InterviewSession> wrapper = baseSessionQuery(includeEvaluationReport)
+                .eq("session_id", sessionId)
+                .eq("user_id", userId)
+                .eq("is_deleted", 0)
+                .last("limit 1");
+        return interviewSessionMapper.selectOne(wrapper);
+    }
+
+    private QueryWrapper<InterviewSession> baseSessionQuery(boolean includeEvaluationReport) {
+        QueryWrapper<InterviewSession> wrapper = new QueryWrapper<>();
+        String columns = "id,session_id,user_id,job_role,job_role_code,difficulty,interview_mode,status,"
+                + "comprehensive_score,opening_generated,feedback_mode,interaction_type,create_time,update_time,is_deleted";
+        if (includeEvaluationReport) {
+            columns += ",evaluation_report";
+        }
+        return wrapper.select(columns);
+    }
+
+    /**
+     * 查询最近一条未删除聊天消息，用于流式断线重试去重。
+     */
+    private InterviewChatLog selectLatestMessage(String sessionId) {
+        return interviewChatLogMapper.selectOne(new QueryWrapper<InterviewChatLog>()
+                .eq("session_id", sessionId)
+                .eq("is_deleted", 0)
+                .orderByDesc("create_time")
+                .last("limit 1"));
     }
 
     /**

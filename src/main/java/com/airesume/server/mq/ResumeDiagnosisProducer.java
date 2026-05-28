@@ -36,7 +36,12 @@ public class ResumeDiagnosisProducer {
         rabbitTemplate.convertAndSend(
                 ResumeDiagnosisConstants.EXCHANGE_RESUME_DIAGNOSIS,
                 ResumeDiagnosisConstants.ROUTING_KEY_RESUME_DIAGNOSIS,
-                message
+                message,
+                rabbitMessage -> {
+                    // TTL 放在单条消息上，避免修改既有队列声明参数导致 RabbitMQ PRECONDITION_FAILED。
+                    rabbitMessage.getMessageProperties().setExpiration(ResumeDiagnosisConstants.MESSAGE_TTL_MS);
+                    return rabbitMessage;
+                }
         );
 
         log.info("Resume diagnosis task sent successfully, taskId: {}", taskId);

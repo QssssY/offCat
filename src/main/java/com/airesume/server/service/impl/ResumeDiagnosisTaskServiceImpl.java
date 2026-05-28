@@ -99,6 +99,10 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
     @Value("${app.upload.max-file-size:10485760}")
     private long maxFileSize;
 
+    /** 上传目录至少保留的可用空间，默认 1GB，防止低磁盘空间时继续接收简历源文件。 */
+    @Value("${app.upload.min-free-space-mb:1024}")
+    private long minFreeSpaceMb;
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long createTask(Long userId, String fileUrl) {
@@ -184,6 +188,7 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
 
             Path uploadDirPath = Paths.get(uploadDir).toAbsolutePath().normalize();
             Files.createDirectories(uploadDirPath);
+            ensureUploadDirectoryHasEnoughSpace(uploadDirPath);
 
             Path destPath = uploadDirPath.resolve(fileName).normalize();
             if (!destPath.startsWith(uploadDirPath)) {
@@ -194,6 +199,8 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
             fileUrl = "/uploads/resumes/" + fileName;
             log.info("Resume file saved, userId: {}, fileName: {}, fileUrl: {}",
                     userId, fileName, fileUrl);
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             log.error("Failed to save resume file, userId: {}, fileName: {}", userId, fileName, e);
             throw new BusinessException(ResultCode.RESUME_FILE_SAVE_FAILED);
@@ -220,10 +227,40 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
         return System.currentTimeMillis() + "_" + UUID.randomUUID().toString().replace("-", "") + ".pdf";
     }
 
+    /**
+     * 上传前检查目标磁盘可用空间，避免简历源文件继续写入导致磁盘被打满。
+     */
+    protected void ensureUploadDirectoryHasEnoughSpace(Path uploadDirPath) throws java.io.IOException {
+        if (minFreeSpaceMb <= 0) {
+            return;
+        }
+        long minFreeBytes = minFreeSpaceMb * 1024L * 1024L;
+        long usableBytes = usableSpace(uploadDirPath);
+        if (usableBytes < minFreeBytes) {
+            log.warn("Resume upload rejected due to low disk space, uploadDir: {}, usableBytes: {}, minFreeBytes: {}",
+                    uploadDirPath, usableBytes, minFreeBytes);
+            throw new BusinessException(ResultCode.RESUME_STORAGE_SPACE_LOW);
+        }
+    }
+
+    protected long usableSpace(Path uploadDirPath) throws java.io.IOException {
+        return Files.getFileStore(uploadDirPath).getUsableSpace();
+    }
+
     @Override
     @Cacheable(value = "resume:task", key = "#taskId + '::' + #userId")
     public ResumeDiagnosisTaskResponse getTaskById(Long taskId, Long userId) {
-        ResumeDiagnosisTask task = getById(taskId);
+        ResumeDiagnosisTask task = getBaseMapper().selectOne(new LambdaQueryWrapper<ResumeDiagnosisTask>()
+                // 详情页需要诊断 JSON 与简历文本，显式补回默认不全列加载的大字段。
+                .select(ResumeDiagnosisTask::getId, ResumeDiagnosisTask::getUserId,
+                        ResumeDiagnosisTask::getFileUrl, ResumeDiagnosisTask::getStatus,
+                        ResumeDiagnosisTask::getStage, ResumeDiagnosisTask::getDiagnosisResult,
+                        ResumeDiagnosisTask::getErrorMsg, ResumeDiagnosisTask::getFailedAt,
+                        ResumeDiagnosisTask::getResumeText, ResumeDiagnosisTask::getParseMode,
+                        ResumeDiagnosisTask::getParseMessage, ResumeDiagnosisTask::getCreateTime,
+                        ResumeDiagnosisTask::getUpdateTime, ResumeDiagnosisTask::getIsDeleted)
+                .eq(ResumeDiagnosisTask::getId, taskId)
+                .last("limit 1"));
         if (task == null) {
             throw new BusinessException(ResultCode.RESUME_TASK_NOT_FOUND);
         }
@@ -410,7 +447,14 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
     @Override
     @Transactional(rollbackFor = Exception.class)
     public String retryFailedTask(Long taskId, Long userId) {
-        ResumeDiagnosisTask task = getById(taskId);
+        ResumeDiagnosisTask task = getBaseMapper().selectOne(new LambdaQueryWrapper<ResumeDiagnosisTask>()
+                // 重试需要复用 file_url，并在源文件已清理时预填 resume_text。
+                .select(ResumeDiagnosisTask::getId, ResumeDiagnosisTask::getUserId,
+                        ResumeDiagnosisTask::getFileUrl, ResumeDiagnosisTask::getStatus,
+                        ResumeDiagnosisTask::getResumeText, ResumeDiagnosisTask::getFailedAt,
+                        ResumeDiagnosisTask::getUpdateTime, ResumeDiagnosisTask::getIsDeleted)
+                .eq(ResumeDiagnosisTask::getId, taskId)
+                .last("limit 1"));
         if (task == null) {
             throw new BusinessException(ResultCode.RESUME_TASK_NOT_FOUND);
         }

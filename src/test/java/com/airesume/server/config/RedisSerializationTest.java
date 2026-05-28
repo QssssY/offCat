@@ -1,6 +1,8 @@
 package com.airesume.server.config;
 
 import com.airesume.server.common.result.Result;
+import com.airesume.server.dto.admin.BusinessDistributionResponse;
+import com.airesume.server.dto.admin.DashboardOverviewResponse;
 import com.airesume.server.dto.growth.GrowthOverviewResponse;
 import com.airesume.server.dto.resume.ResumeDiagnosisTaskResponse;
 import com.airesume.server.dto.resume.ResumeJobMatchAnalyzeResponse;
@@ -158,6 +160,54 @@ class RedisSerializationTest {
         Object actual = roundTrip(expected);
 
         assertThat(actual).isInstanceOf(Result.class);
+        assertThat(actual).usingRecursiveComparison().isEqualTo(expected);
+    }
+
+    @Test
+    void shouldRoundTripDashboardOverviewResponse() {
+        DashboardOverviewResponse expected = DashboardOverviewResponse.builder()
+                .totalUserCount(100L)
+                .vipUserCount(20L)
+                .activePromptCount(8L)
+                .activeJobRoleCount(12L)
+                .activeAiEngineCount(3L)
+                .todayInterviewSessionCount(15L)
+                .todayResumeDiagnosisCount(18L)
+                .feedbackCount(4L)
+                .communityPostCount(6L)
+                .resumePolishCount(7L)
+                .jdMatchCount(9L)
+                .orderCount(5L)
+                .orderRevenue(new BigDecimal("199.00"))
+                .build();
+
+        Object actual = roundTrip(expected);
+
+        assertThat(actual).isInstanceOf(DashboardOverviewResponse.class);
+        assertThat(actual).usingRecursiveComparison().isEqualTo(expected);
+    }
+
+    @Test
+    void shouldRoundTripBusinessDistributionResponse() {
+        BusinessDistributionResponse expected = BusinessDistributionResponse.builder()
+                .startDate("2026-05-22")
+                .endDate("2026-05-28")
+                .interviewCount(30L)
+                .resumeCount(40L)
+                .resumePolishCount(12L)
+                .jdMatchCount(16L)
+                .communityPostCount(2L)
+                .totalCount(100L)
+                .interviewPercent(30.00)
+                .resumePercent(40.00)
+                .polishPercent(12.00)
+                .jdMatchPercent(16.00)
+                .communityPercent(2.00)
+                .build();
+
+        Object actual = roundTrip(expected);
+
+        assertThat(actual).isInstanceOf(BusinessDistributionResponse.class);
         assertThat(actual).usingRecursiveComparison().isEqualTo(expected);
     }
 

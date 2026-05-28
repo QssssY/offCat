@@ -9,11 +9,11 @@ import com.airesume.server.entity.ResumeJobMatchRecord;
 import com.airesume.server.entity.ResumePolishRecord;
 import com.airesume.server.entity.SysGrowthConfig;
 import com.airesume.server.mapper.InterviewDimensionScoreMapper;
+import com.airesume.server.mapper.InterviewSessionMapper;
 import com.airesume.server.mapper.MockInterviewJobTargetRecordMapper;
 import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
 import com.airesume.server.mapper.ResumeJobMatchRecordMapper;
 import com.airesume.server.mapper.ResumePolishRecordMapper;
-import com.airesume.server.repository.InterviewSessionRepository;
 import com.airesume.server.service.SysGrowthConfigService;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -44,7 +44,7 @@ class GrowthServiceImplTest {
     @Mock private ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper;
     @Mock private ResumeJobMatchRecordMapper resumeJobMatchRecordMapper;
     @Mock private ResumePolishRecordMapper resumePolishRecordMapper;
-    @Mock private InterviewSessionRepository interviewSessionRepository;
+    @Mock private InterviewSessionMapper interviewSessionMapper;
     @Mock private MockInterviewJobTargetRecordMapper mockInterviewJobTargetRecordMapper;
     @Mock private InterviewDimensionScoreMapper dimensionScoreMapper;
     @Mock private SysGrowthConfigService sysGrowthConfigService;
@@ -57,7 +57,7 @@ class GrowthServiceImplTest {
                 resumeDiagnosisTaskMapper,
                 resumeJobMatchRecordMapper,
                 resumePolishRecordMapper,
-                interviewSessionRepository,
+                interviewSessionMapper,
                 mockInterviewJobTargetRecordMapper,
                 dimensionScoreMapper,
                 sysGrowthConfigService,
@@ -68,7 +68,7 @@ class GrowthServiceImplTest {
     void shouldUseEvaluationReportSessionsForInterviewRadarAndKeepCandidateCountWhenNoScores() {
         Long userId = 123L;
         InterviewSession session = buildEndedSessionWithReport("session-a", userId);
-        when(interviewSessionRepository.findRecentEndedSessionsWithEvaluationReport(eq(userId), eq(1), eq(0), any()))
+        when(interviewSessionMapper.selectList(any()))
                 .thenReturn(List.of(session));
         when(dimensionScoreMapper.selectList(any())).thenReturn(List.of());
 
@@ -78,7 +78,7 @@ class GrowthServiceImplTest {
         assertEquals(1, response.getSessionCount());
         assertEquals(List.of(), response.getDimensionTrends());
         assertEquals(List.of(), response.getBlindSpotTips());
-        verify(interviewSessionRepository).findRecentEndedSessionsWithEvaluationReport(eq(userId), eq(1), eq(0), any());
+        verify(interviewSessionMapper).selectList(any());
         verify(dimensionScoreMapper).selectList(any());
         verify(dimensionScoreMapper, never()).selectCount(any());
         verify(dimensionScoreMapper, never()).insert(any(InterviewDimensionScore.class));
@@ -91,7 +91,7 @@ class GrowthServiceImplTest {
         latest.setCreateTime(LocalDateTime.of(2026, 5, 21, 10, 0));
         InterviewSession previous = buildEndedSessionWithReport("session-old", userId);
         previous.setCreateTime(LocalDateTime.of(2026, 5, 20, 10, 0));
-        when(interviewSessionRepository.findRecentEndedSessionsWithEvaluationReport(eq(userId), eq(1), eq(0), any()))
+        when(interviewSessionMapper.selectList(any()))
                 .thenReturn(List.of(latest, previous));
         when(dimensionScoreMapper.selectList(any())).thenReturn(List.of(
                 buildDimensionScore("session-new", "technicalDepth", 55),
@@ -132,10 +132,9 @@ class GrowthServiceImplTest {
         interviewSession.setJobRole("Java工程师");
         interviewSession.setCreateTime(LocalDateTime.of(2026, 5, 21, 9, 0));
         when(resumeDiagnosisTaskMapper.selectList(any())).thenReturn(List.of(resumeTask));
-        when(interviewSessionRepository.findTop10ByUserIdAndStatusAndComprehensiveScoreIsNotNullAndIsDeletedOrderByCreateTimeDesc(
-                userId, 1, 0)).thenReturn(List.of(interviewSession));
+        when(interviewSessionMapper.selectList(any())).thenReturn(List.of(interviewSession));
         when(resumeDiagnosisTaskMapper.selectCount(any())).thenReturn(1L);
-        when(interviewSessionRepository.countByUserIdAndStatus(userId, 1)).thenReturn(1L);
+        when(interviewSessionMapper.selectCount(any())).thenReturn(1L);
         when(resumeJobMatchRecordMapper.selectCount(any())).thenReturn(0L);
         when(resumePolishRecordMapper.selectCount(any())).thenReturn(0L);
         when(sysGrowthConfigService.getByGroup("encouragement")).thenReturn(List.of(
@@ -192,10 +191,9 @@ class GrowthServiceImplTest {
             polishSelect[0] = invocation.<Wrapper<ResumePolishRecord>>getArgument(0).getSqlSelect();
             return polishRecord;
         }).when(resumePolishRecordMapper).selectOne(any());
-        when(interviewSessionRepository.findTop10ByUserIdAndStatusAndComprehensiveScoreIsNotNullAndIsDeletedOrderByCreateTimeDesc(
-                userId, 1, 0)).thenReturn(List.of());
+        when(interviewSessionMapper.selectList(any())).thenReturn(List.of());
         when(resumeDiagnosisTaskMapper.selectCount(any())).thenReturn(1L);
-        when(interviewSessionRepository.countByUserIdAndStatus(userId, 1)).thenReturn(0L);
+        when(interviewSessionMapper.selectCount(any())).thenReturn(0L);
         when(resumeJobMatchRecordMapper.selectCount(any())).thenReturn(1L);
         when(resumePolishRecordMapper.selectCount(any())).thenReturn(1L);
         when(sysGrowthConfigService.getByGroup("encouragement")).thenReturn(List.of());
