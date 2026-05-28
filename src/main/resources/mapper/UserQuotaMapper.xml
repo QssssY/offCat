@@ -55,4 +55,96 @@
           AND is_deleted = 0
     </update>
 
+    <!-- VIP 原子扣减 AI 润色日额度（同时检查周期总额度） -->
+    <update id="consumeVipDailyPolishQuotaAtomic">
+        UPDATE user_quota
+        SET daily_polish_used = daily_polish_used + 1,
+            cycle_polish_used = cycle_polish_used + 1,
+            update_time = NOW()
+        WHERE user_id = #{userId}
+          AND daily_polish_used &lt; #{dailyLimit}
+          AND (#{cycleLimit} = 0 OR cycle_polish_used &lt; #{cycleLimit})
+          AND is_deleted = 0
+    </update>
+
+    <!-- VIP 原子扣减 JD 匹配日额度 -->
+    <update id="consumeVipDailyJdMatchQuotaAtomic">
+        UPDATE user_quota
+        SET daily_jd_match_used = daily_jd_match_used + 1,
+            cycle_jd_match_used = cycle_jd_match_used + 1,
+            update_time = NOW()
+        WHERE user_id = #{userId}
+          AND daily_jd_match_used &lt; #{dailyLimit}
+          AND (#{cycleLimit} = 0 OR cycle_jd_match_used &lt; #{cycleLimit})
+          AND is_deleted = 0
+    </update>
+
+    <!-- VIP 原子扣减模板使用日额度 -->
+    <update id="consumeVipDailyTemplateQuotaAtomic">
+        UPDATE user_quota
+        SET daily_template_used = daily_template_used + 1,
+            cycle_template_used = cycle_template_used + 1,
+            update_time = NOW()
+        WHERE user_id = #{userId}
+          AND daily_template_used &lt; #{dailyLimit}
+          AND (#{cycleLimit} = 0 OR cycle_template_used &lt; #{cycleLimit})
+          AND is_deleted = 0
+    </update>
+
+    <!-- VIP 原子扣减 Offer 辅助日额度 -->
+    <update id="consumeVipDailyOfferQuotaAtomic">
+        UPDATE user_quota
+        SET daily_offer_used = daily_offer_used + 1,
+            cycle_offer_used = cycle_offer_used + 1,
+            update_time = NOW()
+        WHERE user_id = #{userId}
+          AND daily_offer_used &lt; #{dailyLimit}
+          AND (#{cycleLimit} = 0 OR cycle_offer_used &lt; #{cycleLimit})
+          AND is_deleted = 0
+    </update>
+
+    <!-- 非会员原子扣减免费 AI 润色次数 -->
+    <update id="deductFreePolishAtomic">
+        UPDATE user_quota
+        SET free_polish_left = free_polish_left - 1,
+            daily_polish_used = daily_polish_used + 1,
+            update_time = NOW()
+        WHERE user_id = #{userId}
+          AND free_polish_left &gt; 0
+          AND is_deleted = 0
+    </update>
+
+    <!-- 非会员原子扣减免费 JD 匹配次数 -->
+    <update id="deductFreeJdMatchAtomic">
+        UPDATE user_quota
+        SET free_jd_match_left = free_jd_match_left - 1,
+            daily_jd_match_used = daily_jd_match_used + 1,
+            update_time = NOW()
+        WHERE user_id = #{userId}
+          AND free_jd_match_left &gt; 0
+          AND is_deleted = 0
+    </update>
+
+    <!-- 非会员原子扣减免费模板使用次数 -->
+    <update id="deductFreeTemplateAtomic">
+        UPDATE user_quota
+        SET free_template_left = free_template_left - 1,
+            daily_template_used = daily_template_used + 1,
+            update_time = NOW()
+        WHERE user_id = #{userId}
+          AND free_template_left &gt; 0
+          AND is_deleted = 0
+    </update>
+
+    <!-- 非会员原子扣减免费 Offer 辅助次数 -->
+    <update id="deductFreeOfferAtomic">
+        UPDATE user_quota
+        SET free_offer_left = free_offer_left - 1,
+            daily_offer_used = daily_offer_used + 1,
+            update_time = NOW()
+        WHERE user_id = #{userId}
+          AND free_offer_left &gt; 0
+          AND is_deleted = 0
+    </update>
+
 </mapper>

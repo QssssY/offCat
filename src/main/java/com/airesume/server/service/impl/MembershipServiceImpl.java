@@ -78,6 +78,17 @@ public class MembershipServiceImpl implements MembershipService {
             throw new BusinessException(ResultCode.MEMBERSHIP_ACCOUNT_DISABLED);
         }
 
+        // 降级检查：VIP用户不允许购买低于当前等级的套餐
+        String currentPlanCode = user.getMembershipPlanCode();
+        boolean planChanged = currentPlanCode == null || !currentPlanCode.equals(plan.getPlanCode());
+        if (currentPlanCode != null && user.getRole() != null && user.getRole() == UserRoleConstants.ROLE_VIP) {
+            MembershipPlan currentPlan = membershipPlanService.getByPlanCode(currentPlanCode);
+            if (currentPlan != null && currentPlan.getSort() != null
+                    && plan.getSort() != null && currentPlan.getSort() > plan.getSort()) {
+                throw new BusinessException(ResultCode.PLAN_DOWNGRADE_NOT_ALLOWED);
+            }
+        }
+
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime expireTimeBefore = user.getVipExpireTime();
         LocalDateTime baseExpireTime = expireTimeBefore != null && expireTimeBefore.isAfter(now)
@@ -97,6 +108,15 @@ public class MembershipServiceImpl implements MembershipService {
         user.setMembershipPlanCode(plan.getPlanCode());
         user.setVipExpireTime(expireTimeAfter);
         sysUserService.updateById(user);
+
+        // 重置周期配额计数器 + 充入赠送额度
+        // 套餐发生变化时才开启新的权益周期；同套餐续费只延长有效期。
+        if (planChanged) {
+            userQuotaService.resetCycleQuota(userId);
+        }
+        if (safeQuota(plan.getBonusResumeQuota()) > 0 || safeQuota(plan.getBonusInterviewQuota()) > 0) {
+            userQuotaService.addBonusQuota(userId, safeQuota(plan.getBonusResumeQuota()), safeQuota(plan.getBonusInterviewQuota()));
+        }
 
         int resumeQuota = userQuotaService.getRemainingResumeQuota(userId);
         int interviewQuota = userQuotaService.getRemainingInterviewQuota(userId);
@@ -119,6 +139,18 @@ public class MembershipServiceImpl implements MembershipService {
     }
 
     private MembershipPlanVO buildPlanVO(MembershipPlan plan) {
+        // 解析 benefits JSON 字符串为 List
+        List<String> benefitsList = null;
+        if (plan.getBenefits() != null && !plan.getBenefits().isBlank()) {
+            try {
+                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                benefitsList = mapper.readValue(plan.getBenefits(),
+                        mapper.getTypeFactory().constructCollectionType(List.class, String.class));
+            } catch (Exception e) {
+                log.warn("解析套餐权益JSON失败, planCode={}: {}", plan.getPlanCode(), e.getMessage());
+            }
+        }
+
         return MembershipPlanVO.builder()
                 .planCode(plan.getPlanCode())
                 .planName(plan.getPlanName())
@@ -127,6 +159,14 @@ public class MembershipServiceImpl implements MembershipService {
                 .durationDays(plan.getDurationDays())
                 .resumeQuota(plan.getResumeQuota())
                 .interviewQuota(plan.getInterviewQuota())
+                .dailyPolishLimit(plan.getDailyPolishLimit())
+                .dailyJdMatchLimit(plan.getDailyJdMatchLimit())
+                .dailyTemplateLimit(plan.getDailyTemplateLimit())
+                .dailyOfferLimit(plan.getDailyOfferLimit())
+                .bonusResumeQuota(plan.getBonusResumeQuota())
+                .bonusInterviewQuota(plan.getBonusInterviewQuota())
+                .benefits(benefitsList)
+                .sort(plan.getSort())
                 .build();
     }
 

@@ -235,6 +235,20 @@ public class AuthServiceImpl implements AuthService {
                 ? 0
                 : Math.max(0, vipDailyInterviewLimit - safeValue(userQuota.getDailyInterviewUsed()));
 
+        // 新功能配额：VIP每日剩余 = plan limit - today used
+        int vipDailyPolishQuota = userQuota == null
+                ? 0
+                : Math.max(0, sysUserService.getVipDailyPolishLimit(userId) - safeValue(userQuota.getDailyPolishUsed()));
+        int vipDailyJdMatchQuota = userQuota == null
+                ? 0
+                : Math.max(0, sysUserService.getVipDailyJdMatchLimit(userId) - safeValue(userQuota.getDailyJdMatchUsed()));
+        int vipDailyTemplateQuota = userQuota == null
+                ? 0
+                : Math.max(0, sysUserService.getVipDailyTemplateLimit(userId) - safeValue(userQuota.getDailyTemplateUsed()));
+        int vipDailyOfferQuota = userQuota == null
+                ? 0
+                : Math.max(0, sysUserService.getVipDailyOfferLimit(userId) - safeValue(userQuota.getDailyOfferUsed()));
+
         log.debug("User info fetched successfully, userId: {}, username: {}, resumeQuota: {}, interviewQuota: {}",
                 userId, user.getUsername(), resumeQuota, interviewQuota);
 
@@ -251,6 +265,10 @@ public class AuthServiceImpl implements AuthService {
                 .interviewQuota(interviewQuota)
                 .vipDailyResumeQuota(vipDailyResumeQuota)
                 .vipDailyInterviewQuota(vipDailyInterviewQuota)
+                .vipDailyPolishQuota(vipDailyPolishQuota)
+                .vipDailyJdMatchQuota(vipDailyJdMatchQuota)
+                .vipDailyTemplateQuota(vipDailyTemplateQuota)
+                .vipDailyOfferQuota(vipDailyOfferQuota)
                 .build();
     }
 

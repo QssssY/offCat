@@ -65,7 +65,8 @@ class AdminAuditLogControllerTest {
         when(sysUserService.getById(10L)).thenReturn(targetUser);
         when(sysUserService.getById(1L)).thenReturn(operator);
 
-        Result<Map<String, Object>> result = controller.getAuditLogs(null, 1, 20, authentication);
+        Result<Map<String, Object>> result = controller.getAuditLogs(
+                null, null, null, null, null, null, 1, 20, authentication);
         assertEquals(CODE_SUCCESS, result.getCode());
         Map<String, Object> data = result.getData();
         assertEquals(1, ((List<?>) data.get("records")).size());
@@ -79,7 +80,8 @@ class AdminAuditLogControllerTest {
 
         when(userRightsChangeLogService.page(any(Page.class), any(LambdaQueryWrapper.class))).thenReturn(pageResult);
 
-        Result<Map<String, Object>> result = controller.getAuditLogs(10L, 1, 20, authentication);
+        Result<Map<String, Object>> result = controller.getAuditLogs(
+                10L, null, null, null, null, null, 1, 20, authentication);
         assertEquals(CODE_SUCCESS, result.getCode());
         assertEquals(0, ((List<?>) result.getData().get("records")).size());
     }

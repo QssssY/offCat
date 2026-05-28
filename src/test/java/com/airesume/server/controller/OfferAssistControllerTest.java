@@ -6,6 +6,7 @@ import com.airesume.server.dto.offer.SalaryNegotiationSimulationResponse;
 import com.airesume.server.dto.offer.SalaryScriptRequest;
 import com.airesume.server.dto.offer.SalaryScriptResponse;
 import com.airesume.server.service.OfferAssistService;
+import com.airesume.server.service.UserQuotaService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.core.Authentication;
@@ -18,14 +19,16 @@ import static org.mockito.Mockito.*;
 class OfferAssistControllerTest {
 
     private OfferAssistService offerAssistService;
+    private UserQuotaService userQuotaService;
     private Authentication authentication;
     private OfferAssistController controller;
 
     @BeforeEach
     void setUp() {
         offerAssistService = mock(OfferAssistService.class);
+        userQuotaService = mock(UserQuotaService.class);
         authentication = mock(Authentication.class);
-        controller = new OfferAssistController(offerAssistService);
+        controller = new OfferAssistController(offerAssistService, userQuotaService);
         when(authentication.getPrincipal()).thenReturn(1L);
     }
 
@@ -48,6 +51,7 @@ class OfferAssistControllerTest {
         assertEquals(200, result.getCode());
         assertEquals("仍有谈判空间", result.getData().getSceneSummary());
         verify(offerAssistService).simulateSalaryNegotiation(1L, request);
+        verify(userQuotaService).checkAndDeductOfferQuota(1L);
     }
 
     @Test
@@ -68,5 +72,6 @@ class OfferAssistControllerTest {
         assertEquals(200, result.getCode());
         assertEquals("开场话术", result.getData().getOpeningScript());
         verify(offerAssistService).generateSalaryScript(1L, request);
+        verify(userQuotaService).checkAndDeductOfferQuota(1L);
     }
 }

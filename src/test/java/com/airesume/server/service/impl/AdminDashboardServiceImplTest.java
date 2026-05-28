@@ -1,14 +1,20 @@
 package com.airesume.server.service.impl;
 
 import com.airesume.server.dto.admin.DashboardTrendResponse;
+import com.airesume.server.mapper.CommunityPostMapper;
 import com.airesume.server.mapper.InterviewSessionMapper;
+import com.airesume.server.mapper.MembershipOrderMapper;
 import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
 import com.airesume.server.service.InterviewSessionService;
+import com.airesume.server.service.MembershipOrderService;
 import com.airesume.server.service.ResumeDiagnosisTaskService;
+import com.airesume.server.service.ResumeJobMatchService;
+import com.airesume.server.service.ResumePolishService;
 import com.airesume.server.service.SysAiEngineConfigService;
 import com.airesume.server.service.SysJobRoleService;
 import com.airesume.server.service.SysPromptService;
 import com.airesume.server.service.SysUserService;
+import com.airesume.server.service.UserFeedbackService;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
@@ -106,7 +112,14 @@ class AdminDashboardServiceImplTest {
                 interviewSessionService,
                 resumeDiagnosisTaskService,
                 interviewSessionMapper,
-                resumeDiagnosisTaskMapper
+                resumeDiagnosisTaskMapper,
+                mock(UserFeedbackService.class),
+                mock(CommunityPostMapper.class),
+                mock(ResumePolishService.class),
+                mock(ResumeJobMatchService.class),
+                mock(MembershipOrderService.class),
+                mock(MembershipOrderMapper.class),
+                Runnable::run
         );
     }
 }

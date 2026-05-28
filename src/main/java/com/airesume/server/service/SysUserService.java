@@ -36,4 +36,19 @@ public interface SysUserService extends IService<SysUser> {
 
     int getVipDailyInterviewLimit(Long userId);
 
+    /** VIP每日AI润色次数限制。 */
+    int getVipDailyPolishLimit(Long userId);
+
+    /** VIP每日JD匹配次数限制。 */
+    int getVipDailyJdMatchLimit(Long userId);
+
+    /** VIP每日模板使用次数限制。 */
+    int getVipDailyTemplateLimit(Long userId);
+
+    /** VIP每日Offer辅助次数限制。 */
+    int getVipDailyOfferLimit(Long userId);
+
+    /** VIP套餐周期内功能总额度（0=不限）。featureType: polish/jd_match/template/offer/resume/interview */
+    int getVipCycleLimit(Long userId, String featureType);
+
 }

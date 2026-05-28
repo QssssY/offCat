@@ -6,6 +6,8 @@ import com.airesume.server.mapper.MembershipPlanMapper;
 import com.airesume.server.service.MembershipPlanService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -13,6 +15,7 @@ public class MembershipPlanServiceImpl extends ServiceImpl<MembershipPlanMapper,
         implements MembershipPlanService {
 
     @Override
+    @Cacheable(value = "config:membershipPlan", key = "'active::' + #planCode", unless = "#result == null")
     public MembershipPlan getActiveByCode(String planCode) {
         LambdaQueryWrapper<MembershipPlan> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(MembershipPlan::getPlanCode, planCode)
@@ -21,6 +24,7 @@ public class MembershipPlanServiceImpl extends ServiceImpl<MembershipPlanMapper,
     }
 
     @Override
+    @Cacheable(value = "config:membershipPlan", key = "'code::' + #planCode", unless = "#result == null")
     public MembershipPlan getByPlanCode(String planCode) {
         if (planCode == null || planCode.isBlank()) {
             return null;
@@ -29,5 +33,23 @@ public class MembershipPlanServiceImpl extends ServiceImpl<MembershipPlanMapper,
         wrapper.eq(MembershipPlan::getPlanCode, planCode.trim())
                 .last("LIMIT 1");
         return getOne(wrapper, false);
+    }
+
+    @Override
+    @CacheEvict(value = "config:membershipPlan", allEntries = true)
+    public boolean save(MembershipPlan entity) {
+        return super.save(entity);
+    }
+
+    @Override
+    @CacheEvict(value = "config:membershipPlan", allEntries = true)
+    public boolean updateById(MembershipPlan entity) {
+        return super.updateById(entity);
+    }
+
+    @Override
+    @CacheEvict(value = "config:membershipPlan", allEntries = true)
+    public boolean removeById(java.io.Serializable id) {
+        return super.removeById(id);
     }
 }

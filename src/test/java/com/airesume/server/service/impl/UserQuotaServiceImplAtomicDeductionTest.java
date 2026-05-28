@@ -3,6 +3,7 @@ package com.airesume.server.service.impl;
 import com.airesume.server.common.constants.QuotaConstants;
 import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.entity.UserQuota;
+import com.airesume.server.mapper.ResumePolishRecordMapper;
 import com.airesume.server.mapper.UserQuotaMapper;
 import com.airesume.server.service.SysUserService;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
@@ -21,6 +22,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -39,12 +41,16 @@ class UserQuotaServiceImplAtomicDeductionTest {
     private TestableUserQuotaService createService(Long userId, boolean vipUser) {
         SysUserService sysUserService = mock(SysUserService.class);
         when(sysUserService.isVipUser(userId)).thenReturn(vipUser);
+        if (vipUser) {
+            lenient().when(sysUserService.getVipDailyResumeLimit(userId)).thenReturn(QuotaConstants.VIP_USER_DAILY_RESUME_LIMIT);
+            lenient().when(sysUserService.getVipDailyInterviewLimit(userId)).thenReturn(QuotaConstants.VIP_USER_DAILY_INTERVIEW_LIMIT);
+        }
 
         UserQuota quota = new UserQuota();
         quota.setUserId(userId);
         quota.setLastRefreshDate(LocalDate.now());
 
-        TestableUserQuotaService service = spy(new TestableUserQuotaService(sysUserService, quota));
+        TestableUserQuotaService service = spy(new TestableUserQuotaService(sysUserService, mock(ResumePolishRecordMapper.class), quota));
         ReflectionTestUtils.setField(service, "baseMapper", userQuotaMapper);
         return service;
     }
@@ -161,7 +167,7 @@ class UserQuotaServiceImplAtomicDeductionTest {
         quota.setInterviewQuota(7);
         quota.setResumeQuota(4);
 
-        UserQuotaServiceImpl service = spy(new UserQuotaServiceImpl(sysUserService));
+        UserQuotaServiceImpl service = spy(new UserQuotaServiceImpl(sysUserService, mock(ResumePolishRecordMapper.class)));
         ReflectionTestUtils.setField(service, "baseMapper", userQuotaMapper);
         ReflectionTestUtils.setField(service, "entityClass", UserQuota.class);
         doReturn(true).when(service).update(any(UpdateWrapper.class));
@@ -180,8 +186,10 @@ class UserQuotaServiceImplAtomicDeductionTest {
 
         private final UserQuota quota;
 
-        private TestableUserQuotaService(SysUserService sysUserService, UserQuota quota) {
-            super(sysUserService);
+        private TestableUserQuotaService(SysUserService sysUserService,
+                                         ResumePolishRecordMapper polishRecordMapper,
+                                         UserQuota quota) {
+            super(sysUserService, polishRecordMapper);
             this.quota = quota;
         }
 

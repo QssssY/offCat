@@ -7,6 +7,7 @@ import com.airesume.server.dto.user.DataCleanupResponse;
 import com.airesume.server.service.ResumeDiagnosisTaskService;
 import com.airesume.server.service.ResumeJobMatchService;
 import com.airesume.server.service.ResumePolishService;
+import com.airesume.server.service.UserQuotaService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -33,6 +34,9 @@ class ResumeDiagnosisControllerTest {
     private ResumePolishService resumePolishService;
 
     @Mock
+    private UserQuotaService userQuotaService;
+
+    @Mock
     private Authentication authentication;
 
     private ResumeDiagnosisController controller;
@@ -42,7 +46,8 @@ class ResumeDiagnosisControllerTest {
         controller = new ResumeDiagnosisController(
                 resumeDiagnosisTaskService,
                 resumeJobMatchService,
-                resumePolishService);
+                resumePolishService,
+                userQuotaService);
     }
 
     @Test

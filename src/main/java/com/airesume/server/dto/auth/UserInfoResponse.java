@@ -29,5 +29,13 @@ public class UserInfoResponse implements Serializable {
     private Integer interviewQuota;
     private Integer vipDailyResumeQuota;
     private Integer vipDailyInterviewQuota;
+    /** VIP每日AI润色剩余次数。 */
+    private Integer vipDailyPolishQuota;
+    /** VIP每日JD匹配剩余次数。 */
+    private Integer vipDailyJdMatchQuota;
+    /** VIP每日模板使用剩余次数。 */
+    private Integer vipDailyTemplateQuota;
+    /** VIP每日Offer辅助剩余次数。 */
+    private Integer vipDailyOfferQuota;
 
 }

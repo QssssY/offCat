@@ -60,6 +60,21 @@ CREATE TABLE `user_quota` (
   `resume_quota` INT NOT NULL DEFAULT 0 COMMENT 'Remaining resume quota',
   `daily_interview_used` INT NOT NULL DEFAULT 0 COMMENT 'Daily interview used',
   `daily_resume_used` INT NOT NULL DEFAULT 0 COMMENT 'Daily resume used',
+  `daily_polish_used` INT NOT NULL DEFAULT 0 COMMENT '今日AI润色使用次数',
+  `daily_jd_match_used` INT NOT NULL DEFAULT 0 COMMENT '今日JD匹配使用次数',
+  `daily_template_used` INT NOT NULL DEFAULT 0 COMMENT '今日模板使用次数',
+  `daily_offer_used` INT NOT NULL DEFAULT 0 COMMENT '今日Offer辅助使用次数',
+  `cycle_resume_used` INT NOT NULL DEFAULT 0 COMMENT '周期内简历诊断已用',
+  `cycle_interview_used` INT NOT NULL DEFAULT 0 COMMENT '周期内面试已用',
+  `cycle_polish_used` INT NOT NULL DEFAULT 0 COMMENT '周期内润色已用',
+  `cycle_jd_match_used` INT NOT NULL DEFAULT 0 COMMENT '周期内JD匹配已用',
+  `cycle_template_used` INT NOT NULL DEFAULT 0 COMMENT '周期内模板已用',
+  `cycle_offer_used` INT NOT NULL DEFAULT 0 COMMENT '周期内Offer已用',
+  `cycle_start_time` DATETIME NULL COMMENT '当前周期开始时间',
+  `free_polish_left` INT NOT NULL DEFAULT 1 COMMENT '非会员免费润色剩余',
+  `free_jd_match_left` INT NOT NULL DEFAULT 1 COMMENT '非会员免费JD匹配剩余',
+  `free_template_left` INT NOT NULL DEFAULT 2 COMMENT '非会员免费模板剩余',
+  `free_offer_left` INT NOT NULL DEFAULT 1 COMMENT '非会员免费Offer剩余',
   `last_refresh_date` DATE NOT NULL COMMENT 'Last refresh date',
   `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Create time',
   `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Update time',
@@ -95,6 +110,19 @@ CREATE TABLE `membership_plan` (
   `duration_days` INT NOT NULL COMMENT 'Duration days',
   `resume_quota` INT NOT NULL DEFAULT 0 COMMENT 'Granted resume quota',
   `interview_quota` INT NOT NULL DEFAULT 0 COMMENT 'Granted interview quota',
+  `daily_polish_limit` INT NOT NULL DEFAULT 1 COMMENT '每日AI润色次数',
+  `daily_jd_match_limit` INT NOT NULL DEFAULT 3 COMMENT '每日JD匹配次数',
+  `daily_template_limit` INT NOT NULL DEFAULT 5 COMMENT '每日模板使用次数',
+  `daily_offer_limit` INT NOT NULL DEFAULT 3 COMMENT '每日Offer辅助次数',
+  `total_resume_quota` INT NOT NULL DEFAULT 0 COMMENT '套餐周期内简历诊断总额度（0=不限）',
+  `total_interview_quota` INT NOT NULL DEFAULT 0 COMMENT '套餐周期内面试总额度（0=不限）',
+  `total_polish_quota` INT NOT NULL DEFAULT 0 COMMENT '套餐周期内AI润色总额度（0=不限）',
+  `total_jd_match_quota` INT NOT NULL DEFAULT 0 COMMENT '套餐周期内JD匹配总额度（0=不限）',
+  `total_template_quota` INT NOT NULL DEFAULT 0 COMMENT '套餐周期内模板总额度（0=不限）',
+  `total_offer_quota` INT NOT NULL DEFAULT 0 COMMENT '套餐周期内Offer总额度（0=不限）',
+  `bonus_resume_quota` INT NOT NULL DEFAULT 0 COMMENT '购买赠送简历诊断额度',
+  `bonus_interview_quota` INT NOT NULL DEFAULT 0 COMMENT '购买赠送面试额度',
+  `benefits` JSON NULL COMMENT '套餐权益描述列表（前端展示）',
   `status` TINYINT NOT NULL DEFAULT 1 COMMENT '1-enabled, 0-disabled',
   `sort` INT NOT NULL DEFAULT 0 COMMENT 'Sort order',
   `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Create time',
@@ -574,11 +602,11 @@ CREATE TABLE IF NOT EXISTS `interview_dimension_score` (
   UNIQUE INDEX `uk_session_dimension` (`session_id`, `dimension_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='面试维度评分表';
 
-INSERT INTO `membership_plan` (`id`, `plan_code`, `plan_name`, `description`, `price_amount`, `duration_days`, `resume_quota`, `interview_quota`, `status`, `sort`)
+INSERT INTO `membership_plan` (`id`, `plan_code`, `plan_name`, `description`, `price_amount`, `duration_days`, `resume_quota`, `interview_quota`, `daily_polish_limit`, `daily_jd_match_limit`, `daily_template_limit`, `daily_offer_limit`, `total_resume_quota`, `total_interview_quota`, `total_polish_quota`, `total_jd_match_quota`, `total_template_quota`, `total_offer_quota`, `bonus_resume_quota`, `bonus_interview_quota`, `benefits`, `status`, `sort`)
 VALUES
-  (2001, 'vip_month', 'Monthly VIP', '30 days VIP with 10 resume diagnoses and 10 mock interviews', 29.90, 30, 10, 10, 1, 1),
-  (2002, 'vip_quarter', 'Quarterly VIP', '90 days VIP with 35 resume diagnoses and 35 mock interviews', 79.90, 90, 35, 35, 1, 2),
-  (2003, 'vip_year', 'Yearly VIP', '365 days VIP with 150 resume diagnoses and 150 mock interviews', 299.00, 365, 150, 150, 1, 3);
+  (2001, 'vip_month', 'Monthly VIP', '30 days VIP with 10 resume diagnoses and 10 mock interviews', 29.90, 30, 10, 10, 1, 3, 5, 3, 0, 0, 0, 0, 0, 0, 0, 0, CONVERT(0x5B22414920E7AE80E58E86E6B6A6E889B2EFBC88E6AF8FE4BBBDE7AE80E58E86203120E6ACA1EFBC89222C224A4420E5B297E4BD8DE58CB9E9858DE58886E69E90EFBC88E6AF8FE697A5203320E6ACA1EFBC89222C22E7AE80E58E86E6A8A1E69DBFE5BA93EFBC88E6AF8FE697A5203520E6ACA1E4BDBFE794A8EFBC89222C224F6666657220E896AAE8B584E8B088E588A4E8BE85E58AA9EFBC88E6AF8FE697A5203320E6ACA1EFBC89222C22E6A8A1E68B9FE99DA2E8AF95EFBC88E6AF8FE697A520313020E6ACA1EFBC89222C22E7AE80E58E86E8AF8AE696ADEFBC88E6AF8FE697A5203520E6ACA1EFBC89225D USING utf8mb4), 1, 1),
+  (2002, 'vip_quarter', 'Quarterly VIP', '90 days VIP with 35 resume diagnoses and 35 mock interviews', 79.90, 90, 35, 35, 1, 3, 5, 3, 0, 0, 0, 0, 0, 0, 0, 0, CONVERT(0x5B22414920E7AE80E58E86E6B6A6E889B2EFBC88E6AF8FE4BBBDE7AE80E58E86203120E6ACA1EFBC89222C224A4420E5B297E4BD8DE58CB9E9858DE58886E69E90EFBC88E6AF8FE697A5203320E6ACA1EFBC89222C22E7AE80E58E86E6A8A1E69DBFE5BA93EFBC88E6AF8FE697A5203520E6ACA1E4BDBFE794A8EFBC89222C224F6666657220E896AAE8B584E8B088E588A4E8BE85E58AA9EFBC88E6AF8FE697A5203320E6ACA1EFBC89222C22E6A8A1E68B9FE99DA2E8AF95EFBC88E6AF8FE697A520313020E6ACA1EFBC89222C22E7AE80E58E86E8AF8AE696ADEFBC88E6AF8FE697A5203520E6ACA1EFBC89225D USING utf8mb4), 1, 2),
+  (2003, 'vip_year', 'Yearly VIP', '365 days VIP with 150 resume diagnoses and 150 mock interviews', 299.00, 365, 150, 150, 1, 3, 5, 3, 0, 0, 0, 0, 0, 0, 0, 0, CONVERT(0x5B22414920E7AE80E58E86E6B6A6E889B2EFBC88E6AF8FE4BBBDE7AE80E58E86203120E6ACA1EFBC89222C224A4420E5B297E4BD8DE58CB9E9858DE58886E69E90EFBC88E6AF8FE697A5203320E6ACA1EFBC89222C22E7AE80E58E86E6A8A1E69DBFE5BA93EFBC88E6AF8FE697A5203520E6ACA1E4BDBFE794A8EFBC89222C224F6666657220E896AAE8B584E8B088E588A4E8BE85E58AA9EFBC88E6AF8FE697A5203320E6ACA1EFBC89222C22E6A8A1E68B9FE99DA2E8AF95EFBC88E6AF8FE697A520313020E6ACA1EFBC89222C22E7AE80E58E86E8AF8AE696ADEFBC88E6AF8FE697A5203520E6ACA1EFBC89225D USING utf8mb4), 1, 3);
 
 INSERT INTO `sys_job_role` (`id`, `role_code`, `role_name`, `interview_tag`, `tag_type`, `is_active`, `sort`)
 VALUES

@@ -19,11 +19,14 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -65,6 +68,7 @@ public class AdminMembershipController {
     }
 
     @PostMapping("/plans")
+    @CacheEvict(value = "config:membershipPlans", allEntries = true)
     public Result<Long> createPlan(@Valid @RequestBody MembershipPlanCreateRequest request,
                                     Authentication authentication) {
         log.info("Admin create membership plan, code: {}, name: {}", request.getPlanCode(), request.getPlanName());
@@ -87,6 +91,19 @@ public class AdminMembershipController {
         plan.setDurationDays(request.getDurationDays());
         plan.setResumeQuota(request.getResumeQuota());
         plan.setInterviewQuota(request.getInterviewQuota());
+        plan.setDailyPolishLimit(request.getDailyPolishLimit());
+        plan.setDailyJdMatchLimit(request.getDailyJdMatchLimit());
+        plan.setDailyTemplateLimit(request.getDailyTemplateLimit());
+        plan.setDailyOfferLimit(request.getDailyOfferLimit());
+        plan.setTotalResumeQuota(request.getTotalResumeQuota());
+        plan.setTotalInterviewQuota(request.getTotalInterviewQuota());
+        plan.setTotalPolishQuota(request.getTotalPolishQuota());
+        plan.setTotalJdMatchQuota(request.getTotalJdMatchQuota());
+        plan.setTotalTemplateQuota(request.getTotalTemplateQuota());
+        plan.setTotalOfferQuota(request.getTotalOfferQuota());
+        plan.setBonusResumeQuota(request.getBonusResumeQuota());
+        plan.setBonusInterviewQuota(request.getBonusInterviewQuota());
+        plan.setBenefits(serializeBenefits(request.getBenefits()));
         plan.setStatus(targetStatus);
         plan.setSort(request.getSort() != null ? request.getSort() : 0);
         membershipPlanService.save(plan);
@@ -96,6 +113,7 @@ public class AdminMembershipController {
     }
 
     @PutMapping("/plans")
+    @CacheEvict(value = "config:membershipPlans", allEntries = true)
     public Result<Void> updatePlan(@Valid @RequestBody MembershipPlanUpdateRequest request,
                                     Authentication authentication) {
         log.info("Admin update membership plan, id: {}", request.getId());
@@ -118,6 +136,19 @@ public class AdminMembershipController {
         if (request.getDurationDays() != null) plan.setDurationDays(request.getDurationDays());
         if (request.getResumeQuota() != null) plan.setResumeQuota(request.getResumeQuota());
         if (request.getInterviewQuota() != null) plan.setInterviewQuota(request.getInterviewQuota());
+        if (request.getDailyPolishLimit() != null) plan.setDailyPolishLimit(request.getDailyPolishLimit());
+        if (request.getDailyJdMatchLimit() != null) plan.setDailyJdMatchLimit(request.getDailyJdMatchLimit());
+        if (request.getDailyTemplateLimit() != null) plan.setDailyTemplateLimit(request.getDailyTemplateLimit());
+        if (request.getDailyOfferLimit() != null) plan.setDailyOfferLimit(request.getDailyOfferLimit());
+        if (request.getTotalResumeQuota() != null) plan.setTotalResumeQuota(request.getTotalResumeQuota());
+        if (request.getTotalInterviewQuota() != null) plan.setTotalInterviewQuota(request.getTotalInterviewQuota());
+        if (request.getTotalPolishQuota() != null) plan.setTotalPolishQuota(request.getTotalPolishQuota());
+        if (request.getTotalJdMatchQuota() != null) plan.setTotalJdMatchQuota(request.getTotalJdMatchQuota());
+        if (request.getTotalTemplateQuota() != null) plan.setTotalTemplateQuota(request.getTotalTemplateQuota());
+        if (request.getTotalOfferQuota() != null) plan.setTotalOfferQuota(request.getTotalOfferQuota());
+        if (request.getBonusResumeQuota() != null) plan.setBonusResumeQuota(request.getBonusResumeQuota());
+        if (request.getBonusInterviewQuota() != null) plan.setBonusInterviewQuota(request.getBonusInterviewQuota());
+        if (request.getBenefits() != null) plan.setBenefits(serializeBenefits(request.getBenefits()));
         if (request.getStatus() != null) {
             ensureEnabledPlanLimit(request.getStatus(), plan.getStatus() != null && plan.getStatus() == 1 ? 1 : 0);
             plan.setStatus(request.getStatus());
@@ -129,6 +160,7 @@ public class AdminMembershipController {
     }
 
     @PutMapping("/plans/{id}/active")
+    @CacheEvict(value = "config:membershipPlans", allEntries = true)
     public Result<Void> togglePlanActive(@PathVariable Long id, @RequestParam Integer status,
                                           Authentication authentication) {
         MembershipPlan plan = membershipPlanService.getById(id);
@@ -140,6 +172,7 @@ public class AdminMembershipController {
     }
 
     @PutMapping("/plans/batch/active")
+    @CacheEvict(value = "config:membershipPlans", allEntries = true)
     public Result<Void> togglePlansBatchActive(@Valid @RequestBody BatchActiveRequest request,
                                                Authentication authentication) {
         List<Long> safeIds = BatchValidator.validate(request.getIds());
@@ -163,6 +196,7 @@ public class AdminMembershipController {
     }
 
     @DeleteMapping("/plans/{id}")
+    @CacheEvict(value = "config:membershipPlans", allEntries = true)
     public Result<Void> deletePlan(@PathVariable Long id, Authentication authentication) {
         log.info("Admin delete membership plan, id: {}", id);
         membershipPlanService.removeById(id);
@@ -170,6 +204,7 @@ public class AdminMembershipController {
     }
 
     @PostMapping("/plans/batch-delete")
+    @CacheEvict(value = "config:membershipPlans", allEntries = true)
     public Result<Void> deletePlansBatch(@RequestBody List<Long> ids, Authentication authentication) {
         List<Long> safeIds = BatchValidator.validate(ids);
         log.info("Admin batch delete membership plans, ids: {}", safeIds);
@@ -180,16 +215,55 @@ public class AdminMembershipController {
     @GetMapping("/orders")
     public Result<Map<String, Object>> getOrderList(
             @RequestParam(required = false) String orderStatus,
+            @RequestParam(required = false) String username,
+            @RequestParam(required = false) String planName,
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate endDate,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
             Authentication authentication) {
-        log.info("Admin get membership order list, status: {}, page: {}, size: {}", orderStatus, page, size);
+        log.info("Admin get membership order list, status: {}, username: {}, planName: {}, dateRange: [{}~{}], page: {}, size: {}",
+                orderStatus, username, planName, startDate, endDate, page, size);
         Page<MembershipOrder> pageParam = new Page<>(page, size);
         LambdaQueryWrapper<MembershipOrder> wrapper = new LambdaQueryWrapper<>();
         wrapper.orderByDesc(MembershipOrder::getCreateTime);
+
+        // 订单状态筛选
         if (orderStatus != null && !orderStatus.isBlank()) {
             wrapper.eq(MembershipOrder::getOrderStatus, orderStatus);
         }
+
+        // 用户名模糊搜索：先查用户ID再过滤
+        if (username != null && !username.isBlank()) {
+            List<Long> matchedUserIds = sysUserService.list(
+                            new LambdaQueryWrapper<SysUser>()
+                                    .like(SysUser::getUsername, username.trim())
+                                    .select(SysUser::getId))
+                    .stream().map(SysUser::getId).limit(100).collect(Collectors.toList());
+            if (matchedUserIds.isEmpty()) {
+                Map<String, Object> emptyData = new HashMap<>();
+                emptyData.put("records", List.of());
+                emptyData.put("total", 0);
+                emptyData.put("page", page);
+                emptyData.put("size", size);
+                return Result.success(emptyData);
+            }
+            wrapper.in(MembershipOrder::getUserId, matchedUserIds);
+        }
+
+        // 套餐名称模糊搜索（直接在订单表planName字段过滤）
+        if (planName != null && !planName.isBlank()) {
+            wrapper.like(MembershipOrder::getPlanName, planName.trim());
+        }
+
+        // 日期范围筛选
+        if (startDate != null) {
+            wrapper.ge(MembershipOrder::getCreateTime, startDate.atStartOfDay());
+        }
+        if (endDate != null) {
+            wrapper.lt(MembershipOrder::getCreateTime, endDate.plusDays(1).atStartOfDay());
+        }
+
         Page<MembershipOrder> result = membershipOrderService.page(pageParam, wrapper);
         List<MembershipOrderResponse> records = result.getRecords().stream()
                 .map(this::buildOrderResponse).collect(Collectors.toList());
@@ -216,6 +290,19 @@ public class AdminMembershipController {
         private Integer resumeQuota;
         @NotNull(message = "面试额度不能为空")
         private Integer interviewQuota;
+        private Integer dailyPolishLimit;
+        private Integer dailyJdMatchLimit;
+        private Integer dailyTemplateLimit;
+        private Integer dailyOfferLimit;
+        private Integer totalResumeQuota;
+        private Integer totalInterviewQuota;
+        private Integer totalPolishQuota;
+        private Integer totalJdMatchQuota;
+        private Integer totalTemplateQuota;
+        private Integer totalOfferQuota;
+        private Integer bonusResumeQuota;
+        private Integer bonusInterviewQuota;
+        private List<String> benefits;
         private Integer status;
         private Integer sort;
     }
@@ -231,6 +318,19 @@ public class AdminMembershipController {
         private Integer durationDays;
         private Integer resumeQuota;
         private Integer interviewQuota;
+        private Integer dailyPolishLimit;
+        private Integer dailyJdMatchLimit;
+        private Integer dailyTemplateLimit;
+        private Integer dailyOfferLimit;
+        private Integer totalResumeQuota;
+        private Integer totalInterviewQuota;
+        private Integer totalPolishQuota;
+        private Integer totalJdMatchQuota;
+        private Integer totalTemplateQuota;
+        private Integer totalOfferQuota;
+        private Integer bonusResumeQuota;
+        private Integer bonusInterviewQuota;
+        private List<String> benefits;
         private Integer status;
         private Integer sort;
     }
@@ -246,6 +346,19 @@ public class AdminMembershipController {
         private Integer durationDays;
         private Integer resumeQuota;
         private Integer interviewQuota;
+        private Integer dailyPolishLimit;
+        private Integer dailyJdMatchLimit;
+        private Integer dailyTemplateLimit;
+        private Integer dailyOfferLimit;
+        private Integer totalResumeQuota;
+        private Integer totalInterviewQuota;
+        private Integer totalPolishQuota;
+        private Integer totalJdMatchQuota;
+        private Integer totalTemplateQuota;
+        private Integer totalOfferQuota;
+        private Integer bonusResumeQuota;
+        private Integer bonusInterviewQuota;
+        private List<String> benefits;
         private Integer status;
         private String statusDesc;
         private Integer sort;
@@ -271,11 +384,39 @@ public class AdminMembershipController {
     }
 
     private MembershipPlanResponse buildPlanResponse(MembershipPlan plan) {
+        // 解析 benefits JSON
+        List<String> benefitsList = null;
+        if (plan.getBenefits() != null && !plan.getBenefits().isBlank()) {
+            try {
+                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                benefitsList = mapper.readValue(plan.getBenefits(),
+                        mapper.getTypeFactory().constructCollectionType(List.class, String.class));
+            } catch (Exception ignored) {
+            }
+        }
         return new MembershipPlanResponse(
                 plan.getId(), plan.getPlanCode(), plan.getPlanName(),
                 plan.getDescription(), plan.getPriceAmount(), plan.getDurationDays(),
-                plan.getResumeQuota(), plan.getInterviewQuota(), plan.getStatus(),
+                plan.getResumeQuota(), plan.getInterviewQuota(),
+                plan.getDailyPolishLimit(), plan.getDailyJdMatchLimit(),
+                plan.getDailyTemplateLimit(), plan.getDailyOfferLimit(),
+                plan.getTotalResumeQuota(), plan.getTotalInterviewQuota(),
+                plan.getTotalPolishQuota(), plan.getTotalJdMatchQuota(),
+                plan.getTotalTemplateQuota(), plan.getTotalOfferQuota(),
+                plan.getBonusResumeQuota(), plan.getBonusInterviewQuota(),
+                benefitsList,
+                plan.getStatus(),
                 plan.getStatus() == 1 ? "启用" : "禁用", plan.getSort(), plan.getCreateTime());
+    }
+
+    /** 将权益列表序列化为 JSON 字符串存入数据库。 */
+    private String serializeBenefits(List<String> benefits) {
+        if (benefits == null || benefits.isEmpty()) return null;
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(benefits);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private void ensureEnabledPlanLimit(Integer targetStatus, int currentEnabledPlanSelfCount) {

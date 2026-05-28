@@ -1,5 +1,6 @@
 package com.airesume.server.service.impl;
 
+import com.airesume.server.common.constants.QuotaConstants;
 import com.airesume.server.common.constants.UserRoleConstants;
 import com.airesume.server.entity.MembershipPlan;
 import com.airesume.server.entity.SysUser;
@@ -143,6 +144,51 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
             return null;
         }
         return membershipPlanService.getActiveByCode(user.getMembershipPlanCode());
+    }
+
+    @Override
+    public int getVipDailyPolishLimit(Long userId) {
+        MembershipPlan plan = getCurrentActiveMembershipPlan(userId);
+        return Math.max(0, plan == null || plan.getDailyPolishLimit() == null ? 0 : plan.getDailyPolishLimit());
+    }
+
+    @Override
+    public int getVipDailyJdMatchLimit(Long userId) {
+        MembershipPlan plan = getCurrentActiveMembershipPlan(userId);
+        return Math.max(0, plan == null || plan.getDailyJdMatchLimit() == null ? 0 : plan.getDailyJdMatchLimit());
+    }
+
+    @Override
+    public int getVipDailyTemplateLimit(Long userId) {
+        MembershipPlan plan = getCurrentActiveMembershipPlan(userId);
+        return Math.max(0, plan == null || plan.getDailyTemplateLimit() == null ? 0 : plan.getDailyTemplateLimit());
+    }
+
+    @Override
+    public int getVipDailyOfferLimit(Long userId) {
+        MembershipPlan plan = getCurrentActiveMembershipPlan(userId);
+        return Math.max(0, plan == null || plan.getDailyOfferLimit() == null ? 0 : plan.getDailyOfferLimit());
+    }
+
+    @Override
+    public int getVipCycleLimit(Long userId, String featureType) {
+        MembershipPlan plan = getCurrentActiveMembershipPlan(userId);
+        if (plan == null) {
+            return 0;
+        }
+        return switch (featureType) {
+            case "polish" -> safeInt(plan.getTotalPolishQuota());
+            case "jd_match" -> safeInt(plan.getTotalJdMatchQuota());
+            case "template" -> safeInt(plan.getTotalTemplateQuota());
+            case "offer" -> safeInt(plan.getTotalOfferQuota());
+            case "resume" -> safeInt(plan.getTotalResumeQuota());
+            case "interview" -> safeInt(plan.getTotalInterviewQuota());
+            default -> 0;
+        };
+    }
+
+    private int safeInt(Integer value) {
+        return value == null ? 0 : value;
     }
 
 }

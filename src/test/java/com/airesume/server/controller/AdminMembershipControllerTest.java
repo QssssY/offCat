@@ -311,7 +311,8 @@ class AdminMembershipControllerTest {
         when(membershipOrderService.page(any(Page.class), any(LambdaQueryWrapper.class))).thenReturn(pageResult);
         when(sysUserService.getById(10L)).thenReturn(null);
 
-        Result<Map<String, Object>> result = controller.getOrderList(null, 1, 20, authentication);
+        Result<Map<String, Object>> result = controller.getOrderList(
+                null, null, null, null, null, 1, 20, authentication);
 
         assertEquals(CODE_SUCCESS, result.getCode());
         @SuppressWarnings("unchecked")

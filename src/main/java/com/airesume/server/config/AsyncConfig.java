@@ -31,4 +31,23 @@ public class AsyncConfig {
         executor.initialize();
         return executor;
     }
+
+    /**
+     * 管理端看板并行查询专用线程池。
+     * 看板需要同时发起多个 COUNT 查询，并行化可显著降低响应延迟。
+     * 核心 4 线程即可覆盖所有看板并行场景，队列满时由调用线程降级串行执行。
+     */
+    @Bean("dashboardExecutor")
+    public Executor dashboardExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(4);
+        executor.setMaxPoolSize(8);
+        executor.setQueueCapacity(20);
+        executor.setThreadNamePrefix("dashboard-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(30);
+        executor.initialize();
+        return executor;
+    }
 }

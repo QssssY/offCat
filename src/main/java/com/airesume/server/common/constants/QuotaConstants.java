@@ -37,6 +37,18 @@ public final class QuotaConstants {
      */
     public static final int VIP_USER_DAILY_RESUME_LIMIT = 5;
 
+    /** 非会员免费AI润色次数。 */
+    public static final int FREE_USER_POLISH_LIMIT = 1;
+
+    /** 非会员免费JD匹配次数。 */
+    public static final int FREE_USER_JD_MATCH_LIMIT = 1;
+
+    /** 非会员免费模板使用次数。 */
+    public static final int FREE_USER_TEMPLATE_LIMIT = 2;
+
+    /** 非会员免费Offer辅助次数。 */
+    public static final int FREE_USER_OFFER_LIMIT = 1;
+
     private QuotaConstants() {
     }
 }

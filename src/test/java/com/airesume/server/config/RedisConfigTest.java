@@ -40,7 +40,7 @@ class RedisConfigTest {
                 .entryTtl(Duration.ofMinutes(5));
         Map<String, RedisCacheConfiguration> cacheConfigurations = redisConfig.initialCacheConfigurations(defaultConfig);
 
-        // 看板趋势查询已经从逐日查询改为聚合查询，这里显式注册缓存区 TTL，避免继续使用默认 5 分钟策略。
-        assertEquals(Duration.ofMinutes(10), cacheConfigurations.get("admin:dashboardTrends").getTtl());
+        // 看板趋势查询显式注册缓存区 TTL，避免依赖默认策略时被后续调整误伤。
+        assertEquals(Duration.ofMinutes(5), cacheConfigurations.get("admin:dashboardTrends").getTtl());
     }
 }

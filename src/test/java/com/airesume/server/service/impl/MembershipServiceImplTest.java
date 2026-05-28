@@ -26,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -92,6 +93,29 @@ class MembershipServiceImplTest {
         verify(membershipOrderService).save(captor.capture());
         assertEquals(16, captor.getValue().getGrantedResumeQuota());
         assertEquals(28, captor.getValue().getGrantedInterviewQuota());
+    }
+
+    @Test
+    void mockUpgradeShouldNotResetCycleQuotaWhenRenewingSamePlan() {
+        MembershipPlan plan = plan(10L, "vip_pro", "Pro Plan", "Pro intro", 16, 28);
+        SysUser user = new SysUser();
+        user.setId(99L);
+        user.setRole(1);
+        user.setStatus(MembershipConstants.PLAN_STATUS_ENABLED);
+        user.setMembershipPlanCode("vip_pro");
+        user.setVipExpireTime(LocalDateTime.now().plusDays(3));
+        MembershipUpgradeRequest request = new MembershipUpgradeRequest();
+        request.setPlanCode("vip_pro");
+
+        when(membershipPlanService.getActiveByCode("vip_pro")).thenReturn(plan);
+        when(membershipPlanService.getByPlanCode("vip_pro")).thenReturn(plan);
+        when(sysUserService.getById(99L)).thenReturn(user);
+        when(userQuotaService.getRemainingResumeQuota(99L)).thenReturn(16);
+        when(userQuotaService.getRemainingInterviewQuota(99L)).thenReturn(28);
+
+        membershipService.mockUpgrade(99L, request);
+
+        verify(userQuotaService, never()).resetCycleQuota(99L);
     }
 
     private static MembershipPlan plan(Long id,

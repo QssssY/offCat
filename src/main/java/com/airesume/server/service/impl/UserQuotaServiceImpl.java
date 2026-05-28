@@ -4,9 +4,11 @@ import com.airesume.server.common.constants.QuotaConstants;
 import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.ResultCode;
 import com.airesume.server.entity.UserQuota;
+import com.airesume.server.mapper.ResumePolishRecordMapper;
 import com.airesume.server.mapper.UserQuotaMapper;
 import com.airesume.server.service.SysUserService;
 import com.airesume.server.service.UserQuotaService;
+import com.airesume.server.entity.ResumePolishRecord;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -25,6 +27,7 @@ import java.time.LocalDate;
 public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota> implements UserQuotaService {
 
     private final SysUserService sysUserService;
+    private final ResumePolishRecordMapper polishRecordMapper;
 
     @Override
     public UserQuota getByUserId(Long userId) {
@@ -58,6 +61,20 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
         quota.setResumeQuota(QuotaConstants.NORMAL_USER_FREE_RESUME_LIMIT);
         quota.setDailyInterviewUsed(0);
         quota.setDailyResumeUsed(0);
+        quota.setDailyPolishUsed(0);
+        quota.setDailyJdMatchUsed(0);
+        quota.setDailyTemplateUsed(0);
+        quota.setDailyOfferUsed(0);
+        quota.setCycleResumeUsed(0);
+        quota.setCycleInterviewUsed(0);
+        quota.setCyclePolishUsed(0);
+        quota.setCycleJdMatchUsed(0);
+        quota.setCycleTemplateUsed(0);
+        quota.setCycleOfferUsed(0);
+        quota.setFreePolishLeft(QuotaConstants.FREE_USER_POLISH_LIMIT);
+        quota.setFreeJdMatchLeft(QuotaConstants.FREE_USER_JD_MATCH_LIMIT);
+        quota.setFreeTemplateLeft(QuotaConstants.FREE_USER_TEMPLATE_LIMIT);
+        quota.setFreeOfferLeft(QuotaConstants.FREE_USER_OFFER_LIMIT);
         quota.setLastRefreshDate(LocalDate.now());
         try {
             save(quota);
@@ -160,11 +177,19 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
                             .ne("last_refresh_date", today))
                     .set("daily_interview_used", 0)
                     .set("daily_resume_used", 0)
+                    .set("daily_polish_used", 0)
+                    .set("daily_jd_match_used", 0)
+                    .set("daily_template_used", 0)
+                    .set("daily_offer_used", 0)
                     .set("last_refresh_date", today);
             update(updateWrapper);
 
             userQuota.setDailyInterviewUsed(0);
             userQuota.setDailyResumeUsed(0);
+            userQuota.setDailyPolishUsed(0);
+            userQuota.setDailyJdMatchUsed(0);
+            userQuota.setDailyTemplateUsed(0);
+            userQuota.setDailyOfferUsed(0);
             userQuota.setLastRefreshDate(today);
         }
     }
@@ -215,6 +240,155 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
 
     private int getVipDailyResumeLimit(Long userId) {
         return Math.max(0, sysUserService.getVipDailyResumeLimit(userId));
+    }
+
+    // ==================== 新功能配额：AI润色 / JD匹配 / 模板 / Offer ====================
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "auth:userInfo", key = "#userId")
+    public void checkAndDeductPolishQuota(Long userId, Long resumeTaskId) {
+        UserQuota userQuota = ensureUserQuota(userId);
+        refreshDailyQuotaIfNeeded(userId, userQuota);
+
+        // 每份简历只能润色一次：查询已有润色记录
+        Long existingCount = polishRecordMapper.selectCount(
+                new LambdaQueryWrapper<ResumePolishRecord>()
+                        .eq(ResumePolishRecord::getResumeTaskId, resumeTaskId)
+                        .eq(ResumePolishRecord::getIsDeleted, 0));
+        if (existingCount != null && existingCount > 0) {
+            throw new BusinessException(ResultCode.POLISH_ALREADY_USED);
+        }
+
+        if (sysUserService.isVipUser(userId)) {
+            int dailyLimit = Math.max(0, sysUserService.getVipDailyPolishLimit(userId));
+            int cycleLimit = sysUserService.getVipCycleLimit(userId, "polish");
+            int affected = getBaseMapper().consumeVipDailyPolishQuotaAtomic(userId, dailyLimit, cycleLimit);
+            if (affected == 0) {
+                throw new BusinessException(ResultCode.POLISH_QUOTA_EXHAUSTED);
+            }
+            log.info("VIP 扣减AI润色配额成功，userId={}", userId);
+            return;
+        }
+
+        // 非会员：扣减免费体验次数
+        int affected = getBaseMapper().deductFreePolishAtomic(userId);
+        if (affected == 0) {
+            throw new BusinessException(ResultCode.VIP_FEATURE_REQUIRED);
+        }
+        log.info("非会员扣减免费润色次数成功，userId={}", userId);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "auth:userInfo", key = "#userId")
+    public void checkAndDeductJdMatchQuota(Long userId) {
+        UserQuota userQuota = ensureUserQuota(userId);
+        refreshDailyQuotaIfNeeded(userId, userQuota);
+
+        if (sysUserService.isVipUser(userId)) {
+            int dailyLimit = Math.max(0, sysUserService.getVipDailyJdMatchLimit(userId));
+            int cycleLimit = sysUserService.getVipCycleLimit(userId, "jd_match");
+            int affected = getBaseMapper().consumeVipDailyJdMatchQuotaAtomic(userId, dailyLimit, cycleLimit);
+            if (affected == 0) {
+                throw new BusinessException(ResultCode.JD_MATCH_QUOTA_EXHAUSTED);
+            }
+            log.info("VIP 扣减JD匹配配额成功，userId={}", userId);
+            return;
+        }
+
+        int affected = getBaseMapper().deductFreeJdMatchAtomic(userId);
+        if (affected == 0) {
+            throw new BusinessException(ResultCode.VIP_FEATURE_REQUIRED);
+        }
+        log.info("非会员扣减免费JD匹配次数成功，userId={}", userId);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "auth:userInfo", key = "#userId")
+    public void checkAndDeductTemplateQuota(Long userId) {
+        UserQuota userQuota = ensureUserQuota(userId);
+        refreshDailyQuotaIfNeeded(userId, userQuota);
+
+        if (sysUserService.isVipUser(userId)) {
+            int dailyLimit = Math.max(0, sysUserService.getVipDailyTemplateLimit(userId));
+            int cycleLimit = sysUserService.getVipCycleLimit(userId, "template");
+            int affected = getBaseMapper().consumeVipDailyTemplateQuotaAtomic(userId, dailyLimit, cycleLimit);
+            if (affected == 0) {
+                throw new BusinessException(ResultCode.TEMPLATE_QUOTA_EXHAUSTED);
+            }
+            log.info("VIP 扣减模板使用配额成功，userId={}", userId);
+            return;
+        }
+
+        int affected = getBaseMapper().deductFreeTemplateAtomic(userId);
+        if (affected == 0) {
+            throw new BusinessException(ResultCode.VIP_FEATURE_REQUIRED);
+        }
+        log.info("非会员扣减免费模板次数成功，userId={}", userId);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "auth:userInfo", key = "#userId")
+    public void checkAndDeductOfferQuota(Long userId) {
+        UserQuota userQuota = ensureUserQuota(userId);
+        refreshDailyQuotaIfNeeded(userId, userQuota);
+
+        if (sysUserService.isVipUser(userId)) {
+            int dailyLimit = Math.max(0, sysUserService.getVipDailyOfferLimit(userId));
+            int cycleLimit = sysUserService.getVipCycleLimit(userId, "offer");
+            int affected = getBaseMapper().consumeVipDailyOfferQuotaAtomic(userId, dailyLimit, cycleLimit);
+            if (affected == 0) {
+                throw new BusinessException(ResultCode.OFFER_QUOTA_EXHAUSTED);
+            }
+            log.info("VIP 扣减Offer辅助配额成功，userId={}", userId);
+            return;
+        }
+
+        int affected = getBaseMapper().deductFreeOfferAtomic(userId);
+        if (affected == 0) {
+            throw new BusinessException(ResultCode.VIP_FEATURE_REQUIRED);
+        }
+        log.info("非会员扣减免费Offer次数成功，userId={}", userId);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "auth:userInfo", key = "#userId")
+    public void resetCycleQuota(Long userId) {
+        UpdateWrapper<UserQuota> wrapper = new UpdateWrapper<>();
+        wrapper.eq("user_id", userId)
+                .eq("is_deleted", 0)
+                .set("cycle_resume_used", 0)
+                .set("cycle_interview_used", 0)
+                .set("cycle_polish_used", 0)
+                .set("cycle_jd_match_used", 0)
+                .set("cycle_template_used", 0)
+                .set("cycle_offer_used", 0)
+                .set("cycle_start_time", java.time.LocalDateTime.now());
+        update(wrapper);
+        log.info("重置VIP周期配额，userId={}", userId);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "auth:userInfo", key = "#userId")
+    public void addBonusQuota(Long userId, int bonusResume, int bonusInterview) {
+        if (bonusResume <= 0 && bonusInterview <= 0) {
+            return;
+        }
+        UpdateWrapper<UserQuota> wrapper = new UpdateWrapper<>();
+        wrapper.eq("user_id", userId).eq("is_deleted", 0);
+        if (bonusResume > 0) {
+            wrapper.setSql("resume_quota = resume_quota + " + bonusResume);
+        }
+        if (bonusInterview > 0) {
+            wrapper.setSql("interview_quota = interview_quota + " + bonusInterview);
+        }
+        update(wrapper);
+        log.info("充入赠送额度，userId={}, bonusResume={}, bonusInterview={}", userId, bonusResume, bonusInterview);
     }
 
     private int safeValue(Integer value) {

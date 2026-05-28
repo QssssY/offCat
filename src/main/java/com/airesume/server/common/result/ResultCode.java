@@ -31,6 +31,10 @@ public enum ResultCode {
     RESUME_FILE_CLEANUP_FAILED(2010, "简历文件清理失败"),
     RESUME_TASK_NOT_RETRYABLE(2011, "该任务不可重试"),
     RESUME_TASK_RETRY_EXPIRED(2012, "重试时效已过，请重新上传"),
+    POLISH_QUOTA_EXHAUSTED(2013, "今日AI润色次数已用完"),
+    POLISH_ALREADY_USED(2014, "该简历已使用过AI润色"),
+    JD_MATCH_QUOTA_EXHAUSTED(2015, "今日JD岗位匹配次数已用完"),
+    TEMPLATE_QUOTA_EXHAUSTED(2016, "今日模板使用次数已用完"),
 
     // === 面试模块 (3xxx) ===
     INTERVIEW_QUOTA_EXHAUSTED(3001, "今日模拟面试次数已用完"),
@@ -50,6 +54,10 @@ public enum ResultCode {
     MEMBERSHIP_ACCOUNT_DISABLED(5002, "账号已被禁用"),
     MEMBERSHIP_USER_NOT_FOUND(5003, "用户不存在"),
     MEMBERSHIP_USER_NOT_LOGGED_IN(5004, "用户未登录"),
+    VIP_FEATURE_REQUIRED(5005, "该功能为会员专属，请升级会员后使用"),
+    OFFER_QUOTA_EXHAUSTED(5006, "今日Offer辅助次数已用完"),
+    FEATURE_QUOTA_EXHAUSTED(5007, "该功能使用次数已达上限"),
+    PLAN_DOWNGRADE_NOT_ALLOWED(5008, "已订阅更高级别套餐，无法降级"),
 
     // === 管理端 (6xxx) ===
     ADMIN_CONFIG_NOT_FOUND(6001, "配置不存在"),

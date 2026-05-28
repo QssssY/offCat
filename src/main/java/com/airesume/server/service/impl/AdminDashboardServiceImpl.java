@@ -11,25 +11,16 @@ import com.airesume.server.dto.admin.DashboardOverviewResponse;
 import com.airesume.server.dto.admin.DashboardTrendResponse;
 import com.airesume.server.dto.admin.HotJobRoleResponse;
 import com.airesume.server.dto.admin.MonitorOverviewResponse;
-import com.airesume.server.entity.InterviewSession;
-import com.airesume.server.entity.ResumeDiagnosisTask;
+import com.airesume.server.entity.*;
 import com.airesume.server.mapper.InterviewSessionMapper;
+import com.airesume.server.mapper.MembershipOrderMapper;
 import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
+import com.airesume.server.mapper.CommunityPostMapper;
 import org.springframework.cache.annotation.Cacheable;
-import com.airesume.server.entity.SysAiEngineConfig;
-import com.airesume.server.entity.SysJobRole;
-import com.airesume.server.entity.SysPrompt;
-import com.airesume.server.entity.SysUser;
-import com.airesume.server.service.AdminDashboardService;
-import com.airesume.server.service.InterviewSessionService;
-import com.airesume.server.service.ResumeDiagnosisTaskService;
-import com.airesume.server.service.SysAiEngineConfigService;
-import com.airesume.server.service.SysJobRoleService;
-import com.airesume.server.service.SysPromptService;
-import com.airesume.server.service.SysUserService;
+import com.airesume.server.service.*;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -42,6 +33,10 @@ import java.sql.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+
+import org.springframework.beans.factory.annotation.Qualifier;
 
 /**
  * 应用层看板与监控实现。
@@ -50,7 +45,6 @@ import java.util.Map;
  * 以便在 Redis/RabbitMQ 监控尚未接入时也可稳定运行。
  */
 @Service
-@RequiredArgsConstructor
 public class AdminDashboardServiceImpl implements AdminDashboardService {
 
     private static final int DEFAULT_TREND_DAYS = 7;
@@ -65,38 +59,94 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
     private final ResumeDiagnosisTaskService resumeDiagnosisTaskService;
     private final InterviewSessionMapper interviewSessionMapper;
     private final ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper;
+    private final UserFeedbackService userFeedbackService;
+    private final CommunityPostMapper communityPostMapper;
+    private final ResumePolishService resumePolishService;
+    private final ResumeJobMatchService resumeJobMatchService;
+    private final MembershipOrderService membershipOrderService;
+    private final MembershipOrderMapper membershipOrderMapper;
+    private final Executor dashboardExecutor;
+
+    public AdminDashboardServiceImpl(
+            SysUserService sysUserService,
+            SysPromptService sysPromptService,
+            SysJobRoleService sysJobRoleService,
+            SysAiEngineConfigService sysAiEngineConfigService,
+            InterviewSessionService interviewSessionService,
+            ResumeDiagnosisTaskService resumeDiagnosisTaskService,
+            InterviewSessionMapper interviewSessionMapper,
+            ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper,
+            UserFeedbackService userFeedbackService,
+            CommunityPostMapper communityPostMapper,
+            ResumePolishService resumePolishService,
+            ResumeJobMatchService resumeJobMatchService,
+            MembershipOrderService membershipOrderService,
+            MembershipOrderMapper membershipOrderMapper,
+            @Qualifier("dashboardExecutor") Executor dashboardExecutor) {
+        this.sysUserService = sysUserService;
+        this.sysPromptService = sysPromptService;
+        this.sysJobRoleService = sysJobRoleService;
+        this.sysAiEngineConfigService = sysAiEngineConfigService;
+        this.interviewSessionService = interviewSessionService;
+        this.resumeDiagnosisTaskService = resumeDiagnosisTaskService;
+        this.interviewSessionMapper = interviewSessionMapper;
+        this.resumeDiagnosisTaskMapper = resumeDiagnosisTaskMapper;
+        this.userFeedbackService = userFeedbackService;
+        this.communityPostMapper = communityPostMapper;
+        this.resumePolishService = resumePolishService;
+        this.resumeJobMatchService = resumeJobMatchService;
+        this.membershipOrderService = membershipOrderService;
+        this.membershipOrderMapper = membershipOrderMapper;
+        this.dashboardExecutor = dashboardExecutor;
+    }
 
     @Override
+    @Cacheable(value = "admin:dashboardOverview", key = "#startDate + ':' + #endDate", unless = "#result == null")
     public DashboardOverviewResponse getDashboardOverview(LocalDate startDate, LocalDate endDate) {
-        // 总览接口保留全局配置与用户总量统计，业务流量统计按查询日期范围计算。
         DateRange range = resolveDateRange(startDate, endDate, DateRangeDefault.TODAY);
 
-        long totalUserCount = sysUserService.count();
-        long vipUserCount = sysUserService.count(
-                new LambdaQueryWrapper<SysUser>().eq(SysUser::getRole, UserRoleConstants.ROLE_VIP)
-        );
-        long activePromptCount = sysPromptService.count(
-                new LambdaQueryWrapper<SysPrompt>().eq(SysPrompt::getIsActive, PromptConstants.ACTIVE)
-        );
-        long activeJobRoleCount = sysJobRoleService.count(
-                new LambdaQueryWrapper<SysJobRole>().eq(SysJobRole::getIsActive, PromptConstants.ACTIVE)
-        );
-        long activeAiEngineCount = sysAiEngineConfigService.count(
-                new LambdaQueryWrapper<SysAiEngineConfig>().eq(SysAiEngineConfig::getIsActive, AiEngineConstants.ACTIVE)
-        );
+        // 全局配置统计（无日期范围，变化频率低）
+        CompletableFuture<Long> totalUserFuture = supplyAsync(() -> sysUserService.count());
+        CompletableFuture<Long> vipUserFuture = supplyAsync(() -> sysUserService.count(
+                new LambdaQueryWrapper<SysUser>().eq(SysUser::getRole, UserRoleConstants.ROLE_VIP)));
+        CompletableFuture<Long> activePromptFuture = supplyAsync(() -> sysPromptService.count(
+                new LambdaQueryWrapper<SysPrompt>().eq(SysPrompt::getIsActive, PromptConstants.ACTIVE)));
+        CompletableFuture<Long> activeJobRoleFuture = supplyAsync(() -> sysJobRoleService.count(
+                new LambdaQueryWrapper<SysJobRole>().eq(SysJobRole::getIsActive, PromptConstants.ACTIVE)));
+        CompletableFuture<Long> activeAiEngineFuture = supplyAsync(() -> sysAiEngineConfigService.count(
+                new LambdaQueryWrapper<SysAiEngineConfig>().eq(SysAiEngineConfig::getIsActive, AiEngineConstants.ACTIVE)));
 
-        long interviewSessionCount = countInterviewSessionsBetween(range.startDateTime(), range.endExclusiveDateTime());
-        long resumeDiagnosisCount = countResumeTasksBetween(range.startDateTime(), range.endExclusiveDateTime());
+        // 日期范围内的业务统计
+        CompletableFuture<Long> interviewFuture = supplyAsync(() -> countInterviewSessionsBetween(range.startDateTime(), range.endExclusiveDateTime()));
+        CompletableFuture<Long> resumeFuture = supplyAsync(() -> countResumeTasksBetween(range.startDateTime(), range.endExclusiveDateTime()));
+        CompletableFuture<Long> feedbackFuture = supplyAsync(() -> countFeedbackBetween(range.startDateTime(), range.endExclusiveDateTime()));
+        CompletableFuture<Long> communityFuture = supplyAsync(() -> countCommunityPostsBetween(range.startDateTime(), range.endExclusiveDateTime()));
+        CompletableFuture<Long> polishFuture = supplyAsync(() -> countPolishBetween(range.startDateTime(), range.endExclusiveDateTime()));
+        CompletableFuture<Long> jdMatchFuture = supplyAsync(() -> countJdMatchBetween(range.startDateTime(), range.endExclusiveDateTime()));
+        CompletableFuture<Long> orderCountFuture = supplyAsync(() -> countOrdersBetween(range.startDateTime(), range.endExclusiveDateTime()));
+        CompletableFuture<BigDecimal> orderRevenueFuture = supplyAsync(() -> sumPaidOrderRevenue(range.startDateTime(), range.endExclusiveDateTime()));
+
+        // 等待所有查询完成
+        CompletableFuture.allOf(
+                totalUserFuture, vipUserFuture, activePromptFuture, activeJobRoleFuture, activeAiEngineFuture,
+                interviewFuture, resumeFuture, feedbackFuture, communityFuture, polishFuture,
+                jdMatchFuture, orderCountFuture, orderRevenueFuture
+        ).join();
 
         return DashboardOverviewResponse.builder()
-                .totalUserCount(totalUserCount)
-                .vipUserCount(vipUserCount)
-                .activePromptCount(activePromptCount)
-                .activeJobRoleCount(activeJobRoleCount)
-                .activeAiEngineCount(activeAiEngineCount)
-                // 字段名保持向后兼容，避免影响既有前端契约。
-                .todayInterviewSessionCount(interviewSessionCount)
-                .todayResumeDiagnosisCount(resumeDiagnosisCount)
+                .totalUserCount(totalUserFuture.join())
+                .vipUserCount(vipUserFuture.join())
+                .activePromptCount(activePromptFuture.join())
+                .activeJobRoleCount(activeJobRoleFuture.join())
+                .activeAiEngineCount(activeAiEngineFuture.join())
+                .todayInterviewSessionCount(interviewFuture.join())
+                .todayResumeDiagnosisCount(resumeFuture.join())
+                .feedbackCount(feedbackFuture.join())
+                .communityPostCount(communityFuture.join())
+                .resumePolishCount(polishFuture.join())
+                .jdMatchCount(jdMatchFuture.join())
+                .orderCount(orderCountFuture.join())
+                .orderRevenue(orderRevenueFuture.join())
                 .build();
     }
 
@@ -108,17 +158,26 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
                 interviewSessionMapper.countByCreateDate(range.startDateTime(), range.endExclusiveDateTime()));
         Map<LocalDate, Long> resumeCountByDate = toCountByDateMap(
                 resumeDiagnosisTaskMapper.countByCreateDate(range.startDateTime(), range.endExclusiveDateTime()));
+
+        // 订单趋势：按日聚合数量和收入
+        List<Map<String, Object>> orderRows = membershipOrderMapper.countByCreateDate(
+                range.startDateTime(), range.endExclusiveDateTime());
+        Map<LocalDate, long[]> orderCountByDate = toOrderCountByDateMap(orderRows);
+
         List<DashboardTrendResponse> trends = new ArrayList<>();
 
         // 按日期升序返回，前端图表可直接消费。
         LocalDate cursor = range.startDate();
         while (!cursor.isAfter(range.endDate())) {
+            long[] orderStats = orderCountByDate.getOrDefault(cursor, new long[]{0, 0});
             trends.add(DashboardTrendResponse.builder()
                     .date(cursor)
                     // 面试趋势口径使用 interview_session.create_time 聚合结果，缺失日期补 0。
                     .interviewSessionCount(interviewCountByDate.getOrDefault(cursor, 0L))
                     // 简历趋势口径使用 resume_diagnosis_task.create_time 聚合结果，缺失日期补 0。
                     .resumeDiagnosisCount(resumeCountByDate.getOrDefault(cursor, 0L))
+                    .orderCount(orderStats[0])
+                    .orderRevenue(BigDecimal.valueOf(orderStats[1]))
                     .build());
             cursor = cursor.plusDays(1);
         }
@@ -155,21 +214,42 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
     }
 
     @Override
+    @Cacheable(value = "admin:dashboardDistribution", key = "#startDate + ':' + #endDate", unless = "#result == null")
     public BusinessDistributionResponse getBusinessDistribution(LocalDate startDate, LocalDate endDate) {
         DateRange range = resolveDateRange(startDate, endDate, DateRangeDefault.LAST_7_DAYS);
 
-        long interviewCount = countInterviewSessionsBetween(range.startDateTime(), range.endExclusiveDateTime());
-        long resumeCount = countResumeTasksBetween(range.startDateTime(), range.endExclusiveDateTime());
-        long totalCount = interviewCount + resumeCount;
+        // 并行查询所有业务维度计数，复用 overview 提取的独立 count 方法
+        CompletableFuture<Long> interviewFuture = supplyAsync(() -> countInterviewSessionsBetween(range.startDateTime(), range.endExclusiveDateTime()));
+        CompletableFuture<Long> resumeFuture = supplyAsync(() -> countResumeTasksBetween(range.startDateTime(), range.endExclusiveDateTime()));
+        CompletableFuture<Long> polishFuture = supplyAsync(() -> countPolishBetween(range.startDateTime(), range.endExclusiveDateTime()));
+        CompletableFuture<Long> jdMatchFuture = supplyAsync(() -> countJdMatchBetween(range.startDateTime(), range.endExclusiveDateTime()));
+        CompletableFuture<Long> communityFuture = supplyAsync(() -> countCommunityPostsBetween(range.startDateTime(), range.endExclusiveDateTime()));
+        CompletableFuture<Long> orderFuture = supplyAsync(() -> countOrdersBetween(range.startDateTime(), range.endExclusiveDateTime()));
+
+        CompletableFuture.allOf(interviewFuture, resumeFuture, polishFuture, jdMatchFuture, communityFuture, orderFuture).join();
+
+        long interviewCount = interviewFuture.join();
+        long resumeCount = resumeFuture.join();
+        long polishCount = polishFuture.join();
+        long jdMatchCount = jdMatchFuture.join();
+        long communityCount = communityFuture.join();
+        long orderCount = orderFuture.join();
+        long totalCount = interviewCount + resumeCount + polishCount + jdMatchCount + communityCount + orderCount;
 
         return BusinessDistributionResponse.builder()
                 .startDate(range.startDate().toString())
                 .endDate(range.endDate().toString())
                 .interviewCount(interviewCount)
                 .resumeCount(resumeCount)
+                .resumePolishCount(polishCount)
+                .jdMatchCount(jdMatchCount)
+                .communityPostCount(communityCount)
                 .totalCount(totalCount)
                 .interviewPercent(calculatePercent(interviewCount, totalCount))
                 .resumePercent(calculatePercent(resumeCount, totalCount))
+                .polishPercent(calculatePercent(polishCount, totalCount))
+                .jdMatchPercent(calculatePercent(jdMatchCount, totalCount))
+                .communityPercent(calculatePercent(communityCount, totalCount))
                 .build();
     }
 
@@ -221,6 +301,41 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
         return resumeDiagnosisTaskService.count(new LambdaQueryWrapper<ResumeDiagnosisTask>()
                 .ge(ResumeDiagnosisTask::getCreateTime, start)
                 .lt(ResumeDiagnosisTask::getCreateTime, end));
+    }
+
+    /** 统计区间内用户反馈数。 */
+    private long countFeedbackBetween(LocalDateTime start, LocalDateTime end) {
+        return userFeedbackService.count(new LambdaQueryWrapper<UserFeedback>()
+                .ge(UserFeedback::getCreateTime, start).lt(UserFeedback::getCreateTime, end));
+    }
+
+    /** 统计区间内社区帖子数。 */
+    private long countCommunityPostsBetween(LocalDateTime start, LocalDateTime end) {
+        return communityPostMapper.selectCount(new LambdaQueryWrapper<CommunityPost>()
+                .ge(CommunityPost::getCreateTime, start).lt(CommunityPost::getCreateTime, end));
+    }
+
+    /** 统计区间内简历润色数。 */
+    private long countPolishBetween(LocalDateTime start, LocalDateTime end) {
+        return resumePolishService.count(new LambdaQueryWrapper<ResumePolishRecord>()
+                .ge(ResumePolishRecord::getCreateTime, start).lt(ResumePolishRecord::getCreateTime, end));
+    }
+
+    /** 统计区间内JD匹配分析数。 */
+    private long countJdMatchBetween(LocalDateTime start, LocalDateTime end) {
+        return resumeJobMatchService.count(new LambdaQueryWrapper<ResumeJobMatchRecord>()
+                .ge(ResumeJobMatchRecord::getCreateTime, start).lt(ResumeJobMatchRecord::getCreateTime, end));
+    }
+
+    /** 统计区间内订单数。 */
+    private long countOrdersBetween(LocalDateTime start, LocalDateTime end) {
+        return membershipOrderService.count(new LambdaQueryWrapper<MembershipOrder>()
+                .ge(MembershipOrder::getCreateTime, start).lt(MembershipOrder::getCreateTime, end));
+    }
+
+    /** CompletableFuture 包装，使用看板专用线程池。 */
+    private <T> CompletableFuture<T> supplyAsync(java.util.function.Supplier<T> supplier) {
+        return CompletableFuture.supplyAsync(supplier, dashboardExecutor);
     }
 
     /**
@@ -307,6 +422,50 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
             countByDate.put(statDate, toLongValue(row.get("totalCount")));
         }
         return countByDate;
+    }
+
+    /**
+     * 将订单聚合行转换为日期到 [数量, 收入(分)] 的映射。
+     */
+    private Map<LocalDate, long[]> toOrderCountByDateMap(List<Map<String, Object>> rows) {
+        Map<LocalDate, long[]> map = new HashMap<>();
+        if (rows == null || rows.isEmpty()) {
+            return map;
+        }
+        for (Map<String, Object> row : rows) {
+            LocalDate statDate = toLocalDateValue(row.get("statDate"));
+            long count = toLongValue(row.get("totalCount"));
+            // 收入保留2位小数转为 long（乘以100），避免浮点精度问题
+            Object revenueObj = row.get("totalRevenue");
+            long revenueCents = toBigDecimalValue(revenueObj).multiply(BigDecimal.valueOf(100)).longValue();
+            map.put(statDate, new long[]{count, revenueCents});
+        }
+        return map;
+    }
+
+    /**
+     * 通过 SQL 聚合统计指定时间范围内已支付订单的收入总额，避免全量加载实体。
+     */
+    private BigDecimal sumPaidOrderRevenue(LocalDateTime start, LocalDateTime end) {
+        BigDecimal result = membershipOrderMapper.sumPaidRevenue(start, end);
+        return result != null ? result : BigDecimal.ZERO;
+    }
+
+    private BigDecimal toBigDecimalValue(Object value) {
+        if (value instanceof BigDecimal bd) {
+            return bd;
+        }
+        if (value instanceof Number number) {
+            return BigDecimal.valueOf(number.doubleValue());
+        }
+        if (value == null) {
+            return BigDecimal.ZERO;
+        }
+        try {
+            return new BigDecimal(String.valueOf(value));
+        } catch (NumberFormatException e) {
+            return BigDecimal.ZERO;
+        }
     }
 
     private LocalDate toLocalDateValue(Object value) {

@@ -15,6 +15,7 @@ import com.airesume.server.dto.user.DataCleanupResponse;
 import com.airesume.server.service.ResumeDiagnosisTaskService;
 import com.airesume.server.service.ResumeJobMatchService;
 import com.airesume.server.service.ResumePolishService;
+import com.airesume.server.service.UserQuotaService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -24,6 +25,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -56,6 +58,7 @@ public class ResumeDiagnosisController {
     private final ResumeDiagnosisTaskService resumeDiagnosisTaskService;
     private final ResumeJobMatchService resumeJobMatchService;
     private final ResumePolishService resumePolishService;
+    private final UserQuotaService userQuotaService;
 
     /**
      * 上传简历文件并创建诊断任务。
@@ -147,11 +150,15 @@ public class ResumeDiagnosisController {
      * 执行岗位 JD 对比分析。
      */
     @PostMapping("/job-match/analyze")
+    @Transactional(rollbackFor = Exception.class)
     public Result<ResumeJobMatchAnalyzeResponse> analyzeJobMatch(
             @Valid @RequestBody ResumeJobMatchAnalyzeRequest request,
             Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         log.info("Analyze job match request, userId: {}, resumeTaskId: {}", userId, request.getResumeTaskId());
+
+        // JD匹配配额检查与扣减
+        userQuotaService.checkAndDeductJdMatchQuota(userId);
 
         ResumeJobMatchAnalyzeResponse response = resumeJobMatchService.analyzeJobMatch(userId, request);
         return Result.success("岗位 JD 对比分析完成", response);
@@ -161,11 +168,15 @@ public class ResumeDiagnosisController {
      * 执行 AI 简历润色。
      */
     @PostMapping("/polish/analyze")
+    @Transactional(rollbackFor = Exception.class)
     public Result<ResumePolishAnalyzeResponse> analyzeResumePolish(
             @Valid @RequestBody ResumePolishAnalyzeRequest request,
             Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         log.info("Analyze resume polish request, userId: {}, resumeTaskId: {}", userId, request.getResumeTaskId());
+
+        // AI润色配额检查与扣减（每份简历只能润色一次）
+        userQuotaService.checkAndDeductPolishQuota(userId, Long.parseLong(request.getResumeTaskId()));
 
         ResumePolishAnalyzeResponse response = resumePolishService.analyzeResumePolish(userId, request);
         return Result.success("AI 简历润色完成", response);
