@@ -8,11 +8,13 @@ import com.airesume.server.entity.CommunityComment;
 import com.airesume.server.entity.CommunityPost;
 import com.airesume.server.entity.CommunityPostFavorite;
 import com.airesume.server.entity.CommunityPostLike;
+import com.airesume.server.entity.InterviewSession;
 import com.airesume.server.entity.SysUser;
 import com.airesume.server.mapper.CommunityCommentMapper;
 import com.airesume.server.mapper.CommunityPostFavoriteMapper;
 import com.airesume.server.mapper.CommunityPostLikeMapper;
 import com.airesume.server.mapper.CommunityPostMapper;
+import com.airesume.server.mapper.InterviewSessionMapper;
 import com.airesume.server.util.ImageValidator;
 import com.airesume.server.mapper.SysUserMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -50,6 +52,7 @@ public class CommunityService {
     private final CommunityPostLikeMapper likeMapper;
     private final CommunityPostFavoriteMapper favoriteMapper;
     private final SysUserMapper userMapper;
+    private final InterviewSessionMapper interviewSessionMapper;
     private final ObjectMapper objectMapper;
 
     /**
@@ -161,15 +164,28 @@ public class CommunityService {
             throw new BusinessException("帖子内容不能超过" + CommunityConstants.MAX_CONTENT_LENGTH + "字");
         }
 
+        String title = request.getTitle() == null ? "" : request.getTitle().trim();
+        if (title.isBlank()) {
+            throw new BusinessException("帖子标题不能为空");
+        }
+        if (title.length() > CommunityConstants.MAX_TITLE_LENGTH) {
+            throw new BusinessException("帖子标题不能超过" + CommunityConstants.MAX_TITLE_LENGTH + "字");
+        }
+
         // 校验图片数量
         if (request.getImages() != null && request.getImages().size() > CommunityConstants.MAX_IMAGE_COUNT) {
             throw new BusinessException("图片数量不能超过" + CommunityConstants.MAX_IMAGE_COUNT + "张");
         }
 
+        String sharedInterviewSessionId = normalizeSharedInterviewSessionId(request.getSharedInterviewSessionId());
+        validateSharedInterviewSessionOwnership(userId, sharedInterviewSessionId);
+
         CommunityPost post = new CommunityPost();
         post.setUserId(userId);
         post.setCategory(request.getCategory());
+        post.setTitle(title);
         post.setContent(request.getContent().trim());
+        post.setSharedInterviewSessionId(sharedInterviewSessionId);
         post.setLikeCount(0);
         post.setCommentCount(0);
         post.setIsDeleted(0);
@@ -393,6 +409,7 @@ public class CommunityService {
                     vo.setParentCommentId(comment.getParentCommentId());
                     vo.setPostId(comment.getPostId());
                     vo.setPostCategory(!deleted ? post.getCategory() : null);
+                    vo.setPostTitle(!deleted ? post.getTitle() : null);
                     vo.setPostContent(!deleted ? post.getContent() : null);
                     vo.setPostImages(!deleted ? post.getImages() : null);
                     vo.setPostAuthorName(authorName);
@@ -967,6 +984,7 @@ public class CommunityService {
                             .userId(like.getUserId())
                             .userName(formatUserName(user))
                             .postId(like.getPostId())
+                            .postTitle(post != null ? post.getTitle() : null)
                             .postContent(post != null ? truncate(post.getContent(), 80) : "已删除")
                             .postCategory(post != null ? post.getCategory() : null)
                             .createTime(like.getCreateTime())
@@ -985,6 +1003,7 @@ public class CommunityService {
                             .userName(formatUserName(user))
                             .commentContent(comment.getContent())
                             .postId(comment.getPostId())
+                            .postTitle(post != null ? post.getTitle() : null)
                             .postContent(post != null ? truncate(post.getContent(), 80) : "已删除")
                             .postCategory(post != null ? post.getCategory() : null)
                             .createTime(comment.getCreateTime())
@@ -1005,6 +1024,7 @@ public class CommunityService {
                             .parentCommentContent(parentCommentContentMap.get(reply.getParentCommentId()))
                             .parentCommentId(reply.getParentCommentId())
                             .postId(reply.getPostId())
+                            .postTitle(post != null ? post.getTitle() : null)
                             .postContent(post != null ? truncate(post.getContent(), 80) : "已删除")
                             .postCategory(post != null ? post.getCategory() : null)
                             .createTime(reply.getCreateTime())
@@ -1021,6 +1041,7 @@ public class CommunityService {
                             .userId(fav.getUserId())
                             .userName(formatUserName(user))
                             .postId(fav.getPostId())
+                            .postTitle(post != null ? post.getTitle() : null)
                             .postContent(post != null ? truncate(post.getContent(), 80) : "已删除")
                             .postCategory(post != null ? post.getCategory() : null)
                             .createTime(fav.getCreateTime())
@@ -1209,7 +1230,9 @@ public class CommunityService {
                 .authorName(author != null ? (author.getNickname() != null ? author.getNickname() : author.getUsername()) : "匿名用户")
                 .authorAvatar(null) // SysUser暂无avatar字段
                 .category(post.getCategory())
+                .title(post.getTitle())
                 .content(post.getContent())
+                .sharedInterviewSessionId(post.getSharedInterviewSessionId())
                 .images(parseImages(post.getImages()))
                 .likeCount(post.getLikeCount())
                 .commentCount(post.getCommentCount())
@@ -1229,7 +1252,9 @@ public class CommunityService {
                 .authorName(author != null ? (author.getNickname() != null ? author.getNickname() : author.getUsername()) : "匿名用户")
                 .authorAvatar(null) // SysUser暂无avatar字段
                 .category(post.getCategory())
+                .title(post.getTitle())
                 .content(post.getContent())
+                .sharedInterviewSessionId(post.getSharedInterviewSessionId())
                 .images(parseImages(post.getImages()))
                 .likeCount(post.getLikeCount())
                 .commentCount(post.getCommentCount())
@@ -1276,6 +1301,32 @@ public class CommunityService {
         } catch (JsonProcessingException e) {
             log.warn("图片JSON解析失败: {}", imagesJson, e);
             return Collections.emptyList();
+        }
+    }
+
+    /**
+     * 报告分享帖只保存会话ID本身，前端根据该ID生成站内跳转链接。
+     */
+    private String normalizeSharedInterviewSessionId(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return null;
+        }
+        return sessionId.trim();
+    }
+
+    /**
+     * 报告分享只能绑定发布者自己的面试会话，避免用户构造他人 sessionId 后公开他人报告。
+     */
+    private void validateSharedInterviewSessionOwnership(Long userId, String sessionId) {
+        if (sessionId == null) {
+            return;
+        }
+        Long count = interviewSessionMapper.selectCount(new LambdaQueryWrapper<InterviewSession>()
+                .eq(InterviewSession::getSessionId, sessionId)
+                .eq(InterviewSession::getUserId, userId)
+                .eq(InterviewSession::getIsDeleted, 0));
+        if (count == null || count == 0) {
+            throw new BusinessException("只能分享自己的面试报告");
         }
     }
 }

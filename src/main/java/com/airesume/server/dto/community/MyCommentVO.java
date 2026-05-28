@@ -42,6 +42,9 @@ public class MyCommentVO {
     /** 帖子板块 */
     private String postCategory;
 
+    /** 帖子标题 */
+    private String postTitle;
+
     /** 帖子内容摘要 */
     private String postContent;
 

@@ -18,6 +18,7 @@ import com.airesume.server.entity.InterviewSession;
 import com.airesume.server.mapper.InterviewDimensionScoreMapper;
 import com.airesume.server.mapper.InterviewSessionMapper;
 import com.airesume.server.mapper.InterviewChatLogMapper;
+import com.airesume.server.mapper.CommunityPostMapper;
 import com.airesume.server.mock.MockInterviewService;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
@@ -77,6 +78,7 @@ public class InterviewService {
     private final MockInterviewJobTargetService mockInterviewJobTargetService;
     private final NotificationService notificationService;
     private final InterviewDimensionScoreMapper dimensionScoreMapper;
+    private final CommunityPostMapper communityPostMapper;
     private final InterviewDimensionScoreService dimensionScoreService;
     private final Executor aiAsyncExecutor;
 
@@ -260,7 +262,11 @@ public class InterviewService {
      */
     @Transactional(readOnly = true)
     public InterviewSessionResponse getSessionDetail(Long userId, String sessionId) {
-        InterviewSession session = getSessionByOwnerOrThrow(sessionId, userId);
+        InterviewSession session = getSessionByOwner(sessionId, userId);
+        if (session == null) {
+            session = getSharedReportSessionOrThrow(sessionId);
+            return convertToSharedReportResponse(session);
+        }
         List<InterviewChatLog> chatLogs = interviewMessageService.getMessageList(sessionId);
         InterviewJobTargetContext jobTargetContext =
                 mockInterviewJobTargetService.getSessionContext(userId, sessionId);
@@ -1263,6 +1269,58 @@ public class InterviewService {
      */
     public InterviewSession getSessionByOwner(String sessionId, Long userId) {
         return selectSessionBySessionIdAndUserId(sessionId, userId, true);
+    }
+
+    /**
+     * 社区分享后的报告允许其他登录用户查看，但只开放报告必要字段。
+     */
+    private InterviewSession getSharedReportSessionOrThrow(String sessionId) {
+        InterviewSession session = selectSessionBySessionId(sessionId, true);
+        if (session == null || !hasCommunitySharedReportPost(sessionId, session.getUserId())) {
+            throw new BusinessException("会话不存在或无权访问");
+        }
+        return session;
+    }
+
+    /**
+     * 以社区未删除帖子作为报告公开访问授权来源，避免所有面试报告被直接枚举访问。
+     */
+    private boolean hasCommunitySharedReportPost(String sessionId, Long ownerId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return false;
+        }
+        return communityPostMapper.selectCount(new QueryWrapper<com.airesume.server.entity.CommunityPost>()
+                .eq("shared_interview_session_id", sessionId)
+                .eq("user_id", ownerId)
+                .eq("is_deleted", 0)) > 0;
+    }
+
+    /**
+     * 跨用户查看社区分享报告时不返回聊天记录和岗位上下文，只返回报告页展示所需字段。
+     */
+    private InterviewSessionResponse convertToSharedReportResponse(InterviewSession session) {
+        return InterviewSessionResponse.builder()
+                .id(session.getId())
+                .sessionId(session.getSessionId())
+                .jobRole(session.getJobRole())
+                .jobRoleCode(session.getJobRoleCode())
+                .difficulty(session.getDifficulty())
+                .difficultyDesc(convertDifficultyToDesc(session.getDifficulty()))
+                .interviewMode(resolveResponseInterviewMode(session.getInterviewMode(), null))
+                .interviewModeDesc(getInterviewModeDescription(resolveResponseInterviewMode(session.getInterviewMode(), null)))
+                .status(session.getStatus())
+                .statusDesc(isSessionInProgress(session) ? "进行中" : "已结束")
+                .comprehensiveScore(session.getComprehensiveScore())
+                .evaluationReport(session.getEvaluationReport())
+                .jobTargeted(false)
+                .feedbackMode(resolveFeedbackMode(null, session))
+                .interactionType(resolveInteractionType(session.getInteractionType()))
+                .chatLogs(List.of())
+                .replayRounds(List.of())
+                .openingPending(session.getOpeningGenerated() == null || session.getOpeningGenerated() == 0)
+                .createTime(session.getCreateTime())
+                .updateTime(session.getUpdateTime())
+                .build();
     }
 
     /**

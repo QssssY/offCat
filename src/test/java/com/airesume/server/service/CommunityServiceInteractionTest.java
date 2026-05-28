@@ -10,6 +10,7 @@ import com.airesume.server.mapper.CommunityCommentMapper;
 import com.airesume.server.mapper.CommunityPostFavoriteMapper;
 import com.airesume.server.mapper.CommunityPostLikeMapper;
 import com.airesume.server.mapper.CommunityPostMapper;
+import com.airesume.server.mapper.InterviewSessionMapper;
 import com.airesume.server.mapper.SysUserMapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -56,6 +57,9 @@ class CommunityServiceInteractionTest {
     private SysUserMapper userMapper;
 
     @Mock
+    private InterviewSessionMapper interviewSessionMapper;
+
+    @Mock
     private ObjectMapper objectMapper;
 
     private CommunityService communityService;
@@ -70,7 +74,7 @@ class CommunityServiceInteractionTest {
     @BeforeEach
     void setUp() {
         communityService = new CommunityService(
-                postMapper, commentMapper, likeMapper, favoriteMapper, userMapper, objectMapper
+                postMapper, commentMapper, likeMapper, favoriteMapper, userMapper, interviewSessionMapper, objectMapper
         );
     }
 

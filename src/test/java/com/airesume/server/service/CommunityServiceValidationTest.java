@@ -2,10 +2,12 @@ package com.airesume.server.service;
 
 import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.dto.community.CreateCommentRequest;
+import com.airesume.server.dto.community.CreatePostRequest;
 import com.airesume.server.mapper.CommunityCommentMapper;
 import com.airesume.server.mapper.CommunityPostFavoriteMapper;
 import com.airesume.server.mapper.CommunityPostLikeMapper;
 import com.airesume.server.mapper.CommunityPostMapper;
+import com.airesume.server.mapper.InterviewSessionMapper;
 import com.airesume.server.mapper.SysUserMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.Validation;
@@ -53,6 +55,9 @@ class CommunityServiceValidationTest {
     private SysUserMapper userMapper;
 
     @Mock
+    private InterviewSessionMapper interviewSessionMapper;
+
+    @Mock
     private ObjectMapper objectMapper;
 
     private CommunityService service;
@@ -60,6 +65,69 @@ class CommunityServiceValidationTest {
     private static final Long USER_ID = 1001L;
     private static final String PLACEHOLDER_IMAGE_URL =
             "https://ts3.tc.mm.bing.net/th/id/OIP-C.TmvkuikpStxy5wKWiziR1AHaE7?rs=1&pid=ImgDetMain&o=7&rm=3";
+
+    // ==========================================================
+    //  Feature 5: 帖子标题与报告分享字段校验
+    // ==========================================================
+
+    @Nested
+    @DisplayName("Feature 5: 帖子标题与报告分享字段校验")
+    class CreatePostRequestValidationTest {
+
+        private Validator validator;
+
+        @BeforeEach
+        void setUp() {
+            ValidatorFactory factory = Validation.buildDefaultValidatorFactory();
+            validator = factory.getValidator();
+        }
+
+        @Test
+        @DisplayName("Scenario 5.1 [P1] - 发帖标题不能为空")
+        void shouldRejectBlankPostTitle() {
+            CreatePostRequest request = new CreatePostRequest();
+            request.setCategory("interview_exp");
+            request.setTitle("   ");
+            request.setContent("面试复盘正文");
+
+            Set<jakarta.validation.ConstraintViolation<CreatePostRequest>> violations = validator.validate(request);
+
+            assertFalse(violations.isEmpty(), "社区发帖必须提供标题");
+            assertTrue(violations.stream().anyMatch(v -> v.getMessage().contains("标题")));
+        }
+
+        @Test
+        @DisplayName("Scenario 5.2 [P1] - 报告分享字段允许携带会话ID")
+        void shouldAcceptSharedInterviewSessionId() {
+            CreatePostRequest request = new CreatePostRequest();
+            request.setCategory("interview_exp");
+            request.setTitle("Java工程师 面试报告");
+            request.setContent("这次模拟面试暴露了表达结构问题");
+            request.setSharedInterviewSessionId("session-1");
+
+            Set<jakarta.validation.ConstraintViolation<CreatePostRequest>> violations = validator.validate(request);
+
+            assertTrue(violations.isEmpty(), "报告分享帖应允许携带面试会话ID用于生成跳转链接");
+        }
+
+        @Test
+        @DisplayName("Scenario 5.3 [P0] - 不能分享不属于自己的面试报告")
+        void shouldRejectSharingAnotherUsersInterviewReport() {
+            service = new CommunityService(
+                    postMapper, commentMapper, likeMapper, favoriteMapper, userMapper, interviewSessionMapper, objectMapper
+            );
+            CreatePostRequest request = new CreatePostRequest();
+            request.setCategory("interview_exp");
+            request.setTitle("Java工程师 面试报告");
+            request.setContent("这次模拟面试暴露了表达结构问题");
+            request.setSharedInterviewSessionId("other-session");
+
+            BusinessException exception = assertThrows(BusinessException.class,
+                    () -> service.createPost(USER_ID, request));
+
+            assertEquals("只能分享自己的面试报告", exception.getMessage());
+        }
+    }
 
     // ==========================================================
     //  Feature 6: 评论内容校验 - CreateCommentRequest DTO validation
@@ -171,7 +239,7 @@ class CommunityServiceValidationTest {
         @BeforeEach
         void setUp() {
             service = new CommunityService(
-                    postMapper, commentMapper, likeMapper, favoriteMapper, userMapper, objectMapper
+                    postMapper, commentMapper, likeMapper, favoriteMapper, userMapper, interviewSessionMapper, objectMapper
             );
             // Set @Value injected fields via reflection
             ReflectionTestUtils.setField(service, "maxFileSize", 5 * 1024 * 1024L);

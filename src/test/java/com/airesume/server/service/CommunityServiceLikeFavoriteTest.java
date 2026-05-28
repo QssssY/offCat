@@ -8,6 +8,7 @@ import com.airesume.server.mapper.CommunityCommentMapper;
 import com.airesume.server.mapper.CommunityPostFavoriteMapper;
 import com.airesume.server.mapper.CommunityPostLikeMapper;
 import com.airesume.server.mapper.CommunityPostMapper;
+import com.airesume.server.mapper.InterviewSessionMapper;
 import com.airesume.server.mapper.SysUserMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -54,6 +55,9 @@ class CommunityServiceLikeFavoriteTest {
     private SysUserMapper userMapper;
 
     @Mock
+    private InterviewSessionMapper interviewSessionMapper;
+
+    @Mock
     private ObjectMapper objectMapper;
 
     private CommunityService service;
@@ -66,7 +70,7 @@ class CommunityServiceLikeFavoriteTest {
 
     @BeforeEach
     void setUp() {
-        service = new CommunityService(postMapper, commentMapper, likeMapper, favoriteMapper, userMapper, objectMapper);
+        service = new CommunityService(postMapper, commentMapper, likeMapper, favoriteMapper, userMapper, interviewSessionMapper, objectMapper);
 
         defaultPost = new CommunityPost();
         defaultPost.setId(POST_ID);

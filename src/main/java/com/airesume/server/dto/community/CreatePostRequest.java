@@ -16,6 +16,11 @@ public class CreatePostRequest {
     @NotBlank(message = "帖子板块不能为空")
     private String category;
 
+    /** 帖子标题 */
+    @NotBlank(message = "帖子标题不能为空")
+    @Size(max = 120, message = "帖子标题不能超过120字")
+    private String title;
+
     /** 帖子内容 */
     @NotBlank(message = "帖子内容不能为空")
     @Size(max = 2000, message = "帖子内容不能超过2000字")
@@ -23,4 +28,8 @@ public class CreatePostRequest {
 
     /** 图片URL列表（已上传后的URL） */
     private List<String> images;
+
+    /** 分享到社区的面试报告会话ID；普通帖子为空 */
+    @Size(max = 64, message = "面试报告会话ID不能超过64字")
+    private String sharedInterviewSessionId;
 }

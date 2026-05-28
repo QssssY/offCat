@@ -9,6 +9,7 @@ import com.airesume.server.mapper.CommunityCommentMapper;
 import com.airesume.server.mapper.CommunityPostFavoriteMapper;
 import com.airesume.server.mapper.CommunityPostLikeMapper;
 import com.airesume.server.mapper.CommunityPostMapper;
+import com.airesume.server.mapper.InterviewSessionMapper;
 import com.airesume.server.mapper.SysUserMapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -44,12 +45,15 @@ class CommunityServiceReceivedInteractionsEmptyTest {
     private SysUserMapper userMapper;
 
     @Mock
+    private InterviewSessionMapper interviewSessionMapper;
+
+    @Mock
     private ObjectMapper objectMapper;
 
     @Test
     void shouldNotQueryPostsWhenReceivedInteractionsAreEmpty() {
         CommunityService service = new CommunityService(
-                postMapper, commentMapper, likeMapper, favoriteMapper, userMapper, objectMapper
+                postMapper, commentMapper, likeMapper, favoriteMapper, userMapper, interviewSessionMapper, objectMapper
         );
         when(likeMapper.selectPage(any(Page.class), any())).thenReturn(emptyPage());
         when(commentMapper.selectPage(any(Page.class), any())).thenReturn(emptyPage());

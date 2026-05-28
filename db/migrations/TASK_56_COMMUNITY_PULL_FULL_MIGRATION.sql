@@ -54,7 +54,9 @@ CREATE TABLE IF NOT EXISTS `community_post` (
   `id` BIGINT NOT NULL COMMENT '主键',
   `user_id` BIGINT NOT NULL COMMENT '发布者用户ID',
   `category` VARCHAR(32) NOT NULL COMMENT '帖子板块：interview_exp-面试经验分享，referral-内推广场',
+  `title` VARCHAR(120) NOT NULL DEFAULT '未命名帖子' COMMENT '帖子标题',
   `content` TEXT NOT NULL COMMENT '帖子内容',
+  `shared_interview_session_id` VARCHAR(64) NULL COMMENT '分享的面试报告会话ID',
   `images` JSON NULL COMMENT '图片URL列表JSON数组',
   `like_count` INT NOT NULL DEFAULT 0 COMMENT '点赞数',
   `comment_count` INT NOT NULL DEFAULT 0 COMMENT '评论数',
@@ -64,6 +66,7 @@ CREATE TABLE IF NOT EXISTS `community_post` (
   PRIMARY KEY (`id`),
   INDEX `idx_community_post_user_id` (`user_id`),
   INDEX `idx_community_post_category` (`category`),
+  INDEX `idx_community_post_shared_interview_session_id` (`shared_interview_session_id`),
   INDEX `idx_community_post_create_time` (`create_time`),
   INDEX `idx_community_post_category_time` (`category`, `create_time`),
   INDEX `idx_community_post_category_like` (`category`, `like_count`),
@@ -118,7 +121,9 @@ CREATE TABLE IF NOT EXISTS `community_post_favorite` (
   CONSTRAINT `fk_community_post_favorite_user_id` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='社区帖子收藏表';
 
-CALL add_column_if_missing('community_post', 'images', '`images` JSON NULL COMMENT ''图片URL列表JSON数组'' AFTER `content`');
+CALL add_column_if_missing('community_post', 'title', '`title` VARCHAR(120) NOT NULL DEFAULT ''未命名帖子'' COMMENT ''帖子标题'' AFTER `category`');
+CALL add_column_if_missing('community_post', 'shared_interview_session_id', '`shared_interview_session_id` VARCHAR(64) NULL COMMENT ''分享的面试报告会话ID'' AFTER `content`');
+CALL add_column_if_missing('community_post', 'images', '`images` JSON NULL COMMENT ''图片URL列表JSON数组'' AFTER `shared_interview_session_id`');
 CALL add_column_if_missing('community_post', 'like_count', '`like_count` INT NOT NULL DEFAULT 0 COMMENT ''点赞数'' AFTER `images`');
 CALL add_column_if_missing('community_post', 'comment_count', '`comment_count` INT NOT NULL DEFAULT 0 COMMENT ''评论数'' AFTER `like_count`');
 
@@ -128,6 +133,7 @@ CALL add_column_if_missing('community_comment', 'images', '`images` JSON NULL CO
 
 CALL add_index_if_missing('community_post', 'idx_community_post_user_id', 'INDEX `idx_community_post_user_id` (`user_id`)');
 CALL add_index_if_missing('community_post', 'idx_community_post_category', 'INDEX `idx_community_post_category` (`category`)');
+CALL add_index_if_missing('community_post', 'idx_community_post_shared_interview_session_id', 'INDEX `idx_community_post_shared_interview_session_id` (`shared_interview_session_id`)');
 CALL add_index_if_missing('community_post', 'idx_community_post_create_time', 'INDEX `idx_community_post_create_time` (`create_time`)');
 CALL add_index_if_missing('community_post', 'idx_community_post_category_time', 'INDEX `idx_community_post_category_time` (`category`, `create_time`)');
 CALL add_index_if_missing('community_post', 'idx_community_post_category_like', 'INDEX `idx_community_post_category_like` (`category`, `like_count`)');

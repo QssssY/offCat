@@ -13,6 +13,7 @@ import com.airesume.server.dto.interview.SendMessageRequest;
 import com.airesume.server.mapper.InterviewChatLogMapper;
 import com.airesume.server.mapper.InterviewDimensionScoreMapper;
 import com.airesume.server.mapper.InterviewSessionMapper;
+import com.airesume.server.mapper.CommunityPostMapper;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -60,6 +61,7 @@ class InterviewServiceTest {
     @Mock private MockInterviewJobTargetService mockInterviewJobTargetService;
     @Mock private NotificationService notificationService;
     @Mock private InterviewDimensionScoreMapper dimensionScoreMapper;
+    @Mock private CommunityPostMapper communityPostMapper;
     @Mock private InterviewDimensionScoreService dimensionScoreService;
     @Mock private Executor aiAsyncExecutor;
     @Mock private CacheManager cacheManager;
@@ -81,7 +83,7 @@ class InterviewServiceTest {
                 interviewSessionMapper, interviewMessageService, mockInterviewService,
                 interviewChatLogMapper, interviewAiService, objectMapper, sysJobRoleService,
                 transactionTemplate, userQuotaService, mockInterviewJobTargetService,
-                notificationService, dimensionScoreMapper, dimensionScoreService, aiAsyncExecutor);
+                notificationService, dimensionScoreMapper, communityPostMapper, dimensionScoreService, aiAsyncExecutor);
         ReflectionTestUtils.setField(interviewService, "cacheManager", cacheManager);
         lenient().when(cacheManager.getCache("user:interviewRadar")).thenReturn(interviewRadarCache);
         lenient().when(cacheManager.getCache("user:growthOverview")).thenReturn(growthOverviewCache);
@@ -395,6 +397,46 @@ class InterviewServiceTest {
         InterviewSessionResponse response = interviewService.getSessionDetail(userId, sessionId);
 
         assertEquals("immediate", response.getFeedbackMode());
+    }
+
+    @Test
+    void shouldAllowSharedReportReaderWhenCommunityPostReferencesSession() {
+        String sessionId = "session-shared-report";
+        Long ownerId = 123L;
+        Long readerId = 456L;
+        InterviewSession session = buildEndedSession(sessionId, ownerId, 86);
+        session.setEvaluationReport("{\"summary\":\"公开分享的报告摘要\"}");
+
+        when(interviewSessionMapper.selectOne(any()))
+                .thenReturn(null)
+                .thenReturn(session);
+        when(communityPostMapper.selectCount(any())).thenReturn(1L);
+
+        InterviewSessionResponse response = interviewService.getSessionDetail(readerId, sessionId);
+
+        assertEquals(sessionId, response.getSessionId());
+        assertEquals("{\"summary\":\"公开分享的报告摘要\"}", response.getEvaluationReport());
+        assertEquals(86, response.getComprehensiveScore());
+        verify(mockInterviewJobTargetService, never()).getSessionContext(readerId, sessionId);
+    }
+
+    @Test
+    void shouldRejectForeignReportReaderWhenNoCommunityShareExists() {
+        String sessionId = "session-private-report";
+        Long ownerId = 123L;
+        Long readerId = 456L;
+        InterviewSession session = buildEndedSession(sessionId, ownerId, 86);
+
+        when(interviewSessionMapper.selectOne(any()))
+                .thenReturn(null)
+                .thenReturn(session);
+        when(communityPostMapper.selectCount(any())).thenReturn(0L);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> interviewService.getSessionDetail(readerId, sessionId));
+
+        assertEquals("会话不存在或无权访问", exception.getMessage());
+        verify(interviewMessageService, never()).getMessageList(sessionId);
     }
 
     @Test

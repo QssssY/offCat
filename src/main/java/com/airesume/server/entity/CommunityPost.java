@@ -22,8 +22,14 @@ public class CommunityPost extends BaseEntity {
     /** 帖子板块：interview_exp-面试经验分享，referral-内推广场 */
     private String category;
 
+    /** 帖子标题 */
+    private String title;
+
     /** 帖子内容 */
     private String content;
+
+    /** 分享到社区的面试报告会话ID，普通帖子为空 */
+    private String sharedInterviewSessionId;
 
     /** 图片URL列表JSON数组 */
     private String images;

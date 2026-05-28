@@ -36,8 +36,14 @@ public class PostVO {
     /** 帖子板块 */
     private String category;
 
+    /** 帖子标题 */
+    private String title;
+
     /** 帖子内容 */
     private String content;
+
+    /** 分享到社区的面试报告会话ID；前端据此渲染报告跳转链接 */
+    private String sharedInterviewSessionId;
 
     /** 图片URL列表 */
     private List<String> images;

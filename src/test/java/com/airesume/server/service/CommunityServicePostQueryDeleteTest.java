@@ -12,6 +12,7 @@ import com.airesume.server.mapper.CommunityCommentMapper;
 import com.airesume.server.mapper.CommunityPostFavoriteMapper;
 import com.airesume.server.mapper.CommunityPostLikeMapper;
 import com.airesume.server.mapper.CommunityPostMapper;
+import com.airesume.server.mapper.InterviewSessionMapper;
 import com.airesume.server.mapper.SysUserMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -60,6 +61,9 @@ class CommunityServicePostQueryDeleteTest {
     private SysUserMapper userMapper;
 
     @Mock
+    private InterviewSessionMapper interviewSessionMapper;
+
+    @Mock
     private ObjectMapper objectMapper;
 
     private CommunityService communityService;
@@ -75,7 +79,7 @@ class CommunityServicePostQueryDeleteTest {
     @BeforeEach
     void setUp() {
         communityService = new CommunityService(
-                postMapper, commentMapper, likeMapper, favoriteMapper, userMapper, objectMapper
+                postMapper, commentMapper, likeMapper, favoriteMapper, userMapper, interviewSessionMapper, objectMapper
         );
     }
 
@@ -84,6 +88,28 @@ class CommunityServicePostQueryDeleteTest {
     @Nested
     @DisplayName("Feature 2: listCommentedPosts - 评论过的帖子去重查询")
     class ListCommentedPostsTests {
+
+        @Test
+        @DisplayName("Scenario 2.0 [P1] - 帖子列表返回标题和报告分享会话ID")
+        void listPosts_returnsTitleAndSharedInterviewSessionId() {
+            CommunityPost post = buildPost(P1_ID, USER_A_ID, "帖子内容", 2, 1);
+            post.setTitle("Java工程师 面试报告");
+            post.setSharedInterviewSessionId("session-1");
+
+            Page<CommunityPost> page = new Page<>(1, 10);
+            page.setRecords(List.of(post));
+            page.setTotal(1);
+            when(postMapper.selectPage(any(Page.class), any())).thenReturn(page);
+            when(userMapper.selectList(any())).thenReturn(List.of(buildUser(USER_A_ID, "userA", "用户A")));
+            when(likeMapper.selectList(any())).thenReturn(Collections.emptyList());
+            when(favoriteMapper.selectList(any())).thenReturn(Collections.emptyList());
+
+            PageResult<PostVO> result = communityService.listPosts(null, "latest", 1, 10, USER_A_ID);
+
+            assertEquals(1, result.getList().size());
+            assertEquals("Java工程师 面试报告", result.getList().get(0).getTitle());
+            assertEquals("session-1", result.getList().get(0).getSharedInterviewSessionId());
+        }
 
         @Test
         @DisplayName("Scenario 2.1 [P0] - 同一帖子多次评论只返回一次该帖子")

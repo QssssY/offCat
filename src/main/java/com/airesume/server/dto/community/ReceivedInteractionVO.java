@@ -114,6 +114,7 @@ public class ReceivedInteractionVO {
         private String userName;
         @JsonSerialize(using = ToStringSerializer.class)
         private Long postId;
+        private String postTitle;
         private String postContent;
         private String postCategory;
         private LocalDateTime createTime;
@@ -128,6 +129,7 @@ public class ReceivedInteractionVO {
             public LikeItemBuilder userId(Long userId) { target.setUserId(userId); return this; }
             public LikeItemBuilder userName(String userName) { target.setUserName(userName); return this; }
             public LikeItemBuilder postId(Long postId) { target.setPostId(postId); return this; }
+            public LikeItemBuilder postTitle(String postTitle) { target.setPostTitle(postTitle); return this; }
             public LikeItemBuilder postContent(String postContent) { target.setPostContent(postContent); return this; }
             public LikeItemBuilder postCategory(String postCategory) { target.setPostCategory(postCategory); return this; }
             public LikeItemBuilder createTime(LocalDateTime createTime) { target.setCreateTime(createTime); return this; }
@@ -150,6 +152,7 @@ public class ReceivedInteractionVO {
         private String commentContent;
         @JsonSerialize(using = ToStringSerializer.class)
         private Long postId;
+        private String postTitle;
         private String postContent;
         private String postCategory;
         private LocalDateTime createTime;
@@ -166,6 +169,7 @@ public class ReceivedInteractionVO {
             public CommentItemBuilder userName(String userName) { target.setUserName(userName); return this; }
             public CommentItemBuilder commentContent(String commentContent) { target.setCommentContent(commentContent); return this; }
             public CommentItemBuilder postId(Long postId) { target.setPostId(postId); return this; }
+            public CommentItemBuilder postTitle(String postTitle) { target.setPostTitle(postTitle); return this; }
             public CommentItemBuilder postContent(String postContent) { target.setPostContent(postContent); return this; }
             public CommentItemBuilder postCategory(String postCategory) { target.setPostCategory(postCategory); return this; }
             public CommentItemBuilder createTime(LocalDateTime createTime) { target.setCreateTime(createTime); return this; }
@@ -192,6 +196,7 @@ public class ReceivedInteractionVO {
         private Long parentCommentId;
         @JsonSerialize(using = ToStringSerializer.class)
         private Long postId;
+        private String postTitle;
         private String postContent;
         private String postCategory;
         private LocalDateTime createTime;
@@ -210,6 +215,7 @@ public class ReceivedInteractionVO {
             public ReplyItemBuilder parentCommentContent(String parentCommentContent) { target.setParentCommentContent(parentCommentContent); return this; }
             public ReplyItemBuilder parentCommentId(Long parentCommentId) { target.setParentCommentId(parentCommentId); return this; }
             public ReplyItemBuilder postId(Long postId) { target.setPostId(postId); return this; }
+            public ReplyItemBuilder postTitle(String postTitle) { target.setPostTitle(postTitle); return this; }
             public ReplyItemBuilder postContent(String postContent) { target.setPostContent(postContent); return this; }
             public ReplyItemBuilder postCategory(String postCategory) { target.setPostCategory(postCategory); return this; }
             public ReplyItemBuilder createTime(LocalDateTime createTime) { target.setCreateTime(createTime); return this; }
@@ -229,6 +235,7 @@ public class ReceivedInteractionVO {
         private String userName;
         @JsonSerialize(using = ToStringSerializer.class)
         private Long postId;
+        private String postTitle;
         private String postContent;
         private String postCategory;
         private LocalDateTime createTime;
@@ -243,6 +250,7 @@ public class ReceivedInteractionVO {
             public FavoriteItemBuilder userId(Long userId) { target.setUserId(userId); return this; }
             public FavoriteItemBuilder userName(String userName) { target.setUserName(userName); return this; }
             public FavoriteItemBuilder postId(Long postId) { target.setPostId(postId); return this; }
+            public FavoriteItemBuilder postTitle(String postTitle) { target.setPostTitle(postTitle); return this; }
             public FavoriteItemBuilder postContent(String postContent) { target.setPostContent(postContent); return this; }
             public FavoriteItemBuilder postCategory(String postCategory) { target.setPostCategory(postCategory); return this; }
             public FavoriteItemBuilder createTime(LocalDateTime createTime) { target.setCreateTime(createTime); return this; }

@@ -24,6 +24,9 @@ public class CommunityConstants {
     /** 帖子内容最大长度 */
     public static final int MAX_CONTENT_LENGTH = 2000;
 
+    /** 帖子标题最大长度 */
+    public static final int MAX_TITLE_LENGTH = 120;
+
     /** 评论内容最大长度 */
     public static final int MAX_COMMENT_LENGTH = 500;
 
