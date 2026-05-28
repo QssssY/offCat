@@ -114,6 +114,26 @@
               <span>每日模拟面试</span>
               <strong>{{ plan.interviewQuota }}</strong>
             </div>
+            <div class="metric-item">
+              <span>AI润色/天</span>
+              <strong>{{ plan.dailyPolishLimit ?? 1 }}</strong>
+            </div>
+            <div class="metric-item">
+              <span>JD匹配/天</span>
+              <strong>{{ plan.dailyJdMatchLimit ?? 3 }}</strong>
+            </div>
+            <div class="metric-item">
+              <span>模板/天</span>
+              <strong>{{ plan.dailyTemplateLimit ?? 5 }}</strong>
+            </div>
+            <div class="metric-item">
+              <span>Offer/天</span>
+              <strong>{{ plan.dailyOfferLimit ?? 3 }}</strong>
+            </div>
+          </div>
+
+          <div v-if="(plan.bonusResumeQuota > 0) || (plan.bonusInterviewQuota > 0)" class="plan-bonus">
+            购买即送 {{ plan.bonusResumeQuota || 0 }} 次简历诊断 + {{ plan.bonusInterviewQuota || 0 }} 次模拟面试
           </div>
 
           <p v-if="isCurrentPlan(plan)" class="renewal-note">
@@ -121,6 +141,7 @@
           </p>
 
           <n-button
+            v-if="isCurrentPlan(plan)"
             type="primary"
             size="large"
             round
@@ -130,7 +151,30 @@
             :loading="upgradingPlanCode === plan.planCode"
             @click="handleUpgrade(plan)"
           >
-            {{ isCurrentPlan(plan) ? '续费' : '立即升级' }}
+            续费
+          </n-button>
+          <n-button
+            v-else-if="canPurchase(plan)"
+            type="primary"
+            size="large"
+            round
+            block
+            class="upgrade-btn"
+            :disabled="isUpgradeBusy"
+            :loading="upgradingPlanCode === plan.planCode"
+            @click="handleUpgrade(plan)"
+          >
+            立即升级
+          </n-button>
+          <n-button
+            v-else
+            size="large"
+            round
+            block
+            class="upgrade-btn"
+            disabled
+          >
+            已订阅更高级套餐
           </n-button>
         </article>
       </div>
@@ -211,6 +255,19 @@ const membershipTipText = computed(() => {
 
 const isUpgradeBusy = computed(() => upgradingPlanCode.value !== '')
 
+const currentPlanSort = computed(() => {
+  if (!isVipUser.value || !currentPlanCode.value) return 0
+  const matched = plans.value.find((p) => p.planCode === currentPlanCode.value)
+  return matched?.sort ?? 0
+})
+
+const canPurchase = (plan) => {
+  if (!isVipUser.value) return true
+  if (isCurrentPlan(plan)) return true
+  if ((plan.sort ?? 0) > currentPlanSort.value) return true
+  return false
+}
+
 const getPlanNameCn = (planName) => {
   const nameMap = {
     'Monthly VIP': '月度会员',
@@ -233,11 +290,18 @@ const getPlanTag = (plan) => {
   return nameMap[plan.planName] || ''
 }
 
-const getPlanBenefits = (plan) => [
-  `${plan.durationDays || 0} 天内有效`,
-  `每日 ${plan.resumeQuota} 次简历诊断`,
-  `每日 ${plan.interviewQuota} 次模拟面试`
-]
+const getPlanBenefits = (plan) => {
+  // 优先使用后端返回的 benefits 数组
+  if (plan.benefits && Array.isArray(plan.benefits) && plan.benefits.length > 0) {
+    return plan.benefits
+  }
+  // 兜底
+  return [
+    `${plan.durationDays || 0} 天内有效`,
+    `每日 ${plan.resumeQuota} 次简历诊断`,
+    `每日 ${plan.interviewQuota} 次模拟面试`
+  ]
+}
 
 const getPlanScene = (plan) => {
   if (plan.planName === 'Monthly VIP') return '适合短期集中投递和快速体验完整功能。'
@@ -259,7 +323,14 @@ const fetchPlans = async () => {
       priceAmount: Number(plan.priceAmount ?? 0),
       durationDays: Number(plan.durationDays ?? 0),
       resumeQuota: Number(plan.resumeQuota ?? 0),
-      interviewQuota: Number(plan.interviewQuota ?? 0)
+      interviewQuota: Number(plan.interviewQuota ?? 0),
+      dailyPolishLimit: Number(plan.dailyPolishLimit ?? 1),
+      dailyJdMatchLimit: Number(plan.dailyJdMatchLimit ?? 3),
+      dailyTemplateLimit: Number(plan.dailyTemplateLimit ?? 5),
+      dailyOfferLimit: Number(plan.dailyOfferLimit ?? 3),
+      bonusResumeQuota: Number(plan.bonusResumeQuota ?? 0),
+      bonusInterviewQuota: Number(plan.bonusInterviewQuota ?? 0),
+      sort: Number(plan.sort ?? 0)
     }))
   } catch {
     plans.value = []
@@ -616,8 +687,18 @@ onMounted(async () => {
 
 .plan-metrics {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
+}
+
+.plan-bonus {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: var(--el-color-warning-light-9);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--el-color-warning-dark-2);
+  text-align: center;
 }
 
 .metric-item {

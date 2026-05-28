@@ -9,6 +9,8 @@ const request = axios.create({
   timeout: 30000
 })
 
+const VIP_UPGRADE_CODES = new Set([2013, 2015, 2016, 5005, 5006, 5007])
+
 // 用户端 401 处理锁：同一个失效 token 只提示一次；用户重新登录拿到新 token 后仍可再次提示。
 let handledUnauthorizedToken = undefined
 let isHandlingUnauthorized = false
@@ -68,6 +70,12 @@ request.interceptors.response.use(
     // 某些长耗时接口会在页面内自行处理异常，此处允许跳过默认弹窗。
     if (response.config?.skipDefaultErrorHandler) {
       return Promise.reject(new Error(res.message || '请求失败'))
+    }
+
+    // 会员专属/额度不足类错误：弹出升级弹窗替代普通错误提示。
+    if (VIP_UPGRADE_CODES.has(res.code)) {
+      window.dispatchEvent(new CustomEvent('show-vip-upgrade'))
+      return Promise.reject(new Error(res.message || '该功能为会员专属'))
     }
 
     // 优先使用错误码映射获取用户友好提示。

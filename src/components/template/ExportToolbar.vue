@@ -16,6 +16,7 @@
 import { ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { exportPdfFromHtml, downloadPdfFile, serializeElementToHtml, stripScopedSelectors } from '@/api/resumePdf'
+import { checkTemplateQuota } from '@/api/template.js'
 import resumeExportCss from '@/components/resume/resumeExportStyles'
 
 const props = defineProps({
@@ -74,6 +75,7 @@ async function exportImagePdf() {
   }
   imagePdfExporting.value = true
   try {
+    await checkTemplateQuota()
     const canvas = await captureCanvas()
     if (!canvas) return
     await canvasToPdf(canvas, props.fileName)
@@ -112,6 +114,7 @@ async function exportTextPdf() {
 
   try {
     // 1. 准备 HTML：合并模板 CSS + 简历导出样式的 scoped 选择器已被清除
+    await checkTemplateQuota()
     const extraCss = props.templateCss ? stripScopedSelectors(props.templateCss) : ''
     const html = serializeElementToHtml(props.targetRef, resumeExportCss + '\n' + extraCss)
 
@@ -156,6 +159,7 @@ async function exportTextPdf() {
 async function exportImage() {
   imageExporting.value = true
   try {
+    await checkTemplateQuota()
     const canvas = await captureCanvas()
     if (!canvas) return
 

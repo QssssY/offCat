@@ -54,6 +54,22 @@ export const ERROR_MESSAGES = {
     title: '重试时效已过',
     description: '失败超过 24 小时的任务请重新上传简历'
   },
+  2013: {
+    title: '今日AI润色次数已用完',
+    description: '明天可继续使用，或升级会员获取更多次数'
+  },
+  2014: {
+    title: '该简历已使用过AI润色',
+    description: '每份简历只能润色一次'
+  },
+  2015: {
+    title: '今日JD匹配次数已用完',
+    description: '明天可继续使用'
+  },
+  2016: {
+    title: '今日模板使用次数已用完',
+    description: '明天可继续使用'
+  },
 
   // === 面试模块 (3xxx) ===
   3001: {
@@ -111,6 +127,22 @@ export const ERROR_MESSAGES = {
   5004: {
     title: '用户未登录',
     description: '请先登录后继续操作'
+  },
+  5005: {
+    title: '该功能为会员专属',
+    description: '升级会员即可解锁全部功能'
+  },
+  5006: {
+    title: '今日Offer辅助次数已用完',
+    description: '明天可继续使用'
+  },
+  5007: {
+    title: '功能使用次数已达上限',
+    description: '升级会员获取更多使用次数'
+  },
+  5008: {
+    title: '无法降级套餐',
+    description: '已订阅更高级别套餐，仅支持续费或升级'
   },
 
   // === 管理端 (6xxx) ===

@@ -40,10 +40,14 @@ export function deleteAdminMembershipPlansBatch(ids) {
   return adminRequest({ url: '/api/admin/membership/plans/batch-delete', method: 'post', data: ids })
 }
 
-export function getAdminMembershipOrders(orderStatus, params = {}) {
+export function getAdminMembershipOrders(orderStatusOrParams, params = {}) {
+  const queryParams = typeof orderStatusOrParams === 'string'
+    ? { ...params, ...(orderStatusOrParams ? { orderStatus: orderStatusOrParams } : {}) }
+    : (orderStatusOrParams || {})
+
   return adminRequest({
     url: '/api/admin/membership/orders',
     method: 'get',
-    params: { page: 1, size: 20, ...params, ...(orderStatus ? { orderStatus } : {}) }
+    params: { page: 1, size: 20, ...queryParams }
   })
 }

@@ -60,6 +60,7 @@
       :title="errorMessage"
     />
 
+    <!-- 核心指标卡片 -->
     <section class="overview-grid">
       <article class="overview-card">
         <div class="label">总用户数</div>
@@ -88,6 +89,27 @@
       <article class="overview-card">
         <div class="label">简历诊断</div>
         <div class="value">{{ overview.todayResumeDiagnosisCount }}</div>
+      </article>
+      <article class="overview-card">
+        <div class="label">简历润色</div>
+        <div class="value">{{ overview.resumePolishCount }}</div>
+      </article>
+      <article class="overview-card">
+        <div class="label">JD匹配分析</div>
+        <div class="value">{{ overview.jdMatchCount }}</div>
+      </article>
+      <article class="overview-card">
+        <div class="label">用户反馈</div>
+        <div class="value">{{ overview.feedbackCount }}</div>
+      </article>
+      <article class="overview-card">
+        <div class="label">社区帖子</div>
+        <div class="value">{{ overview.communityPostCount }}</div>
+      </article>
+      <article class="overview-card overview-card--revenue">
+        <div class="label">订单收入</div>
+        <div class="value revenue-value">¥{{ formatRevenue(overview.orderRevenue) }}</div>
+        <div class="revenue-sub">订单数: {{ overview.orderCount }}</div>
       </article>
     </section>
 
@@ -204,7 +226,7 @@ const filters = reactive({
   hotLimit: 10,
 });
 
-// 总览卡片数据
+// 总览卡片数据（含新增字段）
 const overview = reactive({
   totalUserCount: 0,
   vipUserCount: 0,
@@ -213,6 +235,12 @@ const overview = reactive({
   activeAiEngineCount: 0,
   todayInterviewSessionCount: 0,
   todayResumeDiagnosisCount: 0,
+  feedbackCount: 0,
+  communityPostCount: 0,
+  resumePolishCount: 0,
+  jdMatchCount: 0,
+  orderCount: 0,
+  orderRevenue: 0,
 });
 
 const trends = ref([]);
@@ -223,13 +251,25 @@ const businessDistribution = reactive({
   endDate: "",
   interviewCount: 0,
   resumeCount: 0,
+  resumePolishCount: 0,
+  jdMatchCount: 0,
+  communityPostCount: 0,
   totalCount: 0,
   interviewPercent: 0,
   resumePercent: 0,
+  polishPercent: 0,
+  jdMatchPercent: 0,
+  communityPercent: 0,
 });
 
+// 格式化收入金额
+const formatRevenue = (val) => {
+  const num = Number(val || 0);
+  return num.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
 // 趋势图系列名称
-const TREND_SERIES_NAMES = ["面试会话", "简历诊断"];
+const TREND_SERIES_NAMES = ["面试会话", "简历诊断", "订单数", "订单收入"];
 
 /**
  * 趋势数据归一化
@@ -242,6 +282,8 @@ const normalizedTrendRows = computed(() => {
       date: item.date ? String(item.date) : `第${index + 1}项`,
       interviewSessionCount: Number(item.interviewSessionCount ?? 0),
       resumeDiagnosisCount: Number(item.resumeDiagnosisCount ?? 0),
+      orderCount: Number(item.orderCount ?? 0),
+      orderRevenue: Number(item.orderRevenue ?? 0),
     }));
 });
 
@@ -270,6 +312,7 @@ const trendChartData = computed(() => ({
       tension: 0.4,
       pointRadius: 4,
       pointHoverRadius: 6,
+      yAxisID: "y",
     },
     {
       label: TREND_SERIES_NAMES[1],
@@ -280,6 +323,29 @@ const trendChartData = computed(() => ({
       tension: 0.4,
       pointRadius: 4,
       pointHoverRadius: 6,
+      yAxisID: "y",
+    },
+    {
+      label: TREND_SERIES_NAMES[2],
+      data: normalizedTrendRows.value.map((item) => item.orderCount),
+      borderColor: "#27ae60",
+      backgroundColor: "rgba(39, 174, 96, 0.12)",
+      fill: true,
+      tension: 0.4,
+      pointRadius: 4,
+      pointHoverRadius: 6,
+      yAxisID: "y",
+    },
+    {
+      label: TREND_SERIES_NAMES[3],
+      data: normalizedTrendRows.value.map((item) => item.orderRevenue),
+      borderColor: "#8e44ad",
+      backgroundColor: "rgba(142, 68, 173, 0.12)",
+      fill: true,
+      tension: 0.4,
+      pointRadius: 4,
+      pointHoverRadius: 6,
+      yAxisID: "y1",
     },
   ],
 }));
@@ -301,9 +367,20 @@ const trendChartOptions = computed(() => ({
       grid: { color: "rgba(246, 224, 207, 0.4)" },
     },
     y: {
+      type: "linear",
+      position: "left",
       beginAtZero: true,
       ticks: { color: "#9a633e" },
       grid: { color: "#f6e0cf" },
+      title: { display: true, text: "数量", color: "#9a633e" },
+    },
+    y1: {
+      type: "linear",
+      position: "right",
+      beginAtZero: true,
+      ticks: { color: "#8e44ad" },
+      grid: { drawOnChartArea: false },
+      title: { display: true, text: "收入 (¥)", color: "#8e44ad" },
     },
   },
 }));
@@ -353,23 +430,36 @@ const hotRoleChartOptions = computed(() => ({
 
 /**
  * ==============================
- * 业务分布图配置（Chart.js Doughnut）
+ * 业务分布图配置（Chart.js Doughnut）— 6段
  * ==============================
  */
-const distributionChartData = computed(() => ({
-  labels: ["面试", "简历"],
-  datasets: [
-    {
-      data: [
-        Number(businessDistribution.interviewCount || 0),
-        Number(businessDistribution.resumeCount || 0),
-      ],
-      backgroundColor: ["#ff8f42", "#f6b37d"],
-      borderWidth: 2,
-      borderColor: "#fff",
-    },
-  ],
-}));
+const distributionChartData = computed(() => {
+  // 订单数 = 总数 - 其余各项之和（后端 totalCount 已包含订单数）
+  const knownSum = Number(businessDistribution.interviewCount || 0)
+    + Number(businessDistribution.resumeCount || 0)
+    + Number(businessDistribution.resumePolishCount || 0)
+    + Number(businessDistribution.jdMatchCount || 0)
+    + Number(businessDistribution.communityPostCount || 0)
+  const orderCount = Math.max(0, Number(businessDistribution.totalCount || 0) - knownSum)
+  return {
+    labels: ["面试", "简历诊断", "简历润色", "JD匹配", "社区帖子", "订单"],
+    datasets: [
+      {
+        data: [
+          Number(businessDistribution.interviewCount || 0),
+          Number(businessDistribution.resumeCount || 0),
+          Number(businessDistribution.resumePolishCount || 0),
+          Number(businessDistribution.jdMatchCount || 0),
+          Number(businessDistribution.communityPostCount || 0),
+          orderCount,
+        ],
+        backgroundColor: ["#ff8f42", "#f6b37d", "#27ae60", "#3498db", "#9b59b6", "#e74c3c"],
+        borderWidth: 2,
+        borderColor: "#fff",
+      },
+    ],
+  }
+});
 
 const distributionChartOptions = computed(() => ({
   responsive: true,
@@ -506,6 +596,12 @@ const loadDashboardData = async () => {
     overview.activeAiEngineCount = Number(od.activeAiEngineCount ?? 0);
     overview.todayInterviewSessionCount = Number(od.todayInterviewSessionCount ?? 0);
     overview.todayResumeDiagnosisCount = Number(od.todayResumeDiagnosisCount ?? 0);
+    overview.feedbackCount = Number(od.feedbackCount ?? 0);
+    overview.communityPostCount = Number(od.communityPostCount ?? 0);
+    overview.resumePolishCount = Number(od.resumePolishCount ?? 0);
+    overview.jdMatchCount = Number(od.jdMatchCount ?? 0);
+    overview.orderCount = Number(od.orderCount ?? 0);
+    overview.orderRevenue = Number(od.orderRevenue ?? 0);
     trends.value = Array.isArray(trendsRes?.data) ? trendsRes.data : [];
     hotJobRoles.value = Array.isArray(hotRolesRes?.data)
       ? hotRolesRes.data
@@ -686,6 +782,31 @@ onMounted(() => {
 
 .overview-card:hover::before {
   opacity: 1;
+}
+
+/* 收入卡片突出样式 */
+.overview-card--revenue {
+  background: linear-gradient(135deg, #fffcf8 0%, #fff3e8 100%);
+  border-color: rgba(230, 126, 34, 0.25);
+}
+
+.overview-card--revenue::before {
+  background: linear-gradient(90deg, #e67e22, #d35400);
+  opacity: 1;
+  height: 4px;
+}
+
+.revenue-value {
+  color: #d35400 !important;
+  background: none !important;
+  -webkit-text-fill-color: #d35400 !important;
+}
+
+.revenue-sub {
+  margin-top: 6px;
+  font-size: 13px;
+  color: #a08060;
+  font-weight: 500;
 }
 
 .label {

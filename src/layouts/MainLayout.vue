@@ -29,6 +29,8 @@
     <AppFooter />
     <!-- 新手引导弹窗：登录用户首次进入时展示 -->
     <OnboardingGuide v-model:visible="showGuide" />
+    <!-- 全局VIP升级弹窗：非会员使用付费功能时触发 -->
+    <GlobalVipUpgradeModal />
   </div>
 </template>
 
@@ -39,6 +41,7 @@ import { NMessageProvider } from 'naive-ui'
 import AppHeader from '@/components/AppHeader.vue'
 import AppFooter from '@/components/AppFooter.vue'
 import OnboardingGuide from '@/components/OnboardingGuide.vue'
+import GlobalVipUpgradeModal from '@/components/common/GlobalVipUpgradeModal.vue'
 import { getOnboardingStatus } from '@/api/onboarding'
 import { useUserStore } from '@/stores/user'
 import { getToken } from '@/utils/auth'

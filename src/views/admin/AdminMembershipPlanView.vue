@@ -51,6 +51,26 @@
         <el-table-column prop="interviewQuota" label="面试额度" width="120" align="center">
           <template #header><div class="table-header">面试额度</div></template>
         </el-table-column>
+        <el-table-column label="功能日限额" min-width="200" align="center">
+          <template #header><div class="table-header">功能日限额</div></template>
+          <template #default="{ row }">
+            <div class="quota-tags">
+              <el-tag size="small" effect="plain">润色{{ row.dailyPolishLimit ?? 1 }}/天</el-tag>
+              <el-tag size="small" effect="plain">JD{{ row.dailyJdMatchLimit ?? 3 }}/天</el-tag>
+              <el-tag size="small" effect="plain">模板{{ row.dailyTemplateLimit ?? 5 }}/天</el-tag>
+              <el-tag size="small" effect="plain">Offer{{ row.dailyOfferLimit ?? 3 }}/天</el-tag>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="赠送额度" width="140" align="center">
+          <template #header><div class="table-header">赠送额度</div></template>
+          <template #default="{ row }">
+            <span v-if="(row.bonusResumeQuota ?? 0) > 0 || (row.bonusInterviewQuota ?? 0) > 0">
+              简历+{{ row.bonusResumeQuota ?? 0 }} / 面试+{{ row.bonusInterviewQuota ?? 0 }}
+            </span>
+            <span v-else class="text-muted">-</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="statusDesc" label="状态" width="100" align="center">
           <template #header><div class="table-header">状态</div></template>
           <template #default="{ row }">
@@ -125,9 +145,44 @@
             <el-input-number v-model="form.interviewQuota" :min="0" :step="5" style="width: 100%" />
           </el-form-item>
         </div>
+
+        <el-divider content-position="left">功能日限额</el-divider>
+        <div class="form-row">
+          <el-form-item label="AI润色/天" class="form-half">
+            <el-input-number v-model="form.dailyPolishLimit" :min="0" :step="1" style="width: 100%" />
+          </el-form-item>
+          <el-form-item label="JD匹配/天" class="form-half">
+            <el-input-number v-model="form.dailyJdMatchLimit" :min="0" :step="1" style="width: 100%" />
+          </el-form-item>
+        </div>
+        <div class="form-row">
+          <el-form-item label="模板/天" class="form-half">
+            <el-input-number v-model="form.dailyTemplateLimit" :min="0" :step="1" style="width: 100%" />
+          </el-form-item>
+          <el-form-item label="Offer/天" class="form-half">
+            <el-input-number v-model="form.dailyOfferLimit" :min="0" :step="1" style="width: 100%" />
+          </el-form-item>
+        </div>
+
+        <el-divider content-position="left">赠送额度（购买时一次性充入）</el-divider>
+        <div class="form-row">
+          <el-form-item label="赠送简历" class="form-half">
+            <el-input-number v-model="form.bonusResumeQuota" :min="0" :step="5" style="width: 100%" />
+          </el-form-item>
+          <el-form-item label="赠送面试" class="form-half">
+            <el-input-number v-model="form.bonusInterviewQuota" :min="0" :step="5" style="width: 100%" />
+          </el-form-item>
+        </div>
         <el-form-item label="排序">
           <el-input-number v-model="form.sort" :min="0" :step="1" />
         </el-form-item>
+        <el-alert
+          class="sort-rule-alert"
+          type="warning"
+          :closable="false"
+          show-icon
+          title="排序决定套餐等级：排序值越大，套餐等级越高。用户升级到更高排序的套餐后，在会员未过期前无法购买或切回更低排序套餐；会员过期后才可重新选择低级套餐。"
+        />
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -173,6 +228,12 @@ const form = reactive({
   durationDays: 30,
   resumeQuota: 10,
   interviewQuota: 10,
+  dailyPolishLimit: 1,
+  dailyJdMatchLimit: 3,
+  dailyTemplateLimit: 5,
+  dailyOfferLimit: 3,
+  bonusResumeQuota: 0,
+  bonusInterviewQuota: 0,
   sort: 0
 })
 
@@ -231,6 +292,12 @@ const resetForm = () => {
   form.durationDays = 30
   form.resumeQuota = 10
   form.interviewQuota = 10
+  form.dailyPolishLimit = 1
+  form.dailyJdMatchLimit = 3
+  form.dailyTemplateLimit = 5
+  form.dailyOfferLimit = 3
+  form.bonusResumeQuota = 0
+  form.bonusInterviewQuota = 0
   form.sort = 0
 }
 
@@ -251,6 +318,12 @@ const openEditDialog = (row) => {
   form.durationDays = row.durationDays
   form.resumeQuota = row.resumeQuota
   form.interviewQuota = row.interviewQuota
+  form.dailyPolishLimit = row.dailyPolishLimit ?? 1
+  form.dailyJdMatchLimit = row.dailyJdMatchLimit ?? 3
+  form.dailyTemplateLimit = row.dailyTemplateLimit ?? 5
+  form.dailyOfferLimit = row.dailyOfferLimit ?? 3
+  form.bonusResumeQuota = row.bonusResumeQuota ?? 0
+  form.bonusInterviewQuota = row.bonusInterviewQuota ?? 0
   form.sort = row.sort
   dialogVisible.value = true
 }
@@ -384,5 +457,16 @@ onMounted(loadPlans)
   .header-actions { justify-content: flex-start; }
   .form-row { flex-direction: column; gap: 0; }
   .pagination-wrap { justify-content: flex-end; overflow-x: auto; }
+}
+.quota-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+}
+.text-muted { color: var(--el-text-color-placeholder); }
+.sort-rule-alert {
+  margin: -4px 0 18px;
+  line-height: 1.6;
 }
 </style>
