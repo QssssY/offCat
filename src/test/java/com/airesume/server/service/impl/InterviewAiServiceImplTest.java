@@ -13,6 +13,10 @@ import com.airesume.server.service.SysAiEngineConfigService;
 import com.airesume.server.service.SysPromptService;
 import com.airesume.server.config.AiTokenLimitConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -24,6 +28,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.lang.reflect.Method;
+import java.time.Duration;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -554,5 +559,54 @@ class InterviewAiServiceImplTest {
 
         Object result = method.invoke(service, "doubao-seed-2.0", "enabled");
         assertNotNull(result);
+    }
+
+    @Test
+    void streamingResponseTimeoutShouldBeOneHundredEightySeconds() {
+        assertEquals(Duration.ofSeconds(180), service.streamingResponseTimeout());
+    }
+
+    @Test
+    void streamCompletionReportShouldNotWriteInfoLevelAsciiReport() {
+        Logger logger = (Logger) org.slf4j.LoggerFactory.getLogger(InterviewAiServiceImpl.class);
+        Level originalLevel = logger.getLevel();
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        logger.setLevel(Level.INFO);
+
+        try {
+            service.logStreamCompletionReport("test-model", 1, 1, 0, 0, 1, 0, 1, "正常输出");
+        } finally {
+            logger.detachAppender(appender);
+            logger.setLevel(originalLevel);
+        }
+
+        assertTrue(appender.list.stream().noneMatch(event ->
+                event.getFormattedMessage().contains("流式处理完成-最终统计报告")));
+    }
+
+    @Test
+    void streamCompletionReportShouldWriteDebugLevelAsciiReportWhenDebugEnabled() {
+        Logger logger = (Logger) org.slf4j.LoggerFactory.getLogger(InterviewAiServiceImpl.class);
+        Level originalLevel = logger.getLevel();
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        logger.setLevel(Level.DEBUG);
+
+        try {
+            service.logStreamCompletionReport("test-model", 1, 1, 0, 0, 1, 0, 1, "正常输出");
+        } finally {
+            logger.detachAppender(appender);
+            logger.setLevel(originalLevel);
+        }
+
+        assertTrue(appender.list.stream().anyMatch(event ->
+                event.getLevel() == Level.DEBUG
+                        && event.getFormattedMessage().contains("流式处理完成-最终统计报告")));
+        assertTrue(appender.list.stream().noneMatch(event ->
+                event.getLevel() == Level.INFO
+                        && event.getFormattedMessage().contains("流式处理完成-最终统计报告")));
     }
 }

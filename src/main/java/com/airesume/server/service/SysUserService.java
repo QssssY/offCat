@@ -32,4 +32,8 @@ public interface SysUserService extends IService<SysUser> {
      */
     boolean isVipUser(Long userId);
 
+    int getVipDailyResumeLimit(Long userId);
+
+    int getVipDailyInterviewLimit(Long userId);
+
 }

@@ -78,6 +78,15 @@ public class RedisConfig {
                 .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(redisValueSerializer))
                 .disableCachingNullValues();
 
+        Map<String, RedisCacheConfiguration> cacheConfigMap = initialCacheConfigurations(defaultConfig);
+
+        return RedisCacheManager.builder(connectionFactory)
+                .cacheDefaults(defaultConfig)
+                .withInitialCacheConfigurations(cacheConfigMap)
+                .build();
+    }
+
+    Map<String, RedisCacheConfiguration> initialCacheConfigurations(RedisCacheConfiguration defaultConfig) {
         Map<String, RedisCacheConfiguration> cacheConfigMap = new HashMap<>();
         cacheConfigMap.put("auth:userInfo", defaultConfig.entryTtl(Duration.ofMinutes(10)));
         cacheConfigMap.put("notification:unreadCount", defaultConfig.entryTtl(Duration.ofMinutes(2)));
@@ -86,13 +95,11 @@ public class RedisConfig {
         cacheConfigMap.put("resume:task", defaultConfig.entryTtl(Duration.ofSeconds(10)));
         cacheConfigMap.put("user:monthlyStats", defaultConfig.entryTtl(Duration.ofMinutes(5)));
         cacheConfigMap.put("user:growthOverview", defaultConfig.entryTtl(Duration.ofMinutes(5)));
+        // 管理后台趋势查询已经做聚合查询，10 分钟 TTL 可降低重复访问压力，同时保持后台数据有可接受的新鲜度。
+        cacheConfigMap.put("admin:dashboardTrends", defaultConfig.entryTtl(Duration.ofMinutes(10)));
         cacheConfigMap.put("config:aiEngine", defaultConfig.entryTtl(Duration.ofMinutes(30)));
         cacheConfigMap.put("config:prompt", defaultConfig.entryTtl(Duration.ofMinutes(30)));
-
-        return RedisCacheManager.builder(connectionFactory)
-                .cacheDefaults(defaultConfig)
-                .withInitialCacheConfigurations(cacheConfigMap)
-                .build();
+        return cacheConfigMap;
     }
 
 }

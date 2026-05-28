@@ -24,8 +24,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import java.lang.reflect.Constructor;
+import java.time.Instant;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -162,6 +168,23 @@ class AuthServiceImplTest {
 
             BusinessException blockedException = assertThrows(BusinessException.class, () -> authService.login(request));
             assertTrue(blockedException.getMessage().contains("登录失败次数过多"));
+        }
+        @Test
+        @DisplayName("should clean expired local login attempts and keep active attempts")
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        void shouldCleanExpiredLocalLoginAttemptsAndKeepActiveAttempts() throws Exception {
+            Map localLoginAttempts = (Map) ReflectionTestUtils.getField(authService, "localLoginAttempts");
+            Class<?> recordClass = Class.forName(AuthServiceImpl.class.getName() + "$LoginAttemptRecord");
+            Constructor<?> constructor = recordClass.getDeclaredConstructor(int.class, Instant.class);
+            constructor.setAccessible(true);
+
+            localLoginAttempts.put("login:attempts:expiredUser", constructor.newInstance(3, Instant.now().minusSeconds(1)));
+            localLoginAttempts.put("login:attempts:activeUser", constructor.newInstance(2, Instant.now().plusSeconds(60)));
+
+            authService.cleanupExpiredLocalLoginAttempts();
+
+            assertFalse(localLoginAttempts.containsKey("login:attempts:expiredUser"));
+            assertTrue(localLoginAttempts.containsKey("login:attempts:activeUser"));
         }
     }
 

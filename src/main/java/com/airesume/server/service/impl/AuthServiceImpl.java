@@ -1,6 +1,5 @@
 package com.airesume.server.service.impl;
 
-import com.airesume.server.common.constants.QuotaConstants;
 import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.ResultCode;
 import com.airesume.server.dto.auth.LoginRequest;
@@ -24,6 +23,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -202,6 +202,14 @@ public class AuthServiceImpl implements AuthService {
         });
     }
 
+    /**
+     * 定时清理 Redis 故障兜底时产生的本地登录失败记录，避免冷门账号的过期记录长期留在内存中。
+     */
+    @Scheduled(fixedDelayString = "${app.auth.local-login-attempt-cleanup-interval-ms:1800000}")
+    void cleanupExpiredLocalLoginAttempts() {
+        localLoginAttempts.entrySet().removeIf(entry -> entry.getValue().isExpired());
+    }
+
     @Override
     @Cacheable(value = "auth:userInfo", key = "#userId", sync = true)
     public UserInfoResponse getCurrentUserInfo(Long userId) {
@@ -218,12 +226,14 @@ public class AuthServiceImpl implements AuthService {
         userQuotaService.refreshDailyQuotaIfNeeded(userId, userQuota);
         int resumeQuota = userQuota == null ? 0 : Math.max(0, safeValue(userQuota.getResumeQuota()));
         int interviewQuota = userQuota == null ? 0 : Math.max(0, safeValue(userQuota.getInterviewQuota()));
+        int vipDailyResumeLimit = sysUserService.getVipDailyResumeLimit(userId);
+        int vipDailyInterviewLimit = sysUserService.getVipDailyInterviewLimit(userId);
         int vipDailyResumeQuota = userQuota == null
                 ? 0
-                : Math.max(0, QuotaConstants.VIP_USER_DAILY_RESUME_LIMIT - safeValue(userQuota.getDailyResumeUsed()));
+                : Math.max(0, vipDailyResumeLimit - safeValue(userQuota.getDailyResumeUsed()));
         int vipDailyInterviewQuota = userQuota == null
                 ? 0
-                : Math.max(0, QuotaConstants.VIP_USER_DAILY_INTERVIEW_LIMIT - safeValue(userQuota.getDailyInterviewUsed()));
+                : Math.max(0, vipDailyInterviewLimit - safeValue(userQuota.getDailyInterviewUsed()));
 
         log.debug("User info fetched successfully, userId: {}, username: {}, resumeQuota: {}, interviewQuota: {}",
                 userId, user.getUsername(), resumeQuota, interviewQuota);

@@ -36,6 +36,7 @@ public class MembershipServiceImpl implements MembershipService {
 
     private static final DateTimeFormatter ORDER_NO_TIME_FORMATTER =
             DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
+    private static final int PUBLIC_PLAN_LIMIT = 6;
 
     private final MembershipPlanService membershipPlanService;
     private final MembershipOrderService membershipOrderService;
@@ -51,6 +52,7 @@ public class MembershipServiceImpl implements MembershipService {
                 .orderByAsc(MembershipPlan::getId);
 
         return membershipPlanService.list(wrapper).stream()
+                .limit(PUBLIC_PLAN_LIMIT)
                 .map(this::buildPlanVO)
                 .toList();
     }
@@ -120,15 +122,11 @@ public class MembershipServiceImpl implements MembershipService {
         return MembershipPlanVO.builder()
                 .planCode(plan.getPlanCode())
                 .planName(plan.getPlanName())
-                // The old plan description often described "gifted total counts" such as 35 or 150.
-                // That does not match the current business rule, so the API now returns a daily-limit description.
-                .description(buildPlanDescription(plan.getDurationDays()))
+                .description(plan.getDescription())
                 .priceAmount(plan.getPriceAmount())
                 .durationDays(plan.getDurationDays())
-                // The old implementation exposed cumulative package counts.
-                // The current business rule should expose the VIP daily limit instead.
-                .resumeQuota(QuotaConstants.VIP_USER_DAILY_RESUME_LIMIT)
-                .interviewQuota(QuotaConstants.VIP_USER_DAILY_INTERVIEW_LIMIT)
+                .resumeQuota(plan.getResumeQuota())
+                .interviewQuota(plan.getInterviewQuota())
                 .build();
     }
 
@@ -148,15 +146,17 @@ public class MembershipServiceImpl implements MembershipService {
         order.setOrderAmount(plan.getPriceAmount());
         order.setDurationDays(plan.getDurationDays());
 
-        // These fields are legacy schema fields from the old "granted total count" design.
-        // For compatibility we keep writing them, but the value now snapshots the VIP daily limit.
-        order.setGrantedResumeQuota(QuotaConstants.VIP_USER_DAILY_RESUME_LIMIT);
-        order.setGrantedInterviewQuota(QuotaConstants.VIP_USER_DAILY_INTERVIEW_LIMIT);
+        order.setGrantedResumeQuota(safeQuota(plan.getResumeQuota()));
+        order.setGrantedInterviewQuota(safeQuota(plan.getInterviewQuota()));
 
         order.setExpireTimeBefore(expireTimeBefore);
         order.setExpireTimeAfter(expireTimeAfter);
         order.setPaidAt(paidAt);
         return order;
+    }
+
+    private int safeQuota(Integer quota) {
+        return Math.max(0, quota == null ? 0 : quota);
     }
 
     private String buildPlanDescription(Integer durationDays) {

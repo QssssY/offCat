@@ -37,6 +37,8 @@ import java.util.stream.Collectors;
 @PreAuthorize("hasRole('ADMIN')")
 public class AdminMembershipController {
 
+    private static final int MAX_ENABLED_PLAN_COUNT = 6;
+
     private final MembershipPlanService membershipPlanService;
     private final MembershipOrderService membershipOrderService;
     private final SysUserService sysUserService;
@@ -74,6 +76,9 @@ public class AdminMembershipController {
             throw new BusinessException("套餐编码已存在");
         }
 
+        int targetStatus = request.getStatus() != null ? request.getStatus() : 1;
+        ensureEnabledPlanLimit(targetStatus, 0);
+
         MembershipPlan plan = new MembershipPlan();
         plan.setPlanCode(request.getPlanCode().trim());
         plan.setPlanName(request.getPlanName().trim());
@@ -82,7 +87,7 @@ public class AdminMembershipController {
         plan.setDurationDays(request.getDurationDays());
         plan.setResumeQuota(request.getResumeQuota());
         plan.setInterviewQuota(request.getInterviewQuota());
-        plan.setStatus(request.getStatus() != null ? request.getStatus() : 1);
+        plan.setStatus(targetStatus);
         plan.setSort(request.getSort() != null ? request.getSort() : 0);
         membershipPlanService.save(plan);
 
@@ -113,7 +118,10 @@ public class AdminMembershipController {
         if (request.getDurationDays() != null) plan.setDurationDays(request.getDurationDays());
         if (request.getResumeQuota() != null) plan.setResumeQuota(request.getResumeQuota());
         if (request.getInterviewQuota() != null) plan.setInterviewQuota(request.getInterviewQuota());
-        if (request.getStatus() != null) plan.setStatus(request.getStatus());
+        if (request.getStatus() != null) {
+            ensureEnabledPlanLimit(request.getStatus(), plan.getStatus() != null && plan.getStatus() == 1 ? 1 : 0);
+            plan.setStatus(request.getStatus());
+        }
         if (request.getSort() != null) plan.setSort(request.getSort());
 
         membershipPlanService.updateById(plan);
@@ -125,6 +133,7 @@ public class AdminMembershipController {
                                           Authentication authentication) {
         MembershipPlan plan = membershipPlanService.getById(id);
         if (plan == null) throw new BusinessException("套餐不存在");
+        ensureEnabledPlanLimit(status, plan.getStatus() != null && plan.getStatus() == 1 ? 1 : 0);
         plan.setStatus(status);
         membershipPlanService.updateById(plan);
         return Result.success("套餐状态更新成功", null);
@@ -136,6 +145,15 @@ public class AdminMembershipController {
         List<Long> safeIds = BatchValidator.validate(request.getIds());
         log.info("Admin batch toggle membership plans active, ids: {}, status: {}", safeIds, request.getIsActive());
         List<MembershipPlan> plans = membershipPlanService.listByIds(safeIds);
+        if (request.getIsActive() != null && request.getIsActive() == 1) {
+            long alreadyEnabledInBatch = plans.stream()
+                    .filter(plan -> plan.getStatus() != null && plan.getStatus() == 1)
+                    .count();
+            long enabledCount = countEnabledPlans();
+            if (enabledCount - alreadyEnabledInBatch + plans.size() > MAX_ENABLED_PLAN_COUNT) {
+                throw new BusinessException("最多只能启用 6 个会员套餐");
+            }
+        }
         for (MembershipPlan plan : plans) {
             // 批量启停只改状态字段，保留套餐价格、额度、排序等业务配置。
             plan.setStatus(request.getIsActive());
@@ -258,6 +276,23 @@ public class AdminMembershipController {
                 plan.getDescription(), plan.getPriceAmount(), plan.getDurationDays(),
                 plan.getResumeQuota(), plan.getInterviewQuota(), plan.getStatus(),
                 plan.getStatus() == 1 ? "启用" : "禁用", plan.getSort(), plan.getCreateTime());
+    }
+
+    private void ensureEnabledPlanLimit(Integer targetStatus, int currentEnabledPlanSelfCount) {
+        if (targetStatus == null || targetStatus != 1) {
+            return;
+        }
+
+        long enabledCount = countEnabledPlans();
+        if (enabledCount - currentEnabledPlanSelfCount >= MAX_ENABLED_PLAN_COUNT) {
+            throw new BusinessException("最多只能启用 6 个会员套餐");
+        }
+    }
+
+    private long countEnabledPlans() {
+        return membershipPlanService.lambdaQuery()
+                .eq(MembershipPlan::getStatus, 1)
+                .count();
     }
 
     private MembershipOrderResponse buildOrderResponse(MembershipOrder order) {

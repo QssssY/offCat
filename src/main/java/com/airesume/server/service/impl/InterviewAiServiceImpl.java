@@ -46,6 +46,7 @@ import reactor.netty.http.client.HttpClient;
 import reactor.core.publisher.FluxSink;
 import reactor.core.scheduler.Schedulers;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -60,6 +61,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
 
     private static final String INTERVIEW_AI_BREAKER = "interview-ai";
     private static final String INTERVIEW_STREAM_BREAKER = "interview-ai-stream";
+    private static final Duration STREAMING_RESPONSE_TIMEOUT = Duration.ofSeconds(180);
 
     private final RestClient restClient;
     private final WebClient webClient;
@@ -129,7 +131,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 .build();
         // 使用 JDK DNS 解析器，避免 Netty 异步解析器在 Windows 上无法解析部分域名
         HttpClient httpClient = HttpClient.create()
-                .resolver(DefaultAddressResolverGroup.INSTANCE);
+                .resolver(DefaultAddressResolverGroup.INSTANCE)
+                .responseTimeout(streamingResponseTimeout());
         this.webClient = WebClient.builder()
                 .baseUrl(this.resolvedBaseUrl)
                 .clientConnector(new ReactorClientHttpConnector(httpClient))
@@ -357,23 +360,27 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             log.warn("[{}] 请求体序列化失败", tag, e);
         }
 
-        log.info("[{}] ═══════════════════════════════════════════════", tag);
-        log.info("[{}] ║  流式请求参数验证  ║", tag);
-        log.info("[{}] ═══════════════════════════════════════════════", tag);
-        log.info("[{}] 请求地址: {}{}", tag, runtimeConfig.baseUrl(), runtimeConfig.endpoint());
-        log.info("[{}] model: {}", tag, runtimeConfig.model());
-        log.info("[{}] stream: {}", tag, reqBody.stream);
-        if (reqBody.thinking != null) {
-            log.info("[{}] thinking.type: {}", tag, reqBody.thinking.type);
-        } else {
-            log.info("[{}] thinking: 未设置", tag);
+        if (log.isDebugEnabled()) {
+            log.debug("[{}] ═══════════════════════════════════════════════", tag);
+            log.debug("[{}] ║  流式请求参数验证  ║", tag);
+            log.debug("[{}] ═══════════════════════════════════════════════", tag);
+            log.debug("[{}] 请求地址: {}{}", tag, runtimeConfig.baseUrl(), runtimeConfig.endpoint());
+            log.debug("[{}] model: {}", tag, runtimeConfig.model());
+            log.debug("[{}] stream: {}", tag, reqBody.stream);
+            if (reqBody.thinking != null) {
+                log.debug("[{}] thinking.type: {}", tag, reqBody.thinking.type);
+            } else {
+                log.debug("[{}] thinking: 未设置", tag);
+            }
+            log.debug("[{}] ═══════════════════════════════════════════════", tag);
         }
-        log.info("[{}] ═══════════════════════════════════════════════", tag);
 
         WebClient runtimeWebClient = webClientBuilder
                 .baseUrl(runtimeConfig.baseUrl())
                 .clientConnector(new ReactorClientHttpConnector(
-                        HttpClient.create().resolver(DefaultAddressResolverGroup.INSTANCE)))
+                        HttpClient.create()
+                                .resolver(DefaultAddressResolverGroup.INSTANCE)
+                                .responseTimeout(streamingResponseTimeout())))
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .build();
 
@@ -576,27 +583,53 @@ public class InterviewAiServiceImpl implements InterviewAiService {
 
                     String conclusion = makeConclusion(cCount, rCount, errors, parsed, total);
 
-                    log.info("");
-                    log.info("╔══════════════════════════════════════════════════════════════╗");
-                    log.info("║          【流式处理完成-最终统计报告 V3】                   ║");
-                    log.info("╠══════════════════════════════════════════════════════════════╣");
-                    log.info("║  模型: {}", runtimeConfig.model());
-                    log.info("║  总接收行数:              {}", total);
-                    log.info("║  成功解析JSON的行数:     {}", parsed);
-                    log.info("║  跳过的行数:             {}", skipped);
-                    log.info("║  JSON解析失败次数:       {}", errors);
-                    log.info("║  delta.content 非空chunk: {}", cCount);
-                    log.info("║  reasoning_content 非空:  {}", rCount);
-                    log.info("║  实际发给下游次数:       {}", emitted);
-                    log.info("║  结论: {}", conclusion);
-                    log.info("╚══════════════════════════════════════════════════════════════╝");
-                    log.info("");
+                    logStreamCompletionReport(runtimeConfig.model(), total, parsed, skipped, errors,
+                            cCount, rCount, emitted, conclusion);
 
                     sink.complete();
                 }
             });
         });
         return contentFlux;
+    }
+
+    /**
+     * 流式 WebClient 响应超时。该值大于前端 SSE 120 秒兜底，避免底层连接无限挂起。
+     */
+    Duration streamingResponseTimeout() {
+        return STREAMING_RESPONSE_TIMEOUT;
+    }
+
+    /**
+     * 流式最终统计报告只在 DEBUG 输出，避免生产 INFO 日志被高频盒绘报告刷屏。
+     */
+    void logStreamCompletionReport(String model,
+                                   int total,
+                                   int parsed,
+                                   int skipped,
+                                   int errors,
+                                   int contentChunkCount,
+                                   int reasoningChunkCount,
+                                   int emitted,
+                                   String conclusion) {
+        if (!log.isDebugEnabled()) {
+            return;
+        }
+        log.debug("");
+        log.debug("╔══════════════════════════════════════════════════════════════╗");
+        log.debug("║          【流式处理完成-最终统计报告 V3】                   ║");
+        log.debug("╠══════════════════════════════════════════════════════════════╣");
+        log.debug("║  模型: {}", model);
+        log.debug("║  总接收行数:              {}", total);
+        log.debug("║  成功解析JSON的行数:     {}", parsed);
+        log.debug("║  跳过的行数:             {}", skipped);
+        log.debug("║  JSON解析失败次数:       {}", errors);
+        log.debug("║  delta.content 非空chunk: {}", contentChunkCount);
+        log.debug("║  reasoning_content 非空:  {}", reasoningChunkCount);
+        log.debug("║  实际发给下游次数:       {}", emitted);
+        log.debug("║  结论: {}", conclusion);
+        log.debug("╚══════════════════════════════════════════════════════════════╝");
+        log.debug("");
     }
 
     /**

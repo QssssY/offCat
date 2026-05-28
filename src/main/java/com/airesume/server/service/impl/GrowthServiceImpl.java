@@ -20,6 +20,7 @@ import com.airesume.server.repository.InterviewSessionRepository;
 import com.airesume.server.service.GrowthService;
 import com.airesume.server.service.SysGrowthConfigService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -126,10 +127,12 @@ public class GrowthServiceImpl implements GrowthService {
      * 查询用户已完成的简历诊断任务（最近TREND_LIMIT条）
      */
     private List<ResumeDiagnosisTask> queryCompletedResumeTasks(Long userId) {
-        LambdaQueryWrapper<ResumeDiagnosisTask> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(ResumeDiagnosisTask::getUserId, userId)
-                .eq(ResumeDiagnosisTask::getStatus, RESUME_STATUS_COMPLETED)
-                .orderByDesc(ResumeDiagnosisTask::getCreateTime)
+        QueryWrapper<ResumeDiagnosisTask> wrapper = new QueryWrapper<>();
+        // 成长趋势只解析诊断分数和时间，避免加载 resume_text 等大文本字段。
+        wrapper.select("create_time", "diagnosis_result")
+                .eq("user_id", userId)
+                .eq("status", RESUME_STATUS_COMPLETED)
+                .orderByDesc("create_time")
                 .last("limit " + TREND_LIMIT);
         return resumeDiagnosisTaskMapper.selectList(wrapper);
     }
@@ -155,9 +158,11 @@ public class GrowthServiceImpl implements GrowthService {
      * 查询用户最近一条JD匹配记录
      */
     private ResumeJobMatchRecord queryLatestJobMatchRecord(Long userId) {
-        LambdaQueryWrapper<ResumeJobMatchRecord> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(ResumeJobMatchRecord::getUserId, userId)
-                .orderByDesc(ResumeJobMatchRecord::getCreateTime)
+        QueryWrapper<ResumeJobMatchRecord> wrapper = new QueryWrapper<>();
+        // 成长概览只需要分数、分析 JSON 和创建时间，避免加载简历/JD 文本快照。
+        wrapper.select("match_score", "analysis_result", "create_time")
+                .eq("user_id", userId)
+                .orderByDesc("create_time")
                 .last("limit 1");
         return resumeJobMatchRecordMapper.selectOne(wrapper);
     }
@@ -166,9 +171,11 @@ public class GrowthServiceImpl implements GrowthService {
      * 查询用户最近一条AI润色记录
      */
     private ResumePolishRecord queryLatestPolishRecord(Long userId) {
-        LambdaQueryWrapper<ResumePolishRecord> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(ResumePolishRecord::getUserId, userId)
-                .orderByDesc(ResumePolishRecord::getCreateTime)
+        QueryWrapper<ResumePolishRecord> wrapper = new QueryWrapper<>();
+        // 最近润色卡片只展示来源、修改说明和时间，避免加载润色全文与结构化文档 JSON。
+        wrapper.select("source_type", "modification_notes", "create_time")
+                .eq("user_id", userId)
+                .orderByDesc("create_time")
                 .last("limit 1");
         return resumePolishRecordMapper.selectOne(wrapper);
     }

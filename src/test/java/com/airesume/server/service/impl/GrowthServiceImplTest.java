@@ -5,6 +5,8 @@ import com.airesume.server.dto.growth.InterviewRadarResponse;
 import com.airesume.server.entity.InterviewDimensionScore;
 import com.airesume.server.entity.InterviewSession;
 import com.airesume.server.entity.ResumeDiagnosisTask;
+import com.airesume.server.entity.ResumeJobMatchRecord;
+import com.airesume.server.entity.ResumePolishRecord;
 import com.airesume.server.entity.SysGrowthConfig;
 import com.airesume.server.mapper.InterviewDimensionScoreMapper;
 import com.airesume.server.mapper.MockInterviewJobTargetRecordMapper;
@@ -13,6 +15,7 @@ import com.airesume.server.mapper.ResumeJobMatchRecordMapper;
 import com.airesume.server.mapper.ResumePolishRecordMapper;
 import com.airesume.server.repository.InterviewSessionRepository;
 import com.airesume.server.service.SysGrowthConfigService;
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -27,8 +30,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -155,6 +160,63 @@ class GrowthServiceImplTest {
                 response.getGrowthConfig().getMilestones().get(0).getConfigKey());
         assertEquals("完成第一次模拟面试",
                 response.getGrowthConfig().getMilestones().get(0).getTitle());
+    }
+
+    @Test
+    void shouldLimitGrowthOverviewQueriesToFieldsNeededByResponse() {
+        Long userId = 123L;
+        ResumeDiagnosisTask resumeTask = new ResumeDiagnosisTask();
+        resumeTask.setDiagnosisResult("{\"overallEvaluation\":{\"totalScore\":76}} ");
+        resumeTask.setCreateTime(LocalDateTime.of(2026, 5, 20, 9, 0));
+        ResumeJobMatchRecord jobMatchRecord = new ResumeJobMatchRecord();
+        jobMatchRecord.setMatchScore(82);
+        jobMatchRecord.setAnalysisResult("{\"matchedKeywords\":[\"Java\"],\"missingKeywords\":[],\"suggestions\":[]}");
+        jobMatchRecord.setCreateTime(LocalDateTime.of(2026, 5, 21, 9, 0));
+        ResumePolishRecord polishRecord = new ResumePolishRecord();
+        polishRecord.setSourceType("diagnosis");
+        polishRecord.setModificationNotes("[\"优化项目描述\"]");
+        polishRecord.setCreateTime(LocalDateTime.of(2026, 5, 22, 9, 0));
+
+        final String[] resumeSelect = new String[1];
+        final String[] jobMatchSelect = new String[1];
+        final String[] polishSelect = new String[1];
+        doAnswer(invocation -> {
+            resumeSelect[0] = invocation.<Wrapper<ResumeDiagnosisTask>>getArgument(0).getSqlSelect();
+            return List.of(resumeTask);
+        }).when(resumeDiagnosisTaskMapper).selectList(any());
+        doAnswer(invocation -> {
+            jobMatchSelect[0] = invocation.<Wrapper<ResumeJobMatchRecord>>getArgument(0).getSqlSelect();
+            return jobMatchRecord;
+        }).when(resumeJobMatchRecordMapper).selectOne(any());
+        doAnswer(invocation -> {
+            polishSelect[0] = invocation.<Wrapper<ResumePolishRecord>>getArgument(0).getSqlSelect();
+            return polishRecord;
+        }).when(resumePolishRecordMapper).selectOne(any());
+        when(interviewSessionRepository.findTop10ByUserIdAndStatusAndComprehensiveScoreIsNotNullAndIsDeletedOrderByCreateTimeDesc(
+                userId, 1, 0)).thenReturn(List.of());
+        when(resumeDiagnosisTaskMapper.selectCount(any())).thenReturn(1L);
+        when(interviewSessionRepository.countByUserIdAndStatus(userId, 1)).thenReturn(0L);
+        when(resumeJobMatchRecordMapper.selectCount(any())).thenReturn(1L);
+        when(resumePolishRecordMapper.selectCount(any())).thenReturn(1L);
+        when(sysGrowthConfigService.getByGroup("encouragement")).thenReturn(List.of());
+        when(sysGrowthConfigService.getByGroup("milestone")).thenReturn(List.of());
+
+        GrowthOverviewResponse response = growthService.getGrowthOverview(userId);
+
+        assertEquals(76, response.getSummary().getLatestResumeScore());
+        assertEquals(82, response.getSummary().getLatestJobMatchScore());
+        assertNotNull(response.getLatestPolish());
+        assertTrue(resumeSelect[0].contains("diagnosis_result"));
+        assertTrue(resumeSelect[0].contains("create_time"));
+        assertFalse(resumeSelect[0].contains("resume_text"));
+        assertTrue(jobMatchSelect[0].contains("match_score"));
+        assertTrue(jobMatchSelect[0].contains("analysis_result"));
+        assertFalse(jobMatchSelect[0].contains("resume_text"));
+        assertFalse(jobMatchSelect[0].contains("jd_text"));
+        assertTrue(polishSelect[0].contains("source_type"));
+        assertTrue(polishSelect[0].contains("modification_notes"));
+        assertFalse(polishSelect[0].contains("polished_resume_text"));
+        assertFalse(polishSelect[0].contains("document_json"));
     }
 
     private InterviewSession buildEndedSessionWithReport(String sessionId, Long userId) {

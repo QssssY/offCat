@@ -1,8 +1,10 @@
 package com.airesume.server.service.impl;
 
 import com.airesume.server.common.constants.UserRoleConstants;
+import com.airesume.server.entity.MembershipPlan;
 import com.airesume.server.entity.SysUser;
 import com.airesume.server.mapper.SysUserMapper;
+import com.airesume.server.service.MembershipPlanService;
 import com.airesume.server.service.SysUserService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -32,6 +34,9 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
     @Lazy
     @Autowired
     private SysUserServiceImpl self;
+
+    @Autowired
+    private MembershipPlanService membershipPlanService;
 
     /**
      * 重写 getById，加 Redis 缓存。
@@ -118,6 +123,26 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
         boolean isValidVip = user.getVipExpireTime().isAfter(LocalDateTime.now());
         log.debug("VIP status check completed, userId: {}, isValidVip: {}", userId, isValidVip);
         return isValidVip;
+    }
+
+    @Override
+    public int getVipDailyResumeLimit(Long userId) {
+        MembershipPlan plan = getCurrentActiveMembershipPlan(userId);
+        return Math.max(0, plan == null || plan.getResumeQuota() == null ? 0 : plan.getResumeQuota());
+    }
+
+    @Override
+    public int getVipDailyInterviewLimit(Long userId) {
+        MembershipPlan plan = getCurrentActiveMembershipPlan(userId);
+        return Math.max(0, plan == null || plan.getInterviewQuota() == null ? 0 : plan.getInterviewQuota());
+    }
+
+    private MembershipPlan getCurrentActiveMembershipPlan(Long userId) {
+        SysUser user = self.getById(userId);
+        if (user == null || !isVipUser(userId) || user.getMembershipPlanCode() == null) {
+            return null;
+        }
+        return membershipPlanService.getActiveByCode(user.getMembershipPlanCode());
     }
 
 }

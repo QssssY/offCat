@@ -112,6 +112,32 @@ class AdminMembershipControllerTest {
     }
 
     @Test
+    void createPlanShouldRejectWhenEnabledPlanLimitReached() {
+        AdminMembershipController.MembershipPlanCreateRequest request = new AdminMembershipController.MembershipPlanCreateRequest();
+        request.setPlanCode("vip_extra");
+        request.setPlanName("Extra VIP");
+        request.setPriceAmount(BigDecimal.valueOf(399));
+        request.setDurationDays(365);
+        request.setResumeQuota(30);
+        request.setInterviewQuota(40);
+        request.setStatus(1);
+
+        @SuppressWarnings("unchecked")
+        com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper<MembershipPlan> codeWrapper = mock(
+            com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper.class);
+        @SuppressWarnings("unchecked")
+        com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper<MembershipPlan> enabledWrapper = mock(
+            com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper.class);
+        when(membershipPlanService.lambdaQuery()).thenReturn(codeWrapper, enabledWrapper);
+        doReturn(codeWrapper).when(codeWrapper).eq(any(SFunction.class), any());
+        when(codeWrapper.count()).thenReturn(0L);
+        doReturn(enabledWrapper).when(enabledWrapper).eq(any(SFunction.class), any());
+        when(enabledWrapper.count()).thenReturn(6L);
+
+        assertThrows(BusinessException.class, () -> controller.createPlan(request, authentication));
+    }
+
+    @Test
     void createPlanShouldThrowWhenCodeExists() {
         AdminMembershipController.MembershipPlanCreateRequest request = new AdminMembershipController.MembershipPlanCreateRequest();
         request.setPlanCode("vip_month");
@@ -163,12 +189,30 @@ class AdminMembershipControllerTest {
         plan.setId(100L);
         plan.setStatus(0);
         when(membershipPlanService.getById(100L)).thenReturn(plan);
+        mockEnabledPlanCount(5L);
 
         Result<Void> result = controller.togglePlanActive(100L, 1, authentication);
 
         assertEquals(CODE_SUCCESS, result.getCode());
         assertEquals(1, plan.getStatus());
         verify(membershipPlanService).updateById(plan);
+    }
+
+    @Test
+    void togglePlanActiveShouldRejectWhenEnabledPlanLimitReached() {
+        MembershipPlan plan = new MembershipPlan();
+        plan.setId(100L);
+        plan.setStatus(0);
+        when(membershipPlanService.getById(100L)).thenReturn(plan);
+
+        @SuppressWarnings("unchecked")
+        com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper<MembershipPlan> wrapper = mock(
+            com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper.class);
+        when(membershipPlanService.lambdaQuery()).thenReturn(wrapper);
+        doReturn(wrapper).when(wrapper).eq(any(SFunction.class), any());
+        when(wrapper.count()).thenReturn(6L);
+
+        assertThrows(BusinessException.class, () -> controller.togglePlanActive(100L, 1, authentication));
     }
 
     @Test
@@ -191,6 +235,7 @@ class AdminMembershipControllerTest {
         request.setIds(List.of(100L, 200L));
         request.setIsActive(1);
         when(membershipPlanService.listByIds(List.of(100L, 200L))).thenReturn(List.of(plan1, plan2));
+        mockEnabledPlanCount(4L);
 
         Result<Void> result = controller.togglePlansBatchActive(request, authentication);
 
@@ -199,6 +244,29 @@ class AdminMembershipControllerTest {
         assertEquals(1, plan2.getStatus());
         verify(membershipPlanService).updateById(plan1);
         verify(membershipPlanService).updateById(plan2);
+    }
+
+    @Test
+    void togglePlansBatchActiveShouldRejectWhenEnabledPlanLimitWouldBeExceeded() {
+        MembershipPlan plan1 = new MembershipPlan();
+        plan1.setId(100L);
+        plan1.setStatus(0);
+        MembershipPlan plan2 = new MembershipPlan();
+        plan2.setId(200L);
+        plan2.setStatus(0);
+        BatchActiveRequest request = new BatchActiveRequest();
+        request.setIds(List.of(100L, 200L));
+        request.setIsActive(1);
+        when(membershipPlanService.listByIds(List.of(100L, 200L))).thenReturn(List.of(plan1, plan2));
+
+        @SuppressWarnings("unchecked")
+        com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper<MembershipPlan> wrapper = mock(
+            com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper.class);
+        when(membershipPlanService.lambdaQuery()).thenReturn(wrapper);
+        doReturn(wrapper).when(wrapper).eq(any(SFunction.class), any());
+        when(wrapper.count()).thenReturn(5L);
+
+        assertThrows(BusinessException.class, () -> controller.togglePlansBatchActive(request, authentication));
     }
 
     @Test
@@ -216,6 +284,15 @@ class AdminMembershipControllerTest {
 
         assertEquals(CODE_SUCCESS, result.getCode());
         verify(membershipPlanService).removeByIds(List.of(100L, 200L));
+    }
+
+    private void mockEnabledPlanCount(long enabledCount) {
+        @SuppressWarnings("unchecked")
+        com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper<MembershipPlan> wrapper = mock(
+            com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper.class);
+        when(membershipPlanService.lambdaQuery()).thenReturn(wrapper);
+        doReturn(wrapper).when(wrapper).eq(any(SFunction.class), any());
+        when(wrapper.count()).thenReturn(enabledCount);
     }
 
     @Test

@@ -99,7 +99,7 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
         refreshDailyQuotaIfNeeded(userId, userQuota);
 
         if (sysUserService.isVipUser(userId)
-                && getBaseMapper().consumeVipDailyInterviewQuotaAtomic(userId, QuotaConstants.VIP_USER_DAILY_INTERVIEW_LIMIT) > 0) {
+                && getBaseMapper().consumeVipDailyInterviewQuotaAtomic(userId, getVipDailyInterviewLimit(userId)) > 0) {
             log.info("VIP deducted interview daily quota for userId: {}", userId);
             return;
         }
@@ -116,7 +116,7 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
     @CacheEvict(value = "auth:userInfo", key = "#userId")
     public void refundResumeQuota(Long userId) {
         ensureUserQuota(userId);
-        int dailyLimit = sysUserService.isVipUser(userId) ? QuotaConstants.VIP_USER_DAILY_RESUME_LIMIT : 0;
+        int dailyLimit = sysUserService.isVipUser(userId) ? getVipDailyResumeLimit(userId) : 0;
         getBaseMapper().refundResumeQuotaAtomic(userId, dailyLimit);
         log.info("Refunded resume quota for userId: {}", userId);
     }
@@ -129,7 +129,7 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
         refreshDailyQuotaIfNeeded(userId, userQuota);
 
         if (sysUserService.isVipUser(userId)
-                && getBaseMapper().consumeVipDailyResumeQuotaAtomic(userId, QuotaConstants.VIP_USER_DAILY_RESUME_LIMIT) > 0) {
+                && getBaseMapper().consumeVipDailyResumeQuotaAtomic(userId, getVipDailyResumeLimit(userId)) > 0) {
             log.info("VIP deducted resume daily quota for userId: {}", userId);
             return;
         }
@@ -202,11 +202,19 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
     }
 
     private int getVipDailyInterviewRemaining(UserQuota userQuota) {
-        return Math.max(0, QuotaConstants.VIP_USER_DAILY_INTERVIEW_LIMIT - safeValue(userQuota.getDailyInterviewUsed()));
+        return Math.max(0, getVipDailyInterviewLimit(userQuota.getUserId()) - safeValue(userQuota.getDailyInterviewUsed()));
     }
 
     private int getVipDailyResumeRemaining(UserQuota userQuota) {
-        return Math.max(0, QuotaConstants.VIP_USER_DAILY_RESUME_LIMIT - safeValue(userQuota.getDailyResumeUsed()));
+        return Math.max(0, getVipDailyResumeLimit(userQuota.getUserId()) - safeValue(userQuota.getDailyResumeUsed()));
+    }
+
+    private int getVipDailyInterviewLimit(Long userId) {
+        return Math.max(0, sysUserService.getVipDailyInterviewLimit(userId));
+    }
+
+    private int getVipDailyResumeLimit(Long userId) {
+        return Math.max(0, sysUserService.getVipDailyResumeLimit(userId));
     }
 
     private int safeValue(Integer value) {
