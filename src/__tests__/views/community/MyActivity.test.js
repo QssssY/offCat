@@ -108,7 +108,7 @@ describe('MyActivity', () => {
     await wrapper.findAll('.tab-btn')[3].trigger('click')
     await flushPromises()
 
-    expect(getMyComments).toHaveBeenCalledWith({ pageNum: 1, pageSize: 2 })
+    expect(getMyComments).toHaveBeenCalledWith({ pageNum: 1, pageSize: 5 })
     expect(wrapper.find('.dynamic-scroller-stub').exists()).toBe(true)
     expect(wrapper.text()).toContain('这是一条评论')
   })
@@ -169,7 +169,7 @@ describe('MyActivity', () => {
     await wrapper.findAll('.tab-btn')[4].trigger('click')
     await flushPromises()
 
-    expect(getMyInteractions).toHaveBeenCalledWith({ pageNum: 1, pageSize: 2 })
+    expect(getMyInteractions).toHaveBeenCalledWith({ pageNum: 1, pageSize: 5 })
     expect(wrapper.vm.receivedLikesState.items.value[0].virtualKey).toMatch(/^like-/)
     expect(wrapper.text()).toContain('点赞用户')
   })

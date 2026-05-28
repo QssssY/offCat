@@ -56,7 +56,7 @@
             <span class="category-dot" :class="item.postCategory"></span>
             <span class="category-label">{{ categoryLabel(item.postCategory) }}</span>
             <span class="post-author">@{{ item.postAuthorName }}</span>
-            <span class="post-snippet">{{ item.postContent?.slice(0, 60) }}{{ (item.postContent?.length || 0) > 60 ? '...' : '' }}</span>
+            <span class="post-snippet">{{ item.postTitle || item.postContent?.slice(0, 60) }}{{ !item.postTitle && (item.postContent?.length || 0) > 60 ? '...' : '' }}</span>
             <span v-if="getImageCount(item.postImages) > 0" class="post-img-count">
               <FeatureIcon name="image-upload" size="xs" />
               {{ getImageCount(item.postImages) }}
@@ -86,7 +86,7 @@
     <div v-else-if="['mine', 'liked', 'favorited'].includes(activeTab) && currentTabState.posts.value.length > 0" class="post-list">
       <DynamicScroller :items="currentTabState.posts.value" :min-item-size="150" key-field="id" class="post-list-inner virtual-activity-list" :buffer="700">
         <template #default="{ item: post, active }">
-          <DynamicScrollerItem :item="post" :active="active" :size-dependencies="[post.content, post.images?.length, post.likeCount, post.commentCount]">
+          <DynamicScrollerItem :item="post" :active="active" :size-dependencies="[post.title, post.content, post.images?.length, post.likeCount, post.commentCount]">
         <div class="my-post-card virtual-activity-card">
           <div class="card-main" @click="goToDetail(post.id)">
             <div class="card-header">
@@ -94,7 +94,12 @@
               <span class="category-label">{{ categoryLabel(post.category) }}</span>
               <span class="card-time">{{ formatTime(post.createTime) }}</span>
             </div>
+            <h2 v-if="post.title" class="card-title">{{ post.title }}</h2>
             <p class="card-content">{{ post.content }}</p>
+            <div v-if="post.sharedInterviewSessionId" class="card-report-link">
+              <FeatureIcon name="interview-report" size="xs" />
+              <span>面试报告链接</span>
+            </div>
             <div v-if="post.images && post.images.length > 0" class="card-image-hint">
               <FeatureIcon name="image-upload" size="xs" />
               <span>{{ post.images.length }}张图片</span>
@@ -147,7 +152,7 @@
           </div>
           <div class="interaction-post-ref">
             <span class="category-dot" :class="item.postCategory"></span>
-            <span class="post-snippet">{{ item.postContent }}</span>
+            <span class="post-snippet">{{ item.postTitle || item.postContent }}</span>
           </div>
         </div>
           </DynamicScrollerItem>
@@ -184,7 +189,7 @@
           <p class="comment-content">{{ item.commentContent }}</p>
           <div class="interaction-post-ref">
             <span class="category-dot" :class="item.postCategory"></span>
-            <span class="post-snippet">{{ item.postContent }}</span>
+            <span class="post-snippet">{{ item.postTitle || item.postContent }}</span>
           </div>
         </div>
           </DynamicScrollerItem>
@@ -225,7 +230,7 @@
           </div>
           <div class="interaction-post-ref">
             <span class="category-dot" :class="item.postCategory"></span>
-            <span class="post-snippet">{{ item.postContent }}</span>
+            <span class="post-snippet">{{ item.postTitle || item.postContent }}</span>
           </div>
         </div>
           </DynamicScrollerItem>
@@ -261,7 +266,7 @@
           </div>
           <div class="interaction-post-ref">
             <span class="category-dot" :class="item.postCategory"></span>
-            <span class="post-snippet">{{ item.postContent }}</span>
+            <span class="post-snippet">{{ item.postTitle || item.postContent }}</span>
           </div>
         </div>
           </DynamicScrollerItem>
@@ -379,7 +384,7 @@ const currentTabState = computed(() => {
   return postStateMap[activeTab.value]
 })
 
-const pageSize = 2
+const pageSize = 5
 const loadingMore = ref(false)
 
 // 加载状态判断
@@ -982,6 +987,28 @@ onMounted(() => {
   -webkit-box-orient: vertical;
   overflow: hidden;
   word-break: break-all;
+}
+
+.card-title {
+  margin: 0 0 8px;
+  color: var(--text-title);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.card-report-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 10px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: var(--orange-light-bg);
+  color: var(--orange-deep);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .card-image-hint {

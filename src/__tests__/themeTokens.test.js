@@ -13,6 +13,29 @@ const sourceFile = (path) => readFileSync(
 )
 
 describe('dark theme tokens', () => {
+  it('should define a global cursor baseline without turning read-only text into inputs', () => {
+    const source = styleSource()
+
+    expect(source).toMatch(/body\s*\{[\s\S]*?cursor:\s*default;/)
+    expect(source).toMatch(/body\s+\*[\s\S]*?cursor:\s*default;[\s\S]*?caret-color:\s*transparent;/)
+    expect(source).toMatch(/input,[\s\S]*?textarea,[\s\S]*?\[contenteditable="true"\][\s\S]*?cursor:\s*text;/)
+    expect(source).toMatch(/input,[\s\S]*?textarea,[\s\S]*?\[contenteditable="true"\][\s\S]*?caret-color:\s*auto;/)
+    expect(source).toMatch(/\[contenteditable="true"\]\s+\*,[\s\S]*?\[contenteditable="plaintext-only"\]\s+\*[\s\S]*?cursor:\s*text;[\s\S]*?caret-color:\s*auto;/)
+    expect(source).toMatch(/button,[\s\S]*?a,[\s\S]*?\[role="button"\][\s\S]*?cursor:\s*pointer;/)
+    expect(source).toMatch(/button:disabled,[\s\S]*?\[aria-disabled="true"\][\s\S]*?cursor:\s*not-allowed;/)
+  })
+
+  it('should keep child text inside interactive elements from falling back to I-beam cursors', () => {
+    const source = styleSource()
+
+    expect(source).toMatch(/button\s+\*,[\s\S]*?a\s+\*,[\s\S]*?\[role="button"\]\s+\*[\s\S]*?cursor:\s*inherit;/)
+    expect(source).toMatch(/\[role="menuitem"\],[\s\S]*?\[role="tab"\],[\s\S]*?\.el-dropdown-menu__item,[\s\S]*?\.el-tabs__item,[\s\S]*?\.n-button,[\s\S]*?\.n-tabs-tab[\s\S]*?cursor:\s*pointer;/)
+    expect(source).toMatch(/\.el-dropdown-menu__item,[\s\S]*?\.el-dropdown-menu__item\s+\*[\s\S]*?cursor:\s*pointer;/)
+    expect(source).toMatch(/\.n-button,[\s\S]*?\.n-button\s+\*,[\s\S]*?\.n-tabs-tab,[\s\S]*?\.n-tabs-tab\s+\*[\s\S]*?cursor:\s*pointer;/)
+    expect(source).toMatch(/\.el-dropdown-menu__item:focus,[\s\S]*?\.el-dropdown-menu__item:active,[\s\S]*?\.el-dropdown-menu__item\.is-active[\s\S]*?cursor:\s*pointer\s*!important;/)
+    expect(source).toMatch(/\.el-dropdown-menu__item\.is-disabled,[\s\S]*?\.el-dropdown-menu__item\.is-disabled\s+\*[\s\S]*?cursor:\s*not-allowed;/)
+  })
+
   it('should use warm brown global dark tokens instead of the old cool palette', () => {
     const source = styleSource()
 

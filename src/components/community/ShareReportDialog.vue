@@ -10,6 +10,18 @@
     @open="initContent"
   >
     <div class="share-report-dialog">
+      <!-- 标题会作为社区帖子标题保存，用户可在分享前按语境微调。 -->
+      <div class="editor-field">
+        <label class="field-label">帖子标题</label>
+        <input
+          v-model="reportTitle"
+          class="title-input"
+          type="text"
+          maxlength="120"
+          placeholder="请输入社区帖子标题"
+        />
+      </div>
+
       <!-- 用户文案 -->
       <div class="editor-field">
         <label class="field-label">我的文案</label>
@@ -21,14 +33,15 @@
         />
       </div>
 
-      <!-- 报告预览 -->
+      <!-- 报告链接预览 -->
       <div class="editor-field">
         <label class="field-label">
-          报告内容
-          <span class="field-hint">（将附在文案之后）</span>
+          报告链接
+          <span class="field-hint">（发布后其他用户可点击查看）</span>
         </label>
-        <div class="report-preview">
-          <div class="report-preview-content">{{ reportSummary }}</div>
+        <div class="report-preview report-link-preview">
+          <div class="report-preview-title">{{ normalizedReportTitle || '面试报告分享' }}</div>
+          <div class="report-preview-content">{{ reportLink }}</div>
         </div>
       </div>
     </div>
@@ -67,110 +80,37 @@ const props = defineProps({
 const emit = defineEmits(['update:visible'])
 
 const userText = ref('')
-const reportSummary = ref('')
+const reportTitle = ref('')
+const reportLink = ref('')
 const submitting = ref(false)
 
 const fullContent = computed(() => {
   const user = userText.value.trim()
-  const report = reportSummary.value.trim()
-  if (user && report) return user + '\n\n' + report
   if (user) return user
-  return report
+  return `我分享了一份${reportTitle.value || '模拟面试报告'}，点击下方链接查看完整报告。`
 })
 
 const totalLength = computed(() => fullContent.value.length)
+const normalizedReportTitle = computed(() => reportTitle.value.trim())
 
 const canSubmit = computed(() => {
-  return fullContent.value.length > 0 && totalLength.value <= 2000 && !submitting.value
+  return normalizedReportTitle.value.length > 0 && fullContent.value.length > 0 && totalLength.value <= 2000 && !submitting.value
 })
-
-function parseReport(raw) {
-  if (!raw) return null
-  if (typeof raw === 'object') return raw
-  let trimmed = raw.trim()
-  if (trimmed.startsWith('```json')) trimmed = trimmed.slice(7)
-  else if (trimmed.startsWith('```')) trimmed = trimmed.slice(3)
-  const lastBacktick = trimmed.lastIndexOf('```')
-  if (lastBacktick > 0) trimmed = trimmed.slice(0, lastBacktick)
-  trimmed = trimmed.trim()
-  if (!trimmed) return null
-  try { return JSON.parse(trimmed) } catch { return null }
-}
-
-function generateSummary() {
-  const s = props.sessionData
-  if (!s) return ''
-
-  const report = parseReport(s.evaluationReport)
-  const parts = []
-
-  parts.push('📊 模拟面试报告')
-  parts.push('')
-
-  const meta = []
-  if (s.jobRole) meta.push(`岗位：${s.jobRole}`)
-  if (s.difficultyDesc) meta.push(`难度：${s.difficultyDesc}`)
-  else if (s.difficulty) {
-    const dMap = { 1: '初级', 2: '中级', 3: '高级' }
-    meta.push(`难度：${dMap[s.difficulty] || '--'}`)
-  }
-  if (s.comprehensiveScore != null) meta.push(`综合评分：${s.comprehensiveScore}分`)
-  if (meta.length) parts.push(meta.join(' | '))
-  parts.push('')
-
-  if (report) {
-    const strengths = report.strengths || []
-    if (strengths.length) {
-      parts.push('✨ 优势亮点：')
-      strengths.forEach(v => parts.push(`• ${v}`))
-      parts.push('')
-    }
-
-    const weaknesses = [...(report.weaknesses || []), ...(report.missingCompetencies || [])]
-    if (weaknesses.length) {
-      parts.push('⚠️ 不足之处：')
-      weaknesses.forEach(v => parts.push(`• ${v}`))
-      parts.push('')
-    }
-
-    const suggestions = [...(report.improvementSuggestions || []), ...(report.suggestions || [])]
-    if (suggestions.length) {
-      parts.push('💡 改进建议：')
-      suggestions.forEach(v => parts.push(`• ${v}`))
-      parts.push('')
-    }
-
-    const dims = [
-      { key: 'jobMatch', label: '岗位匹配' },
-      { key: 'technicalDepth', label: '技术深度' },
-      { key: 'communication', label: '沟通表达' },
-      { key: 'problemSolving', label: '问题解决' },
-      { key: 'pressureResistance', label: '抗压表现' }
-    ]
-    const dimScores = dims
-      .map(d => {
-        const val = report[d.key]
-        return val && val.score != null ? `${d.label} ${val.score}` : null
-      })
-      .filter(Boolean)
-    if (dimScores.length) {
-      parts.push('📈 维度评分：')
-      parts.push(dimScores.join(' | '))
-      parts.push('')
-    }
-
-    if (report.summary) {
-      parts.push('💬 AI 评估总结：')
-      parts.push(report.summary)
-    }
-  }
-
-  return parts.join('\n').trim()
-}
 
 function initContent() {
   userText.value = ''
-  reportSummary.value = generateSummary()
+  reportTitle.value = generateReportTitle()
+  reportLink.value = buildReportLink()
+}
+
+function generateReportTitle() {
+  const role = props.sessionData?.jobRole || '模拟面试'
+  return `${role} 面试报告`
+}
+
+function buildReportLink() {
+  const id = props.sessionData?.sessionId || props.sessionData?.id || ''
+  return id ? `/interview/report/${id}` : ''
 }
 
 async function handleSubmit() {
@@ -179,8 +119,10 @@ async function handleSubmit() {
   try {
     await createPost({
       category: 'interview_exp',
+      title: normalizedReportTitle.value,
       content: fullContent.value,
-      images: []
+      images: [],
+      sharedInterviewSessionId: props.sessionData?.sessionId || props.sessionData?.id || ''
     })
     ElMessage.success('分享成功')
     emit('update:visible', false)
@@ -259,6 +201,48 @@ async function handleSubmit() {
   color: var(--text-title, #2f2f2f);
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.title-input {
+  width: 100%;
+  padding: 11px 14px;
+  border: 2px solid var(--border-input);
+  border-radius: 12px;
+  font-size: 14px;
+  color: var(--text-title);
+  background: var(--bg-input);
+  font-family: inherit;
+  line-height: 1.5;
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+.title-input:focus {
+  outline: none;
+  border-color: var(--orange-main);
+  box-shadow: 0 0 0 3px rgba(255, 140, 66, 0.12);
+}
+
+.title-input::placeholder {
+  color: var(--text-placeholder);
+}
+
+.report-link-preview {
+  max-height: none;
+  padding: 14px 16px;
+}
+
+.report-link-preview .report-preview-content {
+  padding: 0;
+  color: var(--orange-deep, #d9661e);
+  font-weight: 600;
+  white-space: normal;
+}
+
+.report-preview-title {
+  margin-bottom: 6px;
+  color: var(--text-title, #2f2f2f);
+  font-size: 14px;
+  font-weight: 700;
 }
 
 /* 底部操作栏 */

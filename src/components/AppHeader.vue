@@ -108,6 +108,7 @@
           <span
             class="nav-link history-trigger"
             :class="{ active: isHistoryActive }"
+            @mousedown.prevent
           >
             <FeatureIcon name="history-records" size="xs" class="nav-feature-icon" critical />
             历史记录
@@ -118,6 +119,7 @@
               <el-dropdown-item
                 command="resume"
                 :class="{ active: isResumeHistoryActive }"
+                @mousedown.prevent
               >
                 <FeatureIcon name="resume-score" size="xs" class="dropdown-icon feature-dropdown-icon" />
                 简历诊断历史
@@ -125,6 +127,7 @@
               <el-dropdown-item
                 command="interview"
                 :class="{ active: isInterviewHistoryActive }"
+                @mousedown.prevent
               >
                 <FeatureIcon name="interview-replay" size="xs" class="dropdown-icon feature-dropdown-icon" />
                 模拟面试历史
@@ -1083,6 +1086,11 @@ onUnmounted(() => {
 /* 历史记录下拉菜单 */
 .history-dropdown-wrapper {
   position: relative;
+}
+
+.history-trigger,
+.history-trigger :deep(*) {
+  cursor: pointer;
 }
 
 .history-trigger {

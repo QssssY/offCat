@@ -42,6 +42,20 @@
 
     <!-- 内容输入 -->
     <div class="editor-field">
+      <label class="field-label">帖子标题</label>
+      <input
+        v-model="form.title"
+        class="title-input"
+        type="text"
+        maxlength="120"
+        :placeholder="form.category === 'interview_exp'
+          ? '例如：一次 Java 后端一面的复盘'
+          : '例如：深圳前端岗位内推，偏 Vue 方向'"
+      />
+    </div>
+
+    <!-- 内容输入 -->
+    <div class="editor-field">
       <label class="field-label">帖子内容</label>
       <textarea
         v-model="form.content"
@@ -118,6 +132,7 @@ const emit = defineEmits(['published', 'cancel'])
 
 const form = ref({
   category: 'interview_exp',
+  title: '',
   content: '',
   images: []
 })
@@ -126,7 +141,7 @@ const imageUploading = ref(false)
 const submitting = ref(false)
 
 const canSubmit = computed(() => {
-  return form.value.content.trim().length > 0 && !submitting.value
+  return form.value.title.trim().length > 0 && form.value.content.trim().length > 0 && !submitting.value
 })
 
 const handleImageUpload = async (e) => {
@@ -174,6 +189,7 @@ const handleSubmit = async () => {
   try {
     await createPost({
       category: form.value.category,
+      title: form.value.title.trim(),
       content: form.value.content.trim(),
       images: form.value.images
     })
@@ -343,6 +359,29 @@ const handleSubmit = async () => {
   font-family: inherit;
   line-height: 1.7;
   transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+.title-input {
+  width: 100%;
+  padding: 11px 14px;
+  border: 2px solid var(--border-input);
+  border-radius: 12px;
+  font-size: 14px;
+  color: var(--text-title);
+  background: var(--bg-input);
+  font-family: inherit;
+  line-height: 1.5;
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+.title-input:focus {
+  outline: none;
+  border-color: var(--orange-main);
+  box-shadow: 0 0 0 3px rgba(255, 140, 66, 0.12);
+}
+
+.title-input::placeholder {
+  color: var(--text-placeholder);
 }
 
 .content-textarea:focus {

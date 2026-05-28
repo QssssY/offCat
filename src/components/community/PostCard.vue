@@ -23,7 +23,26 @@
 
     <!-- 内容摘要 -->
     <div class="card-body">
-      <p class="post-summary">{{ post.content }}</p>
+      <h2 v-if="displayTitle" class="post-title">{{ displayTitle }}</h2>
+      <p class="post-summary" :class="{ collapsed: shouldCollapseContent && !contentExpanded }">{{ post.content }}</p>
+      <button
+        v-if="shouldCollapseContent"
+        type="button"
+        class="content-toggle"
+        @click.stop="contentExpanded = !contentExpanded"
+      >
+        {{ contentExpanded ? '收起' : '展开' }}
+      </button>
+      <a
+        v-if="post.sharedInterviewSessionId"
+        class="report-link-card"
+        :href="`/interview/report/${post.sharedInterviewSessionId}`"
+        @click.stop
+      >
+        <FeatureIcon name="interview-report" size="sm" />
+        <span class="report-link-main">查看完整面试报告</span>
+        <span class="report-link-title">{{ displayTitle }}</span>
+      </a>
       <!-- 图片缩略图 -->
       <ImageGrid
         v-if="post.images && post.images.length > 0"
@@ -63,6 +82,7 @@
 </template>
 
 <script setup>
+import { computed, ref } from 'vue'
 import FeatureIcon from '@/components/common/FeatureIcon.vue'
 import ImageGrid from './ImageGrid.vue'
 import { optimizedImages } from '@/utils/optimizedImages'
@@ -70,7 +90,7 @@ import { formatTime, categoryLabel } from '@/utils/community'
 
 const defaultAvatar = optimizedImages.userAvatar.webp
 
-defineProps({
+const props = defineProps({
   post: {
     type: Object,
     required: true
@@ -78,6 +98,18 @@ defineProps({
 })
 
 defineEmits(['click', 'like', 'favorite', 'share'])
+
+const contentExpanded = ref(false)
+
+// 旧报告分享帖可能没有 title 字段，前端展示层兜底，避免用户看到无标题内容。
+const displayTitle = computed(() => {
+  const title = props.post.title?.trim()
+  if (title) return title
+  return props.post.sharedInterviewSessionId ? '面试报告分享' : ''
+})
+
+// 列表卡片只展示摘要，超过阈值时交给用户主动展开，避免长文本撑高信息流。
+const shouldCollapseContent = computed(() => (props.post.content || '').length > 220)
 </script>
 
 <style scoped>
@@ -103,6 +135,16 @@ defineEmits(['click', 'like', 'favorite', 'share'])
 .post-card:hover {
   transform: translateY(-3px);
   box-shadow: var(--shadow-hover);
+}
+
+.card-header,
+.card-body,
+.post-title,
+.post-summary,
+.author-name,
+.post-time,
+.category-tag {
+  cursor: default;
 }
 
 /* 【左侧色条】根据板块类型显示不同颜色 */
@@ -239,16 +281,84 @@ defineEmits(['click', 'like', 'favorite', 'share'])
   margin-bottom: 14px;
 }
 
+.post-title {
+  margin: 0 0 8px;
+  color: var(--text-title);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
 .post-summary {
   font-size: 14px;
   color: var(--text-body);
   line-height: 1.75;
-  margin: 0 0 10px;
+  margin: 0 0 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.post-summary.collapsed {
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  letter-spacing: 0.2px;
+}
+
+.content-toggle {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  margin: 0 0 10px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--orange-main);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.content-toggle:hover {
+  color: var(--orange-deep);
+}
+
+.report-link-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--orange-border);
+  border-radius: 10px;
+  background: var(--orange-light-bg);
+  color: var(--orange-deep);
+  text-decoration: none;
+  transition:
+    transform 0.16s cubic-bezier(0.25, 1, 0.5, 1),
+    border-color 0.2s cubic-bezier(0.25, 1, 0.5, 1),
+    background-color 0.2s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.report-link-card:hover {
+  border-color: var(--orange-main);
+  background: color-mix(in srgb, var(--orange-light-bg) 70%, #ffffff 30%);
+  transform: translateY(-1px);
+}
+
+.report-link-main {
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.report-link-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .card-images {
@@ -339,11 +449,14 @@ defineEmits(['click', 'like', 'favorite', 'share'])
   .post-card,
   .card-accent,
   .avatar-ring-sm,
-  .action-btn {
+  .report-link-card,
+  .action-btn,
+  .content-toggle {
     transition-duration: 0.01ms;
   }
 
   .post-card:hover,
+  .report-link-card:hover,
   .action-btn:hover,
   .action-btn:active {
     transform: none;

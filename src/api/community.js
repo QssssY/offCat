@@ -31,8 +31,10 @@ export function getPostDetail(postId) {
  * 发布帖子
  * @param {Object} data
  * @param {string} data.category - 板块
+ * @param {string} data.title - 帖子标题
  * @param {string} data.content - 内容
  * @param {string[]} data.images - 图片URL数组
+ * @param {string} [data.sharedInterviewSessionId] - 分享面试报告时关联的会话ID
  */
 export function createPost(data) {
   return request({

@@ -69,22 +69,29 @@
 
     <!-- 帖子列表 -->
     <div class="post-feed">
-      <!-- 【加载骨架屏】闪光扫光动画，视觉更高级 -->
+      <!-- 【加载骨架屏】按真实帖子卡片搭建结构，减少首屏加载时的突兀感。 -->
       <template v-if="loading && posts.length === 0">
-        <div v-for="i in 3" :key="i" class="skeleton-card">
-          <div class="skeleton-header">
-            <div class="skeleton-avatar"></div>
-            <div class="skeleton-meta">
-              <div class="skeleton-line short"></div>
-              <div class="skeleton-line shorter"></div>
+        <article v-for="i in 3" :key="i" class="post-skeleton-card" aria-hidden="true">
+          <div class="post-skeleton-header">
+            <div class="post-skeleton-avatar skeleton-shape"></div>
+            <div class="post-skeleton-meta">
+              <div class="post-skeleton-line author skeleton-shape"></div>
+              <div class="post-skeleton-line time skeleton-shape"></div>
             </div>
+            <div class="post-skeleton-tag skeleton-shape"></div>
           </div>
-          <div class="skeleton-body">
-            <div class="skeleton-line"></div>
-            <div class="skeleton-line"></div>
-            <div class="skeleton-line medium"></div>
+          <div class="post-skeleton-title skeleton-shape"></div>
+          <div class="post-skeleton-body">
+            <div class="post-skeleton-line full skeleton-shape"></div>
+            <div class="post-skeleton-line full skeleton-shape"></div>
+            <div class="post-skeleton-line medium skeleton-shape"></div>
           </div>
-        </div>
+          <div class="post-skeleton-actions">
+            <span class="post-skeleton-pill skeleton-shape"></span>
+            <span class="post-skeleton-pill skeleton-shape"></span>
+            <span class="post-skeleton-pill wide skeleton-shape"></span>
+          </div>
+        </article>
       </template>
 
       <!-- 帖子卡片列表 -->
@@ -92,7 +99,7 @@
         <PostCard
           v-for="post in posts"
           :key="post.id"
-          v-memo="[post.id, post.liked, post.favorited, post.likeCount, post.commentCount]"
+          v-memo="[post.id, post.title, post.content, post.sharedInterviewSessionId, post.images?.length, post.liked, post.favorited, post.likeCount, post.commentCount]"
           :post="post"
           class="post-feed-card"
           @click="goToDetail(post.id)"
@@ -625,31 +632,36 @@ onUnmounted(() => {
   contain-intrinsic-size: 180px;
 }
 
-/* 【骨架屏】闪光扫光动画（shimmer），视觉更高级 */
-.skeleton-card {
+/* 【结构化骨架屏】贴近真实帖子布局，避免加载时出现大块闪烁占位。 */
+.post-skeleton-card {
   background: var(--bg-card);
   border-radius: 16px;
-  padding: 20px;
+  padding: 20px 20px 18px 24px;
   border: 1px solid var(--border-card);
   overflow: hidden;
 }
 
-.skeleton-header {
+.post-skeleton-header {
   display: flex;
+  align-items: center;
   gap: 10px;
   margin-bottom: 16px;
 }
 
-.skeleton-avatar {
+.skeleton-shape {
+  background: linear-gradient(90deg, var(--bg-elevated) 25%, color-mix(in srgb, var(--bg-elevated) 72%, var(--orange-light-bg) 28%) 50%, var(--bg-elevated) 75%);
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.8s ease-in-out infinite;
+}
+
+.post-skeleton-avatar {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: linear-gradient(90deg, var(--bg-elevated) 25%, #f0e6de 50%, var(--bg-elevated) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.8s ease-in-out infinite;
+  flex-shrink: 0;
 }
 
-.skeleton-meta {
+.post-skeleton-meta {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -657,20 +669,42 @@ onUnmounted(() => {
   justify-content: center;
 }
 
-.skeleton-line {
+.post-skeleton-line,
+.post-skeleton-title,
+.post-skeleton-tag,
+.post-skeleton-pill {
   height: 12px;
   border-radius: 6px;
-  background: linear-gradient(90deg, var(--bg-elevated) 25%, #f0e6de 50%, var(--bg-elevated) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.8s ease-in-out infinite;
 }
 
-.skeleton-line.short { width: 40%; }
-.skeleton-line.shorter { width: 25%; }
-.skeleton-line.medium { width: 70%; }
+.post-skeleton-line.author { width: 130px; }
+.post-skeleton-line.time { width: 76px; height: 10px; }
+.post-skeleton-tag { width: 86px; height: 28px; border-radius: 999px; }
+.post-skeleton-title { width: min(420px, 72%); height: 18px; margin-bottom: 14px; border-radius: 9px; }
+.post-skeleton-body { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; }
+.post-skeleton-line.full { width: 100%; }
+.post-skeleton-line.medium { width: 64%; }
 
-/* 【闪光扫光动画】从左到右的渐变位移 */
-@keyframes shimmer {
+.post-skeleton-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid var(--border-divider);
+  padding-top: 14px;
+}
+
+.post-skeleton-pill {
+  width: 66px;
+  height: 34px;
+  border-radius: 999px;
+}
+
+.post-skeleton-pill.wide {
+  width: 82px;
+}
+
+/* 【骨架扫光】仅移动背景位置，避免触发布局抖动。 */
+@keyframes skeletonShimmer {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
@@ -863,6 +897,11 @@ onUnmounted(() => {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .skeleton-shape {
+    animation: none;
+    background-position: 0 0;
+  }
+
   .fab-button {
     transition-duration: 0.01ms;
   }

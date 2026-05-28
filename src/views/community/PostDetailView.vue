@@ -48,7 +48,26 @@
           </div>
 
           <div class="post-body">
-            <p class="post-content">{{ post.content }}</p>
+            <h1 v-if="displayTitle" class="post-title">{{ displayTitle }}</h1>
+            <p class="post-content" :class="{ collapsed: shouldCollapseContent && !contentExpanded }">{{ post.content }}</p>
+            <button
+              v-if="shouldCollapseContent"
+              type="button"
+              class="content-toggle"
+              @click="contentExpanded = !contentExpanded"
+            >
+              {{ contentExpanded ? '收起' : '展开全文' }}
+            </button>
+            <!-- 分享报告帖只在社区保存会话ID，详情页据此渲染站内报告跳转链接。 -->
+            <a
+              v-if="post.sharedInterviewSessionId"
+              class="report-link-card"
+              :href="`/interview/report/${post.sharedInterviewSessionId}`"
+            >
+              <FeatureIcon name="interview-report" size="sm" />
+              <span class="report-link-main">查看完整面试报告</span>
+              <span class="report-link-title">{{ displayTitle }}</span>
+            </a>
             <ImageGrid
               v-if="post.images && post.images.length > 0"
               :images="post.images"
@@ -128,11 +147,23 @@ const loadError = ref(false)
 const commentSectionRef = ref(null)
 const showShareDialog = ref(false)
 const shareLink = ref('')
+const contentExpanded = ref(false)
+
+// 旧报告分享帖可能没有 title 字段，详情页需要兜底显示稳定标题。
+const displayTitle = computed(() => {
+  const title = post.value?.title?.trim()
+  if (title) return title
+  return post.value?.sharedInterviewSessionId ? '面试报告分享' : ''
+})
+
+// 详情页默认收起超长正文，避免长文本直接占满首屏和评论入口。
+const shouldCollapseContent = computed(() => (post.value?.content || '').length > 600)
 
 // 路由参数变化时重新加载（Vue Router 会复用组件，onMounted 不会重新触发）
 watch(() => route.params.postId, (newId, oldId) => {
   if (newId && newId !== oldId) {
     post.value = null
+    contentExpanded.value = false
     loadPost()
   }
 })
@@ -197,6 +228,7 @@ const loadPost = async () => {
     const res = await getPostDetail(postId.value)
     if (res.code === 200) {
       post.value = res.data
+      contentExpanded.value = false
     } else {
       loadError.value = true
     }
@@ -323,6 +355,15 @@ loadPost()
   overflow: hidden;
 }
 
+.post-area,
+.post-title,
+.post-content,
+.author-name,
+.post-time,
+.category-tag {
+  cursor: default;
+}
+
 .post-inner {
   padding: 28px 32px 24px;
 }
@@ -397,14 +438,84 @@ loadPost()
   margin-bottom: 20px;
 }
 
+.post-title {
+  margin: 0 0 12px;
+  color: var(--text-title);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
 .post-content {
   font-size: 15px;
   color: var(--text-body);
   line-height: 1.85;
-  margin: 0 0 16px;
+  margin: 0 0 8px;
   white-space: pre-wrap;
-  word-break: break-all;
-  letter-spacing: 0.2px;
+  word-break: break-word;
+}
+
+.post-content.collapsed {
+  display: -webkit-box;
+  -webkit-line-clamp: 8;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.content-toggle {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  margin: 0 0 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--orange-main);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.content-toggle:hover {
+  color: var(--orange-deep);
+}
+
+.report-link-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--orange-border);
+  border-radius: 10px;
+  background: var(--orange-light-bg);
+  color: var(--orange-deep);
+  text-decoration: none;
+  transition:
+    transform 0.16s cubic-bezier(0.25, 1, 0.5, 1),
+    border-color 0.2s cubic-bezier(0.25, 1, 0.5, 1),
+    background-color 0.2s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.report-link-card:hover {
+  border-color: var(--orange-main);
+  background: color-mix(in srgb, var(--orange-light-bg) 70%, #ffffff 30%);
+  transform: translateY(-1px);
+}
+
+.report-link-main {
+  flex-shrink: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.report-link-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .post-images {
@@ -507,6 +618,10 @@ loadPost()
   .post-content {
     font-size: 14px;
   }
+
+  .post-title {
+    font-size: 19px;
+  }
 }
 
 @media (max-width: 480px) {
@@ -519,6 +634,29 @@ loadPost()
     flex-direction: column;
     align-items: flex-start;
     gap: 10px;
+  }
+
+  .report-link-card {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .report-link-title {
+    white-space: normal;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .post-detail-page,
+  .report-link-card,
+  .content-toggle {
+    animation-duration: 0.01ms;
+    transition-duration: 0.01ms;
+  }
+
+  .report-link-card:hover {
+    transform: none;
   }
 }
 </style>

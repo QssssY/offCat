@@ -202,6 +202,37 @@ describe('CommunityView', () => {
       expect(source).toContain('content-visibility: auto')
       expect(source).toContain('contain-intrinsic-size')
     })
+
+    it('keeps post card memo dependencies aligned with visible post fields', () => {
+      const source = viewSource()
+
+      expect(source).toContain('post.title')
+      expect(source).toContain('post.content')
+      expect(source).toContain('post.sharedInterviewSessionId')
+      expect(source).toContain('post.images?.length')
+    })
+  })
+
+  describe('社区首页加载骨架屏', () => {
+    it('renders structural post skeleton cards while the first page is loading', async () => {
+      getPostList.mockReturnValue(new Promise(() => {}))
+
+      const wrapper = mountView()
+      await nextTick()
+
+      expect(wrapper.findAll('.post-skeleton-card')).toHaveLength(3)
+      expect(wrapper.find('.post-skeleton-title').exists()).toBe(true)
+      expect(wrapper.find('.post-skeleton-actions').exists()).toBe(true)
+      expect(wrapper.find('.skeleton-card').exists()).toBe(false)
+    })
+
+    it('uses reduced-motion fallback for the community skeleton shimmer', () => {
+      const source = viewSource()
+
+      expect(source).toContain('@media (prefers-reduced-motion: reduce)')
+      expect(source).toContain('.post-skeleton-card')
+      expect(source).toContain('animation: none')
+    })
   })
 
   describe('首页帖子列表回归', () => {

@@ -100,6 +100,9 @@ const mountHeader = () => mount(AppHeader, {
 const headerSource = () =>
   readFileSync(resolve(process.cwd(), 'src/components/AppHeader.vue'), 'utf8')
 
+const globalStyleSource = () =>
+  readFileSync(resolve(process.cwd(), 'src/styles/index.css'), 'utf8')
+
 describe('AppHeader', () => {
   const fetchUserInfo = vi.fn(() => Promise.resolve())
 
@@ -216,5 +219,19 @@ describe('AppHeader', () => {
     expect(routeLoaderSource).toContain("'/resume/upload': resumeUploadRouteLoader")
     expect(routeLoaderSource).toContain("'/interview/entry': interviewEntryRouteLoader")
     expect(source).not.toMatch(/rel=["']preload["'][^>]*routes?/)
+  })
+
+  it('keeps history dropdown trigger and menu text on clickable cursors', () => {
+    const source = headerSource()
+    const globalStyle = globalStyleSource()
+
+    expect(source).toContain('class="nav-link history-trigger"')
+    expect(source).toMatch(/class="nav-link history-trigger"[\s\S]*?@mousedown\.prevent/)
+    expect(source).toMatch(/command="resume"[\s\S]*?@mousedown\.prevent/)
+    expect(source).toMatch(/command="interview"[\s\S]*?@mousedown\.prevent/)
+    expect(source).toMatch(/\.history-trigger,[\s\S]*?\.history-trigger\s+:deep\(\*\)[\s\S]*?cursor:\s*pointer;/)
+    expect(globalStyle).toMatch(/\.history-dropdown-menu\s+\.el-dropdown-menu__item,[\s\S]*?\.history-dropdown-menu\s+\.el-dropdown-menu__item\s+\*[\s\S]*?cursor:\s*pointer(?:\s*!important)?;/)
+    expect(globalStyle).toMatch(/\.history-dropdown-menu\s+\.el-dropdown-menu__item:focus,[\s\S]*?\.history-dropdown-menu\s+\.el-dropdown-menu__item:active,[\s\S]*?\.history-dropdown-menu\s+\.el-dropdown-menu__item\.is-active[\s\S]*?cursor:\s*pointer\s*!important;/)
+    expect(globalStyle).toMatch(/\.history-dropdown-menu\s+\.el-dropdown-menu__item,[\s\S]*?user-select:\s*none;/)
   })
 })

@@ -70,8 +70,8 @@ const naiveThemeOverrides = computed(() => {
       handleColorHover: '#FF6B1A'
     },
     Skeleton: {
-      color: isDark ? 'rgba(255, 140, 66, 0.12)' : '#F3D8C7',
-      colorEnd: isDark ? 'rgba(255, 176, 122, 0.18)' : '#FFF3E8'
+      color: isDark ? 'rgba(255, 243, 232, 0.08)' : '#F5E8DF',
+      colorEnd: isDark ? 'rgba(255, 176, 122, 0.14)' : '#FBF1EA'
     }
   }
 })
