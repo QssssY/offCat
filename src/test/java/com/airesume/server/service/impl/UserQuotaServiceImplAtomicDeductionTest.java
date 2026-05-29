@@ -52,6 +52,7 @@ class UserQuotaServiceImplAtomicDeductionTest {
 
         TestableUserQuotaService service = spy(new TestableUserQuotaService(sysUserService, mock(ResumePolishRecordMapper.class), quota));
         ReflectionTestUtils.setField(service, "baseMapper", userQuotaMapper);
+        ReflectionTestUtils.setField(service, "self", service);
         return service;
     }
 

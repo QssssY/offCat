@@ -20,6 +20,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -36,6 +38,8 @@ class ResumeDiagnosisTaskServiceImplTest {
     @Mock private ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper;
     @Mock private ResumeJobMatchRecordMapper resumeJobMatchRecordMapper;
     @Mock private ResumePolishRecordMapper resumePolishRecordMapper;
+    @Mock private CacheManager cacheManager;
+    @Mock private Cache resumeTaskCache;
 
     private ResumeDiagnosisTaskServiceImpl service;
 
@@ -48,6 +52,8 @@ class ResumeDiagnosisTaskServiceImplTest {
                 null, null, null, null, null, null, null,
                 resumeJobMatchRecordMapper, resumePolishRecordMapper);
         ReflectionTestUtils.setField(service, "baseMapper", resumeDiagnosisTaskMapper);
+        ReflectionTestUtils.setField(service, "cacheManager", cacheManager);
+        lenient().when(cacheManager.getCache("resume:task")).thenReturn(resumeTaskCache);
     }
 
     @Test
@@ -123,7 +129,7 @@ class ResumeDiagnosisTaskServiceImplTest {
     }
 
     @Test
-    void updateStatusMethodsAreAnnotatedWithCacheEvict() throws NoSuchMethodException {
+    void updateStatusMethodsShouldNotClearWholeResumeTaskCache() throws NoSuchMethodException {
         String[] methods = {"updateStatusToProcessing", "updateStatusToCompleted",
                 "updateStatusToFailed", "updateTaskResumeText", "updateTaskResumeParseResult"};
         Class<?>[][] paramTypes = {
@@ -138,10 +144,24 @@ class ResumeDiagnosisTaskServiceImplTest {
                     .getMethod(methods[i], paramTypes[i]);
             org.springframework.cache.annotation.CacheEvict annotation =
                     method.getAnnotation(org.springframework.cache.annotation.CacheEvict.class);
-            assertNotNull(annotation, methods[i] + " should have @CacheEvict");
-            assertEquals("resume:task", annotation.value()[0]);
-            assertTrue(annotation.allEntries(), methods[i] + " should have allEntries = true");
+            assertTrue(annotation == null || !annotation.allEntries(),
+                    methods[i] + " should not evict all resume task cache entries");
         }
+    }
+
+    @Test
+    void shouldEvictOnlyUpdatedResumeTaskCacheEntry() {
+        ResumeDiagnosisTask task = new ResumeDiagnosisTask();
+        task.setId(100L);
+        task.setUserId(123L);
+        ResumeDiagnosisTaskServiceImpl spyService = spy(service);
+        doReturn(true).when(spyService).update(any(Wrapper.class));
+        when(resumeDiagnosisTaskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(task);
+
+        spyService.updateStatusToCompleted(100L, "{}");
+
+        verify(resumeTaskCache).evict("100::123");
+        verify(resumeTaskCache, never()).clear();
     }
 
     @Test
@@ -182,22 +202,19 @@ class ResumeDiagnosisTaskServiceImplTest {
 
     @Test
     void recoverOrphanedTasksShouldClearStageWhenMarkingFailed() {
-        ResumeDiagnosisTask orphan = new ResumeDiagnosisTask();
-        orphan.setId(100L);
-        orphan.setUserId(123L);
-        orphan.setStatus(ResumeDiagnosisConstants.STATUS_PROCESSING);
-        orphan.setStage(ResumeDiagnosisConstants.STAGE_AI_ANALYZING);
-        orphan.setUpdateTime(LocalDateTime.now().minusMinutes(30));
-        when(resumeDiagnosisTaskMapper.selectList(any())).thenReturn(List.of(orphan));
+        when(resumeDiagnosisTaskMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
+        ResumeDiagnosisTaskServiceImpl spyService = spy(service);
+        doReturn(true).when(spyService).update(any(Wrapper.class));
 
-        int recoveredCount = service.recoverOrphanedTasks(10);
+        int recoveredCount = spyService.recoverOrphanedTasks(10);
 
-        ArgumentCaptor<ResumeDiagnosisTask> taskCaptor = ArgumentCaptor.forClass(ResumeDiagnosisTask.class);
-        verify(resumeDiagnosisTaskMapper).updateById(taskCaptor.capture());
+        ArgumentCaptor<Wrapper<ResumeDiagnosisTask>> wrapperCaptor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(spyService).update(wrapperCaptor.capture());
         assertEquals(1, recoveredCount);
-        assertEquals(ResumeDiagnosisConstants.STATUS_FAILED, taskCaptor.getValue().getStatus());
-        assertNull(taskCaptor.getValue().getStage());
-        assertNotNull(taskCaptor.getValue().getFailedAt());
+        String sqlSet = ((LambdaUpdateWrapper<ResumeDiagnosisTask>) wrapperCaptor.getValue()).getSqlSet();
+        assertTrue(sqlSet.contains("status"));
+        assertTrue(sqlSet.contains("stage"));
+        assertTrue(sqlSet.contains("failed_at"));
     }
 
     @Test

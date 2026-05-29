@@ -28,7 +28,9 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -52,6 +54,8 @@ import java.util.stream.Collectors;
 @Service
 public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisTaskMapper, ResumeDiagnosisTask> implements ResumeDiagnosisTaskService {
 
+    private static final String RESUME_TASK_CACHE = "resume:task";
+
     private final UserQuotaService userQuotaService;
     private final ResumeDiagnosisProducer resumeDiagnosisProducer;
     private final DirectProcessRouter directProcessRouter;
@@ -61,6 +65,8 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
     private final ResumePolishService resumePolishService;
     private final ResumeJobMatchRecordMapper resumeJobMatchRecordMapper;
     private final ResumePolishRecordMapper resumePolishRecordMapper;
+    @Autowired(required = false)
+    private CacheManager cacheManager;
 
     /**
      * 手动构造器注入，@Lazy 打破 TaskServiceImpl ↔ DirectProcessRouter ↔ Processor ↔ TaskService 循环依赖
@@ -305,7 +311,6 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    @CacheEvict(value = "resume:task", allEntries = true)
     public boolean updateStatusToProcessing(Long taskId) {
         // 只允许一个消费者把 PENDING 任务原子切换为 PROCESSING，避免重复扣费与重复调用 AI。
         int affected = getBaseMapper().claimPendingTask(
@@ -319,12 +324,12 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
             return false;
         }
         log.info("Task status updated to processing atomically, taskId: {}", taskId);
+        evictResumeTaskCache(taskId);
         return true;
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    @CacheEvict(value = "resume:task", allEntries = true)
     public void updateStatusToCompleted(Long taskId, String diagnosisResult) {
         LambdaUpdateWrapper<ResumeDiagnosisTask> wrapper = new LambdaUpdateWrapper<>();
         wrapper.eq(ResumeDiagnosisTask::getId, taskId)
@@ -336,6 +341,7 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
                 .setSql("update_time = NOW()");
         boolean updated = update(wrapper);
         if (updated) {
+            evictResumeTaskCache(taskId);
             log.info("Task status updated to completed, taskId: {}", taskId);
         } else {
             log.warn("Task not found when updating to completed, taskId: {}", taskId);
@@ -344,7 +350,6 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    @CacheEvict(value = "resume:task", allEntries = true)
     public void updateStatusToFailed(Long taskId, String errorMsg) {
         LambdaUpdateWrapper<ResumeDiagnosisTask> wrapper = new LambdaUpdateWrapper<>();
         wrapper.eq(ResumeDiagnosisTask::getId, taskId)
@@ -356,6 +361,7 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
                 .setSql("update_time = NOW()");
         boolean updated = update(wrapper);
         if (updated) {
+            evictResumeTaskCache(taskId);
             log.error("Task status updated to failed, taskId: {}, errorMsg: {}", taskId, errorMsg);
         } else {
             log.warn("Task not found when updating to failed, taskId: {}", taskId);
@@ -364,7 +370,6 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    @CacheEvict(value = "resume:task", allEntries = true)
     public void updateTaskResumeText(Long taskId, String resumeText) {
         LambdaUpdateWrapper<ResumeDiagnosisTask> wrapper = new LambdaUpdateWrapper<>();
         wrapper.eq(ResumeDiagnosisTask::getId, taskId)
@@ -372,6 +377,7 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
                 .setSql("update_time = NOW()");
         boolean updated = update(wrapper);
         if (updated) {
+            evictResumeTaskCache(taskId);
             log.info("Task resume text updated, taskId: {}", taskId);
         } else {
             log.warn("Task not found when updating resume text, taskId: {}", taskId);
@@ -380,7 +386,6 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    @CacheEvict(value = "resume:task", allEntries = true)
     public void updateTaskResumeParseResult(Long taskId, String resumeText, String parseMode, String parseMessage) {
         LambdaUpdateWrapper<ResumeDiagnosisTask> wrapper = new LambdaUpdateWrapper<>();
         wrapper.eq(ResumeDiagnosisTask::getId, taskId)
@@ -390,9 +395,37 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
                 .setSql("update_time = NOW()");
         boolean updated = update(wrapper);
         if (updated) {
+            evictResumeTaskCache(taskId);
             log.info("Task resume parse result updated, taskId: {}, parseMode: {}", taskId, parseMode);
         } else {
             log.warn("Task not found when updating resume parse result, taskId: {}", taskId);
+        }
+    }
+
+
+    /**
+     * 按 getTaskById 使用的 taskId::userId key 精准驱逐，避免状态轮询更新时清空整个任务缓存区。
+     */
+    private void evictResumeTaskCache(Long taskId) {
+        if (taskId == null) {
+            return;
+        }
+        ResumeDiagnosisTask task = getBaseMapper().selectOne(new LambdaQueryWrapper<ResumeDiagnosisTask>()
+                .select(ResumeDiagnosisTask::getId, ResumeDiagnosisTask::getUserId)
+                .eq(ResumeDiagnosisTask::getId, taskId)
+                .last("limit 1"));
+        if (task != null) {
+            evictResumeTaskCache(task.getId(), task.getUserId());
+        }
+    }
+
+    private void evictResumeTaskCache(Long taskId, Long userId) {
+        if (taskId == null || userId == null || cacheManager == null) {
+            return;
+        }
+        Cache cache = cacheManager.getCache(RESUME_TASK_CACHE);
+        if (cache != null) {
+            cache.evict(taskId + "::" + userId);
         }
     }
 
@@ -429,7 +462,6 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    @CacheEvict(value = "resume:task", allEntries = true)
     public void updateStage(Long taskId, String stage) {
         LambdaUpdateWrapper<ResumeDiagnosisTask> wrapper = new LambdaUpdateWrapper<>();
         wrapper.eq(ResumeDiagnosisTask::getId, taskId)
@@ -438,6 +470,7 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
                 .setSql("update_time = NOW()");
         boolean updated = update(wrapper);
         if (updated) {
+            evictResumeTaskCache(taskId);
             log.info("Task stage updated, taskId: {}, stage: {}", taskId, stage);
         } else {
             log.warn("Task not processing when updating stage, taskId: {}, stage: {}", taskId, stage);
@@ -591,7 +624,6 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    @CacheEvict(value = "resume:task", allEntries = true)
     public int recoverOrphanedTasks(int timeoutMinutes) {
         // 查询超时的处理中任务：状态为PROCESSING且updateTime早于阈值时间
         LocalDateTime timeoutThreshold = LocalDateTime.now().minusMinutes(timeoutMinutes);
@@ -626,13 +658,20 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    @CacheEvict(value = "resume:task", allEntries = true)
     public int clearHistory(Long userId) {
         List<String> fileUrls = getBaseMapper().selectActiveFileUrlsByUserId(userId);
+        List<ResumeDiagnosisTask> cachedTasks = getBaseMapper().selectList(new LambdaQueryWrapper<ResumeDiagnosisTask>()
+                .select(ResumeDiagnosisTask::getId, ResumeDiagnosisTask::getUserId)
+                .eq(ResumeDiagnosisTask::getUserId, userId));
         resumeJobMatchRecordMapper.logicalDeleteByUserId(userId);
         resumePolishRecordMapper.logicalDeleteByUserId(userId);
         int deletedCount = getBaseMapper().logicalDeleteByUserId(userId);
 
+        if (cachedTasks != null) {
+            for (ResumeDiagnosisTask cachedTask : cachedTasks) {
+                evictResumeTaskCache(cachedTask.getId(), cachedTask.getUserId());
+            }
+        }
         for (String fileUrl : fileUrls) {
             deleteResumeFileIfExists(fileUrl);
         }
@@ -645,7 +684,6 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
      */
     @Override
     @Transactional(rollbackFor = Exception.class, noRollbackFor = BusinessException.class)
-    @CacheEvict(value = "resume:task", allEntries = true)
     public boolean deleteTask(Long userId, Long taskId) {
         ResumeDiagnosisTask task = getById(taskId);
         if (task == null) {
@@ -659,6 +697,7 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
         resumeJobMatchRecordMapper.logicalDeleteByResumeTaskIds(List.of(taskId));
         resumePolishRecordMapper.logicalDeleteByResumeTaskIds(List.of(taskId));
         getBaseMapper().logicalDeleteByTaskIds(List.of(taskId));
+        evictResumeTaskCache(taskId, userId);
 
         // 数据库逻辑删除已完成，文件清理失败不影响事务提交
         boolean fileCleanupFailed = false;

@@ -16,6 +16,7 @@ import com.airesume.server.service.SysPromptService;
 import com.airesume.server.service.SysUserService;
 import com.airesume.server.service.UserFeedbackService;
 import org.junit.jupiter.api.Test;
+import org.springframework.cache.annotation.Cacheable;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -90,6 +91,23 @@ class AdminDashboardServiceImplTest {
         verify(resumeDiagnosisTaskService, never()).count();
     }
 
+    @Test
+    void shouldEnableSynchronizedCacheLoadingForDashboardCacheMisses() throws NoSuchMethodException {
+        assertDashboardMethodUsesSyncCache("getDashboardOverview", LocalDate.class, LocalDate.class);
+        assertDashboardMethodUsesSyncCache("getDashboardTrends", LocalDate.class, LocalDate.class);
+        assertDashboardMethodUsesSyncCache("getHotJobRoles", LocalDate.class, LocalDate.class, Integer.class);
+        assertDashboardMethodUsesSyncCache("getBusinessDistribution", LocalDate.class, LocalDate.class);
+        assertDashboardMethodUsesSyncCache("getMonitorOverview");
+    }
+
+    private void assertDashboardMethodUsesSyncCache(String methodName, Class<?>... parameterTypes) throws NoSuchMethodException {
+        Cacheable cacheable = AdminDashboardServiceImpl.class
+                .getMethod(methodName, parameterTypes)
+                .getAnnotation(Cacheable.class);
+        org.junit.jupiter.api.Assertions.assertNotNull(cacheable, methodName + " should use @Cacheable");
+        org.junit.jupiter.api.Assertions.assertTrue(cacheable.sync(), methodName + " should use sync cache loading");
+    }
+
     private AdminDashboardServiceImpl buildService(InterviewSessionMapper interviewSessionMapper,
                                                    ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper) {
         return buildService(
@@ -99,6 +117,7 @@ class AdminDashboardServiceImplTest {
                 resumeDiagnosisTaskMapper
         );
     }
+
 
     private AdminDashboardServiceImpl buildService(InterviewSessionService interviewSessionService,
                                                    ResumeDiagnosisTaskService resumeDiagnosisTaskService,

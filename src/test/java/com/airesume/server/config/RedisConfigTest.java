@@ -52,4 +52,15 @@ class RedisConfigTest {
 
         assertEquals(Duration.ofMinutes(5), cacheConfigurations.get("admin:userStats").getTtl());
     }
+    @Test
+    void shouldConfigureHighFrequencyCacheTtls() {
+        RedisConfig redisConfig = new RedisConfig();
+        RedisCacheConfiguration defaultConfig = RedisCacheConfiguration.defaultCacheConfig()
+                .entryTtl(Duration.ofMinutes(5));
+        Map<String, RedisCacheConfiguration> cacheConfigurations = redisConfig.initialCacheConfigurations(defaultConfig);
+
+        assertEquals(Duration.ofMinutes(5), cacheConfigurations.get("user:interviewRadar").getTtl());
+        assertEquals(Duration.ofMinutes(30), cacheConfigurations.get("config:membershipPlan").getTtl());
+        assertEquals(Duration.ofMinutes(10), cacheConfigurations.get("interview:jobTarget").getTtl());
+    }
 }

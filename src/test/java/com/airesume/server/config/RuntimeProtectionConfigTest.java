@@ -39,7 +39,7 @@ class RuntimeProtectionConfigTest {
         assertEquals(8, pool.get("max-active"));
         assertEquals("3000ms", String.valueOf(pool.get("max-wait")));
         assertEquals(8, pool.get("max-idle"));
-        assertEquals(0, pool.get("min-idle"));
+        assertEquals(2, pool.get("min-idle"));
 
         Map<String, Object> server = getMap(root, "server");
         Map<String, Object> tomcat = getMap(server, "tomcat");

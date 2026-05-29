@@ -269,6 +269,7 @@ CREATE TABLE `resume_diagnosis_task` (
   INDEX `idx_resume_task_user_status` (`user_id`, `status`),
   INDEX `idx_resume_task_retention_cleanup` (`user_id`, `status`, `is_deleted`, `create_time`),
   INDEX `idx_resume_task_status_failed_at` (`status`, `failed_at`),
+  INDEX `idx_resume_task_user_status_time` (`user_id`, `status`, `create_time`),
   CONSTRAINT `fk_resume_task_user_id` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Resume diagnosis task table';
 
@@ -340,6 +341,7 @@ CREATE TABLE `interview_session` (
   INDEX `idx_interview_session_create_time` (`create_time`),
   INDEX `idx_interview_session_user_status` (`user_id`, `status`),
   INDEX `idx_interview_session_retention_cleanup` (`user_id`, `status`, `is_deleted`, `create_time`),
+  INDEX `idx_interview_session_user_status_time` (`user_id`, `status`, `create_time`),
   CONSTRAINT `fk_interview_session_user_id` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Interview session table';
 
@@ -433,6 +435,7 @@ CREATE TABLE `user_notification` (
   PRIMARY KEY (`id`),
   INDEX `idx_notification_user_id` (`user_id`),
   INDEX `idx_notification_user_read` (`user_id`, `read_status`),
+  INDEX `idx_notification_user_read_time` (`user_id`, `read_status`, `create_time`),
   INDEX `idx_notification_user_type` (`user_id`, `type`),
   INDEX `idx_notification_broadcast_id` (`broadcast_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户站内通知表';
@@ -535,6 +538,7 @@ CREATE TABLE `community_post` (
   INDEX `idx_community_post_shared_interview_session_id` (`shared_interview_session_id`),
   INDEX `idx_community_post_create_time` (`create_time`),
   INDEX `idx_community_post_category_time` (`category`, `create_time`),
+  INDEX `idx_community_post_deleted_category_time` (`is_deleted`, `category`, `create_time`),
   INDEX `idx_community_post_category_like` (`category`, `like_count`),
   CONSTRAINT `fk_community_post_user_id` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='社区帖子表';
@@ -558,6 +562,7 @@ CREATE TABLE `community_comment` (
   INDEX `idx_community_comment_parent_id` (`parent_comment_id`),
   INDEX `idx_community_comment_parent_time` (`parent_comment_id`, `create_time`),
   INDEX `idx_community_comment_reply_user` (`reply_to_user_id`, `create_time`),
+  INDEX `idx_community_comment_reply_user_actor_time` (`reply_to_user_id`, `user_id`, `create_time`),
   CONSTRAINT `fk_community_comment_post_id` FOREIGN KEY (`post_id`) REFERENCES `community_post` (`id`),
   CONSTRAINT `fk_community_comment_user_id` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='社区评论表';

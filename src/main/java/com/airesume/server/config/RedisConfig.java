@@ -92,6 +92,10 @@ public class RedisConfig {
         cacheConfigMap.put("notification:unreadCount", defaultConfig.entryTtl(Duration.ofMinutes(2)));
         cacheConfigMap.put("config:jobRoles", defaultConfig.entryTtl(Duration.ofMinutes(30)));
         cacheConfigMap.put("config:membershipPlans", defaultConfig.entryTtl(Duration.ofMinutes(30)));
+        // 高频读取的小粒度缓存区显式注册 TTL，避免后续默认策略调整时误伤热点接口。
+        cacheConfigMap.put("user:interviewRadar", defaultConfig.entryTtl(Duration.ofMinutes(5)));
+        cacheConfigMap.put("config:membershipPlan", defaultConfig.entryTtl(Duration.ofMinutes(30)));
+        cacheConfigMap.put("interview:jobTarget", defaultConfig.entryTtl(Duration.ofMinutes(10)));
         cacheConfigMap.put("resume:task", defaultConfig.entryTtl(Duration.ofSeconds(10)));
         cacheConfigMap.put("user:monthlyStats", defaultConfig.entryTtl(Duration.ofMinutes(5)));
         cacheConfigMap.put("user:growthOverview", defaultConfig.entryTtl(Duration.ofMinutes(5)));

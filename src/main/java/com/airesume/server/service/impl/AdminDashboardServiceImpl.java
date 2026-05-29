@@ -101,7 +101,7 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
     }
 
     @Override
-    @Cacheable(value = "admin:dashboardOverview", key = "#startDate + ':' + #endDate", unless = "#result == null")
+    @Cacheable(value = "admin:dashboardOverview", key = "#startDate + ':' + #endDate", sync = true)
     public DashboardOverviewResponse getDashboardOverview(LocalDate startDate, LocalDate endDate) {
         DateRange range = resolveDateRange(startDate, endDate, DateRangeDefault.TODAY);
 
@@ -151,7 +151,7 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
     }
 
     @Override
-    @Cacheable(value = "admin:dashboardTrends", key = "#startDate + ':' + #endDate", unless = "#result == null || #result.isEmpty()")
+    @Cacheable(value = "admin:dashboardTrends", key = "#startDate + ':' + #endDate", sync = true)
     public List<DashboardTrendResponse> getDashboardTrends(LocalDate startDate, LocalDate endDate) {
         DateRange range = resolveDateRange(startDate, endDate, DateRangeDefault.LAST_7_DAYS);
         Map<LocalDate, Long> interviewCountByDate = toCountByDateMap(
@@ -186,7 +186,7 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
     }
 
     @Override
-    @Cacheable(value = "admin:hotJobRoles", key = "#startDate + ':' + #endDate + ':' + #limit", unless = "#result == null || #result.isEmpty()")
+    @Cacheable(value = "admin:hotJobRoles", key = "#startDate + ':' + #endDate + ':' + #limit", sync = true)
     public List<HotJobRoleResponse> getHotJobRoles(LocalDate startDate, LocalDate endDate, Integer limit) {
         DateRange range = resolveDateRange(startDate, endDate, DateRangeDefault.LAST_7_DAYS);
         int safeLimit = normalizeHotRoleLimit(limit);
@@ -215,7 +215,7 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
     }
 
     @Override
-    @Cacheable(value = "admin:dashboardDistribution", key = "#startDate + ':' + #endDate", unless = "#result == null")
+    @Cacheable(value = "admin:dashboardDistribution", key = "#startDate + ':' + #endDate", sync = true)
     public BusinessDistributionResponse getBusinessDistribution(LocalDate startDate, LocalDate endDate) {
         DateRange range = resolveDateRange(startDate, endDate, DateRangeDefault.LAST_7_DAYS);
 
@@ -255,7 +255,7 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
     }
 
     @Override
-    @Cacheable(value = "admin:monitorOverview", unless = "#result == null")
+    @Cacheable(value = "admin:monitorOverview", sync = true)
     public MonitorOverviewResponse getMonitorOverview() {
         LocalDateTime todayStart = LocalDate.now().atStartOfDay();
         LocalDateTime tomorrowStart = LocalDate.now().plusDays(1).atStartOfDay();
