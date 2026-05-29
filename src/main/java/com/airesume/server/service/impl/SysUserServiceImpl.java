@@ -13,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
@@ -28,6 +29,8 @@ import java.time.LocalDateTime;
 public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> implements SysUserService {
 
     private static final String USER_CACHE = "sys_user";
+    /** 用户名查询缓存区域：登录校验读取完整用户记录，用户变更时需要主动清空 */
+    private static final String USERNAME_CACHE = "user:username";
 
     /**
      * 自注入：通过 Spring 代理调用自身方法，使 @Cacheable 等 AOP 注解在自调用时生效。
@@ -53,7 +56,10 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
      * 重写 updateById，更新时清除缓存。
      */
     @Override
-    @CacheEvict(value = USER_CACHE, key = "#entity.id")
+    @Caching(evict = {
+            @CacheEvict(value = USER_CACHE, key = "#entity.id"),
+            @CacheEvict(value = USERNAME_CACHE, allEntries = true)
+    })
     public boolean updateById(SysUser entity) {
         return super.updateById(entity);
     }
@@ -62,7 +68,10 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
      * 重写 save，新建用户时不会命中缓存，但防止极端场景缓存不一致。
      */
     @Override
-    @CacheEvict(value = USER_CACHE, key = "#entity.id")
+    @Caching(evict = {
+            @CacheEvict(value = USER_CACHE, key = "#entity.id"),
+            @CacheEvict(value = USERNAME_CACHE, allEntries = true)
+    })
     public boolean save(SysUser entity) {
         return super.save(entity);
     }
@@ -71,7 +80,10 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
      * 重写 removeById，删除用户时清除用户详情缓存。
      */
     @Override
-    @CacheEvict(value = USER_CACHE, key = "#id")
+    @Caching(evict = {
+            @CacheEvict(value = USER_CACHE, key = "#id"),
+            @CacheEvict(value = USERNAME_CACHE, allEntries = true)
+    })
     public boolean removeById(Serializable id) {
         return super.removeById(id);
     }
@@ -80,6 +92,7 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
      * 根据用户名查询用户
      */
     @Override
+    @Cacheable(value = USERNAME_CACHE, key = "#username", unless = "#result == null")
     public SysUser getByUsername(String username) {
         log.debug("Querying user by username: {}", username);
         LambdaQueryWrapper<SysUser> wrapper = new LambdaQueryWrapper<>();

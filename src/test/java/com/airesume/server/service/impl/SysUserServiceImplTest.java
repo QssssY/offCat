@@ -4,10 +4,12 @@ import com.airesume.server.common.constants.UserRoleConstants;
 import com.airesume.server.entity.SysUser;
 import com.airesume.server.service.MembershipPlanService;
 import org.junit.jupiter.api.Test;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.Serializable;
+import java.lang.reflect.Method;
 import java.time.LocalDateTime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -20,13 +22,20 @@ class SysUserServiceImplTest {
 
     @Test
     void removeByIdShouldEvictUserCache() throws NoSuchMethodException {
-        CacheEvict annotation = SysUserServiceImpl.class
-                .getMethod("removeById", Serializable.class)
-                .getAnnotation(CacheEvict.class);
+        assertUserMutationEvictsUserIdCacheAndUsernameCache(
+                SysUserServiceImpl.class.getMethod("removeById", Serializable.class), "#id");
+    }
 
-        assertNotNull(annotation);
-        assertEquals("sys_user", annotation.value()[0]);
-        assertEquals("#id", annotation.key());
+    @Test
+    void updateByIdShouldEvictUserAndUsernameCaches() throws NoSuchMethodException {
+        assertUserMutationEvictsUserIdCacheAndUsernameCache(
+                SysUserServiceImpl.class.getMethod("updateById", SysUser.class), "#entity.id");
+    }
+
+    @Test
+    void saveShouldEvictUserAndUsernameCaches() throws NoSuchMethodException {
+        assertUserMutationEvictsUserIdCacheAndUsernameCache(
+                SysUserServiceImpl.class.getMethod("save", SysUser.class), "#entity.id");
     }
 
     @Test
@@ -46,5 +55,16 @@ class SysUserServiceImplTest {
         assertEquals(0, service.getVipDailyJdMatchLimit(1L));
         assertEquals(0, service.getVipDailyTemplateLimit(1L));
         assertEquals(0, service.getVipDailyOfferLimit(1L));
+    }
+
+    private void assertUserMutationEvictsUserIdCacheAndUsernameCache(Method method, String userIdKey) {
+        Caching caching = method.getAnnotation(Caching.class);
+
+        assertNotNull(caching);
+        CacheEvict[] evicts = caching.evict();
+        assertEquals("sys_user", evicts[0].value()[0]);
+        assertEquals(userIdKey, evicts[0].key());
+        assertEquals("user:username", evicts[1].value()[0]);
+        assertEquals(true, evicts[1].allEntries());
     }
 }

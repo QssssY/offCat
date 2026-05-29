@@ -186,6 +186,7 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
     }
 
     @Override
+    @Cacheable(value = "admin:hotJobRoles", key = "#startDate + ':' + #endDate + ':' + #limit", unless = "#result == null || #result.isEmpty()")
     public List<HotJobRoleResponse> getHotJobRoles(LocalDate startDate, LocalDate endDate, Integer limit) {
         DateRange range = resolveDateRange(startDate, endDate, DateRangeDefault.LAST_7_DAYS);
         int safeLimit = normalizeHotRoleLimit(limit);
@@ -254,34 +255,37 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
     }
 
     @Override
+    @Cacheable(value = "admin:monitorOverview", unless = "#result == null")
     public MonitorOverviewResponse getMonitorOverview() {
         LocalDateTime todayStart = LocalDate.now().atStartOfDay();
         LocalDateTime tomorrowStart = LocalDate.now().plusDays(1).atStartOfDay();
 
-        long pendingResumeTaskCount = resumeDiagnosisTaskService.count(
+        // 并行执行 6 个统计查询，复用看板线程池
+        CompletableFuture<Long> pendingFuture = supplyAsync(() -> resumeDiagnosisTaskService.count(
                 new LambdaQueryWrapper<ResumeDiagnosisTask>()
-                        .eq(ResumeDiagnosisTask::getStatus, ResumeDiagnosisConstants.STATUS_PENDING)
-        );
-        long processingResumeTaskCount = resumeDiagnosisTaskService.count(
+                        .eq(ResumeDiagnosisTask::getStatus, ResumeDiagnosisConstants.STATUS_PENDING)));
+        CompletableFuture<Long> processingFuture = supplyAsync(() -> resumeDiagnosisTaskService.count(
                 new LambdaQueryWrapper<ResumeDiagnosisTask>()
-                        .eq(ResumeDiagnosisTask::getStatus, ResumeDiagnosisConstants.STATUS_PROCESSING)
-        );
-        long failedResumeTaskCount = resumeDiagnosisTaskService.count(
+                        .eq(ResumeDiagnosisTask::getStatus, ResumeDiagnosisConstants.STATUS_PROCESSING)));
+        CompletableFuture<Long> failedFuture = supplyAsync(() -> resumeDiagnosisTaskService.count(
                 new LambdaQueryWrapper<ResumeDiagnosisTask>()
-                        .eq(ResumeDiagnosisTask::getStatus, ResumeDiagnosisConstants.STATUS_FAILED)
-        );
-        long activeInterviewSessionCount = interviewSessionService.count(
+                        .eq(ResumeDiagnosisTask::getStatus, ResumeDiagnosisConstants.STATUS_FAILED)));
+        CompletableFuture<Long> activeInterviewFuture = supplyAsync(() -> interviewSessionService.count(
                 new LambdaQueryWrapper<InterviewSession>()
-                        .eq(InterviewSession::getStatus, InterviewConstants.STATUS_IN_PROGRESS)
-        );
+                        .eq(InterviewSession::getStatus, InterviewConstants.STATUS_IN_PROGRESS)));
+        CompletableFuture<Long> todayInterviewFuture = supplyAsync(() -> countInterviewSessionsBetween(todayStart, tomorrowStart));
+        CompletableFuture<Long> todayResumeFuture = supplyAsync(() -> countResumeTasksBetween(todayStart, tomorrowStart));
+
+        CompletableFuture.allOf(pendingFuture, processingFuture, failedFuture,
+                activeInterviewFuture, todayInterviewFuture, todayResumeFuture).join();
 
         return MonitorOverviewResponse.builder()
-                .pendingResumeTaskCount(pendingResumeTaskCount)
-                .processingResumeTaskCount(processingResumeTaskCount)
-                .failedResumeTaskCount(failedResumeTaskCount)
-                .activeInterviewSessionCount(activeInterviewSessionCount)
-                .todayInterviewSessionCount(countInterviewSessionsBetween(todayStart, tomorrowStart))
-                .todayResumeDiagnosisCount(countResumeTasksBetween(todayStart, tomorrowStart))
+                .pendingResumeTaskCount(pendingFuture.join())
+                .processingResumeTaskCount(processingFuture.join())
+                .failedResumeTaskCount(failedFuture.join())
+                .activeInterviewSessionCount(activeInterviewFuture.join())
+                .todayInterviewSessionCount(todayInterviewFuture.join())
+                .todayResumeDiagnosisCount(todayResumeFuture.join())
                 .build();
     }
 

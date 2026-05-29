@@ -14,7 +14,10 @@ import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,7 +32,13 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
     private final SysUserService sysUserService;
     private final ResumePolishRecordMapper polishRecordMapper;
 
+    /** 自注入：通过 Spring 代理调用自身方法，使 @Cacheable 在自调用时生效 */
+    @Lazy
+    @Autowired
+    private UserQuotaServiceImpl self;
+
     @Override
+    @Cacheable(value = "user:quota", key = "#userId", unless = "#result == null")
     public UserQuota getByUserId(Long userId) {
         if (userId == null) {
             log.warn("getByUserId called with null userId");
@@ -43,12 +52,13 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "user:quota", key = "#userId")
     public void initUserQuota(Long userId) {
         if (userId == null) {
             throw new BusinessException(ResultCode.PARAM_ERROR);
         }
 
-        UserQuota existed = getByUserId(userId);
+        UserQuota existed = self.getByUserId(userId);
         if (existed != null) {
             return;
         }
@@ -110,7 +120,7 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    @CacheEvict(value = "auth:userInfo", key = "#userId")
+    @CacheEvict(value = {"auth:userInfo", "user:quota"}, key = "#userId")
     public void deductInterviewQuota(Long userId) {
         UserQuota userQuota = ensureUserQuota(userId);
         refreshDailyQuotaIfNeeded(userId, userQuota);
@@ -130,7 +140,7 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    @CacheEvict(value = "auth:userInfo", key = "#userId")
+    @CacheEvict(value = {"auth:userInfo", "user:quota"}, key = "#userId")
     public void refundResumeQuota(Long userId) {
         ensureUserQuota(userId);
         int dailyLimit = sysUserService.isVipUser(userId) ? getVipDailyResumeLimit(userId) : 0;
@@ -140,7 +150,7 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    @CacheEvict(value = "auth:userInfo", key = "#userId")
+    @CacheEvict(value = {"auth:userInfo", "user:quota"}, key = "#userId")
     public void deductResumeQuota(Long userId) {
         UserQuota userQuota = ensureUserQuota(userId);
         refreshDailyQuotaIfNeeded(userId, userQuota);
@@ -160,6 +170,7 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "user:quota", key = "#userId")
     public void refreshDailyQuotaIfNeeded(Long userId, UserQuota userQuota) {
         if (userId == null || userQuota == null) {
             return;
@@ -213,13 +224,14 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
             throw new BusinessException(ResultCode.PARAM_ERROR);
         }
 
-        UserQuota userQuota = getByUserId(userId);
+        // 通过代理调用，使 @Cacheable 生效
+        UserQuota userQuota = self.getByUserId(userId);
         if (userQuota != null) {
             return userQuota;
         }
 
         initUserQuota(userId);
-        userQuota = getByUserId(userId);
+        userQuota = self.getByUserId(userId);
         if (userQuota == null) {
             throw new BusinessException(ResultCode.NOT_FOUND);
         }
@@ -246,7 +258,7 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    @CacheEvict(value = "auth:userInfo", key = "#userId")
+    @CacheEvict(value = {"auth:userInfo", "user:quota"}, key = "#userId")
     public void checkAndDeductPolishQuota(Long userId, Long resumeTaskId) {
         UserQuota userQuota = ensureUserQuota(userId);
         refreshDailyQuotaIfNeeded(userId, userQuota);
@@ -281,7 +293,7 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    @CacheEvict(value = "auth:userInfo", key = "#userId")
+    @CacheEvict(value = {"auth:userInfo", "user:quota"}, key = "#userId")
     public void checkAndDeductJdMatchQuota(Long userId) {
         UserQuota userQuota = ensureUserQuota(userId);
         refreshDailyQuotaIfNeeded(userId, userQuota);
@@ -306,7 +318,7 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    @CacheEvict(value = "auth:userInfo", key = "#userId")
+    @CacheEvict(value = {"auth:userInfo", "user:quota"}, key = "#userId")
     public void checkAndDeductTemplateQuota(Long userId) {
         UserQuota userQuota = ensureUserQuota(userId);
         refreshDailyQuotaIfNeeded(userId, userQuota);
@@ -331,7 +343,7 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    @CacheEvict(value = "auth:userInfo", key = "#userId")
+    @CacheEvict(value = {"auth:userInfo", "user:quota"}, key = "#userId")
     public void checkAndDeductOfferQuota(Long userId) {
         UserQuota userQuota = ensureUserQuota(userId);
         refreshDailyQuotaIfNeeded(userId, userQuota);
@@ -356,7 +368,7 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    @CacheEvict(value = "auth:userInfo", key = "#userId")
+    @CacheEvict(value = {"auth:userInfo", "user:quota"}, key = "#userId")
     public void resetCycleQuota(Long userId) {
         UpdateWrapper<UserQuota> wrapper = new UpdateWrapper<>();
         wrapper.eq("user_id", userId)
@@ -374,7 +386,7 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    @CacheEvict(value = "auth:userInfo", key = "#userId")
+    @CacheEvict(value = {"auth:userInfo", "user:quota"}, key = "#userId")
     public void addBonusQuota(Long userId, int bonusResume, int bonusInterview) {
         if (bonusResume <= 0 && bonusInterview <= 0) {
             return;

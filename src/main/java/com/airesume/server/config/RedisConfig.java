@@ -101,6 +101,16 @@ public class RedisConfig {
         cacheConfigMap.put("admin:dashboardDistribution", defaultConfig.entryTtl(Duration.ofMinutes(5)));
         cacheConfigMap.put("config:aiEngine", defaultConfig.entryTtl(Duration.ofMinutes(30)));
         cacheConfigMap.put("config:prompt", defaultConfig.entryTtl(Duration.ofMinutes(30)));
+        // 用户配额缓存：每次 AI 操作都会读取，5 分钟 TTL + 变更方法主动驱逐。
+        cacheConfigMap.put("user:quota", defaultConfig.entryTtl(Duration.ofMinutes(5)));
+        // 用户名缓存：登录校验会读取完整用户记录；改密、封禁等用户变更需要主动驱逐。
+        cacheConfigMap.put("user:username", defaultConfig.entryTtl(Duration.ofMinutes(5)));
+        // 管理后台监控概览：2 分钟 TTL 平衡实时性与数据库压力。
+        cacheConfigMap.put("admin:monitorOverview", defaultConfig.entryTtl(Duration.ofMinutes(2)));
+        // 热门岗位排行：聚合查询，5 分钟 TTL。
+        cacheConfigMap.put("admin:hotJobRoles", defaultConfig.entryTtl(Duration.ofMinutes(5)));
+        // 用户统计卡片：全表聚合，5 分钟 TTL。
+        cacheConfigMap.put("admin:userStats", defaultConfig.entryTtl(Duration.ofMinutes(5)));
         return cacheConfigMap;
     }
 

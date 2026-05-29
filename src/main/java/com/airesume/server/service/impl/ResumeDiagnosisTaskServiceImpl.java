@@ -591,30 +591,33 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "resume:task", allEntries = true)
     public int recoverOrphanedTasks(int timeoutMinutes) {
         // 查询超时的处理中任务：状态为PROCESSING且updateTime早于阈值时间
         LocalDateTime timeoutThreshold = LocalDateTime.now().minusMinutes(timeoutMinutes);
-        LambdaQueryWrapper<ResumeDiagnosisTask> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(ResumeDiagnosisTask::getStatus, ResumeDiagnosisConstants.STATUS_PROCESSING)
-                .lt(ResumeDiagnosisTask::getUpdateTime, timeoutThreshold);
 
-        List<ResumeDiagnosisTask> orphans = list(wrapper);
-        if (orphans.isEmpty()) {
+        // 先统计符合条件的任务数量（用于返回值）
+        LambdaQueryWrapper<ResumeDiagnosisTask> countWrapper = new LambdaQueryWrapper<>();
+        countWrapper.eq(ResumeDiagnosisTask::getStatus, ResumeDiagnosisConstants.STATUS_PROCESSING)
+                .lt(ResumeDiagnosisTask::getUpdateTime, timeoutThreshold);
+        long orphanCount = count(countWrapper);
+
+        if (orphanCount == 0) {
             return 0;
         }
 
-        log.warn("发现 {} 个超时孤儿任务，开始回收...", orphans.size());
-        for (ResumeDiagnosisTask task : orphans) {
-            task.setStatus(ResumeDiagnosisConstants.STATUS_FAILED);
-            task.setStage(null);
-            task.setErrorMsg("任务处理超时，系统自动回收。可能原因：服务重启或消费者异常");
-            task.setFailedAt(LocalDateTime.now());
-            updateById(task);
-            log.warn("已回收孤儿任务, taskId: {}, userId: {}, 原updateTime: {}",
-                    task.getId(), task.getUserId(), task.getUpdateTime());
-        }
-        log.warn("孤儿任务回收完成, 共处理 {} 个任务", orphans.size());
-        return orphans.size();
+        // 批量更新：单条 SQL 将所有超时任务标记为失败
+        LambdaUpdateWrapper<ResumeDiagnosisTask> updateWrapper = new LambdaUpdateWrapper<>();
+        updateWrapper.eq(ResumeDiagnosisTask::getStatus, ResumeDiagnosisConstants.STATUS_PROCESSING)
+                .lt(ResumeDiagnosisTask::getUpdateTime, timeoutThreshold)
+                .set(ResumeDiagnosisTask::getStatus, ResumeDiagnosisConstants.STATUS_FAILED)
+                .set(ResumeDiagnosisTask::getStage, null)
+                .set(ResumeDiagnosisTask::getErrorMsg, "任务处理超时，系统自动回收。可能原因：服务重启或消费者异常")
+                .set(ResumeDiagnosisTask::getFailedAt, LocalDateTime.now());
+        update(updateWrapper);
+
+        log.warn("孤儿任务批量回收完成, 共处理 {} 个任务", orphanCount);
+        return (int) orphanCount;
     }
 
     /**

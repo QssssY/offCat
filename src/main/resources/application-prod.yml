@@ -11,6 +11,7 @@ spring:
       connection-timeout: 30000
       idle-timeout: 300000
       max-lifetime: 1800000
+      leak-detection-threshold: 60000
   data:
     redis:
       host: ${REDIS_HOST}
@@ -22,7 +23,7 @@ spring:
           max-active: 8
           max-wait: 3000ms
           max-idle: 8
-          min-idle: 0
+          min-idle: 2
   rabbitmq:
     host: ${MQ_HOST}
     port: ${MQ_PORT:5672}

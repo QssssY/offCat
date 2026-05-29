@@ -11,6 +11,7 @@ import com.airesume.server.dto.admin.*;
 import com.airesume.server.entity.SysAiEngineConfig;
 import com.airesume.server.entity.SysJobRole;
 import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Caching;
 import com.airesume.server.entity.SysPrompt;
 import com.airesume.server.entity.SysUser;
 import com.airesume.server.entity.UserQuota;
@@ -24,9 +25,11 @@ import com.airesume.server.service.SysPromptService;
 import com.airesume.server.service.SysUserService;
 import com.airesume.server.service.UserQuotaService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.security.core.Authentication;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,8 +37,10 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -813,30 +818,27 @@ SysPrompt prompt = new SysPrompt();
 
         // 如果是启用操作，需要处理同岗位同难度的互斥逻辑
         if (request.getIsActive() != null && request.getIsActive() == 1) {
-            // 先收集所有要启用的prompt信息，按jobRoleCode+difficulty分组
-            for (Long id : request.getIds()) {
-                SysPrompt prompt = sysPromptService.getById(id);
-                if (prompt != null) {
-                    // 先禁用同岗位同难度的其他prompts
-                    sysPromptService.deactivateOtherPrompts(
-                            prompt.getScenarioType(),
-                            prompt.getJobRoleCode(),
-                            prompt.getDifficulty()
-                    );
-                    // 然后启用当前prompt
-                    prompt.setIsActive(1);
-                    sysPromptService.updateById(prompt);
-                }
+            // 批量读取，减少 N 次 getById 为 1 次 listByIds
+            List<SysPrompt> prompts = sysPromptService.listByIds(request.getIds());
+            for (SysPrompt prompt : prompts) {
+                // 先禁用同岗位同难度的其他prompts
+                sysPromptService.deactivateOtherPrompts(
+                        prompt.getScenarioType(),
+                        prompt.getJobRoleCode(),
+                        prompt.getDifficulty()
+                );
+                prompt.setIsActive(1);
+            }
+            // 批量写入，减少 N 次 updateById 为 1 次批量更新
+            if (!prompts.isEmpty()) {
+                sysPromptService.updateBatchById(prompts);
             }
         } else {
-            // 禁用操作直接设置
-            for (Long id : request.getIds()) {
-                SysPrompt prompt = sysPromptService.getById(id);
-                if (prompt != null) {
-                    prompt.setIsActive(request.getIsActive());
-                    sysPromptService.updateById(prompt);
-                }
-            }
+            // 禁用操作：单条 SQL 批量更新，避免 N+1
+            sysPromptService.lambdaUpdate()
+                    .in(SysPrompt::getId, request.getIds())
+                    .set(SysPrompt::getIsActive, request.getIsActive())
+                    .update();
         }
         log.info("Batch toggle prompts active completed, count: {}", request.getIds().size());
         return Result.success("批量更新成功", null);
@@ -845,24 +847,96 @@ SysPrompt prompt = new SysPrompt();
     // ==================== 用户管理接口 ====================
 
     /**
-     * 查询用户列表
+     * 分页查询用户列表（服务端分页+过滤）
      *
+     * @param page 当前页码，默认 1
+     * @param size 每页条数，默认 20
+     * @param keyword 搜索关键词（模糊匹配用户名）
+     * @param role 角色筛选：0-普通，1-会员，9-管理员
+     * @param status 状态筛选：1-正常，0-封禁
      * @param authentication 认证对象
-     * @return 用户列表
+     * @return 分页用户列表
      */
     @GetMapping("/users")
-    public Result<List<UserListResponse>> getUserList(Authentication authentication) {
+    public Result<Map<String, Object>> getUserList(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) Integer role,
+            @RequestParam(required = false) Integer status,
+            @RequestParam(required = false) String vipState,
+            Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         checkAdminPermission(userId);
-        log.info("Admin get user list");
+        log.info("Admin get user list, page: {}, size: {}, keyword: {}, role: {}, status: {}, vipState: {}", page, size, keyword, role, status, vipState);
 
-        List<SysUser> users = sysUserService.list();
-        List<UserListResponse> responses = users.stream()
+        int safePage = Math.max(1, page);
+        int safeSize = Math.min(10000, Math.max(1, size));
+        Page<SysUser> pageParam = new Page<>(safePage, safeSize);
+        LambdaQueryWrapper<SysUser> wrapper = new LambdaQueryWrapper<>();
+        // 服务端过滤：关键词模糊匹配用户名
+        if (keyword != null && !keyword.isBlank()) {
+            wrapper.and(w -> w.like(SysUser::getUsername, keyword)
+                    .or().like(SysUser::getId, keyword));
+        }
+        // 服务端过滤：角色
+        if (role != null) {
+            wrapper.eq(SysUser::getRole, role);
+        }
+        // 服务端过滤：状态
+        if (status != null) {
+            wrapper.eq(SysUser::getStatus, status);
+        }
+        applyVipStateFilter(wrapper, vipState);
+        wrapper.orderByDesc(SysUser::getCreateTime);
+
+        Page<SysUser> result = sysUserService.page(pageParam, wrapper);
+        List<UserListResponse> records = result.getRecords().stream()
                 .map(this::buildUserListResponse)
                 .collect(Collectors.toList());
 
-        log.info("User list fetched, count: {}", responses.size());
-        return Result.success(responses);
+        Map<String, Object> data = new HashMap<>();
+        data.put("records", records);
+        data.put("total", (int) result.getTotal());
+        data.put("page", (int) result.getCurrent());
+        data.put("size", (int) result.getSize());
+
+        log.info("User list fetched, total: {}", result.getTotal());
+        return Result.success(data);
+    }
+
+    /**
+     * 用户统计概览（独立缓存端点）
+     * 支撑前端统计卡片，全表聚合带 5 分钟缓存，避免每次分页查询都扫描全表。
+     */
+    @GetMapping("/users/stats")
+    @Cacheable(value = "admin:userStats", key = "'overview'", unless = "#result == null")
+    public Result<Map<String, Object>> getUserStats(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+
+        long total = sysUserService.count();
+        long enabled = sysUserService.count(new LambdaQueryWrapper<SysUser>()
+                .eq(SysUser::getStatus, 1));
+        long disabled = sysUserService.count(new LambdaQueryWrapper<SysUser>()
+                .eq(SysUser::getStatus, 0));
+        // VIP 有效：role=1 且 vip_expire_time > NOW()
+        long vipActive = sysUserService.count(new LambdaQueryWrapper<SysUser>()
+                .eq(SysUser::getRole, UserRoleConstants.ROLE_VIP)
+                .gt(SysUser::getVipExpireTime, LocalDateTime.now()));
+        // VIP 过期：role=1 但 vip_expire_time <= NOW()
+        long vipExpired = sysUserService.count(new LambdaQueryWrapper<SysUser>()
+                .eq(SysUser::getRole, UserRoleConstants.ROLE_VIP)
+                .le(SysUser::getVipExpireTime, LocalDateTime.now()));
+
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("total", total);
+        stats.put("enabled", enabled);
+        stats.put("disabled", disabled);
+        stats.put("vipActive", vipActive);
+        stats.put("vipExpired", vipExpired);
+
+        return Result.success(stats);
     }
 
     /**
@@ -898,6 +972,7 @@ SysPrompt prompt = new SysPrompt();
      * 具体一致性规则交给服务层统一处理，并同步记录变更日志。
      */
     @PutMapping("/users/{userId}/rights")
+    @CacheEvict(value = "admin:userStats", allEntries = true)
     public Result<Void> updateUserRights(@PathVariable Long userId,
                                          @Valid @RequestBody UserRightsUpdateRequest request,
                                          Authentication authentication) {
@@ -910,7 +985,10 @@ SysPrompt prompt = new SysPrompt();
     }
 
     @PutMapping("/users/{userId}/status")
-    @CacheEvict(value = "auth:userInfo", key = "#userId")
+    @Caching(evict = {
+            @CacheEvict(value = "auth:userInfo", key = "#userId"),
+            @CacheEvict(value = "admin:userStats", allEntries = true)
+    })
     public Result<Void> updateUserStatus(@PathVariable Long userId,
                                           @RequestParam Integer status,
                                           Authentication authentication) {
@@ -938,7 +1016,7 @@ SysPrompt prompt = new SysPrompt();
      */
     @Transactional(rollbackFor = Exception.class)
     @PutMapping("/users/batch/status")
-    @CacheEvict(value = {"auth:userInfo", "user:monthlyStats", "user:growthOverview"}, allEntries = true)
+    @CacheEvict(value = {"auth:userInfo", "user:monthlyStats", "user:growthOverview", "admin:userStats"}, allEntries = true)
     public Result<Void> updateUsersBatchStatus(@Valid @RequestBody BatchActiveRequest request,
                                                Authentication authentication) {
         Long adminUserId = (Long) authentication.getPrincipal();
@@ -1004,7 +1082,11 @@ SysPrompt prompt = new SysPrompt();
      * @return 空结果
      */
     @PutMapping("/users/quota")
-    @CacheEvict(value = "auth:userInfo", key = "#request.userId")
+    @Caching(evict = {
+            @CacheEvict(value = "auth:userInfo", key = "#request.userId"),
+            @CacheEvict(value = "user:quota", key = "#request.userId"),
+            @CacheEvict(value = "admin:userStats", allEntries = true)
+    })
     public Result<Void> updateUserQuota(@Valid @RequestBody UserQuotaUpdateRequest request,
                                          Authentication authentication) {
         Long adminUserId = (Long) authentication.getPrincipal();
@@ -1060,6 +1142,23 @@ SysPrompt prompt = new SysPrompt();
             throw new BusinessException("无权限访问");
         }
         log.debug("Admin permission verified, userId: {}", userId);
+    }
+
+    private void applyVipStateFilter(LambdaQueryWrapper<SysUser> wrapper, String vipState) {
+        String normalizedVipState = trimToNull(vipState);
+        if (normalizedVipState == null || "all".equals(normalizedVipState)) {
+            return;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        switch (normalizedVipState) {
+            case "active" -> wrapper.eq(SysUser::getRole, UserRoleConstants.ROLE_VIP)
+                    .gt(SysUser::getVipExpireTime, now);
+            case "expired" -> wrapper.eq(SysUser::getRole, UserRoleConstants.ROLE_VIP)
+                    .le(SysUser::getVipExpireTime, now);
+            case "non-vip" -> wrapper.and(w -> w.ne(SysUser::getRole, UserRoleConstants.ROLE_VIP)
+                    .or().isNull(SysUser::getRole));
+            default -> log.warn("Unsupported admin user vipState filter ignored, vipState: {}", vipState);
+        }
     }
 
     /**
