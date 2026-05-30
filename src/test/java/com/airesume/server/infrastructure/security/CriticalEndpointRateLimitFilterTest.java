@@ -142,6 +142,56 @@ class CriticalEndpointRateLimitFilterTest {
     }
 
     @Test
+    void shouldAllowNormalVoiceInterviewStreamTurnsWithinWindow() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-05-15T00:00:00Z"));
+        CriticalEndpointRateLimitFilter filter = new CriticalEndpointRateLimitFilter(new ObjectMapper(), clock);
+
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(150L, null));
+
+        // 语音面试会把每一轮回答都发送到 SSE 流式接口，60 轮仍属于高强度但合理的面试节奏。
+        for (int i = 0; i < 60; i++) {
+            MockHttpServletRequest request = buildRequest("POST", "/api/interview/session/voice-session/message/stream", "10.0.0.12");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            verify(chain).doFilter(request, response);
+            assertEquals(200, response.getStatus());
+        }
+    }
+
+    @Test
+    void shouldBlockInterviewStreamAfterExpandedLimitReached() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-05-15T00:00:00Z"));
+        CriticalEndpointRateLimitFilter filter = new CriticalEndpointRateLimitFilter(new ObjectMapper(), clock);
+
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(151L, null));
+
+        for (int i = 0; i < 60; i++) {
+            MockHttpServletRequest request = buildRequest("POST", "/api/interview/session/stream-session/message/stream", "10.0.0.13");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            verify(chain).doFilter(request, response);
+            assertEquals(200, response.getStatus());
+        }
+
+        MockHttpServletRequest blockedRequest = buildRequest("POST", "/api/interview/session/stream-session/message/stream", "10.0.0.13");
+        MockHttpServletResponse blockedResponse = new MockHttpServletResponse();
+        FilterChain blockedChain = mock(FilterChain.class);
+
+        filter.doFilter(blockedRequest, blockedResponse, blockedChain);
+
+        verify(blockedChain, never()).doFilter(blockedRequest, blockedResponse);
+        assertEquals(429, blockedResponse.getStatus());
+    }
+
+    @Test
     void shouldUseAuthenticatedUserAsOfferRateLimitKey() throws Exception {
         MutableClock clock = new MutableClock(Instant.parse("2026-05-15T00:00:00Z"));
         CriticalEndpointRateLimitFilter filter = new CriticalEndpointRateLimitFilter(new ObjectMapper(), clock);

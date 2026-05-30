@@ -480,7 +480,8 @@ CREATE TABLE `sys_admin_notification` (
   PRIMARY KEY (`id`),
   INDEX `idx_admin_notification_status` (`status`),
   INDEX `idx_admin_notification_type` (`type`),
-  INDEX `idx_admin_notification_create_time` (`create_time`)
+  INDEX `idx_admin_notification_create_time` (`create_time`),
+  INDEX `idx_admin_notification_filter_time` (`target_type`, `status`, `type`, `create_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='系统公告表';
 
 CREATE TABLE `sys_version_log` (

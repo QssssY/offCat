@@ -50,6 +50,17 @@ class SchemaConsistencyTest {
         assertTrue(serverMigration.contains("idx_community_comment_reply_user_actor_time"));
     }
 
+    @Test
+    void shouldKeepAdminNotificationFilterIndexMigrationInSyncAndRepeatable() throws Exception {
+        String rootMigration = readSql("../db/migrations/TASK_ADMIN_NOTIFICATION_FILTER_INDEXES.sql");
+        String serverMigration = readSql("db/migrations/TASK_ADMIN_NOTIFICATION_FILTER_INDEXES.sql");
+
+        assertEquals(rootMigration, serverMigration, "admin notification filter index migration must stay in sync");
+        assertTrue(serverMigration.contains("information_schema.STATISTICS"));
+        assertTrue(serverMigration.contains("idx_admin_notification_filter_time"));
+        assertTrue(serverMigration.contains("`target_type`, `status`, `type`, `create_time`"));
+    }
+
     private void assertContainsCriticalSchema(String schema) {
         assertTrue(schema.contains("CREATE TABLE `user_settings`"));
         assertTrue(schema.contains("idx_user_settings_resume_retention"));
@@ -61,6 +72,7 @@ class SchemaConsistencyTest {
         assertTrue(schema.contains("idx_notification_user_read_time"));
         assertTrue(schema.contains("idx_community_post_deleted_category_time"));
         assertTrue(schema.contains("idx_community_comment_reply_user_actor_time"));
+        assertTrue(schema.contains("idx_admin_notification_filter_time"));
         assertTrue(schema.contains("idx_chat_log_message_role"));
         assertTrue(schema.contains("CONVERT(0x"));
     }

@@ -32,6 +32,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
 public class AdminNotificationController {
+    private static final int MAX_PAGE_SIZE = 100;
+
 
     private final SysAdminNotificationService sysAdminNotificationService;
     private final NotificationService notificationService;
@@ -42,12 +44,48 @@ public class AdminNotificationController {
     public Result<Map<String, Object>> getNotificationList(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String type,
+            @RequestParam(required = false) Integer status,
+            @RequestParam(required = false) String targetType,
+            @RequestParam(required = false) String keyword,
             Authentication authentication) {
-        log.info("Admin get notification list, page: {}, size: {}", page, size);
-        Page<SysAdminNotification> pageParam = new Page<>(page, size);
-        Page<SysAdminNotification> result = sysAdminNotificationService.lambdaQuery()
-                .orderByDesc(SysAdminNotification::getCreateTime)
-                .page(pageParam);
+        String safeType = normalizeOptionalText(type);
+        String safeTargetType = normalizeOptionalText(targetType);
+        String safeKeyword = normalizeOptionalText(keyword);
+        log.info("Admin get notification list, page: {}, size: {}, type: {}, status: {}, targetType: {}, keyword: {}",
+                page, size, safeType, status, safeTargetType, safeKeyword);
+
+        if (safeType != null && !isSupportedNotificationType(safeType)) {
+            return Result.error("公告类型仅支持 system/activity/update/maintenance");
+        }
+        if (status != null && status != 0 && status != 1) {
+            return Result.error("公告状态仅支持 0/1");
+        }
+        if (safeTargetType != null && !isSupportedTargetType(safeTargetType)) {
+            return Result.error("目标用户仅支持 all/vip/normal");
+        }
+
+        int safePage = Math.max(1, page);
+        int safeSize = Math.min(MAX_PAGE_SIZE, Math.max(1, size));
+        Page<SysAdminNotification> pageParam = new Page<>(safePage, safeSize);
+        LambdaQueryWrapper<SysAdminNotification> wrapper = new LambdaQueryWrapper<>();
+        // 管理端筛选统一在后端参数化拼装，避免前端本地筛选导致分页总数与实际结果不一致。
+        if (safeType != null) {
+            wrapper.eq(SysAdminNotification::getType, safeType);
+        }
+        if (status != null) {
+            wrapper.eq(SysAdminNotification::getStatus, status);
+        }
+        if (safeTargetType != null) {
+            wrapper.eq(SysAdminNotification::getTargetType, safeTargetType);
+        }
+        if (safeKeyword != null) {
+            wrapper.and(query -> query.like(SysAdminNotification::getTitle, safeKeyword)
+                    .or()
+                    .like(SysAdminNotification::getContent, safeKeyword));
+        }
+        wrapper.orderByDesc(SysAdminNotification::getCreateTime);
+        Page<SysAdminNotification> result = sysAdminNotificationService.page(pageParam, wrapper);
         List<AdminNotificationResponse> responses = result.getRecords().stream()
                 .map(this::buildResponse)
                 .collect(Collectors.toList());
@@ -182,6 +220,28 @@ public class AdminNotificationController {
             );
         }
         log.info("Broadcast sent to {} users, notificationId: {}", targetUsers.size(), notification.getId());
+    }
+
+    private String normalizeOptionalText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim();
+        return normalized.isEmpty() ? null : normalized;
+    }
+
+    private boolean isSupportedNotificationType(String type) {
+        return switch (type) {
+            case "system", "activity", "update", "maintenance" -> true;
+            default -> false;
+        };
+    }
+
+    private boolean isSupportedTargetType(String targetType) {
+        return switch (targetType) {
+            case "all", "vip", "normal" -> true;
+            default -> false;
+        };
     }
 
     private AdminNotificationResponse buildResponse(SysAdminNotification entity) {

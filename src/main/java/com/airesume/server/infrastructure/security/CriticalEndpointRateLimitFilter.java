@@ -59,10 +59,10 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
             "resume_export_pdf", RESUME_EXPORT_PDF_PATH, MatchType.EXACT, 5, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
     private static final RateLimitPolicy INTERVIEW_CREATE_POLICY = new RateLimitPolicy(
             "interview_create", INTERVIEW_SESSION_PATH, MatchType.EXACT, 10, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
-    // 面试 SSE 流式接口是单次成本最高的端点：每次都会触发一次真 AI 调用。
-    // 用更严格的 10 次 / 10 分钟限制单独保护，避免被脚本刷爆推高 Token 成本。
+    // 面试 SSE 流式接口会被文字和语音面试每轮对话调用，阈值需要覆盖正常多轮面试。
+    // 保持独立策略便于观测和拦截异常刷接口，60 次 / 10 分钟覆盖高强度语音面试节奏。
     private static final RateLimitPolicy INTERVIEW_STREAM_POLICY = new RateLimitPolicy(
-            "interview_stream", INTERVIEW_STREAM_SUFFIX, MatchType.SUFFIX, 10, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
+            "interview_stream", INTERVIEW_STREAM_SUFFIX, MatchType.SUFFIX, 60, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
     private static final RateLimitPolicy INTERVIEW_ACTION_POLICY = new RateLimitPolicy(
             "interview_action", INTERVIEW_SESSION_PREFIX, MatchType.PREFIX, 40, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
     private static final RateLimitPolicy OFFER_ACTION_POLICY = new RateLimitPolicy(

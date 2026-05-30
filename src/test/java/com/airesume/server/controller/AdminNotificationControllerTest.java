@@ -10,12 +10,15 @@ import com.airesume.server.mapper.UserNotificationMapper;
 import com.airesume.server.service.NotificationService;
 import com.airesume.server.service.SysAdminNotificationService;
 import com.airesume.server.service.SysUserService;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.core.Authentication;
@@ -25,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -43,6 +47,9 @@ class AdminNotificationControllerTest {
 
     @BeforeEach
     void setUp() {
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(new MybatisConfiguration(), ""),
+                SysAdminNotification.class);
         controller = new AdminNotificationController(sysAdminNotificationService, notificationService, sysUserService, userNotificationMapper);
         lenient().when(authentication.getPrincipal()).thenReturn(1L);
     }
@@ -51,16 +58,11 @@ class AdminNotificationControllerTest {
     void getNotificationListShouldReturnPagedRecords() {
         SysAdminNotification notification = buildNotification(100L, 1);
 
-        @SuppressWarnings("unchecked")
-        com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper<SysAdminNotification> wrapper = mock(
-            com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper.class);
         Page<SysAdminNotification> pageResult = new Page<>(1, 20, 1);
         pageResult.setRecords(List.of(notification));
-        when(sysAdminNotificationService.lambdaQuery()).thenReturn(wrapper);
-        doReturn(wrapper).when(wrapper).orderByDesc(any(SFunction.class));
-        doReturn(pageResult).when(wrapper).page(any(Page.class));
+        when(sysAdminNotificationService.page(any(Page.class), any(LambdaQueryWrapper.class))).thenReturn(pageResult);
 
-        Result<Map<String, Object>> result = controller.getNotificationList(1, 20, authentication);
+        Result<Map<String, Object>> result = controller.getNotificationList(1, 20, null, null, null, null, authentication);
 
         assertEquals(CODE_SUCCESS, result.getCode());
         @SuppressWarnings("unchecked")
@@ -68,6 +70,52 @@ class AdminNotificationControllerTest {
         assertEquals(1, records.size());
         assertEquals("System notice", records.get(0).getTitle());
         assertEquals(1, result.getData().get("total"));
+    }
+
+    @Test
+    void getNotificationListShouldApplyFilterParameters() {
+        Page<SysAdminNotification> pageResult = new Page<>(1, 20, 0);
+        pageResult.setRecords(List.of());
+        when(sysAdminNotificationService.page(any(Page.class), any(LambdaQueryWrapper.class))).thenReturn(pageResult);
+
+        Result<Map<String, Object>> result = controller.getNotificationList(
+                1, 20, "activity", 0, "vip", "维护", authentication);
+
+        assertEquals(CODE_SUCCESS, result.getCode());
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        ArgumentCaptor<LambdaQueryWrapper<SysAdminNotification>> wrapperCaptor = ArgumentCaptor.forClass((Class) LambdaQueryWrapper.class);
+        verify(sysAdminNotificationService).page(any(Page.class), wrapperCaptor.capture());
+        String sqlSegment = wrapperCaptor.getValue().getSqlSegment();
+        assertTrue(sqlSegment.contains("type"), sqlSegment);
+        assertTrue(sqlSegment.contains("status"), sqlSegment);
+        assertTrue(sqlSegment.contains("target_type"), sqlSegment);
+        assertTrue(sqlSegment.contains("title"), sqlSegment);
+        assertTrue(sqlSegment.contains("content"), sqlSegment);
+        assertTrue(sqlSegment.contains("ORDER BY"), sqlSegment);
+    }
+
+    @Test
+    void getNotificationListShouldLimitPageSizeForPerformance() {
+        Page<SysAdminNotification> pageResult = new Page<>(1, 100, 0);
+        pageResult.setRecords(List.of());
+        when(sysAdminNotificationService.page(any(Page.class), any(LambdaQueryWrapper.class))).thenReturn(pageResult);
+
+        Result<Map<String, Object>> result = controller.getNotificationList(0, 500, null, null, null, null, authentication);
+
+        assertEquals(CODE_SUCCESS, result.getCode());
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        ArgumentCaptor<Page<SysAdminNotification>> pageCaptor = ArgumentCaptor.forClass((Class) Page.class);
+        verify(sysAdminNotificationService).page(pageCaptor.capture(), any(LambdaQueryWrapper.class));
+        assertEquals(1, pageCaptor.getValue().getCurrent());
+        assertEquals(100, pageCaptor.getValue().getSize());
+    }
+
+    @Test
+    void getNotificationListShouldRejectInvalidStatusFilter() {
+        Result<Map<String, Object>> result = controller.getNotificationList(1, 20, null, 3, null, null, authentication);
+
+        assertEquals(500, result.getCode());
+        verify(sysAdminNotificationService, never()).page(any(Page.class), any(LambdaQueryWrapper.class));
     }
 
     @Test
