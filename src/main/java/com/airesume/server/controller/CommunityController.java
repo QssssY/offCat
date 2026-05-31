@@ -100,13 +100,13 @@ public class CommunityController {
      * @return 帖子ID
      */
     @PostMapping("/posts")
-    public Result<String> createPost(
+    public Result<CreateCommunityContentResponse> createPost(
             Authentication authentication,
             @Valid @RequestBody CreatePostRequest request) {
         Long userId = (Long) authentication.getPrincipal();
         log.info("[社区] 创建帖子, userId: {}, category: {}", userId, request.getCategory());
-        Long postId = communityService.createPost(userId, request);
-        return Result.success(String.valueOf(postId));
+        CreateCommunityContentResponse response = communityService.createPost(userId, request);
+        return Result.success(response);
     }
 
     /**
@@ -120,6 +120,21 @@ public class CommunityController {
         log.info("[社区] 删除帖子, userId: {}, postId: {}", userId, postId);
         communityService.deletePost(userId, postId);
         return Result.success();
+    }
+
+    /**
+     * 管理员在用户端社区下架帖子。
+     * 说明：接口仍走用户端 token，但服务层会再次校验管理员角色，避免只依赖前端按钮产生越权风险。
+     */
+    @PutMapping("/posts/{postId}/admin-hide")
+    public Result<Void> adminHidePost(
+            Authentication authentication,
+            @PathVariable Long postId,
+            @Valid @RequestBody AdminHidePostRequest request) {
+        Long adminUserId = (Long) authentication.getPrincipal();
+        log.info("[社区] 管理员下架帖子, adminUserId: {}, postId: {}", adminUserId, postId);
+        communityService.adminHidePost(adminUserId, postId, request.getReason());
+        return Result.success("帖子已下架", null);
     }
 
     /**
@@ -213,14 +228,14 @@ public class CommunityController {
      * @return 评论ID
      */
     @PostMapping("/posts/{postId}/comments")
-    public Result<String> createComment(
+    public Result<CreateCommunityContentResponse> createComment(
             Authentication authentication,
             @PathVariable Long postId,
             @Valid @RequestBody CreateCommentRequest request) {
         Long userId = (Long) authentication.getPrincipal();
         log.info("[社区] 创建评论, userId: {}, postId: {}", userId, postId);
-        Long commentId = communityService.createComment(userId, postId, request);
-        return Result.success(String.valueOf(commentId));
+        CreateCommunityContentResponse response = communityService.createComment(userId, postId, request);
+        return Result.success(response);
     }
 
     /**
@@ -236,6 +251,21 @@ public class CommunityController {
         log.info("[社区] 删除评论, userId: {}, postId: {}, commentId: {}", userId, postId, commentId);
         communityService.deleteComment(userId, postId, commentId);
         return Result.success();
+    }
+
+    /**
+     * 管理员在用户端下架评论或回复。
+     */
+    @PutMapping("/posts/{postId}/comments/{commentId}/admin-hide")
+    public Result<Void> adminHideComment(
+            Authentication authentication,
+            @PathVariable Long postId,
+            @PathVariable Long commentId,
+            @Valid @RequestBody AdminHideCommentRequest request) {
+        Long adminUserId = (Long) authentication.getPrincipal();
+        log.info("[社区] 管理员下架评论, adminUserId: {}, postId: {}, commentId: {}", adminUserId, postId, commentId);
+        communityService.adminHideComment(adminUserId, postId, commentId, request.getReason());
+        return Result.success("评论已下架", null);
     }
 
     /**

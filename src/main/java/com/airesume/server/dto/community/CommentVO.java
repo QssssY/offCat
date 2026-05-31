@@ -61,4 +61,10 @@ public class CommentVO {
 
     /** 回复数量（仅顶级评论有值） */
     private Integer replyCount;
+
+    /** 审核状态：pending / approved / rejected / hidden */
+    private String reviewStatus;
+
+    /** 审核原因；仅在我的动态或管理端需要回显 */
+    private String reviewReason;
 }

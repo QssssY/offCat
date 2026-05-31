@@ -61,6 +61,44 @@ class SchemaConsistencyTest {
         assertTrue(serverMigration.contains("`target_type`, `status`, `type`, `create_time`"));
     }
 
+    @Test
+    void shouldKeepAdminVersionLogFilterIndexMigrationInSyncAndRepeatable() throws Exception {
+        String rootMigration = readSql("../db/migrations/TASK_ADMIN_VERSION_LOG_FILTER_INDEXES.sql");
+        String serverMigration = readSql("db/migrations/TASK_ADMIN_VERSION_LOG_FILTER_INDEXES.sql");
+
+        assertEquals(rootMigration, serverMigration, "admin version log filter index migration must stay in sync");
+        assertTrue(serverMigration.contains("information_schema.STATISTICS"));
+        assertTrue(serverMigration.contains("idx_version_log_filter_time"));
+        assertTrue(serverMigration.contains("`status`, `type`, `create_time`"));
+    }
+
+    @Test
+    void shouldKeepCommunityModerationMigrationUtf8SafeAndInSync() throws Exception {
+        String rootMigration = readSql("../db/migrations/TASK_61_COMMUNITY_CONTENT_MODERATION.sql");
+        String serverMigration = readSql("db/migrations/TASK_61_COMMUNITY_CONTENT_MODERATION.sql");
+
+        assertEquals(rootMigration, serverMigration, "community moderation migration must stay in sync");
+        assertTrue(serverMigration.contains("SET NAMES utf8mb4;"));
+        assertTrue(serverMigration.contains("IN p_column_definition TEXT CHARACTER SET utf8mb4"));
+        assertTrue(serverMigration.contains("IN p_index_definition TEXT CHARACTER SET utf8mb4"));
+        assertTrue(serverMigration.contains("COMMENT ''审核状态：pending-待审，approved-通过，rejected-拒绝，hidden-隐藏''"));
+        assertTrue(serverMigration.contains("idx_community_post_review_time"));
+        assertTrue(serverMigration.contains("idx_community_comment_post_review_time"));
+    }
+
+    @Test
+    void shouldKeepUserBanFieldsMigrationInSyncAndRepeatable() throws Exception {
+        String rootMigration = readSql("../db/migrations/TASK_66_USER_BAN_FIELDS.sql");
+        String serverMigration = readSql("db/migrations/TASK_66_USER_BAN_FIELDS.sql");
+
+        assertEquals(rootMigration, serverMigration, "user ban fields migration must stay in sync");
+        assertTrue(serverMigration.contains("SET NAMES utf8mb4;"));
+        assertTrue(serverMigration.contains("IN p_column_definition TEXT CHARACTER SET utf8mb4"));
+        assertTrue(serverMigration.contains("ban_reason"));
+        assertTrue(serverMigration.contains("banned_until"));
+        assertTrue(serverMigration.contains("idx_sys_user_banned_until"));
+    }
+
     private void assertContainsCriticalSchema(String schema) {
         assertTrue(schema.contains("CREATE TABLE `user_settings`"));
         assertTrue(schema.contains("idx_user_settings_resume_retention"));
@@ -73,6 +111,10 @@ class SchemaConsistencyTest {
         assertTrue(schema.contains("idx_community_post_deleted_category_time"));
         assertTrue(schema.contains("idx_community_comment_reply_user_actor_time"));
         assertTrue(schema.contains("idx_admin_notification_filter_time"));
+        assertTrue(schema.contains("idx_version_log_filter_time"));
+        assertTrue(schema.contains("ban_reason"));
+        assertTrue(schema.contains("banned_until"));
+        assertTrue(schema.contains("idx_sys_user_banned_until"));
         assertTrue(schema.contains("idx_chat_log_message_role"));
         assertTrue(schema.contains("CONVERT(0x"));
     }

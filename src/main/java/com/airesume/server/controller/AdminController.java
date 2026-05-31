@@ -24,6 +24,7 @@ import com.airesume.server.service.SysJobRoleService;
 import com.airesume.server.service.SysPromptService;
 import com.airesume.server.service.SysUserService;
 import com.airesume.server.service.UserQuotaService;
+import com.airesume.server.service.NotificationService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.validation.Valid;
@@ -62,6 +63,7 @@ public class AdminController {
     private final SysUserService sysUserService;
     private final UserQuotaService userQuotaService;
     private final AiCredentialCrypto aiCredentialCrypto;
+    private final NotificationService notificationService;
 
     // ==================== 提示词模板管理接口 ====================
 
@@ -1031,6 +1033,66 @@ SysPrompt prompt = new SysPrompt();
         return Result.success("批量更新成功", null);
     }
 
+    @PutMapping("/users/{userId}/ban")
+    @Caching(evict = {
+            @CacheEvict(value = "auth:userInfo", key = "#userId"),
+            @CacheEvict(value = "admin:userStats", allEntries = true)
+    })
+    public Result<Void> banUser(@PathVariable Long userId,
+                                @Valid @RequestBody AdminUserBanRequest request,
+                                Authentication authentication) {
+        Long adminUserId = (Long) authentication.getPrincipal();
+        checkAdminPermission(adminUserId);
+        SysUser target = getUserForBanOperation(userId);
+        applyUserBan(adminUserId, target, request.getDuration(), request.getReason());
+        return Result.success("用户已封禁", null);
+    }
+
+    @PutMapping("/users/{userId}/unban")
+    @Caching(evict = {
+            @CacheEvict(value = "auth:userInfo", key = "#userId"),
+            @CacheEvict(value = "admin:userStats", allEntries = true)
+    })
+    public Result<Void> unbanUser(@PathVariable Long userId,
+                                  @Valid @RequestBody AdminUserUnbanRequest request,
+                                  Authentication authentication) {
+        Long adminUserId = (Long) authentication.getPrincipal();
+        checkAdminPermission(adminUserId);
+        SysUser target = getUserForBanOperation(userId);
+        applyUserUnban(target, request != null ? request.getReason() : null);
+        return Result.success("用户已解封", null);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    @PutMapping("/users/batch/ban")
+    @CacheEvict(value = {"auth:userInfo", "user:monthlyStats", "user:growthOverview", "admin:userStats"}, allEntries = true)
+    public Result<Void> banUsersBatch(@Valid @RequestBody BatchUserBanRequest request,
+                                      Authentication authentication) {
+        Long adminUserId = (Long) authentication.getPrincipal();
+        checkAdminPermission(adminUserId);
+        validateUserIdBatch(request.getIds(), "封禁");
+        for (Long targetUserId : request.getIds()) {
+            SysUser target = getUserForBanOperation(targetUserId);
+            applyUserBan(adminUserId, target, request.getDuration(), request.getReason());
+        }
+        return Result.success("批量封禁成功", null);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    @PutMapping("/users/batch/unban")
+    @CacheEvict(value = {"auth:userInfo", "user:monthlyStats", "user:growthOverview", "admin:userStats"}, allEntries = true)
+    public Result<Void> unbanUsersBatch(@Valid @RequestBody BatchUserUnbanRequest request,
+                                        Authentication authentication) {
+        Long adminUserId = (Long) authentication.getPrincipal();
+        checkAdminPermission(adminUserId);
+        validateUserIdBatch(request.getIds(), "解封");
+        for (Long targetUserId : request.getIds()) {
+            SysUser target = getUserForBanOperation(targetUserId);
+            applyUserUnban(target, request.getReason());
+        }
+        return Result.success("批量解封成功", null);
+    }
+
     // ==================== 额度管理接口 ====================
 
     /**
@@ -1144,6 +1206,111 @@ SysPrompt prompt = new SysPrompt();
         log.debug("Admin permission verified, userId: {}", userId);
     }
 
+    private SysUser getUserForBanOperation(Long userId) {
+        SysUser user = sysUserService.getById(userId);
+        if (user == null) {
+            throw new BusinessException("用户不存在");
+        }
+        return user;
+    }
+
+    private void applyUserBan(Long adminUserId, SysUser target, String duration, String reason) {
+        if (target.getId() != null && target.getId().equals(adminUserId)) {
+            throw new BusinessException("不能封禁当前管理员账号");
+        }
+        if (target.getRole() != null && target.getRole() == UserRoleConstants.ROLE_ADMIN) {
+            throw new BusinessException("不能封禁管理员账号");
+        }
+        String normalizedReason = normalizeBanReason(reason, true);
+        LocalDateTime bannedUntil = resolveBannedUntil(duration);
+
+        target.setStatus(0);
+        target.setBanReason(normalizedReason);
+        target.setBannedUntil(bannedUntil);
+        target.setBannedBy(adminUserId);
+        target.setBannedTime(LocalDateTime.now());
+        sysUserService.updateById(target);
+
+        createBanNotification(target.getId(), "账号已被封禁",
+                "你的账号已被管理员封禁，原因：" + normalizedReason + buildBanDurationText(bannedUntil),
+                "user_ban");
+    }
+
+    private void applyUserUnban(SysUser target, String reason) {
+        String normalizedReason = normalizeBanReason(reason, false);
+        target.setStatus(1);
+        target.setBanReason(null);
+        target.setBannedUntil(null);
+        target.setBannedBy(null);
+        target.setBannedTime(null);
+        sysUserService.updateById(target);
+
+        String content = normalizedReason == null
+                ? "你的账号已被管理员解封。"
+                : "你的账号已被管理员解封，说明：" + normalizedReason;
+        createBanNotification(target.getId(), "账号已解封", content, "user_unban");
+    }
+
+    private void validateUserIdBatch(List<Long> ids, String actionName) {
+        if (ids == null || ids.isEmpty()) {
+            throw new BusinessException("请选择要" + actionName + "的用户");
+        }
+        if (ids.size() > 100) {
+            throw new BusinessException("单次操作不能超过100个用户");
+        }
+    }
+
+    private String normalizeBanReason(String reason, boolean required) {
+        String normalized = trimToNull(reason);
+        if (normalized == null) {
+            if (required) {
+                throw new BusinessException("封禁原因不能为空");
+            }
+            return null;
+        }
+        if (normalized.length() > 200) {
+            throw new BusinessException("操作原因不能超过200字");
+        }
+        return normalized;
+    }
+
+    private LocalDateTime resolveBannedUntil(String duration) {
+        String normalizedDuration = trimToNull(duration);
+        if (normalizedDuration == null) {
+            throw new BusinessException("封禁时长不能为空");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        return switch (normalizedDuration.toLowerCase(Locale.ROOT)) {
+            case "1d" -> now.plusDays(1);
+            case "7d" -> now.plusDays(7);
+            case "30d" -> now.plusDays(30);
+            case "permanent" -> null;
+            default -> throw new BusinessException("封禁时长不合法");
+        };
+    }
+
+    private String buildBanDurationText(LocalDateTime bannedUntil) {
+        return bannedUntil == null ? "；封禁时长：永久。" : "；封禁至：" + bannedUntil + "。";
+    }
+
+    private void createBanNotification(Long userId, String title, String content, String bizType) {
+        if (notificationService == null) {
+            return;
+        }
+        try {
+            notificationService.createNotification(
+                    userId,
+                    "system",
+                    title,
+                    content,
+                    bizType,
+                    String.valueOf(userId)
+            );
+        } catch (Exception e) {
+            log.warn("User ban notification failed, userId: {}, bizType: {}", userId, bizType, e);
+        }
+    }
+
     private void applyVipStateFilter(LambdaQueryWrapper<SysUser> wrapper, String vipState) {
         String normalizedVipState = trimToNull(vipState);
         if (normalizedVipState == null || "all".equals(normalizedVipState)) {
@@ -1254,6 +1421,10 @@ private UserListResponse buildUserListResponse(SysUser user) {
                 .status(user.getStatus())
                 .statusDesc(getUserStatusDesc(user.getStatus()))
                 .vipExpireTime(user.getVipExpireTime())
+                .banReason(user.getBanReason())
+                .bannedUntil(user.getBannedUntil())
+                .bannedBy(user.getBannedBy())
+                .bannedTime(user.getBannedTime())
                 .createTime(user.getCreateTime())
                 .build();
     }

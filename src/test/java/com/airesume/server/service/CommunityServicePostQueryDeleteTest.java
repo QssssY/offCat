@@ -1,5 +1,7 @@
 package com.airesume.server.service;
 
+import com.airesume.server.common.constants.CommunityConstants;
+import com.airesume.server.common.constants.UserRoleConstants;
 import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.PageResult;
 import com.airesume.server.dto.community.PostVO;
@@ -23,6 +25,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
@@ -66,6 +69,9 @@ class CommunityServicePostQueryDeleteTest {
     @Mock
     private ObjectMapper objectMapper;
 
+    @Mock
+    private NotificationService notificationService;
+
     private CommunityService communityService;
 
     private static final Long USER_A_ID = 1001L;
@@ -79,7 +85,8 @@ class CommunityServicePostQueryDeleteTest {
     @BeforeEach
     void setUp() {
         communityService = new CommunityService(
-                postMapper, commentMapper, likeMapper, favoriteMapper, userMapper, interviewSessionMapper, objectMapper
+                postMapper, commentMapper, likeMapper, favoriteMapper, userMapper, interviewSessionMapper, objectMapper,
+                new CommunityTextModerationService(), notificationService
         );
     }
 
@@ -476,6 +483,191 @@ class CommunityServicePostQueryDeleteTest {
         }
     }
 
+    @Nested
+    @DisplayName("Feature 4: adminHidePost - 管理员前台下架帖子")
+    class AdminHidePostTests {
+
+        @Test
+        @DisplayName("Scenario 4.1 [P0] - 普通用户不能调用管理员下架")
+        void normalUser_cannotAdminHidePost() {
+            SysUser normalUser = buildUser(USER_B_ID, "userB", "普通用户");
+            normalUser.setRole(UserRoleConstants.ROLE_NORMAL);
+            when(userMapper.selectById(USER_B_ID)).thenReturn(normalUser);
+
+            BusinessException exception = assertThrows(
+                    BusinessException.class,
+                    () -> communityService.adminHidePost(USER_B_ID, P1_ID, "违反社区规范")
+            );
+
+            assertEquals("无权限执行社区管理操作", exception.getMessage());
+            verify(postMapper, never()).updateById(any(CommunityPost.class));
+            verify(notificationService, never()).createNotification(any(), any(), any(), any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("Scenario 4.2 [P0] - 管理员下架帖子时必须填写原因")
+        void adminHidePost_requiresReason() {
+            SysUser adminUser = buildUser(USER_C_ID, "admin", "管理员");
+            adminUser.setRole(UserRoleConstants.ROLE_ADMIN);
+            when(userMapper.selectById(USER_C_ID)).thenReturn(adminUser);
+
+            BusinessException exception = assertThrows(
+                    BusinessException.class,
+                    () -> communityService.adminHidePost(USER_C_ID, P1_ID, " ")
+            );
+
+            assertEquals("下架原因不能为空", exception.getMessage());
+            verify(postMapper, never()).updateById(any(CommunityPost.class));
+            verify(notificationService, never()).createNotification(any(), any(), any(), any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("Scenario 4.2.1 [P0] - 管理员下架原因不能超过后端限制")
+        void adminHidePost_rejectsTooLongReason() {
+            SysUser adminUser = buildUser(USER_C_ID, "admin", "管理员");
+            adminUser.setRole(UserRoleConstants.ROLE_ADMIN);
+            when(userMapper.selectById(USER_C_ID)).thenReturn(adminUser);
+
+            String tooLongReason = "A".repeat(CommunityConstants.MAX_ADMIN_HIDE_REASON_LENGTH + 1);
+            BusinessException exception = assertThrows(
+                    BusinessException.class,
+                    () -> communityService.adminHidePost(USER_C_ID, P1_ID, tooLongReason)
+            );
+
+            assertEquals("下架原因不能超过200字", exception.getMessage());
+            verify(postMapper, never()).updateById(any(CommunityPost.class));
+            verify(notificationService, never()).createNotification(any(), any(), any(), any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("Scenario 4.3 [P0] - 管理员下架已通过帖子并通知作者")
+        void adminHideApprovedPost_marksHiddenAndNotifiesAuthor() {
+            SysUser adminUser = buildUser(USER_C_ID, "admin", "管理员");
+            adminUser.setRole(UserRoleConstants.ROLE_ADMIN);
+            CommunityPost post = buildPost(P1_ID, USER_A_ID, "帖子内容", 3, 2);
+            when(userMapper.selectById(USER_C_ID)).thenReturn(adminUser);
+            when(postMapper.selectById(P1_ID)).thenReturn(post);
+
+            communityService.adminHidePost(USER_C_ID, P1_ID, "包含违规引流内容");
+
+            ArgumentCaptor<CommunityPost> captor = ArgumentCaptor.forClass(CommunityPost.class);
+            verify(postMapper).updateById(captor.capture());
+            CommunityPost updatedPost = captor.getValue();
+            assertEquals(CommunityConstants.REVIEW_STATUS_HIDDEN, updatedPost.getReviewStatus());
+            assertEquals("包含违规引流内容", updatedPost.getReviewReason());
+            assertEquals(USER_C_ID, updatedPost.getReviewedBy());
+            assertNotNull(updatedPost.getReviewedTime());
+            verify(notificationService).createNotification(
+                    eq(USER_A_ID),
+                    eq("system"),
+                    eq("社区帖子已下架"),
+                    contains("包含违规引流内容"),
+                    eq("community_post"),
+                    eq(String.valueOf(P1_ID))
+            );
+        }
+
+        @Test
+        @DisplayName("Scenario 4.4 [P1] - 管理员下架通知压缩超长帖子标题")
+        void adminHideApprovedPost_truncatesLongTitleInNotification() {
+            SysUser adminUser = buildUser(USER_C_ID, "admin", "管理员");
+            adminUser.setRole(UserRoleConstants.ROLE_ADMIN);
+            CommunityPost post = buildPost(P1_ID, USER_A_ID, "帖子内容", 3, 2);
+            post.setTitle("T".repeat(CommunityConstants.MAX_TITLE_LENGTH));
+            when(userMapper.selectById(USER_C_ID)).thenReturn(adminUser);
+            when(postMapper.selectById(P1_ID)).thenReturn(post);
+
+            communityService.adminHidePost(USER_C_ID, P1_ID, "包含违规引流内容");
+
+            verify(notificationService).createNotification(
+                    eq(USER_A_ID),
+                    eq("system"),
+                    eq("社区帖子已下架"),
+                    contains("T".repeat(CommunityConstants.ADMIN_HIDE_NOTIFICATION_TITLE_MAX_LENGTH) + "..."),
+                    eq("community_post"),
+                    eq(String.valueOf(P1_ID))
+            );
+        }
+    }
+
+    @Nested
+    @DisplayName("Feature 5: adminHideComment - 管理员前台下架评论")
+    class AdminHideCommentTests {
+
+        @Test
+        @DisplayName("Scenario 5.1 [P0] - 普通用户不能调用管理员评论下架")
+        void normalUser_cannotAdminHideComment() {
+            SysUser normalUser = buildUser(USER_B_ID, "userB", "普通用户");
+            normalUser.setRole(UserRoleConstants.ROLE_NORMAL);
+            when(userMapper.selectById(USER_B_ID)).thenReturn(normalUser);
+
+            BusinessException exception = assertThrows(
+                    BusinessException.class,
+                    () -> communityService.adminHideComment(USER_B_ID, P1_ID, 3001L, "违规评论")
+            );
+
+            assertEquals("无权限执行社区管理操作", exception.getMessage());
+            verify(commentMapper, never()).updateById(any(CommunityComment.class));
+            verify(notificationService, never()).createNotification(any(), any(), any(), any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("Scenario 5.2 [P0] - 管理员下架回复时只隐藏该回复并回退评论数")
+        void adminHideReply_hidesOnlyReplyAndNotifiesAuthor() {
+            SysUser adminUser = buildUser(USER_C_ID, "admin", "管理员");
+            adminUser.setRole(UserRoleConstants.ROLE_ADMIN);
+            CommunityComment reply = buildComment(4001L, P1_ID, USER_B_ID, 3001L, CommunityConstants.REVIEW_STATUS_APPROVED);
+            when(userMapper.selectById(USER_C_ID)).thenReturn(adminUser);
+            when(commentMapper.selectById(4001L)).thenReturn(reply);
+
+            communityService.adminHideComment(USER_C_ID, P1_ID, 4001L, "包含违规广告");
+
+            ArgumentCaptor<CommunityComment> captor = ArgumentCaptor.forClass(CommunityComment.class);
+            verify(commentMapper).updateById(captor.capture());
+            CommunityComment updated = captor.getValue();
+            assertEquals(CommunityConstants.REVIEW_STATUS_HIDDEN, updated.getReviewStatus());
+            assertEquals("包含违规广告", updated.getReviewReason());
+            assertEquals(USER_C_ID, updated.getReviewedBy());
+            assertNotNull(updated.getReviewedTime());
+            verify(postMapper).update(eq(null), any());
+            verify(notificationService).createNotification(
+                    eq(USER_B_ID),
+                    eq("system"),
+                    eq("社区评论已下架"),
+                    contains("包含违规广告"),
+                    eq("community_comment"),
+                    eq("4001")
+            );
+        }
+
+        @Test
+        @DisplayName("Scenario 5.3 [P0] - 管理员下架顶级评论时级联隐藏全部回复")
+        void adminHideRootComment_hidesRepliesAndNotifiesAllAuthors() {
+            SysUser adminUser = buildUser(USER_C_ID, "admin", "管理员");
+            adminUser.setRole(UserRoleConstants.ROLE_ADMIN);
+            CommunityComment root = buildComment(3001L, P1_ID, USER_A_ID, null, CommunityConstants.REVIEW_STATUS_APPROVED);
+            CommunityComment approvedReply = buildComment(4001L, P1_ID, USER_B_ID, 3001L, CommunityConstants.REVIEW_STATUS_APPROVED);
+            CommunityComment pendingReply = buildComment(4002L, P1_ID, USER_D_ID, 3001L, CommunityConstants.REVIEW_STATUS_PENDING);
+            when(userMapper.selectById(USER_C_ID)).thenReturn(adminUser);
+            when(commentMapper.selectById(3001L)).thenReturn(root);
+            when(commentMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(approvedReply, pendingReply));
+
+            communityService.adminHideComment(USER_C_ID, P1_ID, 3001L, "评论串违规");
+
+            ArgumentCaptor<CommunityComment> captor = ArgumentCaptor.forClass(CommunityComment.class);
+            verify(commentMapper, times(3)).updateById(captor.capture());
+            assertTrue(captor.getAllValues().stream()
+                    .allMatch(comment -> CommunityConstants.REVIEW_STATUS_HIDDEN.equals(comment.getReviewStatus())));
+            verify(postMapper).update(eq(null), any());
+            verify(notificationService).createNotification(eq(USER_A_ID), eq("system"), eq("社区评论已下架"),
+                    contains("评论串违规"), eq("community_comment"), eq("3001"));
+            verify(notificationService).createNotification(eq(USER_B_ID), eq("system"), eq("社区评论已下架"),
+                    contains("评论串违规"), eq("community_comment"), eq("4001"));
+            verify(notificationService).createNotification(eq(USER_D_ID), eq("system"), eq("社区评论已下架"),
+                    contains("评论串违规"), eq("community_comment"), eq("4002"));
+        }
+    }
+
     // ==================== 辅助方法 ====================
 
     private CommunityPost buildPost(Long id, Long userId, String content, int likeCount, int commentCount) {
@@ -487,6 +679,8 @@ class CommunityServicePostQueryDeleteTest {
         post.setCommentCount(commentCount);
         post.setCategory("interview_exp");
         post.setIsDeleted(0);
+        // 公共社区列表现在只展示审核通过内容，旧查询测试默认构造可公开帖子。
+        post.setReviewStatus(CommunityConstants.REVIEW_STATUS_APPROVED);
         post.setCreateTime(LocalDateTime.now());
         post.setUpdateTime(LocalDateTime.now());
         return post;
@@ -498,5 +692,17 @@ class CommunityServicePostQueryDeleteTest {
         user.setUsername(username);
         user.setNickname(nickname);
         return user;
+    }
+
+    private CommunityComment buildComment(Long id, Long postId, Long userId, Long parentCommentId, String reviewStatus) {
+        CommunityComment comment = new CommunityComment();
+        comment.setId(id);
+        comment.setPostId(postId);
+        comment.setUserId(userId);
+        comment.setParentCommentId(parentCommentId);
+        comment.setContent("评论内容");
+        comment.setReviewStatus(reviewStatus);
+        comment.setCreateTime(LocalDateTime.now());
+        return comment;
     }
 }

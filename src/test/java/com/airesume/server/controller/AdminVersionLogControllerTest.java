@@ -7,11 +7,17 @@ import com.airesume.server.dto.admin.VersionLogResponse;
 import com.airesume.server.dto.admin.VersionLogUpdateRequest;
 import com.airesume.server.entity.SysVersionLog;
 import com.airesume.server.service.SysVersionLogService;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
+import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.core.Authentication;
@@ -23,7 +29,12 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class AdminVersionLogControllerTest {
@@ -39,6 +50,9 @@ class AdminVersionLogControllerTest {
     void setUp() {
         controller = new AdminVersionLogController(sysVersionLogService);
         lenient().when(authentication.getPrincipal()).thenReturn(1L);
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(new MybatisConfiguration(), ""),
+                SysVersionLog.class);
     }
 
     @Test
@@ -52,23 +66,59 @@ class AdminVersionLogControllerTest {
         log.setStatus(1);
         log.setPublishedAt(LocalDateTime.now());
 
-        @SuppressWarnings("unchecked")
-        com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper<SysVersionLog> wrapper = mock(
-            com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper.class);
         Page<SysVersionLog> pageResult = new Page<>(1, 20, 1);
         pageResult.setRecords(List.of(log));
-        when(sysVersionLogService.lambdaQuery()).thenReturn(wrapper);
-        doReturn(wrapper).when(wrapper).orderByDesc(any(SFunction.class));
-        doReturn(pageResult).when(wrapper).page(any(Page.class));
+        when(sysVersionLogService.page(any(Page.class), any(Wrapper.class))).thenReturn(pageResult);
 
-        Result<Map<String, Object>> result = controller.getVersionLogList(1, 20, authentication);
+        Result<Map<String, Object>> result = controller.getVersionLogList(
+                1, 20, null, null, null, authentication);
 
         assertEquals(CODE_SUCCESS, result.getCode());
         @SuppressWarnings("unchecked")
         List<VersionLogResponse> records = (List<VersionLogResponse>) result.getData().get("records");
         assertEquals(1, records.size());
         assertEquals("2.0.0", records.get(0).getVersion());
-        assertEquals(1, result.getData().get("total"));
+        assertEquals(1L, result.getData().get("total"));
+    }
+
+    @Test
+    void getVersionLogListShouldApplyFiltersAndClampPageSize() {
+        Page<SysVersionLog> pageResult = new Page<>(1, 100, 0);
+        pageResult.setRecords(List.of());
+        when(sysVersionLogService.page(any(Page.class), any(Wrapper.class))).thenReturn(pageResult);
+
+        Result<Map<String, Object>> result = controller.getVersionLogList(
+                0, 200, "major", 1, " 发布 ", authentication);
+
+        assertEquals(CODE_SUCCESS, result.getCode());
+        ArgumentCaptor<Page<SysVersionLog>> pageCaptor = ArgumentCaptor.forClass(Page.class);
+        ArgumentCaptor<Wrapper<SysVersionLog>> wrapperCaptor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(sysVersionLogService).page(pageCaptor.capture(), wrapperCaptor.capture());
+        assertEquals(1L, pageCaptor.getValue().getCurrent());
+        assertEquals(100L, pageCaptor.getValue().getSize());
+
+        String sqlSegment = wrapperCaptor.getValue().getCustomSqlSegment();
+        assertEquals(100L, result.getData().get("size"));
+        assertEquals(1L, result.getData().get("page"));
+        assertEquals(0L, result.getData().get("total"));
+        assertEquals(true, sqlSegment.contains("type"));
+        assertEquals(true, sqlSegment.contains("status"));
+        assertEquals(true, sqlSegment.contains("title"));
+        assertEquals(true, sqlSegment.contains("content"));
+        assertEquals(true, sqlSegment.contains("version"));
+        assertEquals(true, sqlSegment.contains("create_time"));
+    }
+
+    @Test
+    void getVersionLogListShouldRejectUnsupportedFilters() {
+        Result<Map<String, Object>> typeResult = controller.getVersionLogList(
+                1, 20, "hotfix", null, null, authentication);
+        Result<Map<String, Object>> statusResult = controller.getVersionLogList(
+                1, 20, null, 3, null, authentication);
+
+        assertEquals(500, typeResult.getCode());
+        assertEquals(500, statusResult.getCode());
+        verify(sysVersionLogService, never()).page(any(Page.class), any(Wrapper.class));
     }
 
     @Test
@@ -79,10 +129,7 @@ class AdminVersionLogControllerTest {
         request.setContent("Feature notes");
         request.setType("minor");
 
-        @SuppressWarnings("unchecked")
-        com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper<SysVersionLog> wrapper = mock(
-            com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper.class);
-        when(sysVersionLogService.lambdaQuery()).thenReturn(wrapper);
+        LambdaQueryChainWrapper<SysVersionLog> wrapper = mockVersionLogQuery();
         doReturn(wrapper).when(wrapper).eq(any(SFunction.class), any());
         when(wrapper.count()).thenReturn(0L);
         when(sysVersionLogService.save(any(SysVersionLog.class))).thenAnswer(invocation -> {
@@ -105,10 +152,7 @@ class AdminVersionLogControllerTest {
         request.setContent("Content");
         request.setType("minor");
 
-        @SuppressWarnings("unchecked")
-        com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper<SysVersionLog> wrapper = mock(
-            com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper.class);
-        when(sysVersionLogService.lambdaQuery()).thenReturn(wrapper);
+        LambdaQueryChainWrapper<SysVersionLog> wrapper = mockVersionLogQuery();
         doReturn(wrapper).when(wrapper).eq(any(SFunction.class), any());
         when(wrapper.count()).thenReturn(1L);
 
@@ -204,5 +248,12 @@ class AdminVersionLogControllerTest {
 
         assertEquals(CODE_SUCCESS, result.getCode());
         verify(sysVersionLogService).removeByIds(List.of(100L, 200L));
+    }
+
+    @SuppressWarnings("unchecked")
+    private LambdaQueryChainWrapper<SysVersionLog> mockVersionLogQuery() {
+        LambdaQueryChainWrapper<SysVersionLog> wrapper = mock(LambdaQueryChainWrapper.class);
+        when(sysVersionLogService.lambdaQuery()).thenReturn(wrapper);
+        return wrapper;
     }
 }

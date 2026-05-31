@@ -29,6 +29,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -118,6 +119,7 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException(ResultCode.PARAM_ERROR.getCode(), LOGIN_FAILURE_MESSAGE);
         }
 
+        autoUnbanIfExpired(user);
         if (user.getStatus() == 0) {
             log.warn("Login failed, account banned, username: {}", username);
             throw new BusinessException(ResultCode.PARAM_ERROR.getCode(), LOGIN_FAILURE_MESSAGE);
@@ -181,6 +183,22 @@ public class AuthServiceImpl implements AuthService {
     /**
      * Redis 故障时，用本地带过期时间的计数保护登录接口。
      */
+    private void autoUnbanIfExpired(SysUser user) {
+        if (user == null
+                || !Integer.valueOf(0).equals(user.getStatus())
+                || user.getBannedUntil() == null
+                || user.getBannedUntil().isAfter(LocalDateTime.now())) {
+            return;
+        }
+        user.setStatus(1);
+        user.setBanReason(null);
+        user.setBannedUntil(null);
+        user.setBannedBy(null);
+        user.setBannedTime(null);
+        sysUserService.updateById(user);
+        log.info("Expired temporary ban auto-unlocked during login, userId: {}", user.getId());
+    }
+
     private int getLocalLoginAttempts(String key) {
         LoginAttemptRecord record = localLoginAttempts.get(key);
         if (record == null) {

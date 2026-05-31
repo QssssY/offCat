@@ -18,6 +18,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
 import java.util.Collections;
 
 @Slf4j
@@ -51,6 +52,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 String username = jwtUtil.getUsernameFromToken(token);
                 Integer role = jwtUtil.getRoleFromToken(token);
                 SysUser user = sysUserService.getById(userId);
+                autoUnbanIfExpired(user);
                 // 注销或禁用账号即使 token 未过期，也不能继续写入认证上下文。
                 if (user == null
                         || Integer.valueOf(1).equals(user.getIsDeleted())
@@ -83,6 +85,22 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         return null;
+    }
+
+    private void autoUnbanIfExpired(SysUser user) {
+        if (user == null
+                || !Integer.valueOf(0).equals(user.getStatus())
+                || user.getBannedUntil() == null
+                || user.getBannedUntil().isAfter(LocalDateTime.now())) {
+            return;
+        }
+        user.setStatus(1);
+        user.setBanReason(null);
+        user.setBannedUntil(null);
+        user.setBannedBy(null);
+        user.setBannedTime(null);
+        sysUserService.updateById(user);
+        log.info("Expired temporary ban auto-unlocked during JWT authentication, userId: {}", user.getId());
     }
 
     private String getRoleName(Integer role) {

@@ -64,6 +64,26 @@ public class UserListResponse {
     private LocalDateTime vipExpireTime;
 
     /**
+     * 封禁原因摘要
+     */
+    private String banReason;
+
+    /**
+     * 封禁到期时间，null 表示永久封禁
+     */
+    private LocalDateTime bannedUntil;
+
+    /**
+     * 封禁操作人ID
+     */
+    private Long bannedBy;
+
+    /**
+     * 封禁操作时间
+     */
+    private LocalDateTime bannedTime;
+
+    /**
      * 创建时间
      */
     private LocalDateTime createTime;

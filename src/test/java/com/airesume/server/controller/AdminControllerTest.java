@@ -1,8 +1,12 @@
 package com.airesume.server.controller;
 
 import com.airesume.server.common.constants.UserRoleConstants;
+import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.Result;
+import com.airesume.server.dto.admin.AdminUserBanRequest;
+import com.airesume.server.dto.admin.AdminUserUnbanRequest;
 import com.airesume.server.dto.admin.BatchActiveRequest;
+import com.airesume.server.dto.admin.BatchUserBanRequest;
 import com.airesume.server.dto.admin.UserQuotaUpdateRequest;
 import com.airesume.server.dto.admin.UserRightsUpdateRequest;
 import com.airesume.server.entity.SysUser;
@@ -15,6 +19,7 @@ import com.airesume.server.service.SysJobRoleService;
 import com.airesume.server.service.SysPromptService;
 import com.airesume.server.service.SysUserService;
 import com.airesume.server.service.UserQuotaService;
+import com.airesume.server.service.NotificationService;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
@@ -39,10 +44,15 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -58,6 +68,7 @@ class AdminControllerTest {
     @Mock private SysUserService sysUserService;
     @Mock private UserQuotaService userQuotaService;
     @Mock private AiCredentialCrypto aiCredentialCrypto;
+    @Mock private NotificationService notificationService;
     @Mock private Authentication authentication;
 
     private AdminController controller;
@@ -76,7 +87,8 @@ class AdminControllerTest {
                 sysJobRoleService,
                 sysUserService,
                 userQuotaService,
-                aiCredentialCrypto
+                aiCredentialCrypto,
+                notificationService
         );
 
         lenient().when(authentication.getPrincipal()).thenReturn(1L);
@@ -135,7 +147,115 @@ class AdminControllerTest {
         assertEvictsAdminUserStats(AdminController.class.getMethod(
                 "updateUsersBatchStatus", BatchActiveRequest.class, Authentication.class));
         assertEvictsAdminUserStats(AdminController.class.getMethod(
+                "banUser", Long.class, AdminUserBanRequest.class, Authentication.class));
+        assertEvictsAdminUserStats(AdminController.class.getMethod(
+                "unbanUser", Long.class, AdminUserUnbanRequest.class, Authentication.class));
+        assertEvictsAdminUserStats(AdminController.class.getMethod(
+                "banUsersBatch", BatchUserBanRequest.class, Authentication.class));
+        assertEvictsAdminUserStats(AdminController.class.getMethod(
                 "updateUserQuota", UserQuotaUpdateRequest.class, Authentication.class));
+    }
+
+    @Test
+    void banUserShouldSetStatusAndBanMetadata() {
+        SysUser target = new SysUser();
+        target.setId(2L);
+        target.setUsername("target");
+        target.setRole(UserRoleConstants.ROLE_NORMAL);
+        target.setStatus(1);
+        when(sysUserService.getById(2L)).thenReturn(target);
+
+        AdminUserBanRequest request = new AdminUserBanRequest();
+        request.setDuration("7d");
+        request.setReason("连续发布违规内容");
+
+        controller.banUser(2L, request, authentication);
+
+        ArgumentCaptor<SysUser> captor = ArgumentCaptor.forClass(SysUser.class);
+        verify(sysUserService).updateById(captor.capture());
+        SysUser updated = captor.getValue();
+        assertEquals(0, updated.getStatus());
+        assertEquals("连续发布违规内容", updated.getBanReason());
+        assertEquals(1L, updated.getBannedBy());
+        assertNotNull(updated.getBannedTime());
+        assertNotNull(updated.getBannedUntil());
+        verify(notificationService).createNotification(
+                eq(2L),
+                eq("system"),
+                eq("账号已被封禁"),
+                contains("连续发布违规内容"),
+                eq("user_ban"),
+                eq("2")
+        );
+    }
+
+    @Test
+    void banUserShouldRejectSelfBan() {
+        AdminUserBanRequest request = new AdminUserBanRequest();
+        request.setDuration("1d");
+        request.setReason("测试");
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> controller.banUser(1L, request, authentication));
+
+        assertEquals("不能封禁当前管理员账号", exception.getMessage());
+        verify(sysUserService, never()).updateById(any(SysUser.class));
+    }
+
+    @Test
+    void banUserShouldRejectAdminTarget() {
+        SysUser target = new SysUser();
+        target.setId(9L);
+        target.setUsername("other-admin");
+        target.setRole(UserRoleConstants.ROLE_ADMIN);
+        target.setStatus(1);
+        when(sysUserService.getById(9L)).thenReturn(target);
+
+        AdminUserBanRequest request = new AdminUserBanRequest();
+        request.setDuration("1d");
+        request.setReason("测试");
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> controller.banUser(9L, request, authentication));
+
+        assertEquals("不能封禁管理员账号", exception.getMessage());
+        verify(sysUserService, never()).updateById(any(SysUser.class));
+    }
+
+    @Test
+    void unbanUserShouldClearBanMetadata() {
+        SysUser target = new SysUser();
+        target.setId(2L);
+        target.setUsername("target");
+        target.setRole(UserRoleConstants.ROLE_NORMAL);
+        target.setStatus(0);
+        target.setBanReason("违规");
+        target.setBannedBy(1L);
+        target.setBannedTime(LocalDateTime.now());
+        target.setBannedUntil(LocalDateTime.now().plusDays(1));
+        when(sysUserService.getById(2L)).thenReturn(target);
+
+        AdminUserUnbanRequest request = new AdminUserUnbanRequest();
+        request.setReason("申诉通过");
+
+        controller.unbanUser(2L, request, authentication);
+
+        ArgumentCaptor<SysUser> captor = ArgumentCaptor.forClass(SysUser.class);
+        verify(sysUserService).updateById(captor.capture());
+        SysUser updated = captor.getValue();
+        assertEquals(1, updated.getStatus());
+        assertNull(updated.getBanReason());
+        assertNull(updated.getBannedBy());
+        assertNull(updated.getBannedTime());
+        assertNull(updated.getBannedUntil());
+        verify(notificationService).createNotification(
+                eq(2L),
+                eq("system"),
+                eq("账号已解封"),
+                contains("申诉通过"),
+                eq("user_unban"),
+                eq("2")
+        );
     }
 
     @Test

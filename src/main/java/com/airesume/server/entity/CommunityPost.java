@@ -5,6 +5,8 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+import java.time.LocalDateTime;
+
 /**
  * 社区帖子实体
  * 对应数据库表 community_post
@@ -39,4 +41,16 @@ public class CommunityPost extends BaseEntity {
 
     /** 评论数 */
     private Integer commentCount;
+
+    /** 内容审核状态：pending-待审，approved-通过，rejected-拒绝，hidden-隐藏 */
+    private String reviewStatus;
+
+    /** 审核原因或违规说明 */
+    private String reviewReason;
+
+    /** 审核管理员用户ID */
+    private Long reviewedBy;
+
+    /** 审核时间 */
+    private LocalDateTime reviewedTime;
 }

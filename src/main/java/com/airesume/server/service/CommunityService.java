@@ -1,6 +1,7 @@
 package com.airesume.server.service;
 
 import com.airesume.server.common.constants.CommunityConstants;
+import com.airesume.server.common.constants.UserRoleConstants;
 import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.PageResult;
 import com.airesume.server.dto.community.*;
@@ -24,8 +25,8 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -44,7 +45,6 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class CommunityService {
 
     private final CommunityPostMapper postMapper;
@@ -54,6 +54,62 @@ public class CommunityService {
     private final SysUserMapper userMapper;
     private final InterviewSessionMapper interviewSessionMapper;
     private final ObjectMapper objectMapper;
+    private final CommunityTextModerationService moderationService;
+    private final NotificationService notificationService;
+
+    /**
+     * 生产环境完整依赖注入构造器。
+     * 作用：当前类保留了单元测试兼容构造器，必须显式标记 Spring 注入入口，避免多构造器场景回退到无参构造器导致启动失败。
+     */
+    @Autowired
+    public CommunityService(CommunityPostMapper postMapper,
+                            CommunityCommentMapper commentMapper,
+                            CommunityPostLikeMapper likeMapper,
+                            CommunityPostFavoriteMapper favoriteMapper,
+                            SysUserMapper userMapper,
+                            InterviewSessionMapper interviewSessionMapper,
+                            ObjectMapper objectMapper,
+                            CommunityTextModerationService moderationService,
+                            NotificationService notificationService) {
+        this.postMapper = postMapper;
+        this.commentMapper = commentMapper;
+        this.likeMapper = likeMapper;
+        this.favoriteMapper = favoriteMapper;
+        this.userMapper = userMapper;
+        this.interviewSessionMapper = interviewSessionMapper;
+        this.objectMapper = objectMapper;
+        this.moderationService = moderationService;
+        this.notificationService = notificationService;
+    }
+
+    /**
+     * 兼容既有单元测试的构造路径；生产环境使用包含通知服务的完整构造器。
+     */
+    public CommunityService(CommunityPostMapper postMapper,
+                            CommunityCommentMapper commentMapper,
+                            CommunityPostLikeMapper likeMapper,
+                            CommunityPostFavoriteMapper favoriteMapper,
+                            SysUserMapper userMapper,
+                            InterviewSessionMapper interviewSessionMapper,
+                            ObjectMapper objectMapper,
+                            CommunityTextModerationService moderationService) {
+        this(postMapper, commentMapper, likeMapper, favoriteMapper, userMapper,
+                interviewSessionMapper, objectMapper, moderationService, null);
+    }
+
+    /**
+     * 兼容既有单元测试的构造路径，生产环境仍通过 Spring 注入完整依赖。
+     */
+    public CommunityService(CommunityPostMapper postMapper,
+                            CommunityCommentMapper commentMapper,
+                            CommunityPostLikeMapper likeMapper,
+                            CommunityPostFavoriteMapper favoriteMapper,
+                            SysUserMapper userMapper,
+                            InterviewSessionMapper interviewSessionMapper,
+                            ObjectMapper objectMapper) {
+        this(postMapper, commentMapper, likeMapper, favoriteMapper, userMapper,
+                interviewSessionMapper, objectMapper, new CommunityTextModerationService(), null);
+    }
 
     /**
      * 社区图片对象存储占位访问地址。
@@ -84,6 +140,7 @@ public class CommunityService {
 
         // 构建查询条件
         LambdaQueryWrapper<CommunityPost> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(CommunityPost::getReviewStatus, CommunityConstants.REVIEW_STATUS_APPROVED);
         if (category != null && !category.isBlank()) {
             wrapper.eq(CommunityPost::getCategory, category);
         }
@@ -112,11 +169,15 @@ public class CommunityService {
         Set<Long> favoritedPostIds = batchCheckFavorited(userId, resultPage.getRecords());
 
         // 转换为VO
-        List<PostVO> voList = resultPage.getRecords().stream()
+        List<CommunityPost> approvedPosts = resultPage.getRecords().stream()
+                .filter(this::isApprovedPost)
+                .toList();
+
+        List<PostVO> voList = approvedPosts.stream()
                 .map(post -> toPostVO(post, userMap, likedPostIds, favoritedPostIds))
                 .toList();
 
-        return PageResult.of(voList, resultPage.getTotal(), pageNum, safeSize);
+        return PageResult.of(voList, voList.size(), pageNum, safeSize);
     }
 
     /**
@@ -129,6 +190,9 @@ public class CommunityService {
     public PostVO getPostDetail(Long postId, Long userId) {
         CommunityPost post = postMapper.selectById(postId);
         if (post == null) {
+            throw new BusinessException("帖子不存在");
+        }
+        if (!isApprovedPost(post) && !post.getUserId().equals(userId)) {
             throw new BusinessException("帖子不存在");
         }
 
@@ -152,7 +216,7 @@ public class CommunityService {
      * @return 帖子ID
      */
     @Transactional(rollbackFor = Exception.class)
-    public Long createPost(Long userId, CreatePostRequest request) {
+    public CreateCommunityContentResponse createPost(Long userId, CreatePostRequest request) {
         // 校验板块类型
         if (!CommunityConstants.CATEGORY_INTERVIEW_EXP.equals(request.getCategory())
                 && !CommunityConstants.CATEGORY_REFERRAL.equals(request.getCategory())) {
@@ -177,6 +241,12 @@ public class CommunityService {
             throw new BusinessException("图片数量不能超过" + CommunityConstants.MAX_IMAGE_COUNT + "张");
         }
 
+        boolean hasImages = request.getImages() != null && !request.getImages().isEmpty();
+        CommunityModerationDecision moderationDecision = moderationService.reviewPost(title, request.getContent(), hasImages);
+        if (moderationDecision.isRejected()) {
+            throw new BusinessException(moderationDecision.getRejectMessage());
+        }
+
         String sharedInterviewSessionId = normalizeSharedInterviewSessionId(request.getSharedInterviewSessionId());
         validateSharedInterviewSessionOwnership(userId, sharedInterviewSessionId);
 
@@ -189,6 +259,13 @@ public class CommunityService {
         post.setLikeCount(0);
         post.setCommentCount(0);
         post.setIsDeleted(0);
+        // 新发内容必须先进入审核池，避免未审核内容直接公开展示。
+        // 自动审核分流：低风险纯文本可直接公开，图片或疑似风险内容继续进入人工审核池。
+        post.setReviewStatus(moderationDecision.getReviewStatus());
+        post.setReviewReason(moderationDecision.getReviewReason());
+        if (CommunityConstants.REVIEW_STATUS_APPROVED.equals(moderationDecision.getReviewStatus())) {
+            post.setReviewedTime(LocalDateTime.now());
+        }
 
         // 图片列表转JSON存储
         if (request.getImages() != null && !request.getImages().isEmpty()) {
@@ -202,7 +279,10 @@ public class CommunityService {
 
         postMapper.insert(post);
         log.info("帖子创建成功, postId: {}, userId: {}, category: {}", post.getId(), userId, request.getCategory());
-        return post.getId();
+        return CreateCommunityContentResponse.builder()
+                .id(post.getId())
+                .reviewStatus(post.getReviewStatus())
+                .build();
     }
 
     /**
@@ -295,6 +375,7 @@ public class CommunityService {
         List<CommunityPost> posts = pageResult.getRecords().stream()
                 .map(entity -> postMap.get(getPostIdFn.apply(entity)))
                 .filter(Objects::nonNull)
+                .filter(this::isApprovedPost)
                 .toList();
 
         Set<Long> userIds = posts.stream()
@@ -334,7 +415,8 @@ public class CommunityService {
 
         // 批量查询当前页有效帖子；已删除帖子由 MyBatis-Plus 逻辑删除条件自动过滤。
         LambdaQueryWrapper<CommunityPost> postWrapper = new LambdaQueryWrapper<>();
-        postWrapper.in(CommunityPost::getId, pagePostIds);
+        postWrapper.in(CommunityPost::getId, pagePostIds)
+                .eq(CommunityPost::getReviewStatus, CommunityConstants.REVIEW_STATUS_APPROVED);
         Map<Long, CommunityPost> postMap = postMapper.selectList(postWrapper).stream()
                 .collect(Collectors.toMap(CommunityPost::getId, p -> p));
 
@@ -457,6 +539,98 @@ public class CommunityService {
         log.info("帖子删除成功, postId: {}, userId: {}（含级联删除评论、点赞、收藏记录）", postId, userId);
     }
 
+    /**
+     * 管理员在用户端社区下架帖子。
+     * 说明：这里不做物理删除，只改为 hidden 并记录原因，保留证据链，前台公开查询会自动过滤非 approved 内容。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void adminHidePost(Long adminUserId, Long postId, String reason) {
+        SysUser adminUser = userMapper.selectById(adminUserId);
+        if (adminUser == null || adminUser.getRole() == null || adminUser.getRole() != UserRoleConstants.ROLE_ADMIN) {
+            throw new BusinessException("无权限执行社区管理操作");
+        }
+        String normalizedReason = reason == null ? "" : reason.trim();
+        if (normalizedReason.isBlank()) {
+            throw new BusinessException("下架原因不能为空");
+        }
+        if (normalizedReason.length() > CommunityConstants.MAX_ADMIN_HIDE_REASON_LENGTH) {
+            throw new BusinessException("下架原因不能超过200字");
+        }
+
+        CommunityPost post = postMapper.selectById(postId);
+        if (post == null) {
+            throw new BusinessException("帖子不存在");
+        }
+
+        post.setReviewStatus(CommunityConstants.REVIEW_STATUS_HIDDEN);
+        post.setReviewReason(normalizedReason);
+        post.setReviewedBy(adminUserId);
+        post.setReviewedTime(LocalDateTime.now());
+        postMapper.updateById(post);
+
+        if (notificationService != null) {
+            notificationService.createNotification(
+                    post.getUserId(),
+                    "system",
+                    "社区帖子已下架",
+                    "你的社区帖子《" + safePostTitle(post) + "》已被管理员下架，原因：" + normalizedReason,
+                    "community_post",
+                    String.valueOf(postId)
+            );
+        }
+    }
+
+    /**
+     * 管理员在用户端下架评论。顶级评论会连同直接回复一起隐藏，避免违规讨论串继续公开展示。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void adminHideComment(Long adminUserId, Long postId, Long commentId, String reason) {
+        SysUser adminUser = userMapper.selectById(adminUserId);
+        if (adminUser == null || adminUser.getRole() == null || adminUser.getRole() != UserRoleConstants.ROLE_ADMIN) {
+            throw new BusinessException("无权限执行社区管理操作");
+        }
+        String normalizedReason = reason == null ? "" : reason.trim();
+        if (normalizedReason.isBlank()) {
+            throw new BusinessException("下架原因不能为空");
+        }
+        if (normalizedReason.length() > CommunityConstants.MAX_ADMIN_HIDE_REASON_LENGTH) {
+            throw new BusinessException("下架原因不能超过200字");
+        }
+
+        CommunityComment targetComment = commentMapper.selectById(commentId);
+        if (targetComment == null || !Objects.equals(targetComment.getPostId(), postId)) {
+            throw new BusinessException("评论不存在");
+        }
+
+        List<CommunityComment> commentsToHide = new ArrayList<>();
+        commentsToHide.add(targetComment);
+        if (targetComment.getParentCommentId() == null) {
+            LambdaQueryWrapper<CommunityComment> replyWrapper = new LambdaQueryWrapper<>();
+            replyWrapper.eq(CommunityComment::getPostId, postId)
+                    .eq(CommunityComment::getParentCommentId, commentId)
+                    .eq(CommunityComment::getIsDeleted, 0);
+            commentsToHide.addAll(commentMapper.selectList(replyWrapper));
+        }
+
+        LocalDateTime reviewedTime = LocalDateTime.now();
+        int approvedHiddenCount = 0;
+        for (CommunityComment comment : commentsToHide) {
+            if (CommunityConstants.REVIEW_STATUS_APPROVED.equals(comment.getReviewStatus())) {
+                approvedHiddenCount++;
+            }
+            comment.setReviewStatus(CommunityConstants.REVIEW_STATUS_HIDDEN);
+            comment.setReviewReason(normalizedReason);
+            comment.setReviewedBy(adminUserId);
+            comment.setReviewedTime(reviewedTime);
+            commentMapper.updateById(comment);
+            notifyCommentHidden(comment, normalizedReason);
+        }
+
+        if (approvedHiddenCount > 0) {
+            decrementCommentCount(postId, approvedHiddenCount);
+        }
+    }
+
     // ==================== 点赞相关 ====================
 
     /**
@@ -565,11 +739,14 @@ public class CommunityService {
      */
     public CommentVO getCommentDetail(Long postId, Long commentId, Long currentUserId) {
         CommunityComment comment = commentMapper.selectById(commentId);
-        if (comment == null || !comment.getPostId().equals(postId)) {
+        if (comment == null || !comment.getPostId().equals(postId) || !isApprovedComment(comment)) {
             throw new BusinessException("评论不存在");
         }
         CommunityPost post = postMapper.selectById(postId);
         Long postAuthorId = post != null ? post.getUserId() : null;
+        if (post == null || !isApprovedPost(post)) {
+            throw new BusinessException("帖子不存在");
+        }
         SysUser user = userMapper.selectById(comment.getUserId());
 
         return CommentVO.builder()
@@ -595,11 +772,15 @@ public class CommunityService {
         // 查询帖子作者ID
         CommunityPost post = postMapper.selectById(postId);
         Long postAuthorId = post != null ? post.getUserId() : null;
+        if (post == null || !isApprovedPost(post)) {
+            throw new BusinessException("帖子不存在");
+        }
 
         // 只查询顶级评论（parentCommentId IS NULL）
         LambdaQueryWrapper<CommunityComment> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(CommunityComment::getPostId, postId)
                 .isNull(CommunityComment::getParentCommentId)
+                .eq(CommunityComment::getReviewStatus, CommunityConstants.REVIEW_STATUS_APPROVED)
                 .orderByAsc(CommunityComment::getCreateTime);
 
         Page<CommunityComment> page = new Page<>(pageNum, safeSize);
@@ -658,6 +839,7 @@ public class CommunityService {
         LambdaQueryWrapper<CommunityComment> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(CommunityComment::getPostId, postId)
                 .eq(CommunityComment::getParentCommentId, commentId)
+                .eq(CommunityComment::getReviewStatus, CommunityConstants.REVIEW_STATUS_APPROVED)
                 .orderByAsc(CommunityComment::getCreateTime);
 
         Page<CommunityComment> page = new Page<>(pageNum, safeSize);
@@ -719,10 +901,13 @@ public class CommunityService {
      * @return 评论ID
      */
     @Transactional(rollbackFor = Exception.class)
-    public Long createComment(Long userId, Long postId, CreateCommentRequest request) {
+    public CreateCommunityContentResponse createComment(Long userId, Long postId, CreateCommentRequest request) {
         // 校验帖子是否存在
         CommunityPost post = postMapper.selectById(postId);
         if (post == null) {
+            throw new BusinessException("帖子不存在");
+        }
+        if (!isApprovedPost(post)) {
             throw new BusinessException("帖子不存在");
         }
 
@@ -737,11 +922,22 @@ public class CommunityService {
         if (hasContent && request.getContent().length() > CommunityConstants.MAX_COMMENT_LENGTH) {
             throw new BusinessException("评论内容不能超过" + CommunityConstants.MAX_COMMENT_LENGTH + "字");
         }
+        CommunityModerationDecision moderationDecision = moderationService.reviewComment(request.getContent(), hasImages);
+        if (moderationDecision.isRejected()) {
+            throw new BusinessException(moderationDecision.getRejectMessage());
+        }
 
         CommunityComment comment = new CommunityComment();
         comment.setPostId(postId);
         comment.setUserId(userId);
         comment.setContent(hasContent ? request.getContent().trim() : "");
+        // 评论同样先进入审核池，通过后才公开展示并计入帖子评论数。
+        // 评论自动审核分流：通过后才计入公开评论数，待审评论不影响前台计数。
+        comment.setReviewStatus(moderationDecision.getReviewStatus());
+        comment.setReviewReason(moderationDecision.getReviewReason());
+        if (CommunityConstants.REVIEW_STATUS_APPROVED.equals(moderationDecision.getReviewStatus())) {
+            comment.setReviewedTime(LocalDateTime.now());
+        }
 
         // 图片列表转JSON存储
         if (request.getImages() != null && !request.getImages().isEmpty()) {
@@ -782,10 +978,15 @@ public class CommunityService {
 
         commentMapper.insert(comment);
 
-        // 帖子评论数+1
-        incrementCommentCount(postId);
+        if (CommunityConstants.REVIEW_STATUS_APPROVED.equals(moderationDecision.getReviewStatus())) {
+            incrementCommentCount(postId);
+        }
+
         log.info("评论创建成功, commentId: {}, postId: {}, userId: {}, parentId: {}", comment.getId(), postId, userId, parentCommentId);
-        return comment.getId();
+        return CreateCommunityContentResponse.builder()
+                .id(comment.getId())
+                .reviewStatus(comment.getReviewStatus())
+                .build();
     }
 
     /**
@@ -1106,6 +1307,21 @@ public class CommunityService {
         return text.length() > maxLen ? text.substring(0, maxLen) + "..." : text;
     }
 
+    /**
+     * 下架通知标题兜底，避免旧数据标题为空时通知内容不完整。
+     */
+    private String safePostTitle(CommunityPost post) {
+        String title = post.getTitle() == null ? "" : post.getTitle().trim();
+        if (title.isBlank()) {
+            return "未命名帖子";
+        }
+        // 通知列表只需要摘要标题，完整标题仍保留在帖子本身，避免超长标题撑开通知 UI。
+        if (title.length() > CommunityConstants.ADMIN_HIDE_NOTIFICATION_TITLE_MAX_LENGTH) {
+            return title.substring(0, CommunityConstants.ADMIN_HIDE_NOTIFICATION_TITLE_MAX_LENGTH) + "...";
+        }
+        return title;
+    }
+
     // ==================== 内部辅助方法 ====================
 
     /**
@@ -1220,6 +1436,33 @@ public class CommunityService {
     }
 
     /**
+     * 按实际隐藏的公开评论数量回退帖子评论数，避免顶级评论连同回复下架后计数仍然虚高。
+     */
+    private void decrementCommentCount(Long postId, int count) {
+        if (count <= 0) {
+            return;
+        }
+        LambdaUpdateWrapper<CommunityPost> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(CommunityPost::getId, postId)
+                .setSql("comment_count = GREATEST(comment_count - " + count + ", 0)");
+        postMapper.update(null, wrapper);
+    }
+
+    private void notifyCommentHidden(CommunityComment comment, String reason) {
+        if (notificationService == null) {
+            return;
+        }
+        notificationService.createNotification(
+                comment.getUserId(),
+                "system",
+                "社区评论已下架",
+                "你的社区评论已被管理员下架，原因：" + reason,
+                "community_comment",
+                String.valueOf(comment.getId())
+        );
+    }
+
+    /**
      * 帖子实体转VO（列表场景，带批量用户Map）
      */
     private PostVO toPostVO(CommunityPost post, Map<Long, SysUser> userMap, Set<Long> likedPostIds, Set<Long> favoritedPostIds) {
@@ -1238,6 +1481,8 @@ public class CommunityService {
                 .commentCount(post.getCommentCount())
                 .liked(likedPostIds.contains(post.getId()))
                 .favorited(favoritedPostIds.contains(post.getId()))
+                .reviewStatus(post.getReviewStatus())
+                .reviewReason(post.getReviewReason())
                 .createTime(post.getCreateTime())
                 .build();
     }
@@ -1260,6 +1505,8 @@ public class CommunityService {
                 .commentCount(post.getCommentCount())
                 .liked(liked)
                 .favorited(favorited)
+                .reviewStatus(post.getReviewStatus())
+                .reviewReason(post.getReviewReason())
                 .createTime(post.getCreateTime())
                 .build();
     }
@@ -1286,7 +1533,56 @@ public class CommunityService {
                 .deletable(deletable)
                 .parentCommentId(comment.getParentCommentId())
                 .replyCount(0)
+                .reviewStatus(comment.getReviewStatus())
+                .reviewReason(comment.getReviewReason())
                 .build();
+    }
+
+    /**
+     * 社区公开内容判断。
+     * 作用：所有用户端公开列表和详情都只能展示审核通过内容，避免待审或违规内容被直接曝光。
+     */
+    private boolean isApprovedPost(CommunityPost post) {
+        return post != null && CommunityConstants.REVIEW_STATUS_APPROVED.equals(post.getReviewStatus());
+    }
+
+    /**
+     * 评论公开判断，与帖子审核状态保持同一语义。
+     */
+    private boolean isApprovedComment(CommunityComment comment) {
+        return comment != null && CommunityConstants.REVIEW_STATUS_APPROVED.equals(comment.getReviewStatus());
+    }
+
+    /**
+     * 最小规则审核：先拦截明确违规文本，剩余正常内容进入人工审核队列。
+     * 说明：当前不接外部审核服务，先用规则把政治、色情、辱骂、广告等高风险内容挡在入库前。
+     */
+    private void validateCommunityTextOrThrow(String text) {
+        String normalized = normalizeModerationText(text);
+        if (normalized.isBlank()) {
+            return;
+        }
+        List<String> severeWords = List.of(
+                "色情", "成人视频", "约炮", "裸聊", "成人视频资源",
+                "政治敏感", "反动", "颠覆", "台独", "港独",
+                "傻逼", "去死", "诈骗", "加微信", "博彩"
+        );
+        boolean matched = severeWords.stream().anyMatch(normalized::contains);
+        if (matched) {
+            throw new BusinessException("内容包含违规信息，请修改后再发布");
+        }
+    }
+
+    /**
+     * 审核文本归一化，减少空格、大小写和简单符号绕过。
+     */
+    private String normalizeModerationText(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.toLowerCase(Locale.ROOT)
+                .replaceAll("\\s+", "")
+                .replaceAll("[\\p{Punct}，。！？、；：“”‘’（）【】《》]", "");
     }
 
     /**

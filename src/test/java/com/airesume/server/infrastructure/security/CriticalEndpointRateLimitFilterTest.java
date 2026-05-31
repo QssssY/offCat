@@ -257,6 +257,62 @@ class CriticalEndpointRateLimitFilterTest {
     }
 
     @Test
+    void shouldBlockCommunityPostCreateAfterLimitReached() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-05-15T00:00:00Z"));
+        CriticalEndpointRateLimitFilter filter = new CriticalEndpointRateLimitFilter(new ObjectMapper(), clock);
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(400L, null));
+
+        for (int i = 0; i < 5; i++) {
+            MockHttpServletRequest request = buildRequest("POST", "/api/community/posts", "10.0.0.40");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            verify(chain).doFilter(request, response);
+            assertEquals(200, response.getStatus());
+        }
+
+        MockHttpServletRequest blockedRequest = buildRequest("POST", "/api/community/posts", "10.0.0.40");
+        MockHttpServletResponse blockedResponse = new MockHttpServletResponse();
+        FilterChain blockedChain = mock(FilterChain.class);
+
+        filter.doFilter(blockedRequest, blockedResponse, blockedChain);
+
+        verify(blockedChain, never()).doFilter(blockedRequest, blockedResponse);
+        assertEquals(429, blockedResponse.getStatus());
+    }
+
+    @Test
+    void shouldBlockCommunityImageUploadAfterLimitReached() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-05-15T00:00:00Z"));
+        CriticalEndpointRateLimitFilter filter = new CriticalEndpointRateLimitFilter(new ObjectMapper(), clock);
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(401L, null));
+
+        for (int i = 0; i < 20; i++) {
+            MockHttpServletRequest request = buildRequest("POST", "/api/community/images/upload", "10.0.0.41");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            verify(chain).doFilter(request, response);
+            assertEquals(200, response.getStatus());
+        }
+
+        MockHttpServletRequest blockedRequest = buildRequest("POST", "/api/community/images/upload", "10.0.0.41");
+        MockHttpServletResponse blockedResponse = new MockHttpServletResponse();
+        FilterChain blockedChain = mock(FilterChain.class);
+
+        filter.doFilter(blockedRequest, blockedResponse, blockedChain);
+
+        verify(blockedChain, never()).doFilter(blockedRequest, blockedResponse);
+        assertEquals(429, blockedResponse.getStatus());
+    }
+
+    @Test
     void shouldUseAuthenticatedUserAsResumePdfExportRateLimitKey() throws Exception {
         MutableClock clock = new MutableClock(Instant.parse("2026-05-15T00:00:00Z"));
         CriticalEndpointRateLimitFilter filter = new CriticalEndpointRateLimitFilter(new ObjectMapper(), clock);

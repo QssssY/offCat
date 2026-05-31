@@ -28,6 +28,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.lang.reflect.Constructor;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -142,6 +143,63 @@ class AuthServiceImplTest {
             assertEquals(TEST_TOKEN, response.getToken());
             assertEquals("Bearer", response.getTokenType());
             assertEquals(3600, response.getExpiresIn());
+        }
+
+        @Test
+        @DisplayName("should auto unban expired temporary ban before login")
+        void shouldAutoUnbanExpiredTemporaryBanBeforeLogin() {
+            LoginRequest request = new LoginRequest();
+            request.setUsername(TEST_USERNAME);
+            request.setPassword(TEST_PASSWORD);
+
+            SysUser user = new SysUser();
+            user.setId(TEST_USER_ID);
+            user.setUsername(TEST_USERNAME);
+            user.setPassword(ENCODED_PASSWORD);
+            user.setRole(0);
+            user.setStatus(0);
+            user.setBanReason("临时封禁");
+            user.setBannedBy(1L);
+            user.setBannedTime(LocalDateTime.now().minusDays(2));
+            user.setBannedUntil(LocalDateTime.now().minusMinutes(1));
+
+            lenient().when(valueOperations.get(anyString())).thenReturn(null);
+            when(sysUserService.getByUsername(TEST_USERNAME)).thenReturn(user);
+            when(passwordEncoder.matches(TEST_PASSWORD, ENCODED_PASSWORD)).thenReturn(true);
+            when(jwtUtil.generateToken(TEST_USER_ID, TEST_USERNAME, 0)).thenReturn(TEST_TOKEN);
+
+            LoginResponse response = authService.login(request);
+
+            assertNotNull(response);
+            assertEquals(TEST_TOKEN, response.getToken());
+            assertEquals(1, user.getStatus());
+            assertEquals(null, user.getBanReason());
+            assertEquals(null, user.getBannedUntil());
+            verify(sysUserService).updateById(user);
+        }
+
+        @Test
+        @DisplayName("should reject active banned user login")
+        void shouldRejectActiveBannedUserLogin() {
+            LoginRequest request = new LoginRequest();
+            request.setUsername(TEST_USERNAME);
+            request.setPassword(TEST_PASSWORD);
+
+            SysUser user = new SysUser();
+            user.setId(TEST_USER_ID);
+            user.setUsername(TEST_USERNAME);
+            user.setPassword(ENCODED_PASSWORD);
+            user.setRole(0);
+            user.setStatus(0);
+            user.setBannedUntil(LocalDateTime.now().plusDays(1));
+
+            lenient().when(valueOperations.get(anyString())).thenReturn(null);
+            when(sysUserService.getByUsername(TEST_USERNAME)).thenReturn(user);
+            when(passwordEncoder.matches(TEST_PASSWORD, ENCODED_PASSWORD)).thenReturn(true);
+
+            BusinessException exception = assertThrows(BusinessException.class, () -> authService.login(request));
+
+            assertEquals("用户名或密码错误", exception.getMessage());
         }
 
         @Test

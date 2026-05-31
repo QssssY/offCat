@@ -14,11 +14,14 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import java.time.LocalDateTime;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -106,6 +109,43 @@ class JwtAuthenticationFilterTest {
 
         assertNull(SecurityContextHolder.getContext().getAuthentication());
         verify(filterChain).doFilter(request, response);
+    }
+
+    @Test
+    void shouldAutoUnbanExpiredBanAndAuthenticateToken() throws Exception {
+        JwtAuthenticationFilter filter = new JwtAuthenticationFilter(jwtUtil, jwtProperties, sysUserService);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/interview/history");
+        request.addHeader("Authorization", "Bearer valid-token");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        FilterChain filterChain = mock(FilterChain.class);
+
+        when(jwtProperties.getHeader()).thenReturn("Authorization");
+        when(jwtProperties.getPrefix()).thenReturn("Bearer ");
+        when(jwtUtil.validateToken("valid-token")).thenReturn(true);
+        when(jwtUtil.getUserIdFromToken("valid-token")).thenReturn(123L);
+        when(jwtUtil.getUsernameFromToken("valid-token")).thenReturn("tester");
+        when(jwtUtil.getRoleFromToken("valid-token")).thenReturn(0);
+        SysUser user = new SysUser();
+        user.setId(123L);
+        user.setStatus(0);
+        user.setIsDeleted(0);
+        user.setBanReason("临时封禁");
+        user.setBannedBy(1L);
+        user.setBannedTime(LocalDateTime.now().minusDays(2));
+        user.setBannedUntil(LocalDateTime.now().minusMinutes(1));
+        when(sysUserService.getById(123L)).thenReturn(user);
+
+        filter.doFilter(request, response, filterChain);
+
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        assertNotNull(authentication);
+        assertEquals(123L, authentication.getPrincipal());
+        assertEquals(1, user.getStatus());
+        assertNull(user.getBanReason());
+        assertNull(user.getBannedUntil());
+        verify(sysUserService).updateById(user);
+        verify(filterChain).doFilter(request, response);
+        verifyNoMoreInteractions(filterChain);
     }
 
     @Test

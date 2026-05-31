@@ -1,6 +1,9 @@
 package com.airesume.server.service.impl;
 
 import com.airesume.server.dto.admin.DashboardTrendResponse;
+import com.airesume.server.dto.admin.MonitorOverviewResponse;
+import com.airesume.server.entity.ResumePolishRecord;
+import com.airesume.server.mapper.CommunityCommentMapper;
 import com.airesume.server.mapper.CommunityPostMapper;
 import com.airesume.server.mapper.InterviewSessionMapper;
 import com.airesume.server.mapper.MembershipOrderMapper;
@@ -15,6 +18,10 @@ import com.airesume.server.service.SysJobRoleService;
 import com.airesume.server.service.SysPromptService;
 import com.airesume.server.service.SysUserService;
 import com.airesume.server.service.UserFeedbackService;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.cache.annotation.Cacheable;
 
@@ -24,12 +31,21 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AdminDashboardServiceImplTest {
+
+    @BeforeEach
+    void setUp() {
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(new MybatisConfiguration(), ""),
+                ResumePolishRecord.class);
+    }
 
     @Test
     void shouldBuildSevenDayTrendsFromAggregatedRows() {
@@ -100,6 +116,92 @@ class AdminDashboardServiceImplTest {
         assertDashboardMethodUsesSyncCache("getMonitorOverview");
     }
 
+    @Test
+    void shouldReturnExpandedBusinessMonitorOverviewCounts() {
+        InterviewSessionService interviewSessionService = mock(InterviewSessionService.class);
+        ResumeDiagnosisTaskService resumeDiagnosisTaskService = mock(ResumeDiagnosisTaskService.class);
+        UserFeedbackService userFeedbackService = mock(UserFeedbackService.class);
+        ResumePolishService resumePolishService = mock(ResumePolishService.class);
+        ResumeJobMatchService resumeJobMatchService = mock(ResumeJobMatchService.class);
+        MembershipOrderService membershipOrderService = mock(MembershipOrderService.class);
+        CommunityPostMapper communityPostMapper = mock(CommunityPostMapper.class);
+        CommunityCommentMapper communityCommentMapper = mock(CommunityCommentMapper.class);
+        AdminDashboardServiceImpl service = buildService(
+                interviewSessionService,
+                resumeDiagnosisTaskService,
+                mock(InterviewSessionMapper.class),
+                mock(ResumeDiagnosisTaskMapper.class),
+                userFeedbackService,
+                communityPostMapper,
+                communityCommentMapper,
+                resumePolishService,
+                resumeJobMatchService,
+                membershipOrderService
+        );
+
+        when(resumeDiagnosisTaskService.count(any())).thenReturn(1L, 2L, 3L, 4L, 5L);
+        when(interviewSessionService.count(any())).thenReturn(6L, 7L);
+        when(userFeedbackService.count(any())).thenReturn(8L, 9L, 10L);
+        when(resumePolishService.count(any())).thenReturn(11L);
+        when(resumeJobMatchService.count(any())).thenReturn(12L);
+        when(membershipOrderService.count(any())).thenReturn(13L);
+        when(communityPostMapper.selectCount(any())).thenReturn(14L, 15L);
+        when(communityCommentMapper.selectCount(any())).thenReturn(16L);
+
+        MonitorOverviewResponse response = service.getMonitorOverview();
+
+        assertEquals(1L, response.getPendingResumeTaskCount());
+        assertEquals(2L, response.getProcessingResumeTaskCount());
+        assertEquals(3L, response.getFailedResumeTaskCount());
+        assertEquals(4L, response.getCompletedResumeTaskCount());
+        assertEquals(6L, response.getActiveInterviewSessionCount());
+        assertEquals(7L, response.getTodayInterviewSessionCount());
+        assertEquals(5L, response.getTodayResumeDiagnosisCount());
+        assertEquals(11L, response.getTodayResumePolishCount());
+        assertEquals(12L, response.getTodayJobMatchCount());
+        assertEquals(14L, response.getTodayCommunityPostCount());
+        assertEquals(8L, response.getPendingFeedbackCount());
+        assertEquals(9L, response.getProcessingFeedbackCount());
+        assertEquals(10L, response.getTodayFeedbackCount());
+        assertEquals(15L, response.getPendingCommunityPostCount());
+        assertEquals(16L, response.getPendingCommunityCommentCount());
+        assertEquals(31L, response.getPendingCommunityReviewCount());
+        assertEquals(13L, response.getTodayOrderCount());
+    }
+
+    @Test
+    void shouldUseTodayHalfOpenRangeForBusinessMonitorCounts() {
+        LocalDateTime todayStart = LocalDate.now().atStartOfDay();
+        LocalDateTime tomorrowStart = LocalDate.now().plusDays(1).atStartOfDay();
+        ResumePolishService resumePolishService = mock(ResumePolishService.class);
+        AdminDashboardServiceImpl service = buildService(
+                mock(InterviewSessionService.class),
+                mock(ResumeDiagnosisTaskService.class),
+                mock(InterviewSessionMapper.class),
+                mock(ResumeDiagnosisTaskMapper.class),
+                mock(UserFeedbackService.class),
+                mock(CommunityPostMapper.class),
+                mock(CommunityCommentMapper.class),
+                resumePolishService,
+                mock(ResumeJobMatchService.class),
+                mock(MembershipOrderService.class)
+        );
+        when(resumePolishService.count(any())).thenAnswer(invocation -> {
+            Object wrapper = invocation.getArgument(0);
+            com.baomidou.mybatisplus.core.conditions.AbstractWrapper<?, ?, ?> queryWrapper =
+                    (com.baomidou.mybatisplus.core.conditions.AbstractWrapper<?, ?, ?>) wrapper;
+            queryWrapper.getSqlSegment();
+            Map<String, Object> params = queryWrapper.getParamNameValuePairs();
+            assertTrue(params.containsValue(todayStart), "今日统计必须包含当天开始时间, params=" + params);
+            assertTrue(params.containsValue(tomorrowStart), "今日统计必须包含次日开始时间作为开区间上界, params=" + params);
+            return 0L;
+        });
+
+        service.getMonitorOverview();
+
+        verify(resumePolishService).count(any());
+    }
+
     private void assertDashboardMethodUsesSyncCache(String methodName, Class<?>... parameterTypes) throws NoSuchMethodException {
         Cacheable cacheable = AdminDashboardServiceImpl.class
                 .getMethod(methodName, parameterTypes)
@@ -123,6 +225,30 @@ class AdminDashboardServiceImplTest {
                                                    ResumeDiagnosisTaskService resumeDiagnosisTaskService,
                                                    InterviewSessionMapper interviewSessionMapper,
                                                    ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper) {
+        return buildService(
+                interviewSessionService,
+                resumeDiagnosisTaskService,
+                interviewSessionMapper,
+                resumeDiagnosisTaskMapper,
+                mock(UserFeedbackService.class),
+                mock(CommunityPostMapper.class),
+                mock(CommunityCommentMapper.class),
+                mock(ResumePolishService.class),
+                mock(ResumeJobMatchService.class),
+                mock(MembershipOrderService.class)
+        );
+    }
+
+    private AdminDashboardServiceImpl buildService(InterviewSessionService interviewSessionService,
+                                                   ResumeDiagnosisTaskService resumeDiagnosisTaskService,
+                                                   InterviewSessionMapper interviewSessionMapper,
+                                                   ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper,
+                                                   UserFeedbackService userFeedbackService,
+                                                   CommunityPostMapper communityPostMapper,
+                                                   CommunityCommentMapper communityCommentMapper,
+                                                   ResumePolishService resumePolishService,
+                                                   ResumeJobMatchService resumeJobMatchService,
+                                                   MembershipOrderService membershipOrderService) {
         return new AdminDashboardServiceImpl(
                 mock(SysUserService.class),
                 mock(SysPromptService.class),
@@ -132,11 +258,12 @@ class AdminDashboardServiceImplTest {
                 resumeDiagnosisTaskService,
                 interviewSessionMapper,
                 resumeDiagnosisTaskMapper,
-                mock(UserFeedbackService.class),
-                mock(CommunityPostMapper.class),
-                mock(ResumePolishService.class),
-                mock(ResumeJobMatchService.class),
-                mock(MembershipOrderService.class),
+                userFeedbackService,
+                communityPostMapper,
+                communityCommentMapper,
+                resumePolishService,
+                resumeJobMatchService,
+                membershipOrderService,
                 mock(MembershipOrderMapper.class),
                 Runnable::run
         );

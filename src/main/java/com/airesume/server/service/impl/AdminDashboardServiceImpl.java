@@ -5,6 +5,7 @@ import com.airesume.server.common.constants.InterviewConstants;
 import com.airesume.server.common.constants.PromptConstants;
 import com.airesume.server.common.constants.ResumeDiagnosisConstants;
 import com.airesume.server.common.constants.UserRoleConstants;
+import com.airesume.server.common.constants.CommunityConstants;
 import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.dto.admin.BusinessDistributionResponse;
 import com.airesume.server.dto.admin.DashboardOverviewResponse;
@@ -15,6 +16,7 @@ import com.airesume.server.entity.*;
 import com.airesume.server.mapper.InterviewSessionMapper;
 import com.airesume.server.mapper.MembershipOrderMapper;
 import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
+import com.airesume.server.mapper.CommunityCommentMapper;
 import com.airesume.server.mapper.CommunityPostMapper;
 import org.springframework.cache.annotation.Cacheable;
 import com.airesume.server.service.*;
@@ -35,8 +37,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
-
-import org.springframework.beans.factory.annotation.Qualifier;
 
 /**
  * 应用层看板与监控实现。
@@ -61,6 +61,7 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
     private final ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper;
     private final UserFeedbackService userFeedbackService;
     private final CommunityPostMapper communityPostMapper;
+    private final CommunityCommentMapper communityCommentMapper;
     private final ResumePolishService resumePolishService;
     private final ResumeJobMatchService resumeJobMatchService;
     private final MembershipOrderService membershipOrderService;
@@ -78,6 +79,7 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
             ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper,
             UserFeedbackService userFeedbackService,
             CommunityPostMapper communityPostMapper,
+            CommunityCommentMapper communityCommentMapper,
             ResumePolishService resumePolishService,
             ResumeJobMatchService resumeJobMatchService,
             MembershipOrderService membershipOrderService,
@@ -93,6 +95,7 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
         this.resumeDiagnosisTaskMapper = resumeDiagnosisTaskMapper;
         this.userFeedbackService = userFeedbackService;
         this.communityPostMapper = communityPostMapper;
+        this.communityCommentMapper = communityCommentMapper;
         this.resumePolishService = resumePolishService;
         this.resumeJobMatchService = resumeJobMatchService;
         this.membershipOrderService = membershipOrderService;
@@ -260,7 +263,7 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
         LocalDateTime todayStart = LocalDate.now().atStartOfDay();
         LocalDateTime tomorrowStart = LocalDate.now().plusDays(1).atStartOfDay();
 
-        // 并行执行 6 个统计查询，复用看板线程池
+        // 监控总览只聚合业务表轻量计数，避免在总览页引入基础设施探活依赖。
         CompletableFuture<Long> pendingFuture = supplyAsync(() -> resumeDiagnosisTaskService.count(
                 new LambdaQueryWrapper<ResumeDiagnosisTask>()
                         .eq(ResumeDiagnosisTask::getStatus, ResumeDiagnosisConstants.STATUS_PENDING)));
@@ -270,22 +273,51 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
         CompletableFuture<Long> failedFuture = supplyAsync(() -> resumeDiagnosisTaskService.count(
                 new LambdaQueryWrapper<ResumeDiagnosisTask>()
                         .eq(ResumeDiagnosisTask::getStatus, ResumeDiagnosisConstants.STATUS_FAILED)));
+        CompletableFuture<Long> completedFuture = supplyAsync(() -> resumeDiagnosisTaskService.count(
+                new LambdaQueryWrapper<ResumeDiagnosisTask>()
+                        .eq(ResumeDiagnosisTask::getStatus, ResumeDiagnosisConstants.STATUS_COMPLETED)));
         CompletableFuture<Long> activeInterviewFuture = supplyAsync(() -> interviewSessionService.count(
                 new LambdaQueryWrapper<InterviewSession>()
                         .eq(InterviewSession::getStatus, InterviewConstants.STATUS_IN_PROGRESS)));
         CompletableFuture<Long> todayInterviewFuture = supplyAsync(() -> countInterviewSessionsBetween(todayStart, tomorrowStart));
         CompletableFuture<Long> todayResumeFuture = supplyAsync(() -> countResumeTasksBetween(todayStart, tomorrowStart));
+        CompletableFuture<Long> todayPolishFuture = supplyAsync(() -> countPolishBetween(todayStart, tomorrowStart));
+        CompletableFuture<Long> todayJdMatchFuture = supplyAsync(() -> countJdMatchBetween(todayStart, tomorrowStart));
+        CompletableFuture<Long> todayCommunityPostFuture = supplyAsync(() -> countCommunityPostsBetween(todayStart, tomorrowStart));
+        CompletableFuture<Long> pendingFeedbackFuture = supplyAsync(() -> countFeedbackByStatus(0));
+        CompletableFuture<Long> processingFeedbackFuture = supplyAsync(() -> countFeedbackByStatus(1));
+        CompletableFuture<Long> todayFeedbackFuture = supplyAsync(() -> countFeedbackBetween(todayStart, tomorrowStart));
+        CompletableFuture<Long> pendingCommunityPostFuture = supplyAsync(this::countPendingCommunityPosts);
+        CompletableFuture<Long> pendingCommunityCommentFuture = supplyAsync(this::countPendingCommunityComments);
+        CompletableFuture<Long> todayOrderFuture = supplyAsync(() -> countOrdersBetween(todayStart, tomorrowStart));
 
         CompletableFuture.allOf(pendingFuture, processingFuture, failedFuture,
-                activeInterviewFuture, todayInterviewFuture, todayResumeFuture).join();
+                completedFuture, activeInterviewFuture, todayInterviewFuture, todayResumeFuture,
+                todayPolishFuture, todayJdMatchFuture, todayCommunityPostFuture,
+                pendingFeedbackFuture, processingFeedbackFuture, todayFeedbackFuture,
+                pendingCommunityPostFuture, pendingCommunityCommentFuture, todayOrderFuture).join();
+
+        long pendingCommunityPostCount = pendingCommunityPostFuture.join();
+        long pendingCommunityCommentCount = pendingCommunityCommentFuture.join();
 
         return MonitorOverviewResponse.builder()
                 .pendingResumeTaskCount(pendingFuture.join())
                 .processingResumeTaskCount(processingFuture.join())
                 .failedResumeTaskCount(failedFuture.join())
+                .completedResumeTaskCount(completedFuture.join())
                 .activeInterviewSessionCount(activeInterviewFuture.join())
                 .todayInterviewSessionCount(todayInterviewFuture.join())
                 .todayResumeDiagnosisCount(todayResumeFuture.join())
+                .todayResumePolishCount(todayPolishFuture.join())
+                .todayJobMatchCount(todayJdMatchFuture.join())
+                .todayCommunityPostCount(todayCommunityPostFuture.join())
+                .pendingFeedbackCount(pendingFeedbackFuture.join())
+                .processingFeedbackCount(processingFeedbackFuture.join())
+                .todayFeedbackCount(todayFeedbackFuture.join())
+                .pendingCommunityPostCount(pendingCommunityPostCount)
+                .pendingCommunityCommentCount(pendingCommunityCommentCount)
+                .pendingCommunityReviewCount(pendingCommunityPostCount + pendingCommunityCommentCount)
+                .todayOrderCount(todayOrderFuture.join())
                 .build();
     }
 
@@ -313,10 +345,28 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
                 .ge(UserFeedback::getCreateTime, start).lt(UserFeedback::getCreateTime, end));
     }
 
+    /** 统计指定处理状态的用户反馈数，用于后台待办监控。 */
+    private long countFeedbackByStatus(Integer status) {
+        return userFeedbackService.count(new LambdaQueryWrapper<UserFeedback>()
+                .eq(UserFeedback::getStatus, status));
+    }
+
     /** 统计区间内社区帖子数。 */
     private long countCommunityPostsBetween(LocalDateTime start, LocalDateTime end) {
         return communityPostMapper.selectCount(new LambdaQueryWrapper<CommunityPost>()
                 .ge(CommunityPost::getCreateTime, start).lt(CommunityPost::getCreateTime, end));
+    }
+
+    /** 统计待审核社区帖子数。 */
+    private long countPendingCommunityPosts() {
+        return communityPostMapper.selectCount(new LambdaQueryWrapper<CommunityPost>()
+                .eq(CommunityPost::getReviewStatus, CommunityConstants.REVIEW_STATUS_PENDING));
+    }
+
+    /** 统计待审核社区评论数。 */
+    private long countPendingCommunityComments() {
+        return communityCommentMapper.selectCount(new LambdaQueryWrapper<CommunityComment>()
+                .eq(CommunityComment::getReviewStatus, CommunityConstants.REVIEW_STATUS_PENDING));
     }
 
     /** 统计区间内简历润色数。 */

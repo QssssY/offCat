@@ -60,6 +60,12 @@ public class PostVO {
     /** 当前用户是否已收藏 */
     private Boolean favorited;
 
+    /** 审核状态：pending / approved / rejected / hidden */
+    private String reviewStatus;
+
+    /** 审核原因；仅在我的动态或管理端需要回显 */
+    private String reviewReason;
+
     /** 创建时间 */
     private LocalDateTime createTime;
 }

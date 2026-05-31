@@ -37,6 +37,10 @@ CREATE TABLE `sys_user` (
   `status` TINYINT NOT NULL DEFAULT 1 COMMENT '1-active, 0-disabled',
   `membership_plan_code` VARCHAR(32) NULL DEFAULT NULL COMMENT 'Current membership plan code',
   `vip_expire_time` DATETIME NULL DEFAULT NULL COMMENT 'VIP expire time',
+  `ban_reason` VARCHAR(255) NULL DEFAULT NULL COMMENT 'Account ban reason',
+  `banned_until` DATETIME NULL DEFAULT NULL COMMENT 'Account ban expiry time, null means permanent',
+  `banned_by` BIGINT NULL DEFAULT NULL COMMENT 'Admin user id who banned the account',
+  `banned_time` DATETIME NULL DEFAULT NULL COMMENT 'Account ban time',
   `security_question` VARCHAR(200) NULL DEFAULT NULL COMMENT 'Security question for password recovery',
   `security_answer` VARCHAR(255) NULL DEFAULT NULL COMMENT 'Security answer (BCrypt encrypted)',
   `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Create time',
@@ -48,6 +52,7 @@ CREATE TABLE `sys_user` (
   INDEX `idx_sys_user_status` (`status`),
   INDEX `idx_sys_user_membership_plan_code` (`membership_plan_code`),
   INDEX `idx_sys_user_vip_expire_time` (`vip_expire_time`),
+  INDEX `idx_sys_user_banned_until` (`status`, `banned_until`),
   INDEX `idx_sys_user_create_time` (`create_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='User table';
 
@@ -498,6 +503,7 @@ CREATE TABLE `sys_version_log` (
   PRIMARY KEY (`id`),
   UNIQUE INDEX `uk_version_log_version` (`version`),
   INDEX `idx_version_log_status` (`status`),
+  INDEX `idx_version_log_filter_time` (`status`, `type`, `create_time`),
   INDEX `idx_version_log_published_at` (`published_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='版本更新日志表';
 
@@ -530,6 +536,10 @@ CREATE TABLE `community_post` (
   `images` JSON NULL COMMENT '图片URL列表JSON数组',
   `like_count` INT NOT NULL DEFAULT 0 COMMENT '点赞数',
   `comment_count` INT NOT NULL DEFAULT 0 COMMENT '评论数',
+  `review_status` VARCHAR(16) NOT NULL DEFAULT 'approved' COMMENT '审核状态：pending-待审，approved-通过，rejected-拒绝，hidden-隐藏',
+  `review_reason` VARCHAR(255) NULL COMMENT '审核原因',
+  `reviewed_by` BIGINT NULL COMMENT '审核管理员用户ID',
+  `reviewed_time` DATETIME NULL COMMENT '审核时间',
   `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除标志',
@@ -540,6 +550,8 @@ CREATE TABLE `community_post` (
   INDEX `idx_community_post_create_time` (`create_time`),
   INDEX `idx_community_post_category_time` (`category`, `create_time`),
   INDEX `idx_community_post_deleted_category_time` (`is_deleted`, `category`, `create_time`),
+  INDEX `idx_community_post_review_time` (`review_status`, `create_time`),
+  INDEX `idx_community_post_public_review_time` (`is_deleted`, `review_status`, `category`, `create_time`),
   INDEX `idx_community_post_category_like` (`category`, `like_count`),
   CONSTRAINT `fk_community_post_user_id` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='社区帖子表';
@@ -552,6 +564,10 @@ CREATE TABLE `community_comment` (
   `reply_to_user_id` BIGINT NULL DEFAULT NULL COMMENT '被回复用户ID',
   `content` TEXT NOT NULL COMMENT '评论内容',
   `images` JSON NULL COMMENT '评论图片URL列表JSON数组',
+  `review_status` VARCHAR(16) NOT NULL DEFAULT 'approved' COMMENT '审核状态：pending-待审，approved-通过，rejected-拒绝，hidden-隐藏',
+  `review_reason` VARCHAR(255) NULL COMMENT '审核原因',
+  `reviewed_by` BIGINT NULL COMMENT '审核管理员用户ID',
+  `reviewed_time` DATETIME NULL COMMENT '审核时间',
   `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除标志',
@@ -564,6 +580,8 @@ CREATE TABLE `community_comment` (
   INDEX `idx_community_comment_parent_time` (`parent_comment_id`, `create_time`),
   INDEX `idx_community_comment_reply_user` (`reply_to_user_id`, `create_time`),
   INDEX `idx_community_comment_reply_user_actor_time` (`reply_to_user_id`, `user_id`, `create_time`),
+  INDEX `idx_community_comment_review_time` (`review_status`, `create_time`),
+  INDEX `idx_community_comment_post_review_time` (`post_id`, `review_status`, `create_time`),
   CONSTRAINT `fk_community_comment_post_id` FOREIGN KEY (`post_id`) REFERENCES `community_post` (`id`),
   CONSTRAINT `fk_community_comment_user_id` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='社区评论表';

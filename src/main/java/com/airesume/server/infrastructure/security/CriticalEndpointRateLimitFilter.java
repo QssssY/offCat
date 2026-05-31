@@ -44,6 +44,8 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
     private static final String INTERVIEW_SESSION_PREFIX = "/api/interview/session/";
     private static final String INTERVIEW_STREAM_SUFFIX = "/message/stream";
     private static final String OFFER_API_PREFIX = "/api/offer/";
+    private static final String COMMUNITY_POST_PATH = "/api/community/posts";
+    private static final String COMMUNITY_IMAGE_UPLOAD_PATH = "/api/community/images/upload";
     private static final long CLEANUP_INTERVAL = 256L;
 
     private static final RateLimitPolicy REGISTER_POLICY = new RateLimitPolicy(
@@ -67,6 +69,12 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
             "interview_action", INTERVIEW_SESSION_PREFIX, MatchType.PREFIX, 40, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
     private static final RateLimitPolicy OFFER_ACTION_POLICY = new RateLimitPolicy(
             "offer_action", OFFER_API_PREFIX, MatchType.PREFIX, 10, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
+    private static final RateLimitPolicy COMMUNITY_POST_CREATE_POLICY = new RateLimitPolicy(
+            "community_post_create", COMMUNITY_POST_PATH, MatchType.EXACT, 5, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
+    private static final RateLimitPolicy COMMUNITY_COMMENT_CREATE_POLICY = new RateLimitPolicy(
+            "community_comment_create", "/comments", MatchType.SUFFIX, 20, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
+    private static final RateLimitPolicy COMMUNITY_IMAGE_UPLOAD_POLICY = new RateLimitPolicy(
+            "community_image_upload", COMMUNITY_IMAGE_UPLOAD_PATH, MatchType.EXACT, 20, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
 
     private final ObjectMapper objectMapper;
     private final Clock clock;
@@ -225,6 +233,16 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
         }
         if (OFFER_ACTION_POLICY.matches(requestMethod, requestUri)) {
             return OFFER_ACTION_POLICY;
+        }
+        if (COMMUNITY_POST_CREATE_POLICY.matches(requestMethod, requestUri)) {
+            return COMMUNITY_POST_CREATE_POLICY;
+        }
+        if (COMMUNITY_COMMENT_CREATE_POLICY.matches(requestMethod, requestUri)
+                && requestUri.startsWith(COMMUNITY_POST_PATH + "/")) {
+            return COMMUNITY_COMMENT_CREATE_POLICY;
+        }
+        if (COMMUNITY_IMAGE_UPLOAD_POLICY.matches(requestMethod, requestUri)) {
+            return COMMUNITY_IMAGE_UPLOAD_POLICY;
         }
         return null;
     }

@@ -28,6 +28,14 @@ public class SysUser extends BaseEntity {
 
     private LocalDateTime vipExpireTime;
 
+    private String banReason;
+
+    private LocalDateTime bannedUntil;
+
+    private Long bannedBy;
+
+    private LocalDateTime bannedTime;
+
     /** 安全问题（忘记密码用） */
     private String securityQuestion;
 

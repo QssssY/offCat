@@ -8,6 +8,7 @@ import com.airesume.server.dto.admin.VersionLogResponse;
 import com.airesume.server.dto.admin.VersionLogUpdateRequest;
 import com.airesume.server.entity.SysVersionLog;
 import com.airesume.server.service.SysVersionLogService;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -29,25 +30,57 @@ import java.util.stream.Collectors;
 @PreAuthorize("hasRole('ADMIN')")
 public class AdminVersionLogController {
 
+    private static final int MAX_PAGE_SIZE = 100;
+
     private final SysVersionLogService sysVersionLogService;
 
     @GetMapping
     public Result<Map<String, Object>> getVersionLogList(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String type,
+            @RequestParam(required = false) Integer status,
+            @RequestParam(required = false) String keyword,
             Authentication authentication) {
-        log.info("Admin get version log list, page: {}, size: {}", page, size);
-        Page<SysVersionLog> pageParam = new Page<>(page, size);
-        Page<SysVersionLog> result = sysVersionLogService.lambdaQuery()
-                .orderByDesc(SysVersionLog::getCreateTime)
-                .page(pageParam);
+        String safeType = normalizeOptionalText(type);
+        String safeKeyword = normalizeOptionalText(keyword);
+        log.info("Admin get version log list, page: {}, size: {}, type: {}, status: {}, keyword: {}",
+                page, size, safeType, status, safeKeyword);
+
+        if (safeType != null && !isSupportedVersionType(safeType)) {
+            return Result.error("版本类型仅支持 major/minor/patch");
+        }
+        if (status != null && status != 0 && status != 1) {
+            return Result.error("版本状态仅支持 0/1");
+        }
+
+        int safePage = Math.max(1, page);
+        int safeSize = Math.min(MAX_PAGE_SIZE, Math.max(1, size));
+        Page<SysVersionLog> pageParam = new Page<>(safePage, safeSize);
+        LambdaQueryWrapper<SysVersionLog> wrapper = new LambdaQueryWrapper<>();
+        // 管理端版本日志筛选统一走后端参数化查询，避免前端本地筛选导致分页总数失真。
+        if (safeType != null) {
+            wrapper.eq(SysVersionLog::getType, safeType);
+        }
+        if (status != null) {
+            wrapper.eq(SysVersionLog::getStatus, status);
+        }
+        if (safeKeyword != null) {
+            wrapper.and(query -> query.like(SysVersionLog::getTitle, safeKeyword)
+                    .or()
+                    .like(SysVersionLog::getContent, safeKeyword)
+                    .or()
+                    .like(SysVersionLog::getVersion, safeKeyword));
+        }
+        wrapper.orderByDesc(SysVersionLog::getCreateTime);
+        Page<SysVersionLog> result = sysVersionLogService.page(pageParam, wrapper);
         List<VersionLogResponse> records = result.getRecords().stream()
                 .map(this::buildResponse).collect(Collectors.toList());
         Map<String, Object> data = new HashMap<>();
         data.put("records", records);
-        data.put("total", (int) result.getTotal());
-        data.put("page", (int) result.getCurrent());
-        data.put("size", (int) result.getSize());
+        data.put("total", result.getTotal());
+        data.put("page", result.getCurrent());
+        data.put("size", result.getSize());
         return Result.success(data);
     }
 
@@ -183,6 +216,21 @@ public class AdminVersionLogController {
             case "minor" -> "小版本";
             case "patch" -> "修补";
             default -> "未知";
+        };
+    }
+
+    private String normalizeOptionalText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim();
+        return normalized.isEmpty() ? null : normalized;
+    }
+
+    private boolean isSupportedVersionType(String type) {
+        return switch (type) {
+            case "major", "minor", "patch" -> true;
+            default -> false;
         };
     }
 }
