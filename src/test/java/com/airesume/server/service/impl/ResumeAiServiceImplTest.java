@@ -16,6 +16,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -28,21 +29,14 @@ class ResumeAiServiceImplTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        service = new ResumeAiServiceImpl(
-                "doubao",
-                "",
-                "",
-                "none",
-                mock(SysPromptService.class),
-                mock(SysAiEngineConfigService.class),
-                new ObjectMapper(),
-                new AiTokenLimitConfig(),
-                RestClient.builder(),
-                WebClient.builder(),
-                new AiCircuitBreaker(new AiCircuitBreakerConfig()),
-                new AiCredentialCrypto("test-secret-for-ai-key-encryption"));
+        service = createService("doubao", "");
         sanitizeMethod = ResumeAiServiceImpl.class.getDeclaredMethod("sanitizePolishedResumeText", String.class);
         sanitizeMethod.setAccessible(true);
+    }
+
+    @Test
+    void constructorShouldNotRequireConfiguredBaseUrlDnsAtStartup() {
+        assertDoesNotThrow(() -> createService("deepseek", "https://startup-only.invalid/v1"));
     }
 
     @Test
@@ -293,5 +287,21 @@ class ResumeAiServiceImplTest {
             index += substring.length();
         }
         return count;
+    }
+
+    private ResumeAiServiceImpl createService(String provider, String configuredBaseUrl) {
+        return new ResumeAiServiceImpl(
+                provider,
+                configuredBaseUrl,
+                "",
+                "none",
+                mock(SysPromptService.class),
+                mock(SysAiEngineConfigService.class),
+                new ObjectMapper(),
+                new AiTokenLimitConfig(),
+                RestClient.builder(),
+                WebClient.builder(),
+                new AiCircuitBreaker(new AiCircuitBreakerConfig()),
+                new AiCredentialCrypto("test-secret-for-ai-key-encryption"));
     }
 }

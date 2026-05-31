@@ -29,7 +29,25 @@ public final class PublicHttpsUrlValidator {
         return validate(url, emptyMessage, InetAddress::getAllByName);
     }
 
+    /**
+     * 启动期校验并返回 trim 后的公网 HTTPS URL，不做 DNS 解析。
+     *
+     * <p>用于应用配置注入后的 Bean 初始化，避免外部 DNS 短暂不可用时阻断后端启动；
+     * 真正发起 AI 出网调用前仍必须调用 {@link #validate(String, String)} 执行完整 DNS 校验。</p>
+     *
+     * @param url 待校验的 URL
+     * @param emptyMessage 空值错误信息
+     * @return trim 后的 URL
+     */
+    public static String validateWithoutDnsResolution(String url, String emptyMessage) {
+        return validate(url, emptyMessage, InetAddress::getAllByName, false);
+    }
+
     static String validate(String url, String emptyMessage, HostResolver hostResolver) {
+        return validate(url, emptyMessage, hostResolver, true);
+    }
+
+    private static String validate(String url, String emptyMessage, HostResolver hostResolver, boolean resolveDns) {
         String normalized = url == null ? null : url.trim();
         if (normalized == null || normalized.isEmpty()) {
             throw new IllegalArgumentException(emptyMessage);
@@ -49,7 +67,7 @@ public final class PublicHttpsUrlValidator {
         if (isBlockedHost(normalizedHost)) {
             throw new IllegalArgumentException("基础地址不允许指向本机、内网或云元数据地址");
         }
-        if (hasBlockedResolvedAddress(normalizedHost, hostResolver)) {
+        if (resolveDns && hasBlockedResolvedAddress(normalizedHost, hostResolver)) {
             throw new IllegalArgumentException("基础地址域名解析结果不允许指向本机、内网或云元数据地址");
         }
 

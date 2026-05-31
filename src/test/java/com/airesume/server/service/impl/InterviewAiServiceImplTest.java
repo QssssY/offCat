@@ -73,6 +73,18 @@ class InterviewAiServiceImplTest {
     }
 
     @Test
+    void constructorShouldNotRequireConfiguredBaseUrlDnsAtStartup() {
+        assertDoesNotThrow(() -> new InterviewAiServiceImpl(
+                "deepseek", "https://startup-only.invalid/v1", "test-model", "none",
+                webClientBuilder, restClientBuilder,
+                sysAiEngineConfigService, sysPromptService,
+                contextCompressor, tokenLimitConfig,
+                mockInterviewService, mockInterviewJobTargetRecordMapper,
+                resumeDiagnosisTaskMapper, interviewSessionMapper,
+                objectMapper, aiCircuitBreaker, aiCredentialCrypto));
+    }
+
+    @Test
     void resolveBaseUrlShouldAllowPublicHttpsMimoProvider() throws Exception {
         Method method = InterviewAiServiceImpl.class.getDeclaredMethod(
                 "resolveBaseUrl", String.class, String.class);

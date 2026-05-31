@@ -123,7 +123,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         this.interviewSessionMapper = interviewSessionMapper;
         this.aiCircuitBreaker = aiCircuitBreaker;
         this.aiCredentialCrypto = aiCredentialCrypto;
-        this.resolvedBaseUrl = resolveBaseUrl(this.provider, configuredBaseUrl);
+        this.resolvedBaseUrl = resolveBaseUrlForStartup(this.provider, configuredBaseUrl);
         this.endpoint = getEndpoint();
         this.restClient = restClientBuilder
                 .baseUrl(this.resolvedBaseUrl)
@@ -178,9 +178,19 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     }
 
     private String resolveBaseUrl(String provider, String configuredUrl) {
+        return resolveBaseUrl(provider, configuredUrl, true);
+    }
+
+    private String resolveBaseUrlForStartup(String provider, String configuredUrl) {
+        return resolveBaseUrl(provider, configuredUrl, false);
+    }
+
+    private String resolveBaseUrl(String provider, String configuredUrl, boolean resolveDns) {
         if (configuredUrl != null && !configuredUrl.isBlank()) {
-            // 管理端支持自由接入新模型，但运行时仍必须拦截本机、内网和云元数据地址，避免 SSRF。
-            String normalizedUrl = PublicHttpsUrlValidator.validate(configuredUrl, "基础地址不能为空");
+            // 启动期不能依赖外部 DNS；真正发起 AI 调用前仍会执行完整 DNS 校验，防止 SSRF。
+            String normalizedUrl = resolveDns
+                    ? PublicHttpsUrlValidator.validate(configuredUrl, "基础地址不能为空")
+                    : PublicHttpsUrlValidator.validateWithoutDnsResolution(configuredUrl, "基础地址不能为空");
             log.debug("使用用户配置的 baseUrl: {}", normalizedUrl);
             return normalizedUrl;
         }

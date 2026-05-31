@@ -64,4 +64,13 @@ class PublicHttpsUrlValidatorTest {
                         "基础地址不能为空",
                         host -> new InetAddress[]{InetAddress.getByName("127.0.0.1")}));
     }
+
+    @Test
+    void shouldAllowUnresolvedPublicDomainWhenDnsCheckIsSkipped() {
+        String result = PublicHttpsUrlValidator.validateWithoutDnsResolution(
+                "  https://startup-only.invalid/v1  ",
+                "基础地址不能为空");
+
+        assertEquals("https://startup-only.invalid/v1", result);
+    }
 }
