@@ -21,12 +21,25 @@ describe('AdminLayout', () => {
 
     expect(source).toContain('showAdminRouteLoading')
     expect(source).toContain('admin-route-loading-bar')
+    expect(source).toContain('admin-route-loading-placeholder')
+    expect(source).toContain('正在打开管理模块')
+    expect(source).toContain('admin-route-loading-placeholder-card')
     expect(source).toContain('<RouterView v-slot="{ Component }">')
     expect(source).toContain('<Transition name="admin-page-fade" mode="out-in">')
     expect(source).toContain('<component :is="Component" :key="route.fullPath" />')
     expect(source).toContain('setTimeout(() =>')
     expect(source).toContain('}, 120)')
     expect(source).toContain('onBeforeUnmount')
+  })
+
+  it('warms frequent admin route chunks after admin shell is mounted', () => {
+    const source = sourceFile('src/layouts/AdminLayout.vue')
+
+    expect(source).toContain('warmupHighFrequencyAdminRoutes')
+    expect(source).toContain('let adminWarmupHandle = null')
+    expect(source).toContain('adminWarmupHandle = warmupHighFrequencyAdminRoutes()')
+    expect(source).toContain('window.cancelIdleCallback(adminWarmupHandle)')
+    expect(source).toContain('window.clearTimeout(adminWarmupHandle)')
   })
 
   it('uses explicit transition properties for admin navigation and page switching', () => {

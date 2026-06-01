@@ -37,6 +37,17 @@ describe('routeLoaders', () => {
     expect(source).not.toMatch(/idleWarmupRoutes\s*=\s*\[[\s\S]*?\/admin/)
   })
 
+  it('warms selected high-frequency admin routes while idle without full admin preload', () => {
+    const source = sourceFile('src/router/routeLoaders.js')
+
+    expect(source).toContain('export function warmupHighFrequencyAdminRoutes()')
+    expect(source).toContain("const adminIdleWarmupRoutes = ['/admin/dashboard', '/admin/users', '/admin/ai-engines', '/admin/prompts', '/admin/monitor']")
+    expect(source).toContain('adminIdleWarmupRoutes.forEach((path) => {')
+    expect(source).toContain('prefetchAdminRoute(path)?.catch(() => {})')
+    expect(source).toContain('requestIdleCallback(runWarmup, { timeout: 3000 })')
+    expect(source).not.toMatch(/adminIdleWarmupRoutes\s*=\s*\[[\s\S]*?\/admin\/membership\/orders/)
+  })
+
   it('deduplicates repeated route prefetch calls without full route preload', () => {
     const source = sourceFile('src/router/routeLoaders.js')
 
