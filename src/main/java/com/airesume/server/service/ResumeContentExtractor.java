@@ -37,6 +37,20 @@ public class ResumeContentExtractor {
      * @return 解析后的文本与解析元信息
      */
     public ResumeParseResult extract(String fileUrl) {
+        return extract(fileUrl, null, false, false);
+    }
+
+    /**
+     * 使用指定用户上下文执行整份 PDF 解析。
+     */
+    public ResumeParseResult extract(String fileUrl, Long userId, boolean fallbackToPlatform) {
+        return extract(fileUrl, userId, fallbackToPlatform, false);
+    }
+
+    /**
+     * 使用任务锁定的 AI 上下文执行整份 PDF 解析，保证图片页多模态识别与诊断计费来源一致。
+     */
+    public ResumeParseResult extract(String fileUrl, Long userId, boolean fallbackToPlatform, boolean requireUserCustom) {
         String absolutePath = pdfTextExtractor.resolveAbsolutePath(fileUrl);
 
         try (PDDocument document = Loader.loadPDF(new File(absolutePath))) {
@@ -61,7 +75,8 @@ public class ResumeContentExtractor {
                 }
 
                 BufferedImage pageImage = pdfRenderer.renderImageWithDPI(pageIndex, resumeParseConfig.getOcr().getDpi());
-                PageParseOutcome outcome = parseImagePage(pageImage, pageIndex + 1);
+                PageParseOutcome outcome = parseImagePage(pageImage, pageIndex + 1,
+                        userId, fallbackToPlatform, requireUserCustom);
                 usedVisionUnavailableFallback |= outcome.usedVisionUnavailableFallback();
                 usedVisionFailureFallback |= outcome.usedVisionFailureFallback();
 
@@ -107,11 +122,12 @@ public class ResumeContentExtractor {
     /**
      * 图片页默认优先走多模态，不可用或失败时回退 OCR。
      */
-    private PageParseOutcome parseImagePage(BufferedImage pageImage, int pageNumber) {
+    private PageParseOutcome parseImagePage(BufferedImage pageImage, int pageNumber,
+                                            Long userId, boolean fallbackToPlatform, boolean requireUserCustom) {
         String imagePriority = resumeParseConfig.getParse().getImagePriority();
         boolean multimodalFirst = !"ocr-first".equalsIgnoreCase(imagePriority != null ? imagePriority : "");
         if (multimodalFirst) {
-            VisionAttempt visionAttempt = tryVision(pageImage, pageNumber);
+            VisionAttempt visionAttempt = tryVision(pageImage, pageNumber, userId, fallbackToPlatform, requireUserCustom);
             if (visionAttempt.outcome() != null) {
                 return visionAttempt.outcome();
             }
@@ -124,7 +140,7 @@ public class ResumeContentExtractor {
             if (ocrOutcome != null) {
                 return ocrOutcome;
             }
-            VisionAttempt visionAttempt = tryVision(pageImage, pageNumber);
+            VisionAttempt visionAttempt = tryVision(pageImage, pageNumber, userId, fallbackToPlatform, requireUserCustom);
             if (visionAttempt.outcome() != null) {
                 return visionAttempt.outcome();
             }
@@ -135,12 +151,14 @@ public class ResumeContentExtractor {
     /**
      * 多模态识别仅在当前启用引擎声明支持时才会尝试。
      */
-    private VisionAttempt tryVision(BufferedImage pageImage, int pageNumber) {
-        if (!resumeVisionExtractor.isAvailable()) {
+    private VisionAttempt tryVision(BufferedImage pageImage, int pageNumber,
+                                    Long userId, boolean fallbackToPlatform, boolean requireUserCustom) {
+        if (!resumeVisionExtractor.isAvailable(userId, fallbackToPlatform, requireUserCustom)) {
             return new VisionAttempt(null, true, false);
         }
         try {
-            String text = pdfTextExtractor.cleanText(resumeVisionExtractor.extractText(pageImage, pageNumber));
+            String text = pdfTextExtractor.cleanText(resumeVisionExtractor.extractText(
+                    pageImage, pageNumber, userId, fallbackToPlatform, requireUserCustom));
             if (text == null || text.isBlank()) {
                 return new VisionAttempt(null, false, true);
             }

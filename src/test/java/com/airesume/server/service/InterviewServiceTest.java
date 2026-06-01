@@ -3,6 +3,7 @@ package com.airesume.server.service;
 import com.airesume.server.entity.InterviewChatLog;
 import com.airesume.server.entity.InterviewSession;
 import com.airesume.server.common.exception.BusinessException;
+import com.airesume.server.common.result.ResultCode;
 import com.airesume.server.mock.MockInterviewService;
 import com.airesume.server.dto.interview.CreateSessionRequest;
 import com.airesume.server.dto.interview.InterviewEvaluationReport;
@@ -172,6 +173,30 @@ class InterviewServiceTest {
     }
 
     @Test
+    void subscribeAndWriteStreamShouldRollbackAndExposeCustomAiErrorCode() throws Exception {
+        String sessionId = "test-session-id";
+        ResponseBodyEmitter emitter = mock(ResponseBodyEmitter.class);
+        StringBuilder fullReply = new StringBuilder();
+        Runnable upstreamErrorCallback = mock(Runnable.class);
+
+        Publisher<String> publisher = subscriber -> {
+            subscriber.onSubscribe(subscription);
+            subscriber.onError(new BusinessException(ResultCode.CUSTOM_AI_CALL_FAILED, "自定义AI调用失败"));
+        };
+
+        interviewService.subscribeAndWriteStream(
+                sessionId, emitter, publisher, fullReply,
+                new AtomicBoolean(false), new AtomicBoolean(false), new AtomicReference<>(), upstreamErrorCallback);
+
+        ArgumentCaptor<String> eventCaptor = ArgumentCaptor.forClass(String.class);
+        verify(upstreamErrorCallback).run();
+        verify(emitter).send(eventCaptor.capture());
+        assertTrue(eventCaptor.getValue().contains("\"code\":4090"));
+        assertTrue(eventCaptor.getValue().contains("自定义AI调用失败"));
+        verify(emitter).completeWithError(any(BusinessException.class));
+    }
+
+    @Test
     void subscribeAndWriteStreamShouldCancelSubscriptionOnTimeout() throws Exception {
         String sessionId = "test-session-id";
         ResponseBodyEmitter emitter = mock(ResponseBodyEmitter.class);
@@ -312,7 +337,9 @@ class InterviewServiceTest {
                 any(),
                 eq("immediate"),
                 eq("normal"),
-                eq(0)
+                eq(0),
+                eq(userId),
+                eq(false)
         )).thenReturn("请继续说明幂等方案。\n\n<FEEDBACK>\n本题反馈：回答方向清晰，但还需要补充具体处理细节。\n</FEEDBACK>");
 
         interviewService.sendMessage(userId, sessionId, request);
@@ -327,7 +354,9 @@ class InterviewServiceTest {
                 any(),
                 eq("immediate"),
                 eq("normal"),
-                eq(0)
+                eq(0),
+                eq(userId),
+                eq(false)
         );
         verify(interviewMessageService).saveMessage(session, "user", request.getContent());
         verify(interviewMessageService).saveMessage(session, "assistant", "请继续说明幂等方案。\n\n<FEEDBACK>\n本题反馈：回答方向清晰，但还需要补充具体处理细节。\n</FEEDBACK>");
@@ -364,7 +393,9 @@ class InterviewServiceTest {
                 same(latestResumeContext),
                 eq("after_interview"),
                 eq("normal"),
-                eq(0)
+                eq(0),
+                eq(userId),
+                eq(false)
         )).thenReturn("继续追问");
 
         interviewService.sendMessage(userId, sessionId, request);
@@ -380,7 +411,9 @@ class InterviewServiceTest {
                 same(latestResumeContext),
                 eq("after_interview"),
                 eq("normal"),
-                eq(0)
+                eq(0),
+                eq(userId),
+                eq(false)
         );
     }
 

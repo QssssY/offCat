@@ -3,6 +3,7 @@ package com.airesume.server.controller;
 import com.airesume.server.common.result.PageResult;
 import com.airesume.server.common.result.Result;
 import com.airesume.server.common.constants.InterviewConstants;
+import com.airesume.server.common.constants.AiEngineConstants;
 import com.airesume.server.dto.interview.CreateSessionRequest;
 import com.airesume.server.dto.interview.InterviewHistoryResponse;
 import com.airesume.server.dto.interview.InterviewJobRoleResponse;
@@ -18,6 +19,8 @@ import com.airesume.server.service.InterviewAiService;
 import com.airesume.server.service.InterviewService;
 import com.airesume.server.service.MockInterviewJobTargetService;
 import com.airesume.server.service.SysJobRoleService;
+import com.airesume.server.service.UserAiConfigResolver;
+import com.airesume.server.service.UserAiUsageLimitService;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
@@ -57,6 +60,8 @@ public class InterviewController {
     private final InterviewAiService interviewAiService;
     private final SysJobRoleService sysJobRoleService;
     private final MockInterviewJobTargetService mockInterviewJobTargetService;
+    private final UserAiConfigResolver userAiConfigResolver;
+    private final UserAiUsageLimitService userAiUsageLimitService;
     @Qualifier("aiAsyncExecutor")
     private final Executor aiAsyncExecutor;
 
@@ -100,6 +105,7 @@ public class InterviewController {
         ResponseBodyEmitter emitter = new ResponseBodyEmitter(120_000L);
         AtomicBoolean streamClosed = new AtomicBoolean(false);
         AtomicBoolean done = new AtomicBoolean(false);
+        AtomicBoolean customAiCounted = new AtomicBoolean(false);
         AtomicReference<Subscription> subscriptionRef = new AtomicReference<>();
         // Keep lifecycle callbacks and publisher cancellation on the same stream state.
         interviewService.attachStreamLifecycleCallbacks(sessionId, emitter, streamClosed, done, subscriptionRef);
@@ -157,6 +163,13 @@ public class InterviewController {
                 log.info("流式面试消息配置解析完成, sessionId: {}, requestFeedbackMode: {}, sessionFeedbackMode: {}, resolvedFeedbackMode: {}",
                         sessionId, request.getFeedbackMode(), session.getFeedbackMode(), resolvedFeedbackMode);
 
+                boolean fallbackToPlatform = Boolean.TRUE.equals(request.getFallbackToPlatform());
+                boolean useCustomAi = userAiConfigResolver.resolve(
+                        userId, AiEngineConstants.BUSINESS_TYPE_INTERVIEW, fallbackToPlatform) != null;
+                if (useCustomAi) {
+                    userAiUsageLimitService.checkAndIncrement(userId);
+                    customAiCounted.set(true);
+                }
                 Publisher<String> publisher = interviewAiService.generateReplyStream(
                         sessionId,
                         history,
@@ -167,11 +180,21 @@ public class InterviewController {
                         jobTargetContext,
                         resolvedFeedbackMode,
                         interviewMode,
-                        interactionType
+                        interactionType,
+                        userId,
+                        fallbackToPlatform
                 );
                 interviewService.subscribeAndWriteStream(
-                        sessionId, emitter, publisher, fullReply, streamClosed, done, subscriptionRef);
+                        sessionId, emitter, publisher, fullReply, streamClosed, done, subscriptionRef,
+                        () -> {
+                            if (customAiCounted.compareAndSet(true, false)) {
+                                userAiUsageLimitService.rollback(userId);
+                            }
+                        });
             } catch (Exception e) {
+                if (customAiCounted.compareAndSet(true, false)) {
+                    userAiUsageLimitService.rollback(userId);
+                }
                 if (!streamClosed.get()) {
                     log.error("流式处理异常, sessionId: {}", sessionId, e);
                     try {

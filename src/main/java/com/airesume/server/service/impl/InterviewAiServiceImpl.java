@@ -3,8 +3,12 @@
 import com.airesume.server.common.constants.AiEngineConstants;
 import com.airesume.server.common.constants.InterviewConstants;
 import com.airesume.server.common.constants.PromptConstants;
+import com.airesume.server.common.constants.UserAiConstants;
+import com.airesume.server.common.exception.BusinessException;
+import com.airesume.server.common.result.ResultCode;
 import com.airesume.server.common.util.PublicHttpsUrlValidator;
 import com.airesume.server.config.AiTokenLimitConfig;
+import com.airesume.server.dto.ai.ResolvedAiConfig;
 import com.airesume.server.dto.interview.InterviewEvaluationReport;
 import com.airesume.server.dto.interview.InterviewJobTargetContext;
 import com.airesume.server.entity.SysAiEngineConfig;
@@ -23,6 +27,7 @@ import com.airesume.server.service.InterviewAiService;
 import com.airesume.server.service.InterviewContextCompressor;
 import com.airesume.server.service.SysAiEngineConfigService;
 import com.airesume.server.service.SysPromptService;
+import com.airesume.server.service.UserAiConfigResolver;
 import com.airesume.server.util.AiInputCompressor;
 import com.airesume.server.util.TokenEstimator;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -31,6 +36,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpHeaders;
@@ -84,6 +90,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     private final InterviewSessionMapper interviewSessionMapper;
     private final AiCircuitBreaker aiCircuitBreaker;
     private final AiCredentialCrypto aiCredentialCrypto;
+    private final UserAiConfigResolver userAiConfigResolver;
 
     @Value("${app.interview.stream-debug-log:false}")
     private boolean streamDebugLog;
@@ -106,6 +113,32 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             ObjectMapper objectMapper,
             AiCircuitBreaker aiCircuitBreaker,
             AiCredentialCrypto aiCredentialCrypto) {
+        this(provider, configuredBaseUrl, model, thinkingMode, webClientBuilder, restClientBuilder,
+                sysAiEngineConfigService, sysPromptService, contextCompressor, tokenLimitConfig,
+                mockInterviewService, mockInterviewJobTargetRecordMapper, resumeDiagnosisTaskMapper,
+                interviewSessionMapper, objectMapper, aiCircuitBreaker, aiCredentialCrypto, null);
+    }
+
+    @Autowired
+    public InterviewAiServiceImpl(
+            @Value("${app.interview.provider:doubao}") String provider,
+            @Value("${app.interview.base-url:}") String configuredBaseUrl,
+            @Value("${app.interview.model:}") String model,
+            @Value("${app.interview.thinking-mode:none}") String thinkingMode,
+            WebClient.Builder webClientBuilder,
+            RestClient.Builder restClientBuilder,
+            SysAiEngineConfigService sysAiEngineConfigService,
+            SysPromptService sysPromptService,
+            InterviewContextCompressor contextCompressor,
+            AiTokenLimitConfig tokenLimitConfig,
+            MockInterviewService mockInterviewService,
+            MockInterviewJobTargetRecordMapper mockInterviewJobTargetRecordMapper,
+            ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper,
+            InterviewSessionMapper interviewSessionMapper,
+            ObjectMapper objectMapper,
+            AiCircuitBreaker aiCircuitBreaker,
+            AiCredentialCrypto aiCredentialCrypto,
+            @Autowired(required = false) UserAiConfigResolver userAiConfigResolver) {
         this.provider = provider == null ? "doubao" : provider.toLowerCase();
         this.model = model;
         this.configuredBaseUrl = configuredBaseUrl;
@@ -123,6 +156,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         this.interviewSessionMapper = interviewSessionMapper;
         this.aiCircuitBreaker = aiCircuitBreaker;
         this.aiCredentialCrypto = aiCredentialCrypto;
+        this.userAiConfigResolver = userAiConfigResolver;
         this.resolvedBaseUrl = resolveBaseUrlForStartup(this.provider, configuredBaseUrl);
         this.endpoint = getEndpoint();
         this.restClient = restClientBuilder
@@ -252,7 +286,20 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                                  String feedbackMode,
                                  String interviewMode,
                                  Integer interactionType) {
-        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
+        return generateReply(sessionId, history, userMessage, jobRoleCode, jobRole, difficulty,
+                jobTargetContext, feedbackMode, interviewMode, interactionType, null, false);
+    }
+
+    @Override
+    public String generateReply(String sessionId, List<ChatMessageItem> history, String userMessage,
+                                 String jobRoleCode, String jobRole, Integer difficulty,
+                                 InterviewJobTargetContext jobTargetContext,
+                                 String feedbackMode,
+                                 String interviewMode,
+                                 Integer interactionType,
+                                 Long userId,
+                                 boolean fallbackToPlatform) {
+        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig(userId, fallbackToPlatform);
         String tag = runtimeConfig.provider().toUpperCase();
 
         // 如果没有jobTargetContext，尝试获取最近的简历信息
@@ -286,8 +333,11 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         );
 
         try {
-            return chatWithMessages(messages);
+            return chatWithMessages(messages, runtimeConfig);
         } catch (Exception e) {
+            if (UserAiConstants.BILLING_SOURCE_USER_CUSTOM.equals(runtimeConfig.source())) {
+                throwCustomAiFailure(runtimeConfig, e);
+            }
             if (shouldFallbackToLocalMock(e)) {
                 // 网络异常/Key 缺失等基础设施故障会回落到本地 Mock，必须用 ERROR 日志显式告警，
                 // 让运维能在真 AI 不可用时第一时间感知。
@@ -307,7 +357,20 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                                                    String feedbackMode,
                                                    String interviewMode,
                                                    Integer interactionType) {
-        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
+        return generateReplyStream(sessionId, history, userMessage, jobRoleCode, jobRole, difficulty,
+                jobTargetContext, feedbackMode, interviewMode, interactionType, null, false);
+    }
+
+    @Override
+    public Publisher<String> generateReplyStream(String sessionId, List<ChatMessageItem> history, String userMessage,
+                                                   String jobRoleCode, String jobRole, Integer difficulty,
+                                                   InterviewJobTargetContext jobTargetContext,
+                                                   String feedbackMode,
+                                                   String interviewMode,
+                                                   Integer interactionType,
+                                                   Long userId,
+                                                   boolean fallbackToPlatform) {
+        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig(userId, fallbackToPlatform);
         String tag = runtimeConfig.provider().toUpperCase();
 
         // 如果没有jobTargetContext，尝试获取最近的简历信息
@@ -341,6 +404,9 @@ public class InterviewAiServiceImpl implements InterviewAiService {
 
         String apiKey = runtimeConfig.apiKey();
         if (apiKey == null || apiKey.isBlank()) {
+            if (UserAiConstants.BILLING_SOURCE_USER_CUSTOM.equals(runtimeConfig.source())) {
+                throw new BusinessException(ResultCode.CUSTOM_AI_CONFIG_INVALID, "用户自定义 AI API Key 不可用");
+            }
             // 真 AI 模式下 API Key 缺失会静默回落到本地 Mock 字符流，必须用 ERROR 日志显式告警，
             // 防止运维不知情地把生产长期跑在 Mock 上。
             log.error("[{}] 真 AI 模式下 API Key 缺失，本次流式回复将回落到本地 Mock。请检查管理端激活的 AI 引擎配置或环境变量 DOUBAO_API_KEY/API_KEY/AI_API_KEY",
@@ -566,6 +632,11 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 public void onError(Throwable t) {
                     log.error("[{}] 流式 WebClient 调用失败, errorType={}",
                             logTag, t.getClass().getSimpleName(), t);
+                    if (UserAiConstants.BILLING_SOURCE_USER_CUSTOM.equals(runtimeConfig.source())) {
+                        sink.error(new BusinessException(ResultCode.CUSTOM_AI_CALL_FAILED,
+                                "自定义AI调用失败: " + (t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage())));
+                        return;
+                    }
                     // 外部 AI 在 DNS / 网络层失败时，直接降级到本地 Mock，保证模拟面试不中断。
                     if (emittedCount.get() == 0) {
                         emitFallbackReplyToSink(
@@ -798,7 +869,23 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             String interviewMode,
             InterviewJobTargetContext jobTargetContext
     ) {
-        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
+        return generateEvaluationReport(sessionId, history, jobRole, jobRoleCode, difficulty,
+                interviewMode, jobTargetContext, null, false);
+    }
+
+    @Override
+    public InterviewEvaluationReport generateEvaluationReport(
+            String sessionId,
+            List<ChatMessageItem> history,
+            String jobRole,
+            String jobRoleCode,
+            Integer difficulty,
+            String interviewMode,
+            InterviewJobTargetContext jobTargetContext,
+            Long userId,
+            boolean fallbackToPlatform
+    ) {
+        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig(userId, fallbackToPlatform);
         String tag = runtimeConfig.provider().toUpperCase();
         // 面试结束，清除摘要缓存
         contextCompressor.evictCache(sessionId);
@@ -1147,12 +1234,18 @@ public class InterviewAiServiceImpl implements InterviewAiService {
 
         } catch (Exception e) {
             log.error("[{}] AI 调用失败", tag, e);
+            if (UserAiConstants.BILLING_SOURCE_USER_CUSTOM.equals(runtimeConfig.source())) {
+                throwCustomAiFailure(runtimeConfig, e);
+            }
             throw new RuntimeException("AI 面试回复生成失败: " + e.getMessage(), e);
         }
     }
 
     private String chatWithMessages(List<Message> messages) {
-        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
+        return chatWithMessages(messages, resolveRuntimeConfig());
+    }
+
+    private String chatWithMessages(List<Message> messages, RuntimeAiConfig runtimeConfig) {
         String tag = runtimeConfig.provider().toUpperCase();
         String apiKey = runtimeConfig.apiKey();
         if (apiKey == null || apiKey.isBlank()) {
@@ -1212,6 +1305,9 @@ public class InterviewAiServiceImpl implements InterviewAiService {
 
         } catch (Exception e) {
             log.error("[{}] AI 调用失败", tag, e);
+            if (UserAiConstants.BILLING_SOURCE_USER_CUSTOM.equals(runtimeConfig.source())) {
+                throwCustomAiFailure(runtimeConfig, e);
+            }
             throw new RuntimeException("AI 面试回复生成失败: " + e.getMessage(), e);
         }
     }
@@ -1982,6 +2078,26 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     }
 
     private RuntimeAiConfig resolveRuntimeConfig() {
+        return resolveRuntimeConfig(null, false);
+    }
+
+    private RuntimeAiConfig resolveRuntimeConfig(Long userId, boolean fallbackToPlatform) {
+        ResolvedAiConfig userConfig = userAiConfigResolver == null
+                ? null
+                : userAiConfigResolver.resolve(userId, AiEngineConstants.BUSINESS_TYPE_INTERVIEW, fallbackToPlatform);
+        if (userConfig != null) {
+            // 命中用户自定义 interview/default 配置时，直接跳过平台配置和平台额度链路。
+            return new RuntimeAiConfig(
+                    userConfig.getProvider(),
+                    userConfig.getModel(),
+                    userConfig.getBaseUrl(),
+                    getEndpointByProvider(userConfig.getProvider()),
+                    userConfig.getApiKey(),
+                    UserAiConstants.BILLING_SOURCE_USER_CUSTOM,
+                    null,
+                    "none"
+            );
+        }
         String fallbackProvider = normalizeConfigValue(provider);
         if (fallbackProvider == null) {
             fallbackProvider = "doubao";
@@ -2075,6 +2191,16 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    /**
+     * 用户自定义 AI 失败不自动回落本地 Mock，必须让前端展示手动平台回退入口。
+     */
+    private void throwCustomAiFailure(RuntimeAiConfig runtimeConfig, Exception exception) {
+        String message = exception == null || exception.getMessage() == null
+                ? "自定义AI调用失败"
+                : "自定义AI调用失败: " + exception.getMessage();
+        throw new BusinessException(ResultCode.CUSTOM_AI_CALL_FAILED, message);
     }
 
     private record RuntimeAiConfig(

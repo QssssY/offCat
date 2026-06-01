@@ -34,4 +34,9 @@ public class SendMessageRequest {
             message = "反馈模式只支持 immediate/after_interview"
     )
     private String feedbackMode;
+
+    /**
+     * 是否显式回退到平台 AI。默认 false，只有用户点击回退按钮时才消耗平台额度。
+     */
+    private Boolean fallbackToPlatform;
 }

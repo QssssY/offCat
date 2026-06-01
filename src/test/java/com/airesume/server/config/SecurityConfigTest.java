@@ -4,6 +4,9 @@ import jakarta.servlet.DispatcherType;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -28,6 +31,14 @@ class SecurityConfigTest {
         assertTrue(SecurityConfig.supportsPublicUploadPath("/uploads/community/nested/image.webp"));
         assertFalse(SecurityConfig.supportsPublicUploadPath("/uploads/resumes/resume.pdf"));
         assertFalse(SecurityConfig.supportsPublicUploadPath("/uploads/other/file.png"));
+    }
+
+    @Test
+    void shouldNotExposeOfflineSttFallbackPath() throws Exception {
+        String source = Files.readString(Path.of("src/main/java/com/airesume/server/config/SecurityConfig.java"));
+
+        assertFalse(source.contains("/api/offline-stt"));
+        assertFalse(source.contains("supportsPublicOfflineSttModelPath"));
     }
 
     @Test

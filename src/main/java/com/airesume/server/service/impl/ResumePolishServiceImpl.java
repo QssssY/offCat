@@ -83,7 +83,8 @@ public class ResumePolishServiceImpl extends ServiceImpl<ResumePolishRecordMappe
         String sourceType = jdText.isBlank() ? SOURCE_TYPE_RESUME_ONLY : SOURCE_TYPE_RESUME_WITH_JD;
 
         // 阶段2：AI 调用（非事务）— 不持有数据库连接
-        ResumePolishAiResult aiResult = resumeAiService.polishResume(resumeText, jdText, latestJobMatchAnalysis);
+        ResumePolishAiResult aiResult = resumeAiService.polishResume(
+                resumeText, jdText, latestJobMatchAnalysis, userId, Boolean.TRUE.equals(request.getFallbackToPlatform()));
 
         // 阶段3：保存结果（事务内）
         return self.savePolishResult(userId, resumeTaskId, resumeText, jdText, sourceType, aiResult);
@@ -307,7 +308,8 @@ public class ResumePolishServiceImpl extends ServiceImpl<ResumePolishRecordMappe
         String sourceType = jdText.isBlank() ? SOURCE_TYPE_RESUME_ONLY : SOURCE_TYPE_RESUME_WITH_JD;
 
         emitProgress(progressConsumer, "calling_ai", "calling_ai", "AI 正在生成润色结果", 60, null);
-        ResumePolishAiResult aiResult = resumeAiService.polishResume(resumeText, jdText, latestJobMatchAnalysis);
+        ResumePolishAiResult aiResult = resumeAiService.polishResume(
+                resumeText, jdText, latestJobMatchAnalysis, userId, Boolean.TRUE.equals(request.getFallbackToPlatform()));
 
         emitProgress(progressConsumer, "saving", "saving", "正在保存润色结果", 90, null);
         return self.savePolishResult(userId, resumeTaskId, resumeText, jdText, sourceType, aiResult);

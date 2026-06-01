@@ -1,6 +1,10 @@
 package com.airesume.server.service;
 
 import com.airesume.server.common.constants.AiEngineConstants;
+import com.airesume.server.common.constants.UserAiConstants;
+import com.airesume.server.common.result.ResultCode;
+import com.airesume.server.common.exception.BusinessException;
+import com.airesume.server.dto.ai.ResolvedAiConfig;
 import com.airesume.server.entity.SysAiEngineConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -36,6 +40,7 @@ public class AiChatClient {
     private final AiCircuitBreaker aiCircuitBreaker;
     private final AiCredentialCrypto aiCredentialCrypto;
     private final WebClient.Builder webClientBuilder;
+    private final UserAiConfigResolver userAiConfigResolver;
 
     public AiChatClient(
             @Value("${app.interview.provider:doubao}") String provider,
@@ -46,7 +51,8 @@ public class AiChatClient {
             ObjectMapper objectMapper,
             AiCircuitBreaker aiCircuitBreaker,
             AiCredentialCrypto aiCredentialCrypto,
-            WebClient.Builder webClientBuilder) {
+            WebClient.Builder webClientBuilder,
+            UserAiConfigResolver userAiConfigResolver) {
         this.defaultProvider = provider == null ? "doubao" : provider.toLowerCase(Locale.ROOT);
         this.configuredBaseUrl = configuredBaseUrl;
         this.defaultModel = model;
@@ -56,6 +62,7 @@ public class AiChatClient {
         this.aiCircuitBreaker = aiCircuitBreaker;
         this.aiCredentialCrypto = aiCredentialCrypto;
         this.webClientBuilder = webClientBuilder;
+        this.userAiConfigResolver = userAiConfigResolver;
         log.info("[AiChatClient] 初始化完成, 默认 provider={}, model={}", this.defaultProvider, this.defaultModel);
     }
 
@@ -70,17 +77,31 @@ public class AiChatClient {
      * 非流式 AI 调用，允许调用方自定义超时。
      */
     public String chat(String systemPrompt, String userPrompt, int timeoutMs) {
+        return chat(systemPrompt, userPrompt, timeoutMs, null, false);
+    }
+
+    /**
+     * 非流式 AI 调用，支持用户自定义 interview/default 配置。
+     */
+    public String chat(String systemPrompt, String userPrompt, int timeoutMs, Long userId, boolean fallbackToPlatform) {
         return chatWithMessages(List.of(
                 new Message("system", systemPrompt),
                 new Message("user", userPrompt)
-        ), timeoutMs);
+        ), timeoutMs, userId, fallbackToPlatform);
     }
 
     /**
      * 多轮消息版非流式 AI 调用。
      */
     public String chatWithMessages(List<Message> messages, int timeoutMs) {
-        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
+        return chatWithMessages(messages, timeoutMs, null, false);
+    }
+
+    /**
+     * 多轮消息版非流式 AI 调用，支持用户自定义配置。
+     */
+    public String chatWithMessages(List<Message> messages, int timeoutMs, Long userId, boolean fallbackToPlatform) {
+        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig(userId, fallbackToPlatform, false);
         String tag = runtimeConfig.provider().toUpperCase(Locale.ROOT);
         String apiKey = runtimeConfig.apiKey();
         if (apiKey == null || apiKey.isBlank()) {
@@ -133,6 +154,9 @@ public class AiChatClient {
             });
         } catch (Exception e) {
             log.error("[{}] AiChatClient 调用失败", tag, e);
+            if (UserAiConstants.BILLING_SOURCE_USER_CUSTOM.equals(runtimeConfig.source())) {
+                throw new BusinessException(ResultCode.CUSTOM_AI_CALL_FAILED, "自定义AI调用失败: " + e.getMessage());
+            }
             throw new RuntimeException("AI 调用失败: " + e.getMessage(), e);
         }
     }
@@ -142,6 +166,29 @@ public class AiChatClient {
      * 顺序：数据库激活配置 -> YAML -> 环境变量兜底。
      */
     private RuntimeAiConfig resolveRuntimeConfig() {
+        return resolveRuntimeConfig(null, false, false);
+    }
+
+    private RuntimeAiConfig resolveRuntimeConfig(Long userId, boolean fallbackToPlatform, boolean requireUserCustom) {
+        ResolvedAiConfig userConfig = userAiConfigResolver == null
+                ? null
+                : userAiConfigResolver.resolve(userId, AiEngineConstants.BUSINESS_TYPE_INTERVIEW, fallbackToPlatform);
+        if (userConfig != null) {
+            // 轻量聊天客户端归入 interview/default 用户配置，命中后跳过平台配置链路。
+            return new RuntimeAiConfig(
+                    userConfig.getProvider(),
+                    userConfig.getModel(),
+                    userConfig.getBaseUrl(),
+                    getEndpointByProvider(userConfig.getProvider()),
+                    userConfig.getApiKey(),
+                    UserAiConstants.BILLING_SOURCE_USER_CUSTOM,
+                    null,
+                    "none"
+            );
+        }
+        if (requireUserCustom) {
+            throw new BusinessException(ResultCode.CUSTOM_AI_CONFIG_INVALID, "用户自定义 AI 配置不可用");
+        }
         String runtimeProvider = defaultProvider;
         String runtimeModel = defaultModel;
         String runtimeBaseUrl = resolveBaseUrl(runtimeProvider, configuredBaseUrl);

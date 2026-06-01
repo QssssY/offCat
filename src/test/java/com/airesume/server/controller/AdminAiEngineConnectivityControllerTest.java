@@ -12,6 +12,7 @@ import com.airesume.server.service.AdminUserRightsService;
 import com.airesume.server.service.AiCredentialCrypto;
 import com.airesume.server.service.AiEngineConnectivityTestService;
 import com.airesume.server.service.SysAiEngineConfigService;
+import com.airesume.server.service.SysConfigService;
 import com.airesume.server.service.SysJobRoleService;
 import com.airesume.server.service.SysPromptService;
 import com.airesume.server.service.SysUserService;
@@ -108,6 +109,7 @@ class AdminAiEngineConnectivityControllerTest {
                 connectivityTestService,
                 mock(SysPromptService.class),
                 mock(SysJobRoleService.class),
+                mock(SysConfigService.class),
                 sysUserService,
                 mock(UserQuotaService.class),
                 credentialCrypto,

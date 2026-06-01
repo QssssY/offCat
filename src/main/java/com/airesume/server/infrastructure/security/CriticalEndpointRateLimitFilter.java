@@ -43,6 +43,7 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
     private static final String INTERVIEW_SESSION_PATH = "/api/interview/session";
     private static final String INTERVIEW_SESSION_PREFIX = "/api/interview/session/";
     private static final String INTERVIEW_STREAM_SUFFIX = "/message/stream";
+    private static final String USER_AI_CONNECTIVITY_TEST_PATH = "/api/user/ai-config/test-connectivity";
     private static final String OFFER_API_PREFIX = "/api/offer/";
     private static final String COMMUNITY_POST_PATH = "/api/community/posts";
     private static final String COMMUNITY_IMAGE_UPLOAD_PATH = "/api/community/images/upload";
@@ -67,6 +68,9 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
             "interview_stream", INTERVIEW_STREAM_SUFFIX, MatchType.SUFFIX, 60, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
     private static final RateLimitPolicy INTERVIEW_ACTION_POLICY = new RateLimitPolicy(
             "interview_action", INTERVIEW_SESSION_PREFIX, MatchType.PREFIX, 40, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
+    // 用户连通测试会触发服务端出网请求，单独限制为每用户每分钟 5 次，避免被滥用为探测代理。
+    private static final RateLimitPolicy USER_AI_CONNECTIVITY_TEST_POLICY = new RateLimitPolicy(
+            "user_ai_connectivity_test", USER_AI_CONNECTIVITY_TEST_PATH, MatchType.EXACT, 5, Duration.ofMinutes(1).toMillis(), KeyStrategy.USER_OR_IP);
     private static final RateLimitPolicy OFFER_ACTION_POLICY = new RateLimitPolicy(
             "offer_action", OFFER_API_PREFIX, MatchType.PREFIX, 10, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
     private static final RateLimitPolicy COMMUNITY_POST_CREATE_POLICY = new RateLimitPolicy(
@@ -230,6 +234,9 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
         }
         if (INTERVIEW_ACTION_POLICY.matches(requestMethod, requestUri)) {
             return INTERVIEW_ACTION_POLICY;
+        }
+        if (USER_AI_CONNECTIVITY_TEST_POLICY.matches(requestMethod, requestUri)) {
+            return USER_AI_CONNECTIVITY_TEST_POLICY;
         }
         if (OFFER_ACTION_POLICY.matches(requestMethod, requestUri)) {
             return OFFER_ACTION_POLICY;

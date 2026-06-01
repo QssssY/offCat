@@ -1,6 +1,7 @@
 package com.airesume.server.service.impl;
 
 import com.airesume.server.common.constants.ResumeDiagnosisConstants;
+import com.airesume.server.common.constants.UserAiConstants;
 import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.ResultCode;
 import com.airesume.server.dto.resume.ResumeDiagnosisResult;
@@ -27,6 +28,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -68,9 +71,9 @@ class ResumeDiagnosisProcessorTest {
     void processTaskShouldNormalizeMinimalDiagnosisResult() throws Exception {
         when(resumeDiagnosisTaskMapper.selectOne(any())).thenReturn(newPendingTask());
         when(taskService.updateStatusToProcessing(1L)).thenReturn(true);
-        when(resumeContentExtractor.extract("/resume.pdf")).thenReturn(
+        when(resumeContentExtractor.extract("/resume.pdf", 2L, false, false)).thenReturn(
                 ResumeParseResult.builder().text("张三 13800000000 zhangsan@test.com").parseMode("TEXT").build());
-        when(resumeAiService.diagnose(anyString())).thenReturn("""
+        when(resumeAiService.diagnose(anyString(), eq(2L), eq(false), eq(false))).thenReturn("""
                 {"overallEvaluation":{"totalScore":72,"level":"B","summary":"基础还可以"}}
                 """);
         when(resumeInfoExtractor.extractBasicInfo(anyString())).thenReturn(
@@ -103,9 +106,9 @@ class ResumeDiagnosisProcessorTest {
     void processTaskShouldRecalculateOverallScoreFromDimensionScores() throws Exception {
         when(resumeDiagnosisTaskMapper.selectOne(any())).thenReturn(newPendingTask());
         when(taskService.updateStatusToProcessing(1L)).thenReturn(true);
-        when(resumeContentExtractor.extract("/resume.pdf")).thenReturn(
+        when(resumeContentExtractor.extract("/resume.pdf", 2L, false, false)).thenReturn(
                 ResumeParseResult.builder().text("Java 后端开发 简历内容").parseMode("TEXT").build());
-        when(resumeAiService.diagnose(anyString())).thenReturn("""
+        when(resumeAiService.diagnose(anyString(), eq(2L), eq(false), eq(false))).thenReturn("""
                 {
                   "overallEvaluation":{"totalScore":86,"level":"A","summary":"模型原始总分偏高"},
                   "basicInfoEvaluation":{"score":80},
@@ -133,9 +136,9 @@ class ResumeDiagnosisProcessorTest {
     void processTaskShouldRenormalizeOverallScoreWhenDimensionScoreMissing() throws Exception {
         when(resumeDiagnosisTaskMapper.selectOne(any())).thenReturn(newPendingTask());
         when(taskService.updateStatusToProcessing(1L)).thenReturn(true);
-        when(resumeContentExtractor.extract("/resume.pdf")).thenReturn(
+        when(resumeContentExtractor.extract("/resume.pdf", 2L, false, false)).thenReturn(
                 ResumeParseResult.builder().text("Java 后端开发 简历内容").parseMode("TEXT").build());
-        when(resumeAiService.diagnose(anyString())).thenReturn("""
+        when(resumeAiService.diagnose(anyString(), eq(2L), eq(false), eq(false))).thenReturn("""
                 {
                   "overallEvaluation":{"totalScore":86,"level":"A","summary":"模型原始总分偏高"},
                   "basicInfoEvaluation":{"score":80},
@@ -162,9 +165,9 @@ class ResumeDiagnosisProcessorTest {
     void processTaskShouldFailAndRefundOnTimeout() {
         when(resumeDiagnosisTaskMapper.selectOne(any())).thenReturn(newPendingTask());
         when(taskService.updateStatusToProcessing(1L)).thenReturn(true);
-        when(resumeContentExtractor.extract("/resume.pdf")).thenReturn(
+        when(resumeContentExtractor.extract("/resume.pdf", 2L, false, false)).thenReturn(
                 ResumeParseResult.builder().text("简历内容").parseMode("TEXT").build());
-        when(resumeAiService.diagnose(anyString())).thenThrow(
+        when(resumeAiService.diagnose(anyString(), eq(2L), eq(false), eq(false))).thenThrow(
                 new RuntimeException("call failed", new SocketTimeoutException("Read timed out")));
 
         processor.processTask(1L, 2L, "/resume.pdf");
@@ -177,9 +180,9 @@ class ResumeDiagnosisProcessorTest {
     void processTaskShouldMapStructuredAiBusinessException() {
         when(resumeDiagnosisTaskMapper.selectOne(any())).thenReturn(newPendingTask());
         when(taskService.updateStatusToProcessing(1L)).thenReturn(true);
-        when(resumeContentExtractor.extract("/resume.pdf")).thenReturn(
+        when(resumeContentExtractor.extract("/resume.pdf", 2L, false, false)).thenReturn(
                 ResumeParseResult.builder().text("简历内容").parseMode("TEXT").build());
-        when(resumeAiService.diagnose(anyString()))
+        when(resumeAiService.diagnose(anyString(), eq(2L), eq(false), eq(false)))
                 .thenThrow(new BusinessException(ResultCode.AI_SERVICE_UNAVAILABLE));
 
         processor.processTask(1L, 2L, "/resume.pdf");
@@ -192,9 +195,9 @@ class ResumeDiagnosisProcessorTest {
     void processTaskShouldMapBlankAiResponseToStructuredMessage() {
         when(resumeDiagnosisTaskMapper.selectOne(any())).thenReturn(newPendingTask());
         when(taskService.updateStatusToProcessing(1L)).thenReturn(true);
-        when(resumeContentExtractor.extract("/resume.pdf")).thenReturn(
+        when(resumeContentExtractor.extract("/resume.pdf", 2L, false, false)).thenReturn(
                 ResumeParseResult.builder().text("简历内容").parseMode("TEXT").build());
-        when(resumeAiService.diagnose(anyString())).thenReturn(" ");
+        when(resumeAiService.diagnose(anyString(), eq(2L), eq(false), eq(false))).thenReturn(" ");
 
         processor.processTask(1L, 2L, "/resume.pdf");
 
@@ -208,9 +211,34 @@ class ResumeDiagnosisProcessorTest {
 
         processor.processTask(1L, 2L, "/resume.pdf");
 
-        verify(resumeContentExtractor, never()).extract(anyString());
-        verify(resumeAiService, never()).diagnose(anyString());
+        verify(resumeContentExtractor, never()).extract(anyString(), anyLong(), anyBoolean(), anyBoolean());
+        verify(resumeAiService, never()).diagnose(anyString(), anyLong(), anyBoolean(), anyBoolean());
         verify(quotaService, never()).refundResumeQuota(anyLong());
+    }
+
+    @Test
+    void processTaskShouldUseLockedCustomAiContextForExtractionAndDiagnosis() throws Exception {
+        ResumeDiagnosisTask task = newPendingTask();
+        task.setAiBillingSource(UserAiConstants.BILLING_SOURCE_USER_CUSTOM);
+        task.setFallbackToPlatform(0);
+        when(resumeDiagnosisTaskMapper.selectOne(any())).thenReturn(task);
+        when(taskService.updateStatusToProcessing(1L)).thenReturn(true);
+        when(resumeContentExtractor.extract("/resume.pdf", 2L, false, true)).thenReturn(
+                ResumeParseResult.builder().text("图片简历识别文本").parseMode("MULTIMODAL").build());
+        when(resumeAiService.diagnose("图片简历识别文本", 2L, false, true)).thenReturn("""
+                {"overallEvaluation":{"totalScore":70,"level":"B","summary":"已按自定义AI诊断"}}
+                """);
+        when(resumeInfoExtractor.extractBasicInfo(anyString())).thenReturn(
+                ResumeDiagnosisResult.BasicInfoDetails.builder().build());
+
+        processor.processTask(1L, 2L, "/resume.pdf");
+
+        verify(resumeContentExtractor).extract("/resume.pdf", 2L, false, true);
+        verify(resumeAiService).diagnose("图片简历识别文本", 2L, false, true);
+        ArgumentCaptor<String> resultCaptor = ArgumentCaptor.forClass(String.class);
+        verify(taskService).updateStatusToCompleted(eq(1L), resultCaptor.capture());
+        JsonNode result = objectMapper.readTree(resultCaptor.getValue());
+        assertEquals(70, result.path("overallEvaluation").path("totalScore").asInt());
     }
 
     private ResumeDiagnosisTask newPendingTask() {

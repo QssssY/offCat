@@ -1,6 +1,7 @@
 package com.airesume.server.service.impl;
 
 import com.airesume.server.common.constants.ResumeDiagnosisConstants;
+import com.airesume.server.common.constants.UserAiConstants;
 import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.PageResult;
 import com.airesume.server.common.result.ResultCode;
@@ -20,6 +21,8 @@ import com.airesume.server.service.ResumeDiagnosisTaskService;
 import com.airesume.server.service.ResumeJobMatchService;
 import com.airesume.server.service.ResumePolishService;
 import com.airesume.server.service.UserQuotaService;
+import com.airesume.server.service.UserAiConfigResolver;
+import com.airesume.server.service.UserAiUsageLimitService;
 import com.airesume.server.service.resume.ResumeParseResult;
 import org.springframework.context.annotation.Lazy;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -65,11 +68,42 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
     private final ResumePolishService resumePolishService;
     private final ResumeJobMatchRecordMapper resumeJobMatchRecordMapper;
     private final ResumePolishRecordMapper resumePolishRecordMapper;
+    private final UserAiConfigResolver userAiConfigResolver;
+    private final UserAiUsageLimitService userAiUsageLimitService;
     @Autowired(required = false)
     private CacheManager cacheManager;
 
     /**
      * 手动构造器注入，@Lazy 打破 TaskServiceImpl ↔ DirectProcessRouter ↔ Processor ↔ TaskService 循环依赖
+     */
+    @Autowired
+    public ResumeDiagnosisTaskServiceImpl(
+            UserQuotaService userQuotaService,
+            ResumeDiagnosisProducer resumeDiagnosisProducer,
+            @Lazy DirectProcessRouter directProcessRouter,
+            ResumeContentExtractor resumeContentExtractor,
+            NotificationService notificationService,
+            ResumeJobMatchService resumeJobMatchService,
+            ResumePolishService resumePolishService,
+            ResumeJobMatchRecordMapper resumeJobMatchRecordMapper,
+            ResumePolishRecordMapper resumePolishRecordMapper,
+            UserAiConfigResolver userAiConfigResolver,
+            UserAiUsageLimitService userAiUsageLimitService) {
+        this.userQuotaService = userQuotaService;
+        this.resumeDiagnosisProducer = resumeDiagnosisProducer;
+        this.directProcessRouter = directProcessRouter;
+        this.resumeContentExtractor = resumeContentExtractor;
+        this.notificationService = notificationService;
+        this.resumeJobMatchService = resumeJobMatchService;
+        this.resumePolishService = resumePolishService;
+        this.resumeJobMatchRecordMapper = resumeJobMatchRecordMapper;
+        this.resumePolishRecordMapper = resumePolishRecordMapper;
+        this.userAiConfigResolver = userAiConfigResolver;
+        this.userAiUsageLimitService = userAiUsageLimitService;
+    }
+
+    /**
+     * 兼容既有单元测试的构造器，生产注入使用包含自定义 AI 依赖的完整构造器。
      */
     public ResumeDiagnosisTaskServiceImpl(
             UserQuotaService userQuotaService,
@@ -81,15 +115,9 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
             ResumePolishService resumePolishService,
             ResumeJobMatchRecordMapper resumeJobMatchRecordMapper,
             ResumePolishRecordMapper resumePolishRecordMapper) {
-        this.userQuotaService = userQuotaService;
-        this.resumeDiagnosisProducer = resumeDiagnosisProducer;
-        this.directProcessRouter = directProcessRouter;
-        this.resumeContentExtractor = resumeContentExtractor;
-        this.notificationService = notificationService;
-        this.resumeJobMatchService = resumeJobMatchService;
-        this.resumePolishService = resumePolishService;
-        this.resumeJobMatchRecordMapper = resumeJobMatchRecordMapper;
-        this.resumePolishRecordMapper = resumePolishRecordMapper;
+        this(userQuotaService, resumeDiagnosisProducer, directProcessRouter, resumeContentExtractor,
+                notificationService, resumeJobMatchService, resumePolishService, resumeJobMatchRecordMapper,
+                resumePolishRecordMapper, null, null);
     }
 
     /**
@@ -112,14 +140,27 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long createTask(Long userId, String fileUrl) {
+        return createTask(userId, fileUrl, false);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Long createTask(Long userId, String fileUrl, boolean fallbackToPlatform) {
         log.info("Creating resume diagnosis task, userId: {}, fileUrl: {}", userId, fileUrl);
 
-        // 1. 校验用户额度
-        boolean hasQuota = userQuotaService.checkResumeQuota(userId);
-        if (!hasQuota) {
-            // 额度不足时创建通知（带防重，独立事务不受回滚影响）
-            notificationService.createQuotaNotificationIfNeeded(userId);
-            throw new BusinessException(ResultCode.RESUME_QUOTA_EXHAUSTED);
+        boolean useCustomAi = userAiConfigResolver != null
+                && userAiConfigResolver.resolve(userId, UserAiConstants.CONFIG_TYPE_RESUME, fallbackToPlatform) != null;
+        String billingSource = useCustomAi ? UserAiConstants.BILLING_SOURCE_USER_CUSTOM : UserAiConstants.BILLING_SOURCE_PLATFORM;
+
+        // 1. 创建前锁定计费来源：用户自定义 AI 扣独立次数，平台 AI 保持原平台额度。
+        if (useCustomAi) {
+            userAiUsageLimitService.checkAndIncrement(userId);
+        } else {
+            boolean hasQuota = userQuotaService.checkResumeQuota(userId);
+            if (!hasQuota) {
+                notificationService.createQuotaNotificationIfNeeded(userId);
+                throw new BusinessException(ResultCode.RESUME_QUOTA_EXHAUSTED);
+            }
         }
 
         // 2. 创建任务记录
@@ -131,12 +172,16 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
         task.setDiagnosisResult(null);
         task.setErrorMsg(null);
         task.setFailedAt(null);
+        task.setAiBillingSource(billingSource);
+        task.setFallbackToPlatform(fallbackToPlatform ? 1 : 0);
         save(task);
 
         log.info("Resume diagnosis task created, taskId: {}", task.getId());
 
-        // 3. 扣减用户额度
-        userQuotaService.deductResumeQuota(userId);
+        // 3. 平台 AI 在任务创建时扣平台额度；用户自定义 AI 已扣每日次数。
+        if (!useCustomAi) {
+            userQuotaService.deductResumeQuota(userId);
+        }
 
         // 4. 事务提交后智能路由：系统空闲时直连异步处理，繁忙时走 MQ 排队
         Long taskId = task.getId();
@@ -165,6 +210,12 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
     @Override
     @Transactional(rollbackFor = Exception.class)
     public String createTask(Long userId, MultipartFile file) {
+        return createTask(userId, file, false);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public String createTask(Long userId, MultipartFile file, boolean fallbackToPlatform) {
         if (file.isEmpty()) {
             throw new BusinessException(ResultCode.RESUME_FILE_EMPTY);
         }
@@ -212,7 +263,7 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
             throw new BusinessException(ResultCode.RESUME_FILE_SAVE_FAILED);
         }
 
-        Long taskId = createTask(userId, fileUrl);
+        Long taskId = createTask(userId, fileUrl, fallbackToPlatform);
         return String.valueOf(taskId);
     }
 

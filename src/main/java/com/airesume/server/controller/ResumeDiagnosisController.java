@@ -1,6 +1,7 @@
 package com.airesume.server.controller;
 
 import com.airesume.server.common.exception.BusinessException;
+import com.airesume.server.common.constants.UserAiConstants;
 import com.airesume.server.common.result.PageResult;
 import com.airesume.server.common.result.Result;
 import com.airesume.server.common.result.ResultCode;
@@ -16,6 +17,8 @@ import com.airesume.server.service.ResumeDiagnosisTaskService;
 import com.airesume.server.service.ResumeJobMatchService;
 import com.airesume.server.service.ResumePolishService;
 import com.airesume.server.service.UserQuotaService;
+import com.airesume.server.service.UserAiConfigResolver;
+import com.airesume.server.service.UserAiUsageLimitService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -59,12 +62,15 @@ public class ResumeDiagnosisController {
     private final ResumeJobMatchService resumeJobMatchService;
     private final ResumePolishService resumePolishService;
     private final UserQuotaService userQuotaService;
+    private final UserAiConfigResolver userAiConfigResolver;
+    private final UserAiUsageLimitService userAiUsageLimitService;
 
     /**
      * 上传简历文件并创建诊断任务。
      */
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Result<String> uploadResume(@RequestParam("file") MultipartFile file,
+                                       @RequestParam(defaultValue = "false") boolean fallbackToPlatform,
                                        Authentication authentication) {
         if (file.isEmpty()) {
             throw new BusinessException(ResultCode.RESUME_FILE_EMPTY);
@@ -77,7 +83,7 @@ public class ResumeDiagnosisController {
         log.info("Upload resume request, userId: {}, fileName: {}, fileSize: {}",
                 userId, file.getOriginalFilename(), file.getSize());
 
-        String taskId = resumeDiagnosisTaskService.createTask(userId, file);
+        String taskId = resumeDiagnosisTaskService.createTask(userId, file, fallbackToPlatform);
         return Result.success("简历诊断任务已提交", taskId);
     }
 
@@ -157,9 +163,20 @@ public class ResumeDiagnosisController {
         Long userId = (Long) authentication.getPrincipal();
         log.info("Analyze job match request, userId: {}, resumeTaskId: {}", userId, request.getResumeTaskId());
 
-        // JD匹配配额检查与扣减
-        userQuotaService.checkAndDeductJdMatchQuota(userId);
+        boolean fallbackToPlatform = Boolean.TRUE.equals(request.getFallbackToPlatform());
+        boolean useCustomAi = shouldUseCustomAi(userId, fallbackToPlatform);
+        if (useCustomAi) {
+            userAiUsageLimitService.checkAndIncrement(userId);
+            try {
+                ResumeJobMatchAnalyzeResponse response = resumeJobMatchService.analyzeJobMatch(userId, request);
+                return Result.success("岗位 JD 对比分析完成", response);
+            } catch (RuntimeException e) {
+                userAiUsageLimitService.rollback(userId);
+                throw e;
+            }
+        }
 
+        userQuotaService.checkAndDeductJdMatchQuota(userId);
         ResumeJobMatchAnalyzeResponse response = resumeJobMatchService.analyzeJobMatch(userId, request);
         return Result.success("岗位 JD 对比分析完成", response);
     }
@@ -175,9 +192,20 @@ public class ResumeDiagnosisController {
         Long userId = (Long) authentication.getPrincipal();
         log.info("Analyze resume polish request, userId: {}, resumeTaskId: {}", userId, request.getResumeTaskId());
 
-        // AI润色配额检查与扣减（每份简历只能润色一次）
-        userQuotaService.checkAndDeductPolishQuota(userId, Long.parseLong(request.getResumeTaskId()));
+        boolean fallbackToPlatform = Boolean.TRUE.equals(request.getFallbackToPlatform());
+        boolean useCustomAi = shouldUseCustomAi(userId, fallbackToPlatform);
+        if (useCustomAi) {
+            userAiUsageLimitService.checkAndIncrement(userId);
+            try {
+                ResumePolishAnalyzeResponse response = resumePolishService.analyzeResumePolish(userId, request);
+                return Result.success("AI 简历润色完成", response);
+            } catch (RuntimeException e) {
+                userAiUsageLimitService.rollback(userId);
+                throw e;
+            }
+        }
 
+        userQuotaService.checkAndDeductPolishQuota(userId, Long.parseLong(request.getResumeTaskId()));
         ResumePolishAnalyzeResponse response = resumePolishService.analyzeResumePolish(userId, request);
         return Result.success("AI 简历润色完成", response);
     }
@@ -209,5 +237,12 @@ public class ResumeDiagnosisController {
 
         String lowerCaseFileName = fileName.toLowerCase(Locale.ROOT);
         return ALLOWED_FILE_EXTENSIONS.stream().anyMatch(lowerCaseFileName::endsWith);
+    }
+
+    /**
+     * 简历相关同步 AI 入口统一判断是否命中用户自定义配置。
+     */
+    private boolean shouldUseCustomAi(Long userId, boolean fallbackToPlatform) {
+        return userAiConfigResolver.resolve(userId, UserAiConstants.CONFIG_TYPE_RESUME, fallbackToPlatform) != null;
     }
 }

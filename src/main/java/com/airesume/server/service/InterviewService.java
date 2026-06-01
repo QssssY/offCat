@@ -1,8 +1,11 @@
 package com.airesume.server.service;
 
 import com.airesume.server.common.constants.InterviewConstants;
+import com.airesume.server.common.constants.AiEngineConstants;
+import com.airesume.server.common.constants.UserAiConstants;
 import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.PageResult;
+import com.airesume.server.common.result.ResultCode;
 import com.airesume.server.dto.interview.ChatMessageResponse;
 import com.airesume.server.dto.interview.CreateSessionRequest;
 import com.airesume.server.dto.interview.InterviewEvaluationReport;
@@ -25,7 +28,6 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
@@ -62,7 +64,6 @@ import java.util.stream.Collectors;
  * 本轮在不破坏原有普通模拟面试链路的前提下，补齐岗位定向上下文解析、落库和反馈回写能力。
  */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class InterviewService {
 
@@ -81,6 +82,74 @@ public class InterviewService {
     private final CommunityPostMapper communityPostMapper;
     private final InterviewDimensionScoreService dimensionScoreService;
     private final Executor aiAsyncExecutor;
+    private final UserAiConfigResolver userAiConfigResolver;
+    private final UserAiUsageLimitService userAiUsageLimitService;
+
+    /**
+     * 生产注入构造器，包含用户自定义 AI 解析与用量服务。
+     */
+    @Autowired
+    public InterviewService(
+            InterviewSessionMapper interviewSessionMapper,
+            InterviewMessageService interviewMessageService,
+            MockInterviewService mockInterviewService,
+            InterviewChatLogMapper interviewChatLogMapper,
+            InterviewAiService interviewAiService,
+            ObjectMapper objectMapper,
+            SysJobRoleService sysJobRoleService,
+            TransactionTemplate transactionTemplate,
+            UserQuotaService userQuotaService,
+            MockInterviewJobTargetService mockInterviewJobTargetService,
+            NotificationService notificationService,
+            InterviewDimensionScoreMapper dimensionScoreMapper,
+            CommunityPostMapper communityPostMapper,
+            InterviewDimensionScoreService dimensionScoreService,
+            Executor aiAsyncExecutor,
+            UserAiConfigResolver userAiConfigResolver,
+            UserAiUsageLimitService userAiUsageLimitService) {
+        this.interviewSessionMapper = interviewSessionMapper;
+        this.interviewMessageService = interviewMessageService;
+        this.mockInterviewService = mockInterviewService;
+        this.interviewChatLogMapper = interviewChatLogMapper;
+        this.interviewAiService = interviewAiService;
+        this.objectMapper = objectMapper;
+        this.sysJobRoleService = sysJobRoleService;
+        this.transactionTemplate = transactionTemplate;
+        this.userQuotaService = userQuotaService;
+        this.mockInterviewJobTargetService = mockInterviewJobTargetService;
+        this.notificationService = notificationService;
+        this.dimensionScoreMapper = dimensionScoreMapper;
+        this.communityPostMapper = communityPostMapper;
+        this.dimensionScoreService = dimensionScoreService;
+        this.aiAsyncExecutor = aiAsyncExecutor;
+        this.userAiConfigResolver = userAiConfigResolver;
+        this.userAiUsageLimitService = userAiUsageLimitService;
+    }
+
+    /**
+     * 兼容既有单元测试的构造器，生产注入使用包含自定义 AI 依赖的完整构造器。
+     */
+    public InterviewService(
+            InterviewSessionMapper interviewSessionMapper,
+            InterviewMessageService interviewMessageService,
+            MockInterviewService mockInterviewService,
+            InterviewChatLogMapper interviewChatLogMapper,
+            InterviewAiService interviewAiService,
+            ObjectMapper objectMapper,
+            SysJobRoleService sysJobRoleService,
+            TransactionTemplate transactionTemplate,
+            UserQuotaService userQuotaService,
+            MockInterviewJobTargetService mockInterviewJobTargetService,
+            NotificationService notificationService,
+            InterviewDimensionScoreMapper dimensionScoreMapper,
+            CommunityPostMapper communityPostMapper,
+            InterviewDimensionScoreService dimensionScoreService,
+            Executor aiAsyncExecutor) {
+        this(interviewSessionMapper, interviewMessageService, mockInterviewService, interviewChatLogMapper,
+                interviewAiService, objectMapper, sysJobRoleService, transactionTemplate, userQuotaService,
+                mockInterviewJobTargetService, notificationService, dimensionScoreMapper, communityPostMapper,
+                dimensionScoreService, aiAsyncExecutor, null, null);
+    }
 
     /** Spring Cache 管理器，用于按逻辑缓存名清理成长中心聚合数据。 */
     @Autowired(required = false)
@@ -94,15 +163,18 @@ public class InterviewService {
     @Transactional(rollbackFor = Exception.class)
     public InterviewSessionResponse createSession(Long userId, CreateSessionRequest request) {
         validateCreateRequest(request);
-        if (!userQuotaService.checkInterviewQuota(userId)) {
-            // 额度不足时创建通知（带防重，独立事务不受回滚影响）
-            notificationService.createQuotaNotificationIfNeeded(userId);
-            throw new BusinessException("模拟面试次数已用完");
-        }
+        boolean fallbackToPlatform = Boolean.TRUE.equals(request.getFallbackToPlatform());
+        boolean useCustomAi = shouldUseCustomAi(userId, fallbackToPlatform);
+        if (!useCustomAi) {
+            if (!userQuotaService.checkInterviewQuota(userId)) {
+                // 额度不足时创建通知（带防重，独立事务不受回滚影响）
+                notificationService.createQuotaNotificationIfNeeded(userId);
+                throw new BusinessException("模拟面试次数已用完");
+            }
 
-        // 先做原子 CAS 扣减，避免同一用户并发 createSession 双双通过 check 后双双 INSERT 又只能扣一次。
-        // 若 CAS 失败会抛 BusinessException，由 @Transactional 统一回滚，此时尚未插入会话记录。
-        userQuotaService.deductInterviewQuota(userId);
+            // 平台 AI 保持原面试会话额度扣减；用户自定义 AI 不消耗平台额度。
+            userQuotaService.deductInterviewQuota(userId);
+        }
 
         InterviewJobTargetContext jobTargetContext = mockInterviewJobTargetService.resolveContext(userId, request);
         String interviewMode = resolveInterviewMode(request.getInterviewMode(), jobTargetContext);
@@ -235,18 +307,33 @@ public class InterviewService {
         log.info("发送面试消息配置解析完成, sessionId: {}, requestFeedbackMode: {}, sessionFeedbackMode: {}, resolvedFeedbackMode: {}",
                 sessionId, request.getFeedbackMode(), session.getFeedbackMode(), resolvedFeedbackMode);
 
-        String reply = interviewAiService.generateReply(
-                sessionId,
-                history,
-                request.getContent(),
-                session.getJobRoleCode(),
-                session.getJobRole(),
-                session.getDifficulty(),
-                jobTargetContext,
-                resolvedFeedbackMode,
-                session.getInterviewMode(),
-                resolveInteractionType(session.getInteractionType())
-        );
+        boolean fallbackToPlatform = Boolean.TRUE.equals(request.getFallbackToPlatform());
+        boolean useCustomAi = shouldUseCustomAi(userId, fallbackToPlatform);
+        if (useCustomAi) {
+            userAiUsageLimitService.checkAndIncrement(userId);
+        }
+        String reply;
+        try {
+            reply = interviewAiService.generateReply(
+                    sessionId,
+                    history,
+                    request.getContent(),
+                    session.getJobRoleCode(),
+                    session.getJobRole(),
+                    session.getDifficulty(),
+                    jobTargetContext,
+                    resolvedFeedbackMode,
+                    session.getInterviewMode(),
+                    resolveInteractionType(session.getInteractionType()),
+                    userId,
+                    fallbackToPlatform
+            );
+        } catch (RuntimeException e) {
+            if (useCustomAi) {
+                userAiUsageLimitService.rollback(userId);
+            }
+            throw e;
+        }
 
         interviewMessageService.saveMessage(session, InterviewConstants.ROLE_USER, request.getContent());
         interviewMessageService.saveMessage(session, InterviewConstants.ROLE_ASSISTANT, reply);
@@ -656,6 +743,22 @@ public class InterviewService {
             AtomicBoolean done,
             AtomicReference<Subscription> subscriptionRef
     ) throws IOException {
+        subscribeAndWriteStream(sessionId, emitter, publisher, fullReply, streamClosed, done, subscriptionRef, null);
+    }
+
+    /**
+     * 订阅并写出 SSE 数据，允许调用方在上游 AI 异步失败时执行计数回滚。
+     */
+    public void subscribeAndWriteStream(
+            String sessionId,
+            ResponseBodyEmitter emitter,
+            Publisher<String> publisher,
+            StringBuilder fullReply,
+            AtomicBoolean streamClosed,
+            AtomicBoolean done,
+            AtomicReference<Subscription> subscriptionRef,
+            Runnable upstreamErrorCallback
+    ) throws IOException {
         publisher.subscribe(new Subscriber<>() {
             @Override
             public void onSubscribe(Subscription s) {
@@ -694,10 +797,13 @@ public class InterviewService {
                     return;
                 }
                 if (done.compareAndSet(false, true)) {
+                    if (upstreamErrorCallback != null) {
+                        upstreamErrorCallback.run();
+                    }
                     // 安全考虑：不把上游异常详情透传给前端，只记录服务端日志。
                     log.warn("SSE 上游异常, sessionId: {}", sessionId, t);
                     try {
-                        String jsonData = "{\"type\":\"error\",\"message\":\"AI 服务暂时不可用，请稍后重试\"}";
+                        String jsonData = buildStreamErrorPayload(t);
                         emitter.send("event: message\ndata: " + jsonData + "\n\n");
                     } catch (Exception ex) {
                         log.warn("SSE 错误事件发送失败, sessionId: {}", sessionId, ex);
@@ -737,6 +843,21 @@ public class InterviewService {
                 }
             }
         });
+    }
+
+    private String buildStreamErrorPayload(Throwable throwable) {
+        if (throwable instanceof BusinessException businessException
+                && isCustomAiErrorCode(businessException.getCode())) {
+            return "{\"type\":\"error\",\"code\":" + businessException.getCode()
+                    + ",\"message\":\"" + escapeJsonForSse(businessException.getMessage()) + "\"}";
+        }
+        return "{\"type\":\"error\",\"message\":\"AI 服务暂时不可用，请稍后重试\"}";
+    }
+
+    private boolean isCustomAiErrorCode(Integer code) {
+        return ResultCode.CUSTOM_AI_CALL_FAILED.getCode().equals(code)
+                || ResultCode.CUSTOM_AI_DAILY_LIMIT_EXCEEDED.getCode().equals(code)
+                || ResultCode.CUSTOM_AI_CONFIG_INVALID.getCode().equals(code);
     }
 
     /**
@@ -1383,5 +1504,13 @@ public class InterviewService {
         if (!isSessionInProgress(session)) {
             throw new BusinessException("会话已结束，无法继续发送消息");
         }
+    }
+
+    /**
+     * 面试业务统一判断是否使用用户自定义 AI；显式 fallback 时强制走平台 AI。
+     */
+    private boolean shouldUseCustomAi(Long userId, boolean fallbackToPlatform) {
+        return userAiConfigResolver != null
+                && userAiConfigResolver.resolve(userId, AiEngineConstants.BUSINESS_TYPE_INTERVIEW, fallbackToPlatform) != null;
     }
 }

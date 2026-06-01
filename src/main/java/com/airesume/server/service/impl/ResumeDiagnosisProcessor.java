@@ -1,6 +1,7 @@
 package com.airesume.server.service.impl;
 
 import com.airesume.server.common.constants.ResumeDiagnosisConstants;
+import com.airesume.server.common.constants.UserAiConstants;
 import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.ResultCode;
 import com.airesume.server.dto.resume.ResumeDiagnosisResult;
@@ -12,6 +13,7 @@ import com.airesume.server.service.ResumeContentExtractor;
 import com.airesume.server.service.ResumeDiagnosisTaskService;
 import com.airesume.server.service.ResumeInfoExtractor;
 import com.airesume.server.service.UserQuotaService;
+import com.airesume.server.service.UserAiUsageLimitService;
 import com.airesume.server.service.resume.ResumeParseResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
@@ -27,7 +29,7 @@ import java.util.concurrent.TimeoutException;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
+@RequiredArgsConstructor(onConstructor_ = @org.springframework.beans.factory.annotation.Autowired)
 public class ResumeDiagnosisProcessor {
 
     private final ResumeDiagnosisTaskService resumeDiagnosisTaskService;
@@ -37,7 +39,31 @@ public class ResumeDiagnosisProcessor {
     private final ResumeInfoExtractor resumeInfoExtractor;
     private final ObjectMapper objectMapper;
     private final UserQuotaService userQuotaService;
+    private final UserAiUsageLimitService userAiUsageLimitService;
     private final NotificationService notificationService;
+
+    /**
+     * 兼容既有单元测试的构造器，生产注入使用 Lombok 生成的完整构造器。
+     */
+    public ResumeDiagnosisProcessor(
+            ResumeDiagnosisTaskService resumeDiagnosisTaskService,
+            ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper,
+            ResumeContentExtractor resumeContentExtractor,
+            ResumeAiService resumeAiService,
+            ResumeInfoExtractor resumeInfoExtractor,
+            ObjectMapper objectMapper,
+            UserQuotaService userQuotaService,
+            NotificationService notificationService) {
+        this.resumeDiagnosisTaskService = resumeDiagnosisTaskService;
+        this.resumeDiagnosisTaskMapper = resumeDiagnosisTaskMapper;
+        this.resumeContentExtractor = resumeContentExtractor;
+        this.resumeAiService = resumeAiService;
+        this.resumeInfoExtractor = resumeInfoExtractor;
+        this.objectMapper = objectMapper;
+        this.userQuotaService = userQuotaService;
+        this.userAiUsageLimitService = null;
+        this.notificationService = notificationService;
+    }
 
     public void processTask(Long taskId, Long userId, String fileUrl) {
         long taskStartTime = System.currentTimeMillis();
@@ -47,7 +73,7 @@ public class ResumeDiagnosisProcessor {
             // 状态校验与缓存文本检查合并为一次查询，避免 getTaskStatus + getById 两次 SELECT
             ResumeDiagnosisTask currentTask = resumeDiagnosisTaskMapper.selectOne(new QueryWrapper<ResumeDiagnosisTask>()
                     // 处理器需要读取缓存简历文本，必须显式补回 resume_text 大字段。
-                    .select("id", "status", "resume_text", "is_deleted")
+                    .select("id", "status", "resume_text", "ai_billing_source", "fallback_to_platform", "is_deleted")
                     .eq("id", taskId)
                     .last("limit 1"));
             if (currentTask == null) {
@@ -66,6 +92,8 @@ public class ResumeDiagnosisProcessor {
                 log.warn("Task was claimed by another worker, skip current processing, taskId: {}", taskId);
                 return;
             }
+            boolean fallbackToPlatform = Integer.valueOf(1).equals(currentTask.getFallbackToPlatform());
+            boolean requireUserCustom = UserAiConstants.BILLING_SOURCE_USER_CUSTOM.equals(currentTask.getAiBillingSource());
 
             // 阶段1：提取简历文本（优先使用缓存，支持文件过期后的重试场景）
             long pdfStartTime = System.currentTimeMillis();
@@ -79,7 +107,9 @@ public class ResumeDiagnosisProcessor {
                 resumeDiagnosisTaskService.updateStage(taskId, ResumeDiagnosisConstants.STAGE_EXTRACTING);
             } else {
                 resumeDiagnosisTaskService.updateStage(taskId, ResumeDiagnosisConstants.STAGE_EXTRACTING);
-                ResumeParseResult parseResult = resumeContentExtractor.extract(fileUrl);
+                // 图片页多模态识别必须沿用任务创建时锁定的 AI 来源，避免自定义 AI 任务在提取阶段误走平台配置。
+                ResumeParseResult parseResult = resumeContentExtractor.extract(
+                        fileUrl, userId, fallbackToPlatform, requireUserCustom);
                 resumeText = parseResult.getText();
                 log.info("PDF 文本提取完成, taskId: {}, textLength: {}, elapsedMs: {}",
                         taskId, resumeText.length(), System.currentTimeMillis() - pdfStartTime);
@@ -97,7 +127,7 @@ public class ResumeDiagnosisProcessor {
             // 阶段2：AI 分析简历
             resumeDiagnosisTaskService.updateStage(taskId, ResumeDiagnosisConstants.STAGE_AI_ANALYZING);
             log.info("开始 AI 诊断调用, taskId: {}", taskId);
-            String diagnosisResult = resumeAiService.diagnose(resumeText);
+            String diagnosisResult = resumeAiService.diagnose(resumeText, userId, fallbackToPlatform, requireUserCustom);
             long aiElapsed = System.currentTimeMillis() - aiStartTime;
             log.info("AI 诊断调用返回, taskId: {}, elapsedMs: {}", taskId, aiElapsed);
             if (diagnosisResult == null || diagnosisResult.isBlank()) {
@@ -456,8 +486,19 @@ public class ResumeDiagnosisProcessor {
 
     private void refundQuotaIfNeeded(Long userId, Long taskId) {
         try {
+            ResumeDiagnosisTask task = resumeDiagnosisTaskMapper.selectOne(new QueryWrapper<ResumeDiagnosisTask>()
+                    .select("id", "ai_billing_source", "is_deleted")
+                    .eq("id", taskId)
+                    .last("limit 1"));
+            if (task != null && UserAiConstants.BILLING_SOURCE_USER_CUSTOM.equals(task.getAiBillingSource())) {
+                if (userAiUsageLimitService != null) {
+                    userAiUsageLimitService.rollback(userId);
+                }
+                log.info("任务失败，已回滚自定义 AI 次数, userId: {}, taskId: {}", userId, taskId);
+                return;
+            }
             userQuotaService.refundResumeQuota(userId);
-            log.info("任务失败，已退还配额, userId: {}, taskId: {}", userId, taskId);
+            log.info("任务失败，已退还平台配额, userId: {}, taskId: {}", userId, taskId);
         } catch (Exception e) {
             log.error("退还配额失败, userId: {}, taskId: {}", userId, taskId, e);
         }

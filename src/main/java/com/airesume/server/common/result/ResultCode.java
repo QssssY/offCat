@@ -49,6 +49,10 @@ public enum ResultCode {
     AI_RESPONSE_EMPTY(4002, "AI 返回结果为空"),
     AI_RESPONSE_PARSE_FAILED(4003, "AI 响应解析失败"),
     AI_QUOTA_INSUFFICIENT(4004, "AI 调用配额不足"),
+    CUSTOM_AI_CALL_FAILED(4090, "自定义AI调用失败"),
+    CUSTOM_AI_DAILY_LIMIT_EXCEEDED(4091, "今日自定义AI调用次数已达上限"),
+    CUSTOM_AI_CONFIG_INVALID(4092, "自定义AI配置无效"),
+    CUSTOM_AI_CONNECTIVITY_FAILED(4093, "AI服务连通测试失败"),
 
     // === 会员与支付 (5xxx) ===
     MEMBERSHIP_PLAN_NOT_FOUND(5001, "会员套餐不存在或已停用"),

@@ -64,7 +64,8 @@ public class ResumeJobMatchServiceImpl extends ServiceImpl<ResumeJobMatchRecordM
         }
 
         // 阶段2：AI 调用（非事务）— 不持有数据库连接
-        String aiResultJson = resumeAiService.diagnoseJobMatch(resumeText, jdText);
+        String aiResultJson = resumeAiService.diagnoseJobMatch(
+                resumeText, jdText, userId, Boolean.TRUE.equals(request.getFallbackToPlatform()));
         ResumeJobMatchAnalyzeResponse response = parseAiResult(aiResultJson, resumeTaskId);
 
         // 阶段3：保存结果（事务内）

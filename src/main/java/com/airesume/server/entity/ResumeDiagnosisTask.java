@@ -78,4 +78,17 @@ public class ResumeDiagnosisTask extends BaseEntity {
      */
     @TableField("parse_message")
     private String parseMessage;
+
+    /**
+     * AI 计费来源：platform / user_custom。
+     * 异步任务创建时锁定来源，避免执行时用户配置变化导致误走平台 AI。
+     */
+    @TableField("ai_billing_source")
+    private String aiBillingSource;
+
+    /**
+     * 创建任务时是否显式要求回退平台 AI。
+     */
+    @TableField("fallback_to_platform")
+    private Integer fallbackToPlatform;
 }

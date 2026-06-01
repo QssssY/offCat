@@ -24,6 +24,13 @@ public interface ResumeDiagnosisTaskService extends IService<ResumeDiagnosisTask
     Long createTask(Long userId, String fileUrl);
 
     /**
+     * 创建简历诊断任务，支持显式平台回退参数。
+     */
+    default Long createTask(Long userId, String fileUrl, boolean fallbackToPlatform) {
+        return createTask(userId, fileUrl);
+    }
+
+    /**
      * 创建简历诊断任务，支持文件上传。
      *
      * @param userId 用户 ID
@@ -31,6 +38,13 @@ public interface ResumeDiagnosisTaskService extends IService<ResumeDiagnosisTask
      * @return 任务 ID，使用字符串避免前端长整型精度丢失
      */
     String createTask(Long userId, MultipartFile file);
+
+    /**
+     * 创建简历诊断任务，支持文件上传和显式平台回退参数。
+     */
+    default String createTask(Long userId, MultipartFile file, boolean fallbackToPlatform) {
+        return createTask(userId, file);
+    }
 
     /**
      * 根据任务 ID 查询任务详情。

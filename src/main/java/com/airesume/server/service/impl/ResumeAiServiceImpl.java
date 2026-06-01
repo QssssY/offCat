@@ -2,8 +2,12 @@ package com.airesume.server.service.impl;
 
 import com.airesume.server.common.constants.AiEngineConstants;
 import com.airesume.server.common.constants.ResumeDiagnosisConstants;
+import com.airesume.server.common.constants.UserAiConstants;
+import com.airesume.server.common.exception.BusinessException;
+import com.airesume.server.common.result.ResultCode;
 import com.airesume.server.common.util.PublicHttpsUrlValidator;
 import com.airesume.server.config.AiTokenLimitConfig;
+import com.airesume.server.dto.ai.ResolvedAiConfig;
 import com.airesume.server.dto.resume.ResumeJobMatchAnalyzeResponse;
 import com.airesume.server.dto.resume.ResumePolishAiResult;
 import com.airesume.server.entity.SysAiEngineConfig;
@@ -12,6 +16,7 @@ import com.airesume.server.service.AiCredentialCrypto;
 import com.airesume.server.service.ResumeAiService;
 import com.airesume.server.service.SysAiEngineConfigService;
 import com.airesume.server.service.SysPromptService;
+import com.airesume.server.service.UserAiConfigResolver;
 import com.airesume.server.util.AiInputCompressor;
 import com.airesume.server.util.TokenEstimator;
 import com.fasterxml.jackson.annotation.JsonInclude;
@@ -66,6 +71,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
     private final AiTokenLimitConfig tokenLimitConfig;
     private final AiCircuitBreaker aiCircuitBreaker;
     private final AiCredentialCrypto aiCredentialCrypto;
+    private final UserAiConfigResolver userAiConfigResolver;
     private static final Pattern POLISHED_TEXT_PATTERN = Pattern.compile(
             "\"polishedResumeText\"\\s*:\\s*\"(.*?)\"\\s*,\\s*\"modificationNotes\"",
             Pattern.DOTALL);
@@ -98,6 +104,26 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             WebClient.Builder webClientBuilder,
             AiCircuitBreaker aiCircuitBreaker,
             AiCredentialCrypto aiCredentialCrypto) {
+        this(provider, configuredBaseUrl, model, thinkingMode, sysPromptService, sysAiEngineConfigService,
+                objectMapper, tokenLimitConfig, restClientBuilder, webClientBuilder, aiCircuitBreaker,
+                aiCredentialCrypto, null);
+    }
+
+    @Autowired
+    public ResumeAiServiceImpl(
+            @Value("${app.ai.provider:doubao}") String provider,
+            @Value("${app.ai.base-url:}") String configuredBaseUrl,
+            @Value("${app.ai.model:}") String model,
+            @Value("${app.ai.thinking-mode:none}") String thinkingMode,
+            @Autowired SysPromptService sysPromptService,
+            SysAiEngineConfigService sysAiEngineConfigService,
+            ObjectMapper objectMapper,
+            AiTokenLimitConfig tokenLimitConfig,
+            RestClient.Builder restClientBuilder,
+            WebClient.Builder webClientBuilder,
+            AiCircuitBreaker aiCircuitBreaker,
+            AiCredentialCrypto aiCredentialCrypto,
+            @Autowired(required = false) UserAiConfigResolver userAiConfigResolver) {
         this.provider = provider == null ? "doubao" : provider.toLowerCase();
         this.model = model;
         this.configuredBaseUrl = configuredBaseUrl;
@@ -110,6 +136,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         this.webClientBuilder = webClientBuilder;
         this.aiCircuitBreaker = aiCircuitBreaker;
         this.aiCredentialCrypto = aiCredentialCrypto;
+        this.userAiConfigResolver = userAiConfigResolver;
         this.resolvedBaseUrl = resolveBaseUrlForStartup(this.provider, configuredBaseUrl);
         this.endpoint = getEndpoint();
         this.restClient = restClientBuilder
@@ -187,8 +214,13 @@ public class ResumeAiServiceImpl implements ResumeAiService {
 
     @Override
     public String diagnose(String resumeText) {
+        return diagnose(resumeText, null, false, false);
+    }
+
+    @Override
+    public String diagnose(String resumeText, Long userId, boolean fallbackToPlatform, boolean requireUserCustom) {
         long startTime = System.currentTimeMillis();
-        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
+        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig(userId, fallbackToPlatform, requireUserCustom);
         String tag = runtimeConfig.provider().toUpperCase();
         if (resumeText == null || resumeText.isBlank()) {
             throw new IllegalArgumentException("简历文本不能为空");
@@ -214,16 +246,32 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                     return retryResult;
                 } catch (Exception retryEx) {
                     logDiagnosisFailure(tag, startTime, "primary+retry", retryEx);
+                    throwCustomAiFailureIfNeeded(runtimeConfig, retryEx);
                     throw new RuntimeException("AI 简历诊断失败: " + retryEx.getMessage(), retryEx);
                 }
             }
             logDiagnosisFailure(tag, startTime, "primary", primaryEx);
+            throwCustomAiFailureIfNeeded(runtimeConfig, primaryEx);
             throw new RuntimeException("AI 简历诊断失败: " + primaryEx.getMessage(), primaryEx);
         }
     }
 
     @Override
     public boolean supportsVisionExtraction() {
+        return supportsVisionExtraction(null, false);
+    }
+
+    @Override
+    public boolean supportsVisionExtraction(Long userId, boolean fallbackToPlatform) {
+        return supportsVisionExtraction(userId, fallbackToPlatform, false);
+    }
+
+    @Override
+    public boolean supportsVisionExtraction(Long userId, boolean fallbackToPlatform, boolean requireUserCustom) {
+        RuntimeAiConfig userRuntimeConfig = resolveUserRuntimeConfig(userId, fallbackToPlatform, requireUserCustom);
+        if (userRuntimeConfig != null) {
+            return userRuntimeConfig.supportsMultimodal();
+        }
         try {
             SysAiEngineConfig activeConfig = sysAiEngineConfigService
                     .getActiveByBusinessType(AiEngineConstants.BUSINESS_TYPE_RESUME);
@@ -237,14 +285,25 @@ public class ResumeAiServiceImpl implements ResumeAiService {
 
     @Override
     public String extractTextFromImage(String imageDataUrl, String pageHint) {
+        return extractTextFromImage(imageDataUrl, pageHint, null, false);
+    }
+
+    @Override
+    public String extractTextFromImage(String imageDataUrl, String pageHint, Long userId, boolean fallbackToPlatform) {
+        return extractTextFromImage(imageDataUrl, pageHint, userId, fallbackToPlatform, false);
+    }
+
+    @Override
+    public String extractTextFromImage(String imageDataUrl, String pageHint, Long userId,
+                                       boolean fallbackToPlatform, boolean requireUserCustom) {
         if (imageDataUrl == null || imageDataUrl.isBlank()) {
             throw new IllegalArgumentException("图片内容不能为空");
         }
-        if (!supportsVisionExtraction()) {
+        if (!supportsVisionExtraction(userId, fallbackToPlatform, requireUserCustom)) {
             throw new IllegalStateException("当前简历 AI 引擎未开启多模态识别能力");
         }
 
-        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
+        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig(userId, fallbackToPlatform, requireUserCustom);
         String apiKey = runtimeConfig.apiKey();
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException("请先配置简历 AI 密钥");
@@ -313,13 +372,19 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                 throw new RuntimeException("多模态识别超时（" + readTimeout / 1000 + "秒），视觉模型处理大图片需要较长时间。"
                         + "建议在管理端增大引擎超时时间，或降低 OCR DPI 配置减小图片体积", e);
             }
+            throwCustomAiFailureIfNeeded(runtimeConfig, e);
             throw new RuntimeException("多模态识别失败: " + e.getMessage(), e);
         }
     }
 
     @Override
     public String diagnoseJobMatch(String resumeText, String jdText) {
-        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
+        return diagnoseJobMatch(resumeText, jdText, null, false);
+    }
+
+    @Override
+    public String diagnoseJobMatch(String resumeText, String jdText, Long userId, boolean fallbackToPlatform) {
+        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig(userId, fallbackToPlatform, false);
         String tag = runtimeConfig.provider().toUpperCase();
         if (resumeText == null || resumeText.isBlank()) {
             throw new IllegalArgumentException("简历文本不能为空");
@@ -382,6 +447,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             return extractJsonFromResponse(result);
         } catch (Exception e) {
             log.error("[{}] JD 匹配分析失败", tag, e);
+            throwCustomAiFailureIfNeeded(runtimeConfig, e);
             throw new RuntimeException("AI JD 匹配分析失败: " + e.getMessage(), e);
         }
     }
@@ -934,6 +1000,14 @@ public class ResumeAiServiceImpl implements ResumeAiService {
     }
 
     private RuntimeAiConfig resolveRuntimeConfig() {
+        return resolveRuntimeConfig(null, false, false);
+    }
+
+    private RuntimeAiConfig resolveRuntimeConfig(Long userId, boolean fallbackToPlatform, boolean requireUserCustom) {
+        RuntimeAiConfig userRuntimeConfig = resolveUserRuntimeConfig(userId, fallbackToPlatform, requireUserCustom);
+        if (userRuntimeConfig != null) {
+            return userRuntimeConfig;
+        }
         String fallbackProvider = normalizeConfigValue(provider);
         if (fallbackProvider == null) {
             fallbackProvider = "doubao";
@@ -1002,7 +1076,31 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                 runtimeApiKey,
                 source,
                 runtimeTimeoutMs,
-                runtimeThinkingMode);
+                runtimeThinkingMode,
+                activeConfig != null && Integer.valueOf(1).equals(activeConfig.getSupportsMultimodal()));
+    }
+
+    private RuntimeAiConfig resolveUserRuntimeConfig(Long userId, boolean fallbackToPlatform, boolean requireUserCustom) {
+        ResolvedAiConfig userConfig = userAiConfigResolver == null
+                ? null
+                : userAiConfigResolver.resolve(userId, AiEngineConstants.BUSINESS_TYPE_RESUME, fallbackToPlatform);
+        if (userConfig == null) {
+            if (requireUserCustom) {
+                throw new BusinessException(ResultCode.CUSTOM_AI_CONFIG_INVALID, "用户自定义 AI 配置不可用");
+            }
+            return null;
+        }
+        // 用户自定义配置已在保存时完成公网 HTTPS 校验，这里直接构造运行时配置并跳过平台链路。
+        return new RuntimeAiConfig(
+                userConfig.getProvider(),
+                userConfig.getModel(),
+                userConfig.getBaseUrl(),
+                getEndpointByProvider(userConfig.getProvider()),
+                userConfig.getApiKey(),
+                UserAiConstants.BILLING_SOURCE_USER_CUSTOM,
+                null,
+                "none",
+                userConfig.isSupportsMultimodal());
     }
 
     private String getEndpointByProvider(String providerType) {
@@ -1133,7 +1231,13 @@ public class ResumeAiServiceImpl implements ResumeAiService {
     @Override
     public ResumePolishAiResult polishResume(String resumeText, String jdText,
             ResumeJobMatchAnalyzeResponse latestJobMatchAnalysis) {
-        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
+        return polishResume(resumeText, jdText, latestJobMatchAnalysis, null, false);
+    }
+
+    @Override
+    public ResumePolishAiResult polishResume(String resumeText, String jdText,
+            ResumeJobMatchAnalyzeResponse latestJobMatchAnalysis, Long userId, boolean fallbackToPlatform) {
+        RuntimeAiConfig runtimeConfig = resolveRuntimeConfig(userId, fallbackToPlatform, false);
         String tag = runtimeConfig.provider().toUpperCase();
         if (resumeText == null || resumeText.isBlank()) {
             throw new IllegalArgumentException("简历文本不能为空");
@@ -1205,6 +1309,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             return parseResumePolishAiResult(result);
         } catch (Exception e) {
             log.error("[{}] AI 简历润色失败", tag, e);
+            throwCustomAiFailureIfNeeded(runtimeConfig, e);
             throw new RuntimeException("AI 简历润色失败: " + e.getMessage(), e);
         }
     }
@@ -1999,6 +2104,18 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         return compressed;
     }
 
+    /**
+     * 用户自定义 AI 失败必须显式返回 4090，前端据此展示“使用平台 AI”手动回退入口。
+     */
+    private void throwCustomAiFailureIfNeeded(RuntimeAiConfig runtimeConfig, Exception exception) {
+        if (runtimeConfig != null && UserAiConstants.BILLING_SOURCE_USER_CUSTOM.equals(runtimeConfig.source())) {
+            String message = exception == null || exception.getMessage() == null
+                    ? "自定义AI调用失败"
+                    : "自定义AI调用失败: " + exception.getMessage();
+            throw new BusinessException(ResultCode.CUSTOM_AI_CALL_FAILED, message);
+        }
+    }
+
     private record RuntimeAiConfig(
             String provider,
             String model,
@@ -2007,7 +2124,8 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             String apiKey,
             String source,
             Integer timeoutMs,
-            String thinkingMode) {
+            String thinkingMode,
+            boolean supportsMultimodal) {
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

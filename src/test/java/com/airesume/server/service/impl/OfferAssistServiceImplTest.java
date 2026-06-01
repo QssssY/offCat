@@ -1,10 +1,14 @@
 package com.airesume.server.service.impl;
 
+import com.airesume.server.common.constants.AiEngineConstants;
+import com.airesume.server.dto.ai.ResolvedAiConfig;
 import com.airesume.server.dto.offer.SalaryNegotiationSimulationRequest;
 import com.airesume.server.dto.offer.SalaryNegotiationSimulationResponse;
 import com.airesume.server.dto.offer.SalaryScriptRequest;
 import com.airesume.server.dto.offer.SalaryScriptResponse;
 import com.airesume.server.service.AiChatClient;
+import com.airesume.server.service.UserAiConfigResolver;
+import com.airesume.server.service.UserAiUsageLimitService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,17 +21,25 @@ import static org.mockito.Mockito.*;
 class OfferAssistServiceImplTest {
 
     private AiChatClient aiChatClient;
+    private UserAiConfigResolver userAiConfigResolver;
+    private UserAiUsageLimitService userAiUsageLimitService;
     private OfferAssistServiceImpl service;
 
     @BeforeEach
     void setUp() {
         aiChatClient = mock(AiChatClient.class);
-        service = new OfferAssistServiceImpl(aiChatClient, new ObjectMapper());
+        userAiConfigResolver = mock(UserAiConfigResolver.class);
+        userAiUsageLimitService = mock(UserAiUsageLimitService.class);
+        service = new OfferAssistServiceImpl(
+                aiChatClient,
+                new ObjectMapper(),
+                userAiConfigResolver,
+                userAiUsageLimitService);
     }
 
     @Test
     void shouldGenerateSalaryNegotiationSimulation() {
-        when(aiChatClient.chat(anyString(), anyString(), anyInt())).thenReturn("""
+        when(aiChatClient.chat(anyString(), anyString(), anyInt(), eq(1L), eq(false))).thenReturn("""
                 {
                   "sceneSummary": "当前报价低于期望，但仍有沟通空间。",
                   "candidateReply": "感谢认可，我希望结合岗位职责再沟通整体包。",
@@ -45,7 +57,7 @@ class OfferAssistServiceImplTest {
         assertEquals(2, response.getRiskReminders().size());
         ArgumentCaptor<String> systemPromptCaptor = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> userPromptCaptor = ArgumentCaptor.forClass(String.class);
-        verify(aiChatClient).chat(systemPromptCaptor.capture(), userPromptCaptor.capture(), eq(180_000));
+        verify(aiChatClient).chat(systemPromptCaptor.capture(), userPromptCaptor.capture(), eq(180_000), eq(1L), eq(false));
         assertTrue(systemPromptCaptor.getValue().contains("保留回旋空间"));
         assertTrue(systemPromptCaptor.getValue().contains("避免虚构竞品 Offer"));
         assertTrue(userPromptCaptor.getValue().contains("HR 当前问题"));
@@ -54,7 +66,7 @@ class OfferAssistServiceImplTest {
 
     @Test
     void shouldGenerateSalaryScript() {
-        when(aiChatClient.chat(anyString(), anyString(), anyInt())).thenReturn("""
+        when(aiChatClient.chat(anyString(), anyString(), anyInt(), eq(1L), eq(false))).thenReturn("""
                 {
                   "openingScript": "感谢推进 Offer，我想确认整体薪酬结构。",
                   "counterOfferScript": "结合我的项目经验，期望年包能到 45 万。",
@@ -71,7 +83,7 @@ class OfferAssistServiceImplTest {
         assertEquals(2, response.getUsageTips().size());
         ArgumentCaptor<String> systemPromptCaptor = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> userPromptCaptor = ArgumentCaptor.forClass(String.class);
-        verify(aiChatClient).chat(systemPromptCaptor.capture(), userPromptCaptor.capture(), eq(180_000));
+        verify(aiChatClient).chat(systemPromptCaptor.capture(), userPromptCaptor.capture(), eq(180_000), eq(1L), eq(false));
         assertTrue(systemPromptCaptor.getValue().contains("不引用实时薪资行情"));
         assertTrue(systemPromptCaptor.getValue().contains("价值依据"));
         assertTrue(userPromptCaptor.getValue().contains("谈判目标"));
@@ -81,7 +93,7 @@ class OfferAssistServiceImplTest {
 
     @Test
     void shouldRejectEmptyAiResponse() {
-        when(aiChatClient.chat(anyString(), anyString(), anyInt())).thenReturn(" ");
+        when(aiChatClient.chat(anyString(), anyString(), anyInt(), eq(1L), eq(false))).thenReturn(" ");
 
         IllegalStateException ex = assertThrows(
                 IllegalStateException.class,
@@ -92,13 +104,46 @@ class OfferAssistServiceImplTest {
 
     @Test
     void shouldRejectInvalidAiJson() {
-        when(aiChatClient.chat(anyString(), anyString(), anyInt())).thenReturn("不是 JSON");
+        when(aiChatClient.chat(anyString(), anyString(), anyInt(), eq(1L), eq(false))).thenReturn("不是 JSON");
 
         IllegalStateException ex = assertThrows(
                 IllegalStateException.class,
                 () -> service.simulateSalaryNegotiation(1L, buildSimulationRequest()));
 
         assertEquals("Offer 辅助 AI 返回格式错误", ex.getMessage());
+    }
+
+    @Test
+    void shouldCountCustomAiUsageForOfferAssist() {
+        when(userAiConfigResolver.resolve(1L, AiEngineConstants.BUSINESS_TYPE_INTERVIEW, false))
+                .thenReturn(ResolvedAiConfig.builder().configType("default").build());
+        when(aiChatClient.chat(anyString(), anyString(), anyInt(), eq(1L), eq(false))).thenReturn("""
+                {
+                  "openingScript": "感谢推进 Offer，我想确认整体薪酬结构。",
+                  "counterOfferScript": "结合我的项目经验，期望年包能到 45 万。",
+                  "benefitTradeoffScript": "如果现金部分空间有限，也可以讨论签字费或调薪节点。",
+                  "closingScript": "期待我们能尽快确认一个双方都认可的方案。",
+                  "usageTips": ["先电话沟通再文字确认"]
+                }
+                """);
+
+        service.generateSalaryScript(1L, buildScriptRequest());
+
+        verify(userAiUsageLimitService).checkAndIncrement(1L);
+        verify(userAiUsageLimitService, never()).rollback(1L);
+    }
+
+    @Test
+    void shouldRollbackCustomAiUsageWhenOfferAssistFails() {
+        when(userAiConfigResolver.resolve(1L, AiEngineConstants.BUSINESS_TYPE_INTERVIEW, false))
+                .thenReturn(ResolvedAiConfig.builder().configType("default").build());
+        when(aiChatClient.chat(anyString(), anyString(), anyInt(), eq(1L), eq(false)))
+                .thenThrow(new IllegalStateException("AI 调用失败"));
+
+        assertThrows(IllegalStateException.class, () -> service.generateSalaryScript(1L, buildScriptRequest()));
+
+        verify(userAiUsageLimitService).checkAndIncrement(1L);
+        verify(userAiUsageLimitService).rollback(1L);
     }
 
     private SalaryNegotiationSimulationRequest buildSimulationRequest() {

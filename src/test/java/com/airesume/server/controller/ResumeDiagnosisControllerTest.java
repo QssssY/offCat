@@ -7,6 +7,8 @@ import com.airesume.server.dto.user.DataCleanupResponse;
 import com.airesume.server.service.ResumeDiagnosisTaskService;
 import com.airesume.server.service.ResumeJobMatchService;
 import com.airesume.server.service.ResumePolishService;
+import com.airesume.server.service.UserAiConfigResolver;
+import com.airesume.server.service.UserAiUsageLimitService;
 import com.airesume.server.service.UserQuotaService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -37,6 +39,12 @@ class ResumeDiagnosisControllerTest {
     private UserQuotaService userQuotaService;
 
     @Mock
+    private UserAiConfigResolver userAiConfigResolver;
+
+    @Mock
+    private UserAiUsageLimitService userAiUsageLimitService;
+
+    @Mock
     private Authentication authentication;
 
     private ResumeDiagnosisController controller;
@@ -47,7 +55,9 @@ class ResumeDiagnosisControllerTest {
                 resumeDiagnosisTaskService,
                 resumeJobMatchService,
                 resumePolishService,
-                userQuotaService);
+                userQuotaService,
+                userAiConfigResolver,
+                userAiUsageLimitService);
     }
 
     @Test
@@ -71,7 +81,7 @@ class ResumeDiagnosisControllerTest {
                 new byte[0]);
 
         BusinessException exception = assertThrows(BusinessException.class,
-                () -> controller.uploadResume(file, authentication));
+                () -> controller.uploadResume(file, false, authentication));
 
         assertEquals(ResultCode.RESUME_FILE_EMPTY.getCode(), exception.getCode());
         assertEquals(ResultCode.RESUME_FILE_EMPTY.getMessage(), exception.getMessage());
@@ -86,7 +96,7 @@ class ResumeDiagnosisControllerTest {
                 "docx".getBytes());
 
         BusinessException exception = assertThrows(BusinessException.class,
-                () -> controller.uploadResume(file, authentication));
+                () -> controller.uploadResume(file, false, authentication));
 
         assertEquals(ResultCode.RESUME_FORMAT_UNSUPPORTED.getCode(), exception.getCode());
         assertEquals(ResultCode.RESUME_FORMAT_UNSUPPORTED.getMessage(), exception.getMessage());

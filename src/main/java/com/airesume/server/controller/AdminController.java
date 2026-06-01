@@ -21,6 +21,7 @@ import com.airesume.server.service.AiCredentialCrypto;
 import com.airesume.server.service.AiEngineConnectivityTestService;
 import com.airesume.server.service.SysAiEngineConfigService;
 import com.airesume.server.service.SysJobRoleService;
+import com.airesume.server.service.SysConfigService;
 import com.airesume.server.service.SysPromptService;
 import com.airesume.server.service.SysUserService;
 import com.airesume.server.service.UserQuotaService;
@@ -60,6 +61,7 @@ public class AdminController {
     private final AiEngineConnectivityTestService aiEngineConnectivityTestService;
     private final SysPromptService sysPromptService;
     private final SysJobRoleService sysJobRoleService;
+    private final SysConfigService sysConfigService;
     private final SysUserService sysUserService;
     private final UserQuotaService userQuotaService;
     private final AiCredentialCrypto aiCredentialCrypto;
@@ -1187,6 +1189,33 @@ SysPrompt prompt = new SysPrompt();
         userQuotaService.updateById(quota);
         log.info("User quota updated, userId: {}", request.getUserId());
         return Result.success("用户额度调整成功", null);
+    }
+
+    /**
+     * 查询用户自定义 AI 每日调用上限。
+     */
+    @GetMapping("/custom-ai/daily-limit")
+    public Result<CustomAiDailyLimitResponse> getCustomAiDailyLimit(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        return Result.success(CustomAiDailyLimitResponse.builder()
+                .limit(sysConfigService.getCustomAiDailyLimit())
+                .build());
+    }
+
+    /**
+     * 修改用户自定义 AI 每日调用上限。
+     */
+    @PutMapping("/custom-ai/daily-limit")
+    public Result<CustomAiDailyLimitResponse> updateCustomAiDailyLimit(
+            @Valid @RequestBody CustomAiDailyLimitRequest request,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        sysConfigService.updateCustomAiDailyLimit(request.getLimit());
+        return Result.success("每日上限已更新", CustomAiDailyLimitResponse.builder()
+                .limit(sysConfigService.getCustomAiDailyLimit())
+                .build());
     }
 
     // ==================== 私有方法 ====================

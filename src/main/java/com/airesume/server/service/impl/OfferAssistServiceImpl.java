@@ -1,11 +1,14 @@
 package com.airesume.server.service.impl;
 
+import com.airesume.server.common.constants.AiEngineConstants;
 import com.airesume.server.dto.offer.SalaryNegotiationSimulationRequest;
 import com.airesume.server.dto.offer.SalaryNegotiationSimulationResponse;
 import com.airesume.server.dto.offer.SalaryScriptRequest;
 import com.airesume.server.dto.offer.SalaryScriptResponse;
 import com.airesume.server.service.AiChatClient;
 import com.airesume.server.service.OfferAssistService;
+import com.airesume.server.service.UserAiConfigResolver;
+import com.airesume.server.service.UserAiUsageLimitService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,6 +26,8 @@ public class OfferAssistServiceImpl implements OfferAssistService {
 
     private final AiChatClient aiChatClient;
     private final ObjectMapper objectMapper;
+    private final UserAiConfigResolver userAiConfigResolver;
+    private final UserAiUsageLimitService userAiUsageLimitService;
 
     /**
      * 薪资谈判模拟只基于用户输入生成建议，不接入实时薪资行情，避免给出伪市场数据。
@@ -32,7 +37,7 @@ public class OfferAssistServiceImpl implements OfferAssistService {
             Long userId,
             SalaryNegotiationSimulationRequest request) {
         log.info("生成薪资谈判模拟, userId: {}, jobTitle: {}", userId, request.getJobTitle());
-        String raw = aiChatClient.chat(buildSalarySystemPrompt(), buildSimulationUserPrompt(request), OFFER_AI_TIMEOUT_MS);
+        String raw = callOfferAiWithUserBilling(userId, buildSimulationUserPrompt(request));
         return parseAiJson(raw, SalaryNegotiationSimulationResponse.class);
     }
 
@@ -42,8 +47,25 @@ public class OfferAssistServiceImpl implements OfferAssistService {
     @Override
     public SalaryScriptResponse generateSalaryScript(Long userId, SalaryScriptRequest request) {
         log.info("生成谈薪话术模板, userId: {}, jobTitle: {}", userId, request.getJobTitle());
-        String raw = aiChatClient.chat(buildSalarySystemPrompt(), buildScriptUserPrompt(request), OFFER_AI_TIMEOUT_MS);
+        String raw = callOfferAiWithUserBilling(userId, buildScriptUserPrompt(request));
         return parseAiJson(raw, SalaryScriptResponse.class);
+    }
+
+    private String callOfferAiWithUserBilling(Long userId, String userPrompt) {
+        boolean useCustomAi = userAiConfigResolver != null
+                && userAiConfigResolver.resolve(userId, AiEngineConstants.BUSINESS_TYPE_INTERVIEW, false) != null;
+        if (useCustomAi) {
+            // Offer 辅助复用轻量聊天客户端的 interview/default 配置，命中自定义 AI 时纳入独立每日次数。
+            userAiUsageLimitService.checkAndIncrement(userId);
+        }
+        try {
+            return aiChatClient.chat(buildSalarySystemPrompt(), userPrompt, OFFER_AI_TIMEOUT_MS, userId, false);
+        } catch (RuntimeException e) {
+            if (useCustomAi) {
+                userAiUsageLimitService.rollback(userId);
+            }
+            throw e;
+        }
     }
 
     private String buildSalarySystemPrompt() {

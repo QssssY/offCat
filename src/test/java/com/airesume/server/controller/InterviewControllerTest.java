@@ -14,6 +14,8 @@ import com.airesume.server.service.InterviewAiService;
 import com.airesume.server.service.InterviewService;
 import com.airesume.server.service.MockInterviewJobTargetService;
 import com.airesume.server.service.SysJobRoleService;
+import com.airesume.server.service.UserAiConfigResolver;
+import com.airesume.server.service.UserAiUsageLimitService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -38,6 +40,8 @@ class InterviewControllerTest {
     @Mock private InterviewAiService interviewAiService;
     @Mock private SysJobRoleService sysJobRoleService;
     @Mock private MockInterviewJobTargetService mockInterviewJobTargetService;
+    @Mock private UserAiConfigResolver userAiConfigResolver;
+    @Mock private UserAiUsageLimitService userAiUsageLimitService;
     @Mock private Executor aiAsyncExecutor;
     @Mock private Authentication authentication;
 
@@ -47,7 +51,8 @@ class InterviewControllerTest {
     void setUp() {
         controller = new InterviewController(
                 interviewService, interviewAiService, sysJobRoleService,
-                mockInterviewJobTargetService, aiAsyncExecutor);
+                mockInterviewJobTargetService, userAiConfigResolver,
+                userAiUsageLimitService, aiAsyncExecutor);
         lenient().when(authentication.getPrincipal()).thenReturn(1L);
     }
 

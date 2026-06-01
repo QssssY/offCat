@@ -99,6 +99,21 @@ class SchemaConsistencyTest {
         assertTrue(serverMigration.contains("idx_sys_user_banned_until"));
     }
 
+    @Test
+    void shouldKeepUserCustomAiMigrationInSyncAndRepeatable() throws Exception {
+        String rootMigration = readSql("../db/migrations/TASK_68_USER_CUSTOM_AI_PROVIDER.sql");
+        String serverMigration = readSql("db/migrations/TASK_68_USER_CUSTOM_AI_PROVIDER.sql");
+
+        assertEquals(rootMigration, serverMigration, "TASK_68 用户自定义 AI 迁移脚本必须在两个 SQL 目录保持一致");
+        assertTrue(serverMigration.contains("SET NAMES utf8mb4;"));
+        assertTrue(serverMigration.contains("CREATE TABLE IF NOT EXISTS `user_ai_config`"));
+        assertTrue(serverMigration.contains("CREATE TABLE IF NOT EXISTS `user_ai_daily_usage`"));
+        assertTrue(serverMigration.contains("CREATE TABLE IF NOT EXISTS `sys_config`"));
+        assertTrue(serverMigration.contains("custom_ai_daily_limit"));
+        assertTrue(serverMigration.contains("ai_billing_source"));
+        assertTrue(serverMigration.contains("fallback_to_platform"));
+    }
+
     private void assertContainsCriticalSchema(String schema) {
         assertTrue(schema.contains("CREATE TABLE `user_settings`"));
         assertTrue(schema.contains("idx_user_settings_resume_retention"));
@@ -117,6 +132,12 @@ class SchemaConsistencyTest {
         assertTrue(schema.contains("idx_sys_user_banned_until"));
         assertTrue(schema.contains("idx_chat_log_message_role"));
         assertTrue(schema.contains("CONVERT(0x"));
+        assertTrue(schema.contains("CREATE TABLE `user_ai_config`"));
+        assertTrue(schema.contains("CREATE TABLE `user_ai_daily_usage`"));
+        assertTrue(schema.contains("CREATE TABLE `sys_config`"));
+        assertTrue(schema.contains("custom_ai_daily_limit"));
+        assertTrue(schema.contains("ai_billing_source"));
+        assertTrue(schema.contains("fallback_to_platform"));
     }
 
     private String readSql(String path) throws Exception {

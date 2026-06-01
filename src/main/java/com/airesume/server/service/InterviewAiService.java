@@ -9,6 +9,13 @@ public interface InterviewAiService {
 
     String generateOpening(String jobRole, String jobRoleCode, Integer difficulty, InterviewJobTargetContext jobTargetContext);
 
+    default String generateOpening(String jobRole, String jobRoleCode, Integer difficulty,
+                                   InterviewJobTargetContext jobTargetContext,
+                                   Long userId,
+                                   boolean fallbackToPlatform) {
+        return generateOpening(jobRole, jobRoleCode, difficulty, jobTargetContext);
+    }
+
     String generateReply(
             String sessionId,
             List<ChatMessageItem> history,
@@ -22,6 +29,24 @@ public interface InterviewAiService {
             Integer interactionType
     );
 
+    default String generateReply(
+            String sessionId,
+            List<ChatMessageItem> history,
+            String userMessage,
+            String jobRoleCode,
+            String jobRole,
+            Integer difficulty,
+            InterviewJobTargetContext jobTargetContext,
+            String feedbackMode,
+            String interviewMode,
+            Integer interactionType,
+            Long userId,
+            boolean fallbackToPlatform
+    ) {
+        return generateReply(sessionId, history, userMessage, jobRoleCode, jobRole, difficulty,
+                jobTargetContext, feedbackMode, interviewMode, interactionType);
+    }
+
     Publisher<String> generateReplyStream(
             String sessionId,
             List<ChatMessageItem> history,
@@ -34,6 +59,24 @@ public interface InterviewAiService {
             String interviewMode,
             Integer interactionType
     );
+
+    default Publisher<String> generateReplyStream(
+            String sessionId,
+            List<ChatMessageItem> history,
+            String userMessage,
+            String jobRoleCode,
+            String jobRole,
+            Integer difficulty,
+            InterviewJobTargetContext jobTargetContext,
+            String feedbackMode,
+            String interviewMode,
+            Integer interactionType,
+            Long userId,
+            boolean fallbackToPlatform
+    ) {
+        return generateReplyStream(sessionId, history, userMessage, jobRoleCode, jobRole, difficulty,
+                jobTargetContext, feedbackMode, interviewMode, interactionType);
+    }
 
     /**
      * 生成面试评价报告（旧版兼容，返回字符串JSON）
@@ -61,6 +104,20 @@ public interface InterviewAiService {
             String interviewMode,
             InterviewJobTargetContext jobTargetContext
     );
+
+    default InterviewEvaluationReport generateEvaluationReport(
+            String sessionId,
+            List<ChatMessageItem> history,
+            String jobRole,
+            String jobRoleCode,
+            Integer difficulty,
+            String interviewMode,
+            InterviewJobTargetContext jobTargetContext,
+            Long userId,
+            boolean fallbackToPlatform
+    ) {
+        return generateEvaluationReport(sessionId, history, jobRole, jobRoleCode, difficulty, interviewMode, jobTargetContext);
+    }
 
     record ChatMessageItem(String role, String content) {}
 

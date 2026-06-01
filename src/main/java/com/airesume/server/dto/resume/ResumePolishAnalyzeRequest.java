@@ -24,4 +24,9 @@ public class ResumePolishAnalyzeRequest {
      * 可选的岗位 JD 文本。
      */
     private String jdText;
+
+    /**
+     * 是否显式回退到平台 AI。默认 false，只有用户点击回退按钮时才消耗平台额度。
+     */
+    private Boolean fallbackToPlatform;
 }

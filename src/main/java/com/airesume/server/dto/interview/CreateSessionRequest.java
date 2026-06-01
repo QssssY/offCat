@@ -91,4 +91,9 @@ public class CreateSessionRequest {
     @Min(value = 0, message = "交互方式只能是文字(0)或语音(1)")
     @Max(value = 1, message = "交互方式只能是文字(0)或语音(1)")
     private Integer interactionType;
+
+    /**
+     * 是否显式回退到平台 AI。默认 false，只有用户点击回退按钮时才消耗平台额度。
+     */
+    private Boolean fallbackToPlatform;
 }

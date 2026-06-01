@@ -25,7 +25,14 @@ public class ResumeVisionExtractor {
      * 当前启用的简历引擎是否声明支持多模态。
      */
     public boolean isAvailable() {
-        boolean available = resumeAiService.supportsVisionExtraction();
+        return isAvailable(null, false, false);
+    }
+
+    /**
+     * 按指定用户上下文判断简历多模态能力，诊断任务锁定自定义 AI 时禁止静默回退平台配置。
+     */
+    public boolean isAvailable(Long userId, boolean fallbackToPlatform, boolean requireUserCustom) {
+        boolean available = resumeAiService.supportsVisionExtraction(userId, fallbackToPlatform, requireUserCustom);
         log.debug("多模态识别可用性: {}", available);
         return available;
     }
@@ -38,12 +45,21 @@ public class ResumeVisionExtractor {
      * @return 提取后的文本
      */
     public String extractText(BufferedImage pageImage, int pageNumber) {
+        return extractText(pageImage, pageNumber, null, false, false);
+    }
+
+    /**
+     * 使用指定用户上下文识别单页图片内容。
+     */
+    public String extractText(BufferedImage pageImage, int pageNumber,
+                              Long userId, boolean fallbackToPlatform, boolean requireUserCustom) {
         try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
             ImageIO.write(pageImage, "png", outputStream);
             String base64 = Base64.getEncoder().encodeToString(outputStream.toByteArray());
             String dataUrl = "data:image/png;base64," + base64;
             log.info("多模态识别开始, pageNumber: {}, imageSize: {}KB", pageNumber, outputStream.size() / 1024);
-            String text = resumeAiService.extractTextFromImage(dataUrl, "第 " + pageNumber + " 页");
+            String text = resumeAiService.extractTextFromImage(dataUrl, "第 " + pageNumber + " 页",
+                    userId, fallbackToPlatform, requireUserCustom);
             log.info("多模态识别完成, pageNumber: {}, textLength: {}", pageNumber, text != null ? text.length() : 0);
             return text;
         } catch (IOException e) {
