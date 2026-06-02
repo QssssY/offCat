@@ -7,6 +7,7 @@ import com.airesume.server.common.result.Result;
 import com.airesume.server.common.result.ResultCode;
 import com.airesume.server.dto.resume.ResumeDiagnosisHistoryResponse;
 import com.airesume.server.dto.resume.ResumeDiagnosisTaskResponse;
+import com.airesume.server.dto.resume.ResumeDiagnosisTaskStatusResponse;
 import com.airesume.server.dto.resume.ResumeDocumentUpdateRequest;
 import com.airesume.server.dto.resume.ResumeJobMatchAnalyzeRequest;
 import com.airesume.server.dto.resume.ResumeJobMatchAnalyzeResponse;
@@ -97,6 +98,20 @@ public class ResumeDiagnosisController {
         log.info("Get task detail request, taskId: {}, userId: {}", taskId, userId);
 
         ResumeDiagnosisTaskResponse task = resumeDiagnosisTaskService.getTaskById(taskId, userId);
+        return Result.success(task);
+    }
+
+    /**
+     * 查询任务轻量状态。
+     * 等待诊断结果时只返回状态和阶段，避免轮询接口反复读取简历原文、诊断 JSON 等大字段。
+     */
+    @GetMapping("/task/{taskId}/status")
+    public Result<ResumeDiagnosisTaskStatusResponse> getTaskStatus(@PathVariable Long taskId,
+                                                                   Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("Get task status request, taskId: {}, userId: {}", taskId, userId);
+
+        ResumeDiagnosisTaskStatusResponse task = resumeDiagnosisTaskService.getTaskStatusById(taskId, userId);
         return Result.success(task);
     }
 

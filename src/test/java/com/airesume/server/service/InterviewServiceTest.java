@@ -2,8 +2,10 @@ package com.airesume.server.service;
 
 import com.airesume.server.entity.InterviewChatLog;
 import com.airesume.server.entity.InterviewSession;
+import com.airesume.server.common.constants.UserAiConstants;
 import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.ResultCode;
+import com.airesume.server.dto.ai.ResolvedAiConfig;
 import com.airesume.server.mock.MockInterviewService;
 import com.airesume.server.dto.interview.CreateSessionRequest;
 import com.airesume.server.dto.interview.InterviewEvaluationReport;
@@ -11,6 +13,7 @@ import com.airesume.server.dto.interview.InterviewHistoryResponse;
 import com.airesume.server.dto.interview.InterviewJobTargetContext;
 import com.airesume.server.dto.interview.InterviewSessionResponse;
 import com.airesume.server.dto.interview.SendMessageRequest;
+import com.airesume.server.dto.interview.SendMessageResponse;
 import com.airesume.server.mapper.InterviewChatLogMapper;
 import com.airesume.server.mapper.InterviewDimensionScoreMapper;
 import com.airesume.server.mapper.InterviewSessionMapper;
@@ -69,6 +72,8 @@ class InterviewServiceTest {
     @Mock private Cache interviewRadarCache;
     @Mock private Cache growthOverviewCache;
     @Mock private Subscription subscription;
+    @Mock private UserAiConfigResolver userAiConfigResolver;
+    @Mock private UserAiUsageLimitService userAiUsageLimitService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private InterviewService interviewService;
@@ -84,7 +89,8 @@ class InterviewServiceTest {
                 interviewSessionMapper, interviewMessageService, mockInterviewService,
                 interviewChatLogMapper, interviewAiService, objectMapper, sysJobRoleService,
                 transactionTemplate, userQuotaService, mockInterviewJobTargetService,
-                notificationService, dimensionScoreMapper, communityPostMapper, dimensionScoreService, aiAsyncExecutor);
+                notificationService, dimensionScoreMapper, communityPostMapper, dimensionScoreService, aiAsyncExecutor,
+                userAiConfigResolver, userAiUsageLimitService);
         ReflectionTestUtils.setField(interviewService, "cacheManager", cacheManager);
         lenient().when(cacheManager.getCache("user:interviewRadar")).thenReturn(interviewRadarCache);
         lenient().when(cacheManager.getCache("user:growthOverview")).thenReturn(growthOverviewCache);
@@ -315,6 +321,34 @@ class InterviewServiceTest {
     }
 
     @Test
+    void shouldReturnSessionStatusWithoutLoadingChatLogsOrJobContext() {
+        String sessionId = "session-status";
+        Long userId = 123L;
+        var status = com.airesume.server.dto.interview.InterviewSessionStatusResponse.builder()
+                .sessionId(sessionId)
+                .status(1)
+                .openingPending(false)
+                .reportReady(true)
+                .comprehensiveScore(86)
+                .updateTime(LocalDateTime.now())
+                .build();
+
+        when(interviewSessionMapper.selectOwnedStatus(sessionId, userId)).thenReturn(status);
+
+        var response = interviewService.getSessionStatus(userId, sessionId);
+
+        assertEquals(sessionId, response.getSessionId());
+        assertEquals(1, response.getStatus());
+        assertEquals("已结束", response.getStatusDesc());
+        assertFalse(response.getOpeningPending());
+        assertTrue(response.getReportReady());
+        assertEquals(86, response.getComprehensiveScore());
+        verify(interviewSessionMapper).selectOwnedStatus(sessionId, userId);
+        verify(interviewMessageService, never()).getMessageList(anyString());
+        verify(mockInterviewJobTargetService, never()).getSessionContext(anyLong(), anyString());
+    }
+
+    @Test
     void shouldPassImmediateFeedbackModeWhenSendingMessage() {
         String sessionId = "session-feedback";
         Long userId = 123L;
@@ -485,6 +519,105 @@ class InterviewServiceTest {
         verify(interviewSessionMapper).insert(sessionCaptor.capture());
         assertEquals(0, sessionCaptor.getValue().getInteractionType());
         assertEquals(0, response.getInteractionType());
+
+    }
+
+    @Test
+    void shouldMarkCustomAiBillingSourceWhenCreatingSessionWithCustomAi() {
+        CreateSessionRequest request = buildCreateRequest();
+        ArgumentCaptor<InterviewSession> sessionCaptor = ArgumentCaptor.forClass(InterviewSession.class);
+        when(userAiConfigResolver.resolve(123L, "interview", false))
+                .thenReturn(ResolvedAiConfig.builder().configType("interview").build());
+        when(sysJobRoleService.isActiveRoleName(request.getJobRole())).thenReturn(true);
+        when(mockInterviewJobTargetService.resolveContext(eq(123L), any())).thenReturn(null);
+
+        interviewService.createSession(123L, request);
+
+        verify(interviewSessionMapper).insert(sessionCaptor.capture());
+        assertEquals(UserAiConstants.BILLING_SOURCE_USER_CUSTOM, sessionCaptor.getValue().getAiBillingSource());
+        verify(userQuotaService, never()).deductInterviewQuota(anyLong());
+    }
+
+    @Test
+    void shouldDeductInterviewQuotaOnceWhenCustomAiSessionFallsBackToPlatform() {
+        String sessionId = "session-platform-fallback";
+        Long userId = 123L;
+        SendMessageRequest request = new SendMessageRequest();
+        request.setContent("please continue");
+        request.setFallbackToPlatform(true);
+        InterviewSession session = buildInProgressSession(sessionId, userId);
+        session.setAiBillingSource(UserAiConstants.BILLING_SOURCE_USER_CUSTOM);
+
+        when(interviewSessionMapper.selectOne(any())).thenReturn(session);
+        when(interviewMessageService.getMessageList(sessionId)).thenReturn(List.of());
+        when(interviewSessionMapper.markPlatformFallbackBillingIfCustom(
+                eq(sessionId),
+                eq(userId),
+                eq(UserAiConstants.BILLING_SOURCE_PLATFORM_FALLBACK),
+                any(LocalDateTime.class))).thenReturn(1);
+        when(interviewAiService.generateReply(
+                eq(sessionId),
+                anyList(),
+                eq(request.getContent()),
+                eq(session.getJobRoleCode()),
+                eq(session.getJobRole()),
+                eq(session.getDifficulty()),
+                any(),
+                eq("after_interview"),
+                eq("normal"),
+                eq(0),
+                eq(userId),
+                eq(true)
+        )).thenReturn("platform reply");
+
+        SendMessageResponse response = interviewService.sendMessage(userId, sessionId, request);
+
+        assertEquals("platform reply", response.getReplyContent());
+        verify(userQuotaService).deductInterviewQuota(userId);
+        verify(userAiUsageLimitService, never()).checkAndIncrement(anyLong());
+        verify(interviewSessionMapper).markPlatformFallbackBillingIfCustom(
+                eq(sessionId),
+                eq(userId),
+                eq(UserAiConstants.BILLING_SOURCE_PLATFORM_FALLBACK),
+                any(LocalDateTime.class));
+    }
+
+    @Test
+    void shouldNotDeductInterviewQuotaAgainWhenPlatformFallbackAlreadyMarked() {
+        String sessionId = "session-platform-fallback-repeat";
+        Long userId = 123L;
+        SendMessageRequest request = new SendMessageRequest();
+        request.setContent("use platform again");
+        request.setFallbackToPlatform(true);
+        InterviewSession session = buildInProgressSession(sessionId, userId);
+        session.setAiBillingSource(UserAiConstants.BILLING_SOURCE_PLATFORM_FALLBACK);
+
+        when(interviewSessionMapper.selectOne(any())).thenReturn(session);
+        when(interviewMessageService.getMessageList(sessionId)).thenReturn(List.of());
+        when(interviewAiService.generateReply(
+                eq(sessionId),
+                anyList(),
+                eq(request.getContent()),
+                eq(session.getJobRoleCode()),
+                eq(session.getJobRole()),
+                eq(session.getDifficulty()),
+                any(),
+                eq("after_interview"),
+                eq("normal"),
+                eq(0),
+                eq(userId),
+                eq(true)
+        )).thenReturn("platform repeat reply");
+
+        SendMessageResponse response = interviewService.sendMessage(userId, sessionId, request);
+
+        assertEquals("platform repeat reply", response.getReplyContent());
+        verify(userQuotaService, never()).deductInterviewQuota(anyLong());
+        verify(interviewSessionMapper, never()).markPlatformFallbackBillingIfCustom(
+                anyString(),
+                anyLong(),
+                anyString(),
+                any(LocalDateTime.class));
     }
 
     @Test

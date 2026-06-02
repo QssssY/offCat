@@ -1,5 +1,6 @@
 package com.airesume.server.dto.resume;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
@@ -33,6 +34,7 @@ public class ResumeDiagnosisResult {
      * 亮点列表
      */
     @JsonProperty("highlights")
+    @JsonAlias({"strengths", "advantages", "brightSpots"})
     private List<String> highlights;
 
     /**
@@ -51,30 +53,35 @@ public class ResumeDiagnosisResult {
      * 技能评价
      */
     @JsonProperty("skillEvaluation")
+    @JsonAlias({"skills", "skill", "skillsEvaluation", "skillAnalysis", "coreSkills", "coreSkillEvaluation"})
     private SkillEvaluation skillEvaluation;
 
     /**
      * 工作经验评价
      */
     @JsonProperty("workExperienceEvaluation")
+    @JsonAlias({"workExperience", "workExperiences", "work", "experience", "experienceEvaluation", "internshipExperience", "internshipEvaluation"})
     private WorkExperienceEvaluation workExperienceEvaluation;
 
     /**
      * 项目经验评价
      */
     @JsonProperty("projectExperienceEvaluation")
+    @JsonAlias({"projectExperience", "projectExperiences", "projects", "project", "projectEvaluation", "projectAnalysis"})
     private ProjectExperienceEvaluation projectExperienceEvaluation;
 
     /**
      * 教育背景评价
      */
     @JsonProperty("educationEvaluation")
+    @JsonAlias({"education", "educationBackground", "educationExperience", "educationAnalysis"})
     private EducationEvaluation educationEvaluation;
 
     /**
      * 个人定位评价
      */
     @JsonProperty("positioningEvaluation")
+    @JsonAlias({"positioning", "personalPositioning", "careerPositioning", "positioningAnalysis"})
     private PositioningEvaluation positioningEvaluation;
 
     /**
@@ -100,14 +107,17 @@ public class ResumeDiagnosisResult {
         private String evaluation = "";
 
         @JsonProperty("strengths")
+        @JsonAlias({"plus", "advantages", "highlights"})
         @Builder.Default
         private List<String> strengths = List.of();
 
         @JsonProperty("weaknesses")
+        @JsonAlias({"minus", "issues", "problems", "shortcomings"})
         @Builder.Default
         private List<String> weaknesses = List.of();
 
         @JsonProperty("suggestions")
+        @JsonAlias({"recommendations", "improvements", "advice"})
         @Builder.Default
         private List<String> suggestions = List.of();
     }
@@ -116,6 +126,7 @@ public class ResumeDiagnosisResult {
      * 优化建议列表
      */
     @JsonProperty("optimizationSuggestions")
+    @JsonAlias({"suggestions", "recommendations", "improvements", "optimization", "optimizationAdvice"})
     private List<String> optimizationSuggestions;
 
     /**
@@ -138,10 +149,12 @@ public class ResumeDiagnosisResult {
         private String summary = "";
 
         @JsonProperty("strengths")
+        @JsonAlias({"plus", "advantages", "highlights"})
         @Builder.Default
         private List<String> strengths = List.of();
 
         @JsonProperty("weaknesses")
+        @JsonAlias({"minus", "issues", "problems", "shortcomings"})
         @Builder.Default
         private List<String> weaknesses = List.of();
     }
@@ -181,6 +194,7 @@ public class ResumeDiagnosisResult {
          * AI 分析的加分项
          */
         @JsonProperty("strengths")
+        @JsonAlias({"plus", "advantages", "highlights"})
         @Builder.Default
         private List<String> strengths = List.of();
 
@@ -188,10 +202,12 @@ public class ResumeDiagnosisResult {
          * AI 分析的扣分项
          */
         @JsonProperty("weaknesses")
+        @JsonAlias({"minus", "issues", "problems", "shortcomings"})
         @Builder.Default
         private List<String> weaknesses = List.of();
 
         @JsonProperty("suggestions")
+        @JsonAlias({"recommendations", "improvements", "advice"})
         @Builder.Default
         private List<String> suggestions = List.of();
     }
@@ -268,6 +284,7 @@ public class ResumeDiagnosisResult {
         private Integer score;
 
         @JsonProperty("skillList")
+        @JsonAlias({"skills", "skillNames", "items", "skillSet", "coreSkills"})
         @Builder.Default
         private List<String> skillList = List.of();
 
@@ -276,14 +293,17 @@ public class ResumeDiagnosisResult {
         private String evaluation = "";
 
         @JsonProperty("strengths")
+        @JsonAlias({"plus", "advantages", "highlights"})
         @Builder.Default
         private List<String> strengths = List.of();
 
         @JsonProperty("weaknesses")
+        @JsonAlias({"minus", "issues", "problems", "shortcomings"})
         @Builder.Default
         private List<String> weaknesses = List.of();
 
         @JsonProperty("suggestions")
+        @JsonAlias({"recommendations", "improvements", "advice"})
         @Builder.Default
         private List<String> suggestions = List.of();
     }
@@ -310,6 +330,7 @@ public class ResumeDiagnosisResult {
         private Boolean hasQuantifiableResults;
 
         @JsonProperty("experiences")
+        @JsonAlias({"workExperiences", "workExperience", "items", "internships"})
         @Builder.Default
         private List<Map<String, Object>> experiences = List.of();
 
@@ -321,6 +342,7 @@ public class ResumeDiagnosisResult {
          * AI 分析的加分项
          */
         @JsonProperty("strengths")
+        @JsonAlias({"plus", "advantages", "highlights"})
         @Builder.Default
         private List<String> strengths = List.of();
 
@@ -328,10 +350,12 @@ public class ResumeDiagnosisResult {
          * AI 分析的扣分项
          */
         @JsonProperty("weaknesses")
+        @JsonAlias({"minus", "issues", "problems", "shortcomings"})
         @Builder.Default
         private List<String> weaknesses = List.of();
 
         @JsonProperty("suggestions")
+        @JsonAlias({"recommendations", "improvements", "advice"})
         @Builder.Default
         private List<String> suggestions = List.of();
     }
@@ -358,6 +382,7 @@ public class ResumeDiagnosisResult {
         private Boolean hasResponsibilities;
 
         @JsonProperty("projects")
+        @JsonAlias({"projectExperiences", "projectExperience", "items"})
         @Builder.Default
         private List<Map<String, Object>> projects = List.of();
 
@@ -369,6 +394,7 @@ public class ResumeDiagnosisResult {
          * AI 分析的加分项
          */
         @JsonProperty("strengths")
+        @JsonAlias({"plus", "advantages", "highlights"})
         @Builder.Default
         private List<String> strengths = List.of();
 
@@ -376,10 +402,12 @@ public class ResumeDiagnosisResult {
          * AI 分析的扣分项
          */
         @JsonProperty("weaknesses")
+        @JsonAlias({"minus", "issues", "problems", "shortcomings"})
         @Builder.Default
         private List<String> weaknesses = List.of();
 
         @JsonProperty("suggestions")
+        @JsonAlias({"recommendations", "improvements", "advice"})
         @Builder.Default
         private List<String> suggestions = List.of();
     }
@@ -416,6 +444,7 @@ public class ResumeDiagnosisResult {
          * AI 分析的加分项
          */
         @JsonProperty("strengths")
+        @JsonAlias({"plus", "advantages", "highlights"})
         @Builder.Default
         private List<String> strengths = List.of();
 
@@ -423,10 +452,12 @@ public class ResumeDiagnosisResult {
          * AI 分析的扣分项
          */
         @JsonProperty("weaknesses")
+        @JsonAlias({"minus", "issues", "problems", "shortcomings"})
         @Builder.Default
         private List<String> weaknesses = List.of();
 
         @JsonProperty("suggestions")
+        @JsonAlias({"recommendations", "improvements", "advice"})
         @Builder.Default
         private List<String> suggestions = List.of();
     }

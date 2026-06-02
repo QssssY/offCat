@@ -165,6 +165,32 @@ class ResumeDiagnosisTaskServiceImplTest {
     }
 
     @Test
+    void getTaskStatusByIdShouldSelectOnlyLightweightColumns() {
+        ResumeDiagnosisTask task = new ResumeDiagnosisTask();
+        task.setId(100L);
+        task.setUserId(123L);
+        task.setStatus(ResumeDiagnosisConstants.STATUS_PROCESSING);
+        task.setStage(ResumeDiagnosisConstants.STAGE_AI_ANALYZING);
+        task.setErrorMsg(null);
+        task.setCreateTime(LocalDateTime.now().minusMinutes(1));
+        task.setUpdateTime(LocalDateTime.now());
+        when(resumeDiagnosisTaskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(task);
+
+        var response = service.getTaskStatusById(100L, 123L);
+
+        assertEquals("100", response.getTaskId());
+        assertEquals(ResumeDiagnosisConstants.STATUS_PROCESSING, response.getStatus());
+        ArgumentCaptor<Wrapper<ResumeDiagnosisTask>> wrapperCaptor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(resumeDiagnosisTaskMapper).selectOne(wrapperCaptor.capture());
+        String sqlSelect = wrapperCaptor.getValue().getSqlSelect();
+        assertNotNull(sqlSelect);
+        assertTrue(sqlSelect.contains("status"));
+        assertTrue(sqlSelect.contains("stage"));
+        assertFalse(sqlSelect.contains("diagnosis_result"));
+        assertFalse(sqlSelect.contains("resume_text"));
+    }
+
+    @Test
     void updateStatusToProcessingShouldReturnBoolean() throws NoSuchMethodException {
         java.lang.reflect.Method method = ResumeDiagnosisTaskServiceImpl.class
                 .getMethod("updateStatusToProcessing", Long.class);

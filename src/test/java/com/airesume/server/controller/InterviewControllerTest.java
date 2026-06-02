@@ -9,6 +9,7 @@ import com.airesume.server.dto.interview.InterviewJobRoleResponse;
 import com.airesume.server.dto.interview.InterviewSessionResponse;
 import com.airesume.server.dto.interview.SendMessageRequest;
 import com.airesume.server.dto.interview.SendMessageResponse;
+import com.airesume.server.entity.InterviewSession;
 import com.airesume.server.entity.SysJobRole;
 import com.airesume.server.service.InterviewAiService;
 import com.airesume.server.service.InterviewService;
@@ -175,6 +176,27 @@ class InterviewControllerTest {
     }
 
     @Test
+    void getSessionStatusShouldReturnLightweightStatus() {
+        String sessionId = "session-status";
+        var mockResponse = com.airesume.server.dto.interview.InterviewSessionStatusResponse.builder()
+                .sessionId(sessionId)
+                .status(InterviewConstants.STATUS_ENDED)
+                .openingPending(false)
+                .reportReady(true)
+                .comprehensiveScore(86)
+                .build();
+
+        when(interviewService.getSessionStatus(1L, sessionId)).thenReturn(mockResponse);
+
+        var result = controller.getSessionStatus(sessionId, authentication);
+
+        assertEquals(CODE_SUCCESS, result.getCode());
+        assertEquals(sessionId, result.getData().getSessionId());
+        assertTrue(result.getData().getReportReady());
+        verify(interviewService).getSessionStatus(1L, sessionId);
+    }
+
+    @Test
     void endSessionShouldReturnSuccess() {
         String sessionId = "session-1";
 
@@ -222,5 +244,36 @@ class InterviewControllerTest {
         ResponseBodyEmitter emitter = controller.streamMessage(sessionId, request, authentication);
         assertNotNull(emitter);
         assertEquals(120_000L, emitter.getTimeout());
+    }
+
+    @Test
+    void streamMessageShouldChargeFallbackQuotaBeforePersistingUserMessage() {
+        String sessionId = "session-fallback";
+        SendMessageRequest request = new SendMessageRequest();
+        request.setContent("请继续使用平台 AI");
+        request.setFallbackToPlatform(true);
+        InterviewSession session = new InterviewSession();
+        session.setSessionId(sessionId);
+        session.setUserId(1L);
+        session.setJobRole("Java工程师");
+        session.setJobRoleCode("java");
+        session.setDifficulty(2);
+        session.setInterviewMode(InterviewConstants.MODE_NORMAL);
+        session.setInteractionType(0);
+
+        doAnswer(invocation -> {
+            invocation.<Runnable>getArgument(0).run();
+            return null;
+        }).when(aiAsyncExecutor).execute(any());
+        when(interviewService.getSessionByOwnerOrThrow(sessionId, 1L)).thenReturn(session);
+        when(interviewService.getChatLogsForStream(session)).thenReturn(List.of());
+        when(interviewService.resolveInteractionType(0)).thenReturn(0);
+        when(interviewService.resolveFeedbackMode(null, session)).thenReturn(InterviewConstants.FEEDBACK_MODE_AFTER_INTERVIEW);
+
+        controller.streamMessage(sessionId, request, authentication);
+
+        var inOrder = inOrder(interviewService);
+        inOrder.verify(interviewService).chargePlatformFallbackQuotaIfNeeded(session, true);
+        inOrder.verify(interviewService).saveUserMessage(session, request.getContent());
     }
 }

@@ -162,6 +162,43 @@ class ResumeDiagnosisProcessorTest {
     }
 
     @Test
+    void processTaskShouldPreserveCommonAiFieldAliasesDuringNormalization() throws Exception {
+        when(resumeDiagnosisTaskMapper.selectOne(any())).thenReturn(newPendingTask());
+        when(taskService.updateStatusToProcessing(1L)).thenReturn(true);
+        when(resumeContentExtractor.extract("/resume.pdf", 2L, false, false)).thenReturn(
+                ResumeParseResult.builder().text("Java 后端开发 简历内容").parseMode("TEXT").build());
+        when(resumeAiService.diagnose(anyString(), eq(2L), eq(false), eq(false))).thenReturn("""
+                {
+                  "overallEvaluation":{"totalScore":82,"level":"A","summary":"模型按别名字段返回了完整诊断"},
+                  "skills":{"score":68,"skillList":["Java","Spring Boot"],"evaluation":"技能覆盖基础后端栈，但缺少场景和熟练度说明。","strengths":["技术栈覆盖 Java 后端基础"],"weaknesses":["缺少技能使用场景"],"suggestions":["补充技术在项目中的具体应用"]},
+                  "workExperience":{"score":55,"experiences":[{"company":"某科技公司","position":"Java 实习生","duration":"2025.01-2025.03","highlights":["参与接口开发"]}],"evaluation":"实习信息存在但成果量化不足。","strengths":["有真实实习经历"],"weaknesses":["缺少业务结果"],"suggestions":["补充接口性能或业务指标"]},
+                  "projectExperience":{"score":62,"projects":[{"name":"智能简历系统","role":"后端开发","techStack":"Spring Boot","highlights":["完成诊断链路"]}],"evaluation":"项目有技术栈但个人贡献边界还不够清晰。","strengths":["项目方向贴近岗位"],"weaknesses":["个人贡献描述偏笼统"],"suggestions":["写清个人负责模块"]},
+                  "education":{"score":90,"degree":"本科","school":"测试大学","major":"软件工程","hasRelevantMajor":true,"evaluation":"专业相关度高。","strengths":["专业匹配"],"weaknesses":["课程成果未展开"],"suggestions":["补充课程项目"]},
+                  "positioning":{"score":50,"evaluation":"求职方向存在但差异化不足。","strengths":["岗位方向明确"],"weaknesses":["核心优势不突出"],"suggestions":["增加个人定位摘要"]},
+                  "suggestions":["优先补充量化成果"]
+                }
+                """);
+        when(resumeInfoExtractor.extractBasicInfo(anyString())).thenReturn(
+                ResumeDiagnosisResult.BasicInfoDetails.builder().build());
+
+        processor.processTask(1L, 2L, "/resume.pdf");
+
+        ArgumentCaptor<String> resultCaptor = ArgumentCaptor.forClass(String.class);
+        verify(taskService).updateStatusToCompleted(org.mockito.ArgumentMatchers.eq(1L), resultCaptor.capture());
+
+        JsonNode result = objectMapper.readTree(resultCaptor.getValue());
+        assertEquals(68, result.path("skillEvaluation").path("score").asInt());
+        assertEquals("Java", result.path("skillEvaluation").path("skillList").get(0).asText());
+        assertEquals(55, result.path("workExperienceEvaluation").path("score").asInt());
+        assertEquals("某科技公司", result.path("workExperienceEvaluation").path("experiences").get(0).path("company").asText());
+        assertEquals(62, result.path("projectExperienceEvaluation").path("score").asInt());
+        assertEquals("智能简历系统", result.path("projectExperienceEvaluation").path("projects").get(0).path("name").asText());
+        assertEquals(90, result.path("educationEvaluation").path("score").asInt());
+        assertEquals(50, result.path("positioningEvaluation").path("score").asInt());
+        assertEquals("优先补充量化成果", result.path("optimizationSuggestions").get(0).asText());
+    }
+
+    @Test
     void processTaskShouldFailAndRefundOnTimeout() {
         when(resumeDiagnosisTaskMapper.selectOne(any())).thenReturn(newPendingTask());
         when(taskService.updateStatusToProcessing(1L)).thenReturn(true);

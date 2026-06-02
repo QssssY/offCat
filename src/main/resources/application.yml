@@ -66,7 +66,8 @@ mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
     cache-enabled: false
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    # 关闭 MyBatis 明细 SQL 输出，避免控制台日志泄露 API Key、简历原文和诊断结果大字段。
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
   global-config:
     db-config:
       id-type: ASSIGN_ID
@@ -86,7 +87,7 @@ logging:
 # ------------------------------------------
 jwt:
   secret: ${JWT_SECRET:dev-secret-key-change-in-production-123456}
-  expiration: 14400000
+  expiration: 604800000
   header: Authorization
   prefix: "Bearer "
 

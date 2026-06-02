@@ -9,6 +9,7 @@ import com.airesume.server.dto.interview.InterviewHistoryResponse;
 import com.airesume.server.dto.interview.InterviewJobRoleResponse;
 import com.airesume.server.dto.interview.InterviewJobTargetContext;
 import com.airesume.server.dto.interview.InterviewSessionResponse;
+import com.airesume.server.dto.interview.InterviewSessionStatusResponse;
 import com.airesume.server.dto.interview.SendMessageRequest;
 import com.airesume.server.dto.interview.SendMessageResponse;
 import com.airesume.server.dto.user.DataCleanupResponse;
@@ -141,12 +142,6 @@ public class InterviewController {
                     return;
                 }
 
-                // 先落用户消息，再让服务层按会话归属继续完成流式问答。
-                interviewService.saveUserMessage(session, request.getContent());
-                if (shouldSkipClosedStream(sessionId, streamClosed)) {
-                    return;
-                }
-
                 String jobRoleCode = session.getJobRoleCode();
                 String jobRole = session.getJobRole();
                 Integer difficulty = session.getDifficulty();
@@ -169,7 +164,16 @@ public class InterviewController {
                 if (useCustomAi) {
                     userAiUsageLimitService.checkAndIncrement(userId);
                     customAiCounted.set(true);
+                } else {
+                    interviewService.chargePlatformFallbackQuotaIfNeeded(session, fallbackToPlatform);
                 }
+
+                // 平台 fallback 额度校验和扣减必须先完成，再保存用户消息，避免额度不足时留下无回复的半截会话。
+                interviewService.saveUserMessage(session, request.getContent());
+                if (shouldSkipClosedStream(sessionId, streamClosed)) {
+                    return;
+                }
+
                 Publisher<String> publisher = interviewAiService.generateReplyStream(
                         sessionId,
                         history,
@@ -244,6 +248,18 @@ public class InterviewController {
         return Result.success(response);
     }
 
+    /**
+     * 获取会话轻量状态。
+     */
+    @GetMapping("/session/{sessionId}/status")
+    public Result<InterviewSessionStatusResponse> getSessionStatus(
+            @PathVariable String sessionId,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("获取会话轻量状态, userId: {}, sessionId: {}", userId, sessionId);
+        InterviewSessionStatusResponse response = interviewService.getSessionStatus(userId, sessionId);
+        return Result.success(response);
+    }
     /**
      * 结束面试。
      */

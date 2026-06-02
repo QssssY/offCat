@@ -22,6 +22,9 @@ public final class UserAiConstants {
     /** 平台 AI 计费来源。 */
     public static final String BILLING_SOURCE_PLATFORM = "platform";
 
+    /** 面试自定义 AI 会话首次手动回退平台 AI 后的计费来源。 */
+    public static final String BILLING_SOURCE_PLATFORM_FALLBACK = "platform_fallback";
+
     /** 系统配置中的每日调用次数上限 key。 */
     public static final String CUSTOM_AI_DAILY_LIMIT_KEY = "custom_ai_daily_limit";
 

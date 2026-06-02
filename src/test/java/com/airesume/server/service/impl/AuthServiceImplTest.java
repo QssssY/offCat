@@ -11,6 +11,7 @@ import com.airesume.server.entity.SysUser;
 import com.airesume.server.entity.UserQuota;
 import com.airesume.server.infrastructure.security.JwtProperties;
 import com.airesume.server.infrastructure.security.JwtUtil;
+import com.airesume.server.service.CaptchaService;
 import com.airesume.server.service.SysUserService;
 import com.airesume.server.service.UserQuotaService;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,6 +40,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -65,6 +67,9 @@ class AuthServiceImplTest {
     private JwtProperties jwtProperties;
 
     @Mock
+    private CaptchaService captchaService;
+
+    @Mock
     private StringRedisTemplate stringRedisTemplate;
 
     @Mock
@@ -75,12 +80,14 @@ class AuthServiceImplTest {
     private static final String ENCODED_PASSWORD = "$2a$10$encodedPassword";
     private static final Long TEST_USER_ID = 12345L;
     private static final String TEST_TOKEN = "test.jwt.token";
+    private static final long SEVEN_DAY_TOKEN_EXPIRATION_MILLIS = 604800000L;
+    private static final long SEVEN_DAY_TOKEN_EXPIRATION_SECONDS = 604800L;
 
     @BeforeEach
     void setUp() {
         lenient().when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
         lenient().when(jwtProperties.getPrefix()).thenReturn("Bearer ");
-        lenient().when(jwtProperties.getExpiration()).thenReturn(3600000L);
+        lenient().when(jwtProperties.getExpiration()).thenReturn(SEVEN_DAY_TOKEN_EXPIRATION_MILLIS);
     }
 
     @Nested
@@ -95,6 +102,8 @@ class AuthServiceImplTest {
             request.setPassword(TEST_PASSWORD);
             request.setSecurityQuestion("你的名字是？");
             request.setSecurityAnswer("测试用户");
+            request.setCaptchaId("captcha-register");
+            request.setCaptchaCode("A8K2");
 
             when(sysUserService.existsByUsername(TEST_USERNAME)).thenReturn(false);
             when(passwordEncoder.encode(TEST_PASSWORD)).thenReturn(ENCODED_PASSWORD);
@@ -111,6 +120,7 @@ class AuthServiceImplTest {
             verify(sysUserService).save(any(SysUser.class));
             verify(userQuotaService).initUserQuota(TEST_USER_ID);
             verify(passwordEncoder).encode(TEST_PASSWORD);
+            verify(captchaService).verify("captcha-register", "A8K2");
         }
     }
 
@@ -142,7 +152,7 @@ class AuthServiceImplTest {
             assertNotNull(response);
             assertEquals(TEST_TOKEN, response.getToken());
             assertEquals("Bearer", response.getTokenType());
-            assertEquals(3600, response.getExpiresIn());
+            assertEquals(SEVEN_DAY_TOKEN_EXPIRATION_SECONDS, response.getExpiresIn());
         }
 
         @Test
@@ -208,6 +218,8 @@ class AuthServiceImplTest {
             LoginRequest request = new LoginRequest();
             request.setUsername(TEST_USERNAME);
             request.setPassword("wrongPassword");
+            request.setCaptchaId("captcha-login");
+            request.setCaptchaCode("L8K2");
 
             SysUser user = new SysUser();
             user.setId(TEST_USER_ID);
@@ -308,6 +320,8 @@ class AuthServiceImplTest {
             request.setUsername(TEST_USERNAME);
             request.setSecurityAnswer("wrong");
             request.setNewPassword("NewPass@123456");
+            request.setCaptchaId("captcha-reset");
+            request.setCaptchaCode("R7T9");
 
             when(sysUserService.getByUsername(TEST_USERNAME)).thenReturn(null);
             BusinessException notFoundException = assertThrows(BusinessException.class,
@@ -326,6 +340,7 @@ class AuthServiceImplTest {
 
             assertEquals("用户名或凭证信息不正确", notFoundException.getMessage());
             assertEquals("用户名或凭证信息不正确", wrongAnswerException.getMessage());
+            verify(captchaService, times(2)).verify("captcha-reset", "R7T9");
         }
 
         @Test

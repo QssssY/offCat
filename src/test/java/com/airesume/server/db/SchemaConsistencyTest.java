@@ -114,6 +114,18 @@ class SchemaConsistencyTest {
         assertTrue(serverMigration.contains("fallback_to_platform"));
     }
 
+    @Test
+    void shouldKeepInterviewPlatformFallbackBillingMigrationInSyncAndRepeatable() throws Exception {
+        String rootMigration = readSql("../db/migrations/TASK_74_INTERVIEW_PLATFORM_FALLBACK_BILLING.sql");
+        String serverMigration = readSql("db/migrations/TASK_74_INTERVIEW_PLATFORM_FALLBACK_BILLING.sql");
+
+        assertEquals(rootMigration, serverMigration, "TASK_74 interview fallback billing migration must stay in sync");
+        assertTrue(serverMigration.contains("SET NAMES utf8mb4;"));
+        assertTrue(serverMigration.contains("interview_session"));
+        assertTrue(serverMigration.contains("ai_billing_source"));
+        assertTrue(serverMigration.contains("platform_fallback"));
+    }
+
     private void assertContainsCriticalSchema(String schema) {
         assertTrue(schema.contains("CREATE TABLE `user_settings`"));
         assertTrue(schema.contains("idx_user_settings_resume_retention"));
@@ -138,6 +150,7 @@ class SchemaConsistencyTest {
         assertTrue(schema.contains("custom_ai_daily_limit"));
         assertTrue(schema.contains("ai_billing_source"));
         assertTrue(schema.contains("fallback_to_platform"));
+        assertTrue(schema.contains("platform_fallback"));
     }
 
     private String readSql(String path) throws Exception {

@@ -9,6 +9,7 @@ import com.airesume.server.mock.MockInterviewService;
 import com.airesume.server.service.AiCircuitBreaker;
 import com.airesume.server.service.AiCredentialCrypto;
 import com.airesume.server.service.InterviewContextCompressor;
+import com.airesume.server.service.InterviewAiService.ChatMessageItem;
 import com.airesume.server.service.SysAiEngineConfigService;
 import com.airesume.server.service.SysPromptService;
 import com.airesume.server.config.AiTokenLimitConfig;
@@ -410,6 +411,53 @@ class InterviewAiServiceImplTest {
         assertNotNull(report.getTechnicalDepth().getStrengths());
         assertNotNull(report.getTechnicalDepth().getWeaknesses());
         assertEquals(1, report.getProjectExpression().getStrengths().size());
+    }
+
+    @Test
+    void buildEvaluationUserPromptShouldExposeEffectiveQuestionAnswerRounds() throws Exception {
+        Method method = InterviewAiServiceImpl.class.getDeclaredMethod(
+                "buildEvaluationUserPrompt", List.class,
+                com.airesume.server.dto.interview.InterviewJobTargetContext.class);
+        method.setAccessible(true);
+
+        List<ChatMessageItem> history = List.of(
+                new ChatMessageItem("assistant", "请介绍你最近负责的订单系统项目。"),
+                new ChatMessageItem("user", "我负责订单系统的核心下单链路，做了拆分和缓存优化。"),
+                new ChatMessageItem("assistant", "这里缺少量化指标，请补充并发峰值和你的具体动作。"),
+                new ChatMessageItem("user", "峰值大约每秒三千请求，我主要做了库存预占、接口幂等和慢查询治理。"),
+                new ChatMessageItem("assistant", "请解释缓存击穿时你们怎么处理。"),
+                new ChatMessageItem("user", "我们用互斥锁、短 TTL 和热点 Key 预热降低击穿风险。"));
+
+        String result = (String) method.invoke(service, history, null);
+
+        assertTrue(result.contains("有效问答轮次总数：3"));
+        assertTrue(result.contains("【有效问答轮次1】"));
+        assertTrue(result.contains("问题：请介绍你最近负责的订单系统项目。"));
+        assertTrue(result.contains("回答：我负责订单系统的核心下单链路"));
+        assertTrue(result.contains("后续反馈或追问：这里缺少量化指标"));
+        assertTrue(result.contains("questionPerformance/roundReviews 必须优先覆盖以上有效问答轮次"));
+    }
+
+    @Test
+    void buildEvaluationUserPromptShouldNotScoreTrailingUnansweredInterviewerPrompt() throws Exception {
+        Method method = InterviewAiServiceImpl.class.getDeclaredMethod(
+                "buildEvaluationUserPrompt", List.class,
+                com.airesume.server.dto.interview.InterviewJobTargetContext.class);
+        method.setAccessible(true);
+
+        String trailingPrompt = "请继续说明 useCart 的内部设计。";
+        List<ChatMessageItem> history = List.of(
+                new ChatMessageItem("assistant", "请介绍你最近负责的购物车模块。"),
+                new ChatMessageItem("user", "我把购物车状态封装在 useCart 中，统一处理增删改查。"),
+                new ChatMessageItem("assistant", trailingPrompt));
+
+        String result = (String) method.invoke(service, history, null);
+
+        assertTrue(result.contains("有效问答轮次总数：1"));
+        assertTrue(result.contains("后续反馈或追问：" + trailingPrompt));
+        assertTrue(result.contains("不得因该未回答追问给 0 分"));
+        assertEquals(1, result.split(trailingPrompt, -1).length - 1);
+        assertFalse(result.contains("【面试官】\n" + trailingPrompt));
     }
 
     @Test

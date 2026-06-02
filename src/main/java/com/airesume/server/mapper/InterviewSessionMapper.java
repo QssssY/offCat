@@ -1,5 +1,6 @@
 package com.airesume.server.mapper;
 
+import com.airesume.server.dto.interview.InterviewSessionStatusResponse;
 import com.airesume.server.entity.InterviewSession;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;
@@ -34,6 +35,24 @@ public interface InterviewSessionMapper extends BaseMapper<InterviewSession> {
     List<Map<String, Object>> countByCreateDate(@Param("startTime") LocalDateTime startTime,
                                                 @Param("endExclusiveTime") LocalDateTime endExclusiveTime);
 
+    /**
+     * 查询会话轻量状态，报告等待和开场白轮询只需要这些字段，避免加载聊天记录和 evaluation_report JSON。
+     */
+    @Select("""
+            SELECT session_id AS sessionId,
+                   status,
+                   CASE WHEN opening_generated IS NULL OR opening_generated = 0 THEN 1 ELSE 0 END AS openingPending,
+                   CASE WHEN evaluation_report IS NOT NULL AND evaluation_report <> '' THEN 1 ELSE 0 END AS reportReady,
+                   comprehensive_score AS comprehensiveScore,
+                   update_time AS updateTime
+            FROM interview_session
+            WHERE session_id = #{sessionId}
+              AND user_id = #{userId}
+              AND is_deleted = 0
+            LIMIT 1
+            """)
+    InterviewSessionStatusResponse selectOwnedStatus(@Param("sessionId") String sessionId,
+                                                     @Param("userId") Long userId);
     /** 会话结束采用状态 CAS，避免并发结束重复触发评估报告。 */
     @Update("""
             UPDATE interview_session
@@ -78,6 +97,24 @@ public interface InterviewSessionMapper extends BaseMapper<InterviewSession> {
     int updateOpeningGenerated(@Param("sessionId") String sessionId,
                                @Param("openingGenerated") Integer openingGenerated,
                                @Param("updateTime") LocalDateTime updateTime);
+
+    /**
+     * 自定义 AI 面试会话首次手动回退到平台 AI 时原子标记计费来源。
+     * 只有从 user_custom 成功切到 platform_fallback 的请求才需要扣平台面试额度，避免重复点击或并发请求重复扣费。
+     */
+    @Update("""
+            UPDATE interview_session
+            SET ai_billing_source = #{targetBillingSource},
+                update_time = #{updateTime}
+            WHERE session_id = #{sessionId}
+              AND user_id = #{userId}
+              AND ai_billing_source = 'user_custom'
+              AND is_deleted = 0
+            """)
+    int markPlatformFallbackBillingIfCustom(@Param("sessionId") String sessionId,
+                                            @Param("userId") Long userId,
+                                            @Param("targetBillingSource") String targetBillingSource,
+                                            @Param("updateTime") LocalDateTime updateTime);
 
     /** 查询当前用户未删除的会话 ID，用于级联清理聊天记录和岗位定向上下文。 */
     @Select("""

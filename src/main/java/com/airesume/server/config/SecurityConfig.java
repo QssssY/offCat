@@ -42,6 +42,7 @@ public class SecurityConfig {
     private static final String AUTH_LOGIN_PATH = "/api/auth/login";
     private static final String AUTH_RESET_PASSWORD_PATH = "/api/auth/reset-password";
     private static final String AUTH_SECURITY_QUESTION_PATH = "/api/auth/security-question";
+    private static final String AUTH_CAPTCHA_PATH = "/api/auth/captcha";
     private static final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
@@ -88,7 +89,8 @@ public class SecurityConfig {
                                 AUTH_REGISTER_PATH,
                                 AUTH_LOGIN_PATH,
                                 AUTH_RESET_PASSWORD_PATH).permitAll()
-                        .requestMatchers(HttpMethod.GET, AUTH_SECURITY_QUESTION_PATH).permitAll()
+                        .requestMatchers(HttpMethod.GET, AUTH_SECURITY_QUESTION_PATH,
+                                AUTH_CAPTCHA_PATH).permitAll()
                         .requestMatchers("/api/auth/**").authenticated()
                         .requestMatchers("/actuator/health", "/actuator/info").permitAll()
                         .requestMatchers("/actuator/**").hasRole("ADMIN")
@@ -160,7 +162,8 @@ public class SecurityConfig {
                     || AUTH_LOGIN_PATH.equals(path)
                     || AUTH_RESET_PASSWORD_PATH.equals(path);
         }
-        return method == HttpMethod.GET && AUTH_SECURITY_QUESTION_PATH.equals(path);
+        return method == HttpMethod.GET && (AUTH_SECURITY_QUESTION_PATH.equals(path)
+                || AUTH_CAPTCHA_PATH.equals(path));
     }
 
     /**

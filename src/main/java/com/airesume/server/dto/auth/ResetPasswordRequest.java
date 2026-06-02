@@ -21,4 +21,10 @@ public class ResetPasswordRequest {
     @Size(min = 6, max = 100, message = "密码长度需要在6-100之间")
     @Pattern(regexp = AuthPasswordRules.LETTER_AND_DIGIT_REGEX, message = AuthPasswordRules.LETTER_AND_DIGIT_MESSAGE)
     private String newPassword;
+
+    @NotBlank(message = "验证码ID不能为空")
+    private String captchaId;
+
+    @NotBlank(message = "验证码不能为空")
+    private String captchaCode;
 }

@@ -20,6 +20,20 @@ class RuntimeProtectionConfigTest {
     }
 
     @Test
+    void shouldDisableMybatisStdoutSqlLoggingInAllProfiles() throws IOException {
+        assertEquals("org.apache.ibatis.logging.nologging.NoLoggingImpl", mybatisLogImpl("application.yml"));
+        assertEquals("org.apache.ibatis.logging.nologging.NoLoggingImpl", mybatisLogImpl("application-dev.yml"));
+        assertEquals("org.apache.ibatis.logging.nologging.NoLoggingImpl", mybatisLogImpl("application-prod.yml"));
+    }
+
+    @Test
+    void shouldConfigureSevenDayJwtExpirationInAllProfiles() throws IOException {
+        assertEquals(604800000, jwtExpiration("application.yml"));
+        assertEquals(604800000, jwtExpiration("application-dev.yml"));
+        assertEquals(604800000, jwtExpiration("application-prod.yml"));
+    }
+
+    @Test
     void shouldConfigureConservativeProductionCapacityForSmallServers() throws IOException {
         Map<String, Object> root = loadYaml("application-prod.yml");
         Map<String, Object> spring = getMap(root, "spring");
@@ -64,6 +78,19 @@ class RuntimeProtectionConfigTest {
         Map<String, Object> lettuce = getMap(redis, "lettuce");
         Map<String, Object> pool = getMap(lettuce, "pool");
         return String.valueOf(pool.get("max-wait"));
+    }
+
+    private String mybatisLogImpl(String resourceName) throws IOException {
+        Map<String, Object> root = loadYaml(resourceName);
+        Map<String, Object> mybatisPlus = getMap(root, "mybatis-plus");
+        Map<String, Object> configuration = getMap(mybatisPlus, "configuration");
+        return String.valueOf(configuration.get("log-impl"));
+    }
+
+    private Object jwtExpiration(String resourceName) throws IOException {
+        Map<String, Object> root = loadYaml(resourceName);
+        Map<String, Object> jwt = getMap(root, "jwt");
+        return jwt.get("expiration");
     }
 
     private Map<String, Object> loadYaml(String resourceName) throws IOException {

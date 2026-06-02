@@ -38,6 +38,7 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
     private static final String REGISTER_PATH = "/api/auth/register";
     private static final String SECURITY_QUESTION_PATH = "/api/auth/security-question";
     private static final String RESET_PASSWORD_PATH = "/api/auth/reset-password";
+    private static final String CAPTCHA_PATH = "/api/auth/captcha";
     private static final String RESUME_UPLOAD_PATH = "/api/resume/upload";
     private static final String RESUME_EXPORT_PDF_PATH = "/api/resume/export-pdf";
     private static final String INTERVIEW_SESSION_PATH = "/api/interview/session";
@@ -55,6 +56,9 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
             "security_question", SECURITY_QUESTION_PATH, MatchType.EXACT, 10, Duration.ofMinutes(15).toMillis(), KeyStrategy.IP_ONLY, "GET");
     private static final RateLimitPolicy RESET_PASSWORD_POLICY = new RateLimitPolicy(
             "reset_password", RESET_PASSWORD_PATH, MatchType.EXACT, 5, Duration.ofMinutes(15).toMillis(), KeyStrategy.IP_ONLY);
+    /** 验证码生成接口限流：60次/分钟/IP，防止恶意拉取图片消耗内存和Redis。 */
+    private static final RateLimitPolicy CAPTCHA_POLICY = new RateLimitPolicy(
+            "captcha", CAPTCHA_PATH, MatchType.EXACT, 60, Duration.ofMinutes(1).toMillis(), KeyStrategy.IP_ONLY, "GET");
     private static final RateLimitPolicy RESUME_UPLOAD_POLICY = new RateLimitPolicy(
             "resume_upload", RESUME_UPLOAD_PATH, MatchType.EXACT, 10, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
     // PDF 导出会启动浏览器进程生成文件，成本高于普通查询，单独限制频率保护 CPU 和内存。
@@ -218,6 +222,9 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
         }
         if (RESET_PASSWORD_POLICY.matches(requestMethod, requestUri)) {
             return RESET_PASSWORD_POLICY;
+        }
+        if (CAPTCHA_POLICY.matches(requestMethod, requestUri)) {
+            return CAPTCHA_POLICY;
         }
         if (RESUME_UPLOAD_POLICY.matches(requestMethod, requestUri)) {
             return RESUME_UPLOAD_POLICY;

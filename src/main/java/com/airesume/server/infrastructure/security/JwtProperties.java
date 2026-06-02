@@ -19,9 +19,13 @@ public class JwtProperties {
 
     static final String WEAK_SECRET_PLACEHOLDER = "dev-secret-key-change-in-production-123456";
     private static final int MIN_SECRET_LENGTH = 32;
+    private static final long DEFAULT_EXPIRATION_MILLIS = 7L * 24 * 60 * 60 * 1000;
 
     private String secret = "";
-    private long expiration = 86400000;
+    /**
+     * JWT 默认有效期为 7 天，避免配置缺失时退回 1 天导致用户频繁重新登录。
+     */
+    private long expiration = DEFAULT_EXPIRATION_MILLIS;
     private String header = "Authorization";
     private String prefix = "Bearer ";
     private Environment environment;

@@ -389,6 +389,7 @@ CREATE TABLE `interview_session` (
   `opening_generated` INT(1) NOT NULL DEFAULT 0 COMMENT 'Opening generated: 0-no, 1-yes',
   `feedback_mode` VARCHAR(20) DEFAULT NULL COMMENT 'Feedback mode: immediate-每题反馈, after_interview-面完复盘, NULL-默认面完复盘',
   `interaction_type` TINYINT NOT NULL DEFAULT 0 COMMENT '交互方式：0-文字面试，1-语音面试',
+  `ai_billing_source` VARCHAR(32) NOT NULL DEFAULT 'platform' COMMENT 'AI billing source: platform/user_custom/platform_fallback',
   `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Create time',
   `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Update time',
   `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT 'Logical delete flag',

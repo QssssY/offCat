@@ -29,4 +29,10 @@ public class RegisterRequest {
      */
     @Size(max = 100, message = "安全问题答案长度不能超过100个字符")
     private String securityAnswer;
+
+    @NotBlank(message = "验证码ID不能为空")
+    private String captchaId;
+
+    @NotBlank(message = "验证码不能为空")
+    private String captchaCode;
 }

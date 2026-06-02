@@ -43,7 +43,7 @@ server:
 # JWT 配置 - 生产环境必须通过环境变量设置密钥
 jwt:
   secret: ${JWT_SECRET}
-  expiration: 86400000
+  expiration: 604800000
   header: Authorization
   prefix: "Bearer "
 

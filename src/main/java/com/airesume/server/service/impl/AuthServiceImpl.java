@@ -15,6 +15,7 @@ import com.airesume.server.entity.UserQuota;
 import com.airesume.server.infrastructure.security.JwtProperties;
 import com.airesume.server.infrastructure.security.JwtUtil;
 import com.airesume.server.service.AuthService;
+import com.airesume.server.service.CaptchaService;
 import com.airesume.server.service.SysUserService;
 import com.airesume.server.service.UserQuotaService;
 import lombok.RequiredArgsConstructor;
@@ -54,6 +55,7 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
     private final JwtProperties jwtProperties;
+    private final CaptchaService captchaService;
 
     @Autowired(required = false)
     private StringRedisTemplate stringRedisTemplate;
@@ -66,6 +68,8 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void register(RegisterRequest request) {
+        captchaService.verify(request.getCaptchaId(), request.getCaptchaCode());
+
         String username = request.getUsername();
         log.info("Processing user registration, username: {}", username);
 
@@ -94,6 +98,9 @@ public class AuthServiceImpl implements AuthService {
         log.info("User registered successfully: {}", username);
     }
 
+    /** 连续失败多少次后要求输入验证码 */
+    private static final int CAPTCHA_REQUIRED_ATTEMPTS = 3;
+
     @Override
     public LoginResponse login(LoginRequest request) {
         String username = request.getUsername();
@@ -104,6 +111,15 @@ public class AuthServiceImpl implements AuthService {
         if (attempts >= MAX_LOGIN_ATTEMPTS) {
             log.warn("Login blocked due to too many failed attempts, username: {}", username);
             throw new BusinessException("登录失败次数过多，请 " + LOGIN_LOCKOUT_MINUTES + " 分钟后再试");
+        }
+
+        // 渐进式验证码：前 2 次失败不要求验证码，第 3 次起必须输入
+        if (attempts >= CAPTCHA_REQUIRED_ATTEMPTS) {
+            if (request.getCaptchaId() == null || request.getCaptchaId().isBlank()
+                    || request.getCaptchaCode() == null || request.getCaptchaCode().isBlank()) {
+                throw new BusinessException("请先完成验证码验证");
+            }
+            captchaService.verify(request.getCaptchaId(), request.getCaptchaCode());
         }
 
         SysUser user = sysUserService.getByUsername(username);
@@ -340,6 +356,8 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void resetPasswordBySecurityQuestion(ResetPasswordRequest request) {
+        captchaService.verify(request.getCaptchaId(), request.getCaptchaCode());
+
         String username = request.getUsername();
         log.info("Resetting password by security question, username: {}", username);
 

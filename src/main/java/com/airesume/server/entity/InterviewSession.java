@@ -88,4 +88,11 @@ public class InterviewSession extends BaseEntity {
      */
     @TableField("interaction_type")
     private Integer interactionType;
+
+    /**
+     * AI 计费来源：platform / user_custom / platform_fallback。
+     * 用于锁定自定义 AI 面试会话首次手动切平台时只扣一次平台面试额度。
+     */
+    @TableField("ai_billing_source")
+    private String aiBillingSource;
 }

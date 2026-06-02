@@ -9,6 +9,7 @@ import com.airesume.server.dto.resume.ResumeDiagnosisHistoryResponse;
 import com.airesume.server.dto.resume.ResumeJobMatchAnalyzeResponse;
 import com.airesume.server.dto.resume.ResumePolishAnalyzeResponse;
 import com.airesume.server.dto.resume.ResumeDiagnosisTaskResponse;
+import com.airesume.server.dto.resume.ResumeDiagnosisTaskStatusResponse;
 import com.airesume.server.entity.ResumeDiagnosisTask;
 import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
 import com.airesume.server.mapper.ResumeJobMatchRecordMapper;
@@ -331,6 +332,26 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
     }
 
     @Override
+    public ResumeDiagnosisTaskStatusResponse getTaskStatusById(Long taskId, Long userId) {
+        ResumeDiagnosisTask task = getBaseMapper().selectOne(new LambdaQueryWrapper<ResumeDiagnosisTask>()
+                // 等待页轮询只需要状态字段，避免反复读取 resume_text 与 diagnosis_result 大字段。
+                .select(ResumeDiagnosisTask::getId, ResumeDiagnosisTask::getUserId,
+                        ResumeDiagnosisTask::getStatus, ResumeDiagnosisTask::getStage,
+                        ResumeDiagnosisTask::getErrorMsg, ResumeDiagnosisTask::getFailedAt,
+                        ResumeDiagnosisTask::getCreateTime, ResumeDiagnosisTask::getUpdateTime)
+                .eq(ResumeDiagnosisTask::getId, taskId)
+                .last("limit 1"));
+        if (task == null) {
+            throw new BusinessException(ResultCode.RESUME_TASK_NOT_FOUND);
+        }
+        if (!task.getUserId().equals(userId)) {
+            throw new BusinessException(ResultCode.RESUME_TASK_ACCESS_DENIED);
+        }
+
+        return buildTaskStatusResponse(task);
+    }
+
+    @Override
     public PageResult<ResumeDiagnosisHistoryResponse> getHistoryByUserId(Long userId, Integer pageNum, Integer pageSize) {
         LambdaQueryWrapper<ResumeDiagnosisTask> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(ResumeDiagnosisTask::getUserId, userId);
@@ -594,6 +615,21 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
                 .parseMessage(task.getParseMessage())
                 .latestJobMatchAnalysis(resolveLatestJobMatchAnalysis(task, isCompletedTask))
                 .latestPolishResult(resolveLatestPolishResult(task, isCompletedTask))
+                .createTime(task.getCreateTime())
+                .updateTime(task.getUpdateTime())
+                .build();
+    }
+
+    private ResumeDiagnosisTaskStatusResponse buildTaskStatusResponse(ResumeDiagnosisTask task) {
+        return ResumeDiagnosisTaskStatusResponse.builder()
+                .taskId(String.valueOf(task.getId()))
+                .userId(task.getUserId())
+                .status(task.getStatus())
+                .statusDesc(getStatusDescription(task.getStatus()))
+                .stage(task.getStage())
+                .stageDesc(getStageDescription(task.getStage()))
+                .errorMsg(task.getErrorMsg())
+                .failedAt(task.getFailedAt())
                 .createTime(task.getCreateTime())
                 .updateTime(task.getUpdateTime())
                 .build();

@@ -1,6 +1,7 @@
 package com.airesume.server.controller;
 
 import com.airesume.server.common.result.Result;
+import com.airesume.server.dto.auth.CaptchaResponse;
 import com.airesume.server.dto.auth.LoginRequest;
 import com.airesume.server.dto.auth.LoginResponse;
 import com.airesume.server.dto.auth.NicknameUpdateRequest;
@@ -11,6 +12,7 @@ import com.airesume.server.dto.auth.SecurityQuestionResponse;
 import com.airesume.server.dto.auth.SecurityQuestionUpdateRequest;
 import com.airesume.server.dto.auth.UserInfoResponse;
 import com.airesume.server.service.AuthService;
+import com.airesume.server.service.CaptchaService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,6 +36,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
+    private final CaptchaService captchaService;
 
     /**
      * 用户注册接口
@@ -107,6 +110,17 @@ public class AuthController {
         log.info("Update password request, userId: {}", userId);
         authService.updatePassword(userId, request);
         return Result.success();
+    }
+
+    /**
+     * 获取图形验证码接口
+     *
+     * @return 验证码ID和Base64图片
+     */
+    @GetMapping("/captcha")
+    public Result<CaptchaResponse> getCaptcha() {
+        log.info("Captcha generation request");
+        return Result.success(captchaService.generate());
     }
 
     /**

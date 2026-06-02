@@ -3,6 +3,7 @@ package com.airesume.server.service;
 import com.airesume.server.common.result.PageResult;
 import com.airesume.server.dto.resume.ResumeDiagnosisHistoryResponse;
 import com.airesume.server.dto.resume.ResumeDiagnosisTaskResponse;
+import com.airesume.server.dto.resume.ResumeDiagnosisTaskStatusResponse;
 import com.airesume.server.entity.ResumeDiagnosisTask;
 import com.baomidou.mybatisplus.extension.service.IService;
 import org.springframework.web.multipart.MultipartFile;
@@ -54,6 +55,15 @@ public interface ResumeDiagnosisTaskService extends IService<ResumeDiagnosisTask
      * @return 任务详情
      */
     ResumeDiagnosisTaskResponse getTaskById(Long taskId, Long userId);
+
+    /**
+     * 查询任务轻量状态，等待页轮询使用，避免加载简历原文和诊断结果大字段。
+     *
+     * @param taskId 任务 ID
+     * @param userId 用户 ID，用于校验任务归属
+     * @return 任务轻量状态
+     */
+    ResumeDiagnosisTaskStatusResponse getTaskStatusById(Long taskId, Long userId);
 
     /**
      * 查询用户的简历诊断历史记录，分页返回。

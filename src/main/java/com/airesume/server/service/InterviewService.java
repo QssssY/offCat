@@ -13,6 +13,7 @@ import com.airesume.server.dto.interview.InterviewHistoryResponse;
 import com.airesume.server.dto.interview.InterviewJobTargetContext;
 import com.airesume.server.dto.interview.InterviewReplayRoundResponse;
 import com.airesume.server.dto.interview.InterviewSessionResponse;
+import com.airesume.server.dto.interview.InterviewSessionStatusResponse;
 import com.airesume.server.dto.interview.SendMessageRequest;
 import com.airesume.server.dto.interview.SendMessageResponse;
 import com.airesume.server.entity.InterviewChatLog;
@@ -193,6 +194,9 @@ public class InterviewService {
         session.setInterviewMode(interviewMode);
         session.setFeedbackMode(feedbackMode);
         session.setInteractionType(interactionType);
+        session.setAiBillingSource(useCustomAi
+                ? UserAiConstants.BILLING_SOURCE_USER_CUSTOM
+                : UserAiConstants.BILLING_SOURCE_PLATFORM);
         session.setStatus(InterviewConstants.STATUS_IN_PROGRESS);
         session.setOpeningGenerated(0);
         session.setCreateTime(LocalDateTime.now());
@@ -311,6 +315,8 @@ public class InterviewService {
         boolean useCustomAi = shouldUseCustomAi(userId, fallbackToPlatform);
         if (useCustomAi) {
             userAiUsageLimitService.checkAndIncrement(userId);
+        } else {
+            chargePlatformFallbackQuotaIfNeeded(session, fallbackToPlatform);
         }
         String reply;
         try {
@@ -360,6 +366,22 @@ public class InterviewService {
         return convertToSessionResponse(session, chatLogs, jobTargetContext);
     }
 
+    /**
+     * 查询会话轻量状态。
+     * 该接口专用于前端轮询，不加载聊天记录、岗位上下文和评估报告大字段。
+     */
+    @Transactional(readOnly = true)
+    public InterviewSessionStatusResponse getSessionStatus(Long userId, String sessionId) {
+        InterviewSessionStatusResponse response = interviewSessionMapper.selectOwnedStatus(sessionId, userId);
+        if (response == null) {
+            throw new BusinessException("会话不存在或无权访问");
+        }
+        response.setStatusDesc(response.getStatus() != null
+                && response.getStatus() == InterviewConstants.STATUS_IN_PROGRESS ? "进行中" : "已结束");
+        response.setOpeningPending(Boolean.TRUE.equals(response.getOpeningPending()));
+        response.setReportReady(Boolean.TRUE.equals(response.getReportReady()));
+        return response;
+    }
     /**
      * 结束会话。
      */
@@ -1470,7 +1492,7 @@ public class InterviewService {
     private QueryWrapper<InterviewSession> baseSessionQuery(boolean includeEvaluationReport) {
         QueryWrapper<InterviewSession> wrapper = new QueryWrapper<>();
         String columns = "id,session_id,user_id,job_role,job_role_code,difficulty,interview_mode,status,"
-                + "comprehensive_score,opening_generated,feedback_mode,interaction_type,create_time,update_time,is_deleted";
+                + "comprehensive_score,opening_generated,feedback_mode,interaction_type,ai_billing_source,create_time,update_time,is_deleted";
         if (includeEvaluationReport) {
             columns += ",evaluation_report";
         }
@@ -1512,5 +1534,29 @@ public class InterviewService {
     private boolean shouldUseCustomAi(Long userId, boolean fallbackToPlatform) {
         return userAiConfigResolver != null
                 && userAiConfigResolver.resolve(userId, AiEngineConstants.BUSINESS_TYPE_INTERVIEW, fallbackToPlatform) != null;
+    }
+
+    /**
+     * 自定义 AI 面试会话手动切平台时，按整场面试只扣一次平台额度。
+     * 原子标记成功才扣费，防止同一个 session 重复点击或并发请求重复消耗用户额度。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void chargePlatformFallbackQuotaIfNeeded(InterviewSession session, boolean fallbackToPlatform) {
+        if (!fallbackToPlatform || session == null) {
+            return;
+        }
+        if (!UserAiConstants.BILLING_SOURCE_USER_CUSTOM.equals(session.getAiBillingSource())) {
+            return;
+        }
+
+        int marked = interviewSessionMapper.markPlatformFallbackBillingIfCustom(
+                session.getSessionId(),
+                session.getUserId(),
+                UserAiConstants.BILLING_SOURCE_PLATFORM_FALLBACK,
+                LocalDateTime.now());
+        if (marked > 0) {
+            userQuotaService.deductInterviewQuota(session.getUserId());
+            session.setAiBillingSource(UserAiConstants.BILLING_SOURCE_PLATFORM_FALLBACK);
+        }
     }
 }

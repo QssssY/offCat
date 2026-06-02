@@ -50,6 +50,25 @@ public class InterviewContextCompressor {
     /** 摘要缓存最长保留时间，防止用户中断面试后缓存长期占用内存。 */
     private static final Duration SUMMARY_CACHE_TTL = Duration.ofHours(2);
 
+    /**
+     * 读取缓存的摘要文本，用于评价报告压缩时复用流式阶段已生成的摘要，避免重复调用 AI
+     *
+     * @param sessionId 会话 ID
+     * @return 缓存的摘要文本，无缓存时返回 null
+     */
+    public String getCachedSummary(String sessionId) {
+        CachedSummary cache = summaryCache.get(sessionId);
+        if (cache == null) {
+            return null;
+        }
+        // 检查 TTL，过期则视为无效
+        if (Duration.between(cache.updatedAt(), Instant.now(clock)).compareTo(SUMMARY_CACHE_TTL) > 0) {
+            summaryCache.remove(sessionId);
+            return null;
+        }
+        return cache.summary();
+    }
+
     /** 获取重新摘要间隔（从配置读取，默认 6 条消息 = 3 轮对话） */
     private int getResummarizeThreshold() {
         return tokenLimitConfig.getResummarizeInterval();

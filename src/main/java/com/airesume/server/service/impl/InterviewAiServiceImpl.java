@@ -887,6 +887,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     ) {
         RuntimeAiConfig runtimeConfig = resolveRuntimeConfig(userId, fallbackToPlatform);
         String tag = runtimeConfig.provider().toUpperCase();
+        // 优先读取流式阶段已缓存的摘要，避免重复调用 AI 摘要
+        String cachedSummary = contextCompressor.getCachedSummary(sessionId);
         // 面试结束，清除摘要缓存
         contextCompressor.evictCache(sessionId);
         log.info("[{}] ═══════════════════════════════════════════════", tag);
@@ -896,9 +898,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 tag, sessionId, jobRole, jobRoleCode, difficulty, interviewMode,
                 history == null ? 0 : history.size());
 
-        // 【Token 优化】评价报告是一次性生成，跳过 AI 压缩避免双重调用浪费 token
-        // 直接使用完整历史，仅在 token 超限时做简单截断
-        List<ChatMessageItem> reportHistory = history;
+        // 使用 AI 压缩生成评价专用摘要（保留最近 N 条完整对话 + 早期对话的全局摘要），确保评价涵盖全流程
+        List<ChatMessageItem> reportHistory = contextCompressor.compressForEvaluation(history, cachedSummary);
 
         String systemPrompt = buildEvaluationSystemPrompt(jobRole, jobRoleCode, difficulty, interviewMode, jobTargetContext);
         String userPrompt = buildEvaluationUserPrompt(reportHistory, jobTargetContext);
@@ -908,9 +909,9 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         int totalTokens = systemTokens + userTokens;
         log.info("[{}] 评价报告预估token: {}(system:{}, user:{})", tag, totalTokens, systemTokens, userTokens);
 
-        // 若超过评价报告 token 限制，简单截断保留最近消息（不调 AI，避免额外消耗）
+        // 安全兜底：压缩后仍超限时，简单截断保留最近消息
         if (tokenLimitConfig.isTokenLimitEnabled() && totalTokens > tokenLimitConfig.getInterviewEvaluationMax()) {
-            log.warn("[{}] 评价报告token预估({})超过限制({})，截断历史对话保留最近消息", tag, totalTokens, tokenLimitConfig.getInterviewEvaluationMax());
+            log.warn("[{}] 评价报告token预估({})超过限制({})，回退到截断保留最近消息", tag, totalTokens, tokenLimitConfig.getInterviewEvaluationMax());
             int keepRecent = tokenLimitConfig.getEvaluationRecentMessagesToKeep();
             if (reportHistory.size() > keepRecent) {
                 reportHistory = reportHistory.subList(reportHistory.size() - keepRecent, reportHistory.size());
@@ -995,16 +996,14 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             sb.append(buildJobTargetContextSummary(jobTargetContext)).append("\n\n");
         }
         sb.append("以下是面试对话记录，请严格评估：\n\n");
+        appendEffectiveEvaluationRounds(sb, history);
 
-        if (history != null && !history.isEmpty()) {
-            int round = 1;
-            for (ChatMessageItem item : history) {
+        List<ChatMessageItem> detailHistory = trimTrailingUnansweredInterviewerMessages(history);
+        if (detailHistory != null && !detailHistory.isEmpty()) {
+            for (ChatMessageItem item : detailHistory) {
                 String role = "user".equalsIgnoreCase(item.role()) ? "候选人" : "面试官";
                 sb.append("【").append(role).append("】\n");
                 sb.append(item.content()).append("\n\n");
-                if ("面试官".equals(role)) {
-                    round++;
-                }
             }
         } else {
             sb.append("（暂无对话记录）\n");
@@ -1012,6 +1011,93 @@ public class InterviewAiServiceImpl implements InterviewAiService {
 
         sb.append("请输出 JSON 格式的评价报告。");
         return sb.toString();
+    }
+
+    /**
+     * 报告详情里的原始对话只保留到最后一个候选人回答，避免把未回答的尾部追问当成 0 分题。
+     */
+    private List<ChatMessageItem> trimTrailingUnansweredInterviewerMessages(List<ChatMessageItem> history) {
+        if (history == null || history.isEmpty()) {
+            return history;
+        }
+
+        int lastUserIndex = -1;
+        for (int i = history.size() - 1; i >= 0; i--) {
+            ChatMessageItem item = history.get(i);
+            if (item != null && "user".equalsIgnoreCase(item.role())) {
+                lastUserIndex = i;
+                break;
+            }
+        }
+        if (lastUserIndex < 0) {
+            return List.of();
+        }
+        return new ArrayList<>(history.subList(0, lastUserIndex + 1));
+    }
+
+    /**
+     * 将原始聊天记录压缩成“问题-回答-后续反馈/追问”轮次，防止报告生成时只看到松散消息而漏评候选人的有效回答。
+     */
+    private void appendEffectiveEvaluationRounds(StringBuilder sb, List<ChatMessageItem> history) {
+        List<EvaluationRound> rounds = buildEffectiveEvaluationRounds(history);
+        if (rounds.isEmpty()) {
+            return;
+        }
+
+        sb.append("有效问答轮次总数：").append(rounds.size()).append("\n");
+        sb.append("questionPerformance/roundReviews 必须优先覆盖以上有效问答轮次；若有效轮次不超过15轮，不得少于有效轮次总数；若超过15轮，保留最关键的15轮并在summary说明筛选依据。\n\n");
+        sb.append("尾部未回答规则：后续反馈或追问只作为上一轮回答的上下文；如果某条面试官消息后面没有候选人回答，不得把它作为独立 questionPerformance/roundReviews 条目，也不得因该未回答追问给 0 分。\n\n");
+        for (EvaluationRound round : rounds) {
+            sb.append("【有效问答轮次").append(round.roundNo()).append("】\n");
+            sb.append("问题：").append(round.question()).append("\n");
+            sb.append("回答：").append(round.answer()).append("\n");
+            if (round.followUp() != null && !round.followUp().isBlank()) {
+                sb.append("后续反馈或追问：").append(round.followUp()).append("\n");
+            }
+            sb.append("\n");
+        }
+    }
+
+    /**
+     * 以候选人回答作为有效轮次锚点：最近一条面试官消息是问题，下一条面试官消息是反馈或追问。
+     */
+    private List<EvaluationRound> buildEffectiveEvaluationRounds(List<ChatMessageItem> history) {
+        List<EvaluationRound> rounds = new ArrayList<>();
+        if (history == null || history.isEmpty()) {
+            return rounds;
+        }
+
+        String lastInterviewerMessage = null;
+        for (int i = 0; i < history.size(); i++) {
+            ChatMessageItem item = history.get(i);
+            if (item == null || item.content() == null || item.content().isBlank()) {
+                continue;
+            }
+            if (!"user".equalsIgnoreCase(item.role())) {
+                lastInterviewerMessage = item.content().trim();
+                continue;
+            }
+            if (lastInterviewerMessage == null || lastInterviewerMessage.isBlank()) {
+                continue;
+            }
+
+            String followUp = null;
+            for (int j = i + 1; j < history.size(); j++) {
+                ChatMessageItem next = history.get(j);
+                if (next == null || next.content() == null || next.content().isBlank()) {
+                    continue;
+                }
+                if (!"user".equalsIgnoreCase(next.role())) {
+                    followUp = next.content().trim();
+                    break;
+                }
+            }
+            rounds.add(new EvaluationRound(rounds.size() + 1, lastInterviewerMessage, item.content().trim(), followUp));
+        }
+        return rounds;
+    }
+
+    private record EvaluationRound(int roundNo, String question, String answer, String followUp) {
     }
 
     private InterviewEvaluationReport parseEvaluationResponse(String aiResponse) {
@@ -1341,19 +1427,29 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             }
         }
 
+        // 防止前端重试导致重复 user 消息：history 中已包含上次持久化的 user 消息，
+        // 而 currentUserMessage 仍被显式传入，需去重
+        boolean userMessageAppended = false;
         if (currentUserMessage != null && !currentUserMessage.isBlank()) {
-            messages.add(new Message("user", currentUserMessage));
+            boolean alreadyInHistory = !messages.isEmpty()
+                    && "user".equals(messages.get(messages.size() - 1).role)
+                    && currentUserMessage.trim().equals(messages.get(messages.size() - 1).content.trim());
+            if (!alreadyInHistory) {
+                messages.add(new Message("user", currentUserMessage));
+                userMessageAppended = true;
+            }
         }
 
         String tag = provider.toUpperCase();
         int totalMessages = messages.size();
+        int totalUserCount = historyUserCount + (userMessageAppended ? 1 : 0);
         String firstRole = totalMessages > 0 ? messages.get(0).role : "none";
         String lastRole = totalMessages > 0 ? messages.get(totalMessages - 1).role : "none";
         log.info("[{}] ═══════════════════════════════════════════════", tag);
         log.info("[{}] ║  对话消息组装完成  ║", tag);
         log.info("[{}] ═══════════════════════════════════════════════", tag);
         log.info("[{}] 总消息数: {} (system:1, user:{}, assistant:{}), feedbackMode: {}, feedbackInstructionIncluded: {}",
-                tag, totalMessages, historyUserCount + 1, historyAssistantCount,
+                tag, totalMessages, totalUserCount, historyAssistantCount,
                 feedbackMode, InterviewConstants.FEEDBACK_MODE_IMMEDIATE.equalsIgnoreCase(feedbackMode));
         log.info("[{}] 首条消息角色: {}, 末条消息角色: {}", tag, firstRole, lastRole);
         log.info("[{}] 是否包含历史: {} (历史user数:{}, 历史assistant数:{})",

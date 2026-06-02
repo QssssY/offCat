@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.env.MockEnvironment;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @DisplayName("JwtProperties 配置测试")
@@ -28,5 +29,13 @@ class JwtPropertiesTest {
         properties.setEnvironment(new MockEnvironment().withProperty("spring.profiles.active", "prod"));
 
         assertThrows(IllegalStateException.class, properties::validate);
+    }
+
+    @Test
+    @DisplayName("默认 token 有效期应为 7 天")
+    void shouldUseSevenDayDefaultExpiration() {
+        JwtProperties properties = new JwtProperties();
+
+        assertEquals(604800000L, properties.getExpiration());
     }
 }
