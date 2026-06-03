@@ -33,6 +33,7 @@ describe('useSpeechToText', () => {
       this.abort = vi.fn()
     })
     window.SpeechRecognition.available = vi.fn(() => Promise.resolve('available'))
+    window.SpeechRecognition.install = vi.fn(() => Promise.resolve(true))
     window.AudioContext = vi.fn(function AudioContextMock() {
       return audioContext
     })
@@ -66,12 +67,17 @@ describe('useSpeechToText', () => {
 
     expect(window.SpeechRecognition).toHaveBeenCalledTimes(1)
     expect(recognitionInstance.start).toHaveBeenCalledTimes(1)
-    expect(recognitionInstance.processLocally).toBe(true)
+    expect(recognitionInstance.processLocally).toBeUndefined()
+    expect(window.SpeechRecognition.available).not.toHaveBeenCalled()
+    expect(window.SpeechRecognition.install).not.toHaveBeenCalled()
     expect(window.Worker).not.toHaveBeenCalled()
-    expect(speech.engineStatus.value).toBe('system-local')
-    expect(speech.capabilityStatus.value).toBe('local-ready')
+    expect(speech.engineStatus.value).toBe('browser-service')
+    expect(speech.capabilityStatus.value).toBe('webspeech-ready')
     expect(speech.isRecording.value).toBe(true)
     expect(speech.startConfirmed.value).toBe(true)
+    expect(speech).not.toHaveProperty('installLocalSpeech')
+    expect(speech).not.toHaveProperty('localSpeechInstallAvailable')
+    expect(speech).not.toHaveProperty('isInstallingLocalSpeech')
     expect(speech).not.toHaveProperty('prepareOfflineRecognition')
     expect(speech).not.toHaveProperty('downloadOfflineModel')
     expect(speech).not.toHaveProperty('clearOfflineModel')
@@ -158,7 +164,7 @@ describe('useSpeechToText', () => {
     expect(recognitionInstance.start).toHaveBeenCalledTimes(1)
     expect(speech.error.value).toBe('')
     expect(speech.errorCode.value).toBe('')
-    expect(speech.engineStatus.value).toBe('system-local')
+    expect(speech.engineStatus.value).toBe('browser-service')
     expect(speech.isRecording.value).toBe(true)
   })
 
@@ -246,7 +252,7 @@ describe('useSpeechToText', () => {
 
     expect(speech.errorCode.value).toBe('service-not-allowed')
     expect(speech.capabilityStatus.value).toBe('temporarily-unavailable')
-    expect(speech.error.value).toBe('当前浏览器语音服务暂不可用，可继续输入回答，系统会自动尝试恢复语音。')
+    expect(speech.error.value).toBe('当前浏览器语音服务暂不可用，可继续输入回答；需要恢复语音时请手动点击重试语音。')
   })
 
   it('treats an empty recognition end as a temporary browser service failure', async () => {
@@ -261,7 +267,7 @@ describe('useSpeechToText', () => {
     expect(speech.isRecording.value).toBe(false)
   })
 
-  it('exposes a guarded local language pack install entry when downloadable', async () => {
+  it('ignores downloadable browser local language packs', async () => {
     window.SpeechRecognition.available = vi.fn(() => Promise.resolve('downloadable'))
     window.SpeechRecognition.install = vi.fn(() => Promise.resolve(true))
     const speech = useSpeechToText()
@@ -269,11 +275,11 @@ describe('useSpeechToText', () => {
     await speech.start()
     recognitionInstance.onstart()
 
-    expect(speech.capabilityStatus.value).toBe('local-downloadable')
-    expect(speech.localSpeechInstallAvailable.value).toBe(true)
-    expect(recognitionInstance.processLocally).not.toBe(true)
-
-    await expect(speech.installLocalSpeech()).resolves.toBe(true)
-    expect(window.SpeechRecognition.install).toHaveBeenCalledWith({ langs: ['zh-CN'] })
+    expect(speech.capabilityStatus.value).toBe('webspeech-ready')
+    expect(speech.engineStatus.value).toBe('browser-service')
+    expect(recognitionInstance.processLocally).toBeUndefined()
+    expect(window.SpeechRecognition.available).not.toHaveBeenCalled()
+    expect(window.SpeechRecognition.install).not.toHaveBeenCalled()
+    expect(speech).not.toHaveProperty('installLocalSpeech')
   })
 })

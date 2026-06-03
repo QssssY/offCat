@@ -4,8 +4,11 @@ import { nextTick } from 'vue'
 import ElementPlus from 'element-plus'
 import AdminAiEngineView from '@/views/admin/AdminAiEngineView.vue'
 import {
+  fetchAdminAiModels,
   getCustomAiDailyLimit,
   getAdminAiEngines,
+  getCustomAiUsageTrends,
+  getCustomAiUsageStats,
   testAdminAiEngineConnectivity,
   updateCustomAiDailyLimit
 } from '@/api/admin/aiEngines'
@@ -13,12 +16,94 @@ import { showAdminSuccess } from '@/utils/adminFeedback'
 
 let currentWrapper = null
 
+vi.mock('vue-chartjs', () => ({
+  Line: {
+    name: 'Line',
+    props: ['data', 'options', 'height'],
+    template: '<div class="line-chart-stub">趋势图</div>'
+  }
+}))
+
+vi.mock('chart.js', () => ({
+  Chart: { register: vi.fn() },
+  Title: {},
+  Tooltip: {},
+  Legend: {},
+  CategoryScale: {},
+  LinearScale: {},
+  LineElement: {},
+  PointElement: {},
+  Filler: {}
+}))
+
 vi.mock('@/api/admin/aiEngines', () => ({
   createAdminAiEngine: vi.fn(() => Promise.resolve({ data: 1 })),
   deleteAiEngine: vi.fn(() => Promise.resolve()),
   deleteAiEngines: vi.fn(() => Promise.resolve()),
+  fetchAdminAiModels: vi.fn(() => Promise.resolve({
+    data: {
+      success: true,
+      message: '模型列表获取成功',
+      models: [
+        { id: 'gpt-4o-mini', name: 'gpt-4o-mini' },
+        { id: 'gpt-4.1-mini', name: 'gpt-4.1-mini' }
+      ],
+      latencyMs: 15
+    }
+  })),
   getAdminAiEngines: vi.fn(() => Promise.resolve({ data: [] })),
   getCustomAiDailyLimit: vi.fn(() => Promise.resolve({ data: { limit: 50 } })),
+  getCustomAiUsageStats: vi.fn(() => Promise.resolve({
+    data: {
+      date: '2026-06-03',
+      configuredUserCount: 3,
+      activeUserCount: 2,
+      totalCalls: 17,
+      totalUsers: 1,
+      page: 1,
+      pageSize: 5,
+      typeStats: [
+        { usageType: 'resume_diagnosis', usageTypeDesc: '简历诊断', callCount: 7 },
+        { usageType: 'interview_message', usageTypeDesc: '面试消息', callCount: 10 }
+      ],
+      userStats: [
+        {
+          userId: 10,
+          username: 'alice',
+          nickname: 'Alice',
+          totalCalls: 17,
+          typeStats: [
+            { usageType: 'resume_diagnosis', usageTypeDesc: '简历诊断', callCount: 7 },
+            { usageType: 'interview_message', usageTypeDesc: '面试消息', callCount: 10 }
+          ]
+        }
+      ]
+    }
+  })),
+  getCustomAiUsageTrends: vi.fn(() => Promise.resolve({
+    data: {
+      startDate: '2026-05-28',
+      endDate: '2026-06-03',
+      totalCalls: 21,
+      activeUserCount: 5,
+      days: [
+        { date: '2026-05-28', totalCalls: 0, activeUserCount: 0, typeStats: [] },
+        {
+          date: '2026-05-29',
+          totalCalls: 8,
+          activeUserCount: 2,
+          typeStats: [
+            { usageType: 'resume_diagnosis', usageTypeDesc: '简历诊断', callCount: 8 }
+          ]
+        },
+        { date: '2026-05-30', totalCalls: 0, activeUserCount: 0, typeStats: [] },
+        { date: '2026-05-31', totalCalls: 0, activeUserCount: 0, typeStats: [] },
+        { date: '2026-06-01', totalCalls: 4, activeUserCount: 1, typeStats: [] },
+        { date: '2026-06-02', totalCalls: 3, activeUserCount: 1, typeStats: [] },
+        { date: '2026-06-03', totalCalls: 6, activeUserCount: 2, typeStats: [] }
+      ]
+    }
+  })),
   testAdminAiEngineConnectivity: vi.fn(),
   toggleAdminAiEngineActive: vi.fn(() => Promise.resolve()),
   toggleAiEnginesBatchActive: vi.fn(() => Promise.resolve()),
@@ -46,6 +131,24 @@ const mountView = async () => {
   })
   await flushPromises()
   return currentWrapper
+}
+
+const buildExpectedRecentRange = (days) => {
+  const end = new Date()
+  const start = new Date(end)
+  start.setDate(start.getDate() - (days - 1))
+  const formatDate = (date) => {
+    const year = date.getFullYear()
+    const month = `${date.getMonth() + 1}`.padStart(2, '0')
+    const day = `${date.getDate()}`.padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+  return [formatDate(start), formatDate(end)]
+}
+
+const switchToCustomAiUsageSection = async (wrapper) => {
+  await wrapper.find('[data-admin-section="custom-ai-usage"]').trigger('click')
+  await nextTick()
 }
 
 describe('AdminAiEngineView', () => {
@@ -110,8 +213,63 @@ describe('AdminAiEngineView', () => {
     expect(showAdminSuccess).toHaveBeenCalledWith('连通测试成功')
   }, 10000)
 
+  it('should fetch admin AI model options and select the first model when empty', async () => {
+    const wrapper = await mountView()
+    wrapper.vm.openCreateDialog()
+    await nextTick()
+    Object.assign(wrapper.vm.formData, {
+      providerType: 'openai',
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'sk-real',
+      modelName: '',
+      timeoutMs: 30000
+    })
+
+    await wrapper.vm.handleModelFetch()
+    await flushPromises()
+
+    expect(fetchAdminAiModels).toHaveBeenCalledWith({
+      id: undefined,
+      providerType: 'openai',
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'sk-real',
+      timeoutMs: 30000
+    })
+    expect(wrapper.vm.modelOptions).toEqual([
+      { id: 'gpt-4o-mini', name: 'gpt-4o-mini' },
+      { id: 'gpt-4.1-mini', name: 'gpt-4.1-mini' }
+    ])
+    expect(wrapper.vm.formData.modelName).toBe('gpt-4o-mini')
+  })
+
+  it('should keep manually entered admin model name when model discovery fails', async () => {
+    fetchAdminAiModels.mockResolvedValueOnce({
+      data: {
+        success: false,
+        message: '获取失败',
+        models: []
+      }
+    })
+    const wrapper = await mountView()
+    wrapper.vm.openCreateDialog()
+    await nextTick()
+    Object.assign(wrapper.vm.formData, {
+      providerType: 'openai',
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'sk-real',
+      modelName: 'manual-model',
+      timeoutMs: 30000
+    })
+
+    await wrapper.vm.handleModelFetch()
+    await flushPromises()
+
+    expect(wrapper.vm.formData.modelName).toBe('manual-model')
+  })
+
   it('should display and update custom AI daily limit', async () => {
     const wrapper = await mountView()
+    await switchToCustomAiUsageSection(wrapper)
 
     expect(getCustomAiDailyLimit).toHaveBeenCalled()
     expect(wrapper.text()).toContain('用户自定义 AI 每日上限')
@@ -123,5 +281,115 @@ describe('AdminAiEngineView', () => {
 
     expect(updateCustomAiDailyLimit).toHaveBeenCalledWith(80)
     expect(wrapper.vm.customAiDailyLimit).toBe(80)
+  })
+
+  it('should keep engine config as default section and hide custom AI usage layout', async () => {
+    const wrapper = await mountView()
+
+    expect(wrapper.find('[data-admin-section="engine-config"]').attributes('aria-selected')).toBe('true')
+    expect(wrapper.find('.filter-bar').exists()).toBe(true)
+    expect(wrapper.find('.table-card').exists()).toBe(true)
+    expect(wrapper.find('.custom-ai-usage-card').exists()).toBe(false)
+  })
+
+  it('should display custom AI usage stats and user details', async () => {
+    const wrapper = await mountView()
+    await switchToCustomAiUsageSection(wrapper)
+
+    expect(getCustomAiUsageStats).toHaveBeenCalledWith({
+      date: expect.any(String),
+      page: 1,
+      pageSize: 5
+    })
+    expect(wrapper.text()).toContain('今日自定义 AI 调用')
+    expect(wrapper.text()).toContain('17')
+    expect(wrapper.text()).toContain('简历诊断')
+    expect(wrapper.text()).toContain('面试消息')
+    expect(wrapper.text()).toContain('alice')
+    expect(wrapper.find('.custom-ai-usage-footer').exists()).toBe(true)
+  })
+
+  it('should request paged custom AI user usage stats when changing detail page', async () => {
+    const wrapper = await mountView()
+    getCustomAiUsageStats.mockClear()
+
+    await wrapper.vm.handleCustomAiUsagePageChange(2)
+    await flushPromises()
+
+    expect(getCustomAiUsageStats).toHaveBeenCalledWith({
+      date: expect.any(String),
+      page: 2,
+      pageSize: 5
+    })
+  })
+
+  it('should request default seven-day custom AI usage trends on mount', async () => {
+    const wrapper = await mountView()
+    await switchToCustomAiUsageSection(wrapper)
+    const [startDate, endDate] = buildExpectedRecentRange(7)
+
+    expect(getCustomAiUsageTrends).toHaveBeenCalledWith({ startDate, endDate })
+    expect(wrapper.text()).toContain('用户自定义 AI 按日趋势')
+    expect(wrapper.find('.line-chart-stub').exists()).toBe(true)
+    expect(wrapper.find('.custom-ai-trend-toggle').attributes('aria-expanded')).toBe('true')
+  })
+
+  it('should collapse custom AI trend chart after toggling trend section', async () => {
+    const wrapper = await mountView()
+    await switchToCustomAiUsageSection(wrapper)
+
+    await wrapper.find('.custom-ai-trend-toggle').trigger('click')
+    await nextTick()
+
+    expect(wrapper.find('.custom-ai-trend-toggle').attributes('aria-expanded')).toBe('false')
+    expect(wrapper.find('.line-chart-stub').exists()).toBe(false)
+  })
+
+  it('should reload custom AI trends when switching to last thirty days', async () => {
+    const wrapper = await mountView()
+    await switchToCustomAiUsageSection(wrapper)
+    const [startDate, endDate] = buildExpectedRecentRange(30)
+    getCustomAiUsageTrends.mockClear()
+
+    await wrapper.vm.handleCustomAiTrendPresetChange('last30')
+    await flushPromises()
+
+    expect(getCustomAiUsageTrends).toHaveBeenCalledWith({ startDate, endDate })
+  })
+
+  it('should reload custom AI trends when custom date range changes', async () => {
+    const wrapper = await mountView()
+    await switchToCustomAiUsageSection(wrapper)
+    getCustomAiUsageTrends.mockClear()
+
+    await wrapper.vm.handleCustomAiTrendRangeChange(['2026-06-01', '2026-06-03'])
+    await flushPromises()
+
+    expect(getCustomAiUsageTrends).toHaveBeenCalledWith({
+      startDate: '2026-06-01',
+      endDate: '2026-06-03'
+    })
+  })
+
+  it('should render trend empty state when every day has no calls', async () => {
+    getCustomAiUsageTrends.mockResolvedValueOnce({
+      data: {
+        startDate: '2026-06-01',
+        endDate: '2026-06-07',
+        totalCalls: 0,
+        activeUserCount: 0,
+        days: [
+          { date: '2026-06-01', totalCalls: 0, activeUserCount: 0, typeStats: [] },
+          { date: '2026-06-02', totalCalls: 0, activeUserCount: 0, typeStats: [] }
+        ]
+      }
+    })
+
+    const wrapper = await mountView()
+    await switchToCustomAiUsageSection(wrapper)
+    await nextTick()
+
+    expect(wrapper.text()).toContain('暂无趋势数据')
+    expect(wrapper.find('.line-chart-stub').exists()).toBe(false)
   })
 })

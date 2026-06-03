@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   detectSpeechRecognitionCapability,
-  installLocalSpeechRecognition,
   SPEECH_RECOGNITION_CAPABILITY_STATUS,
 } from '@/utils/speechRecognitionCapability'
 
@@ -35,49 +34,23 @@ describe('speechRecognitionCapability', () => {
     expect(capability.permissionState).toBe('denied')
   })
 
-  it('reports local-ready when the browser local language pack is available', async () => {
+  it('ignores experimental local language pack APIs and reports regular Web Speech', async () => {
     window.SpeechRecognition = vi.fn()
     window.SpeechRecognition.available = vi.fn(() => Promise.resolve('available'))
-
-    const capability = await detectSpeechRecognitionCapability({ lang: 'zh-CN' })
-
-    expect(window.SpeechRecognition.available).toHaveBeenCalledWith({
-      langs: ['zh-CN'],
-      processLocally: true,
-    })
-    expect(capability.status).toBe(SPEECH_RECOGNITION_CAPABILITY_STATUS.LOCAL_READY)
-    expect(capability.supportsLocalProcessing).toBe(true)
-    expect(capability.canInstallLocal).toBe(false)
-  })
-
-  it('reports local-downloadable when the browser can install a local language pack', async () => {
-    window.SpeechRecognition = vi.fn()
-    window.SpeechRecognition.available = vi.fn(() => Promise.resolve('downloadable'))
     window.SpeechRecognition.install = vi.fn(() => Promise.resolve(true))
 
     const capability = await detectSpeechRecognitionCapability({ lang: 'zh-CN' })
 
-    expect(capability.status).toBe(SPEECH_RECOGNITION_CAPABILITY_STATUS.LOCAL_DOWNLOADABLE)
-    expect(capability.canInstallLocal).toBe(true)
+    expect(window.SpeechRecognition.available).not.toHaveBeenCalled()
+    expect(window.SpeechRecognition.install).not.toHaveBeenCalled()
+    expect(capability.status).toBe(SPEECH_RECOGNITION_CAPABILITY_STATUS.WEBSPEECH_READY)
   })
 
-  it('falls back to regular Web Speech when local recognition is unavailable', async () => {
+  it('reports regular Web Speech when browser recognition exists', async () => {
     window.SpeechRecognition = vi.fn()
-    window.SpeechRecognition.available = vi.fn(() => Promise.resolve('unavailable'))
 
     const capability = await detectSpeechRecognitionCapability({ lang: 'zh-CN' })
 
     expect(capability.status).toBe(SPEECH_RECOGNITION_CAPABILITY_STATUS.WEBSPEECH_READY)
-    expect(capability.supportsLocalProcessing).toBe(false)
-  })
-
-  it('installs a local language pack through the guarded experimental API', async () => {
-    window.SpeechRecognition = vi.fn()
-    window.SpeechRecognition.install = vi.fn(() => Promise.resolve(true))
-
-    const result = await installLocalSpeechRecognition({ lang: 'zh-CN' })
-
-    expect(window.SpeechRecognition.install).toHaveBeenCalledWith({ langs: ['zh-CN'] })
-    expect(result.ok).toBe(true)
   })
 })

@@ -6,7 +6,10 @@ vi.mock('@/utils/adminRequest', () => ({
 
 import adminRequest from '@/utils/adminRequest'
 import {
+  fetchAdminAiModels,
   getCustomAiDailyLimit,
+  getCustomAiUsageTrends,
+  getCustomAiUsageStats,
   testAdminAiEngineConnectivity,
   updateCustomAiDailyLimit
 } from '@/api/admin/aiEngines'
@@ -38,6 +41,24 @@ describe('admin aiEngines API', () => {
     })
   })
 
+  it('fetchAdminAiModels sends current form credential fields', async () => {
+    const data = {
+      id: 10,
+      providerType: 'openai',
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'sk-real',
+      timeoutMs: 30000
+    }
+
+    await fetchAdminAiModels(data)
+
+    expect(adminRequest).toHaveBeenCalledWith({
+      url: '/api/admin/ai-engines/models',
+      method: 'post',
+      data
+    })
+  })
+
   it('custom AI daily limit endpoints use admin custom-ai route', async () => {
     await getCustomAiDailyLimit()
     await updateCustomAiDailyLimit(80)
@@ -50,6 +71,33 @@ describe('admin aiEngines API', () => {
       url: '/api/admin/custom-ai/daily-limit',
       method: 'put',
       data: { limit: 80 }
+    })
+  })
+
+  it('custom AI usage stats endpoint sends date and pagination params', async () => {
+    await getCustomAiUsageStats({ date: '2026-06-03', page: 2, pageSize: 10 })
+
+    expect(adminRequest).toHaveBeenCalledWith({
+      url: '/api/admin/custom-ai/usage-stats',
+      method: 'get',
+      params: {
+        date: '2026-06-03',
+        page: 2,
+        pageSize: 10
+      }
+    })
+  })
+
+  it('custom AI usage trends endpoint sends date range params', async () => {
+    await getCustomAiUsageTrends({ startDate: '2026-06-01', endDate: '2026-06-07' })
+
+    expect(adminRequest).toHaveBeenCalledWith({
+      url: '/api/admin/custom-ai/usage-trends',
+      method: 'get',
+      params: {
+        startDate: '2026-06-01',
+        endDate: '2026-06-07'
+      }
     })
   })
 })

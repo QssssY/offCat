@@ -40,7 +40,32 @@
       </div>
     </div>
 
-    <div class="stats-grid">
+    <div class="admin-section-switch" role="tablist" aria-label="AI 引擎配置页面分区">
+      <button
+        type="button"
+        class="admin-section-tab"
+        :class="{ active: activeAdminSection === 'engine-config' }"
+        role="tab"
+        data-admin-section="engine-config"
+        :aria-selected="activeAdminSection === 'engine-config' ? 'true' : 'false'"
+        @click="activeAdminSection = 'engine-config'"
+      >
+        引擎配置
+      </button>
+      <button
+        type="button"
+        class="admin-section-tab"
+        :class="{ active: activeAdminSection === 'custom-ai-usage' }"
+        role="tab"
+        data-admin-section="custom-ai-usage"
+        :aria-selected="activeAdminSection === 'custom-ai-usage' ? 'true' : 'false'"
+        @click="activeAdminSection = 'custom-ai-usage'"
+      >
+        自定义 AI 用量
+      </button>
+    </div>
+
+    <div v-if="activeAdminSection === 'engine-config'" class="stats-grid">
       <button
         class="stats-card"
         :class="{ active: matchedQuickFilterKey === 'all' }"
@@ -83,7 +108,7 @@
       </button>
     </div>
 
-    <el-card shadow="never" class="custom-ai-limit-card">
+    <el-card v-if="activeAdminSection === 'custom-ai-usage'" shadow="never" class="custom-ai-limit-card">
       <div class="custom-ai-limit-copy">
         <span>用户自定义 AI 每日上限</span>
         <strong>{{ customAiDailyLimit || '--' }}</strong>
@@ -107,7 +132,149 @@
       </div>
     </el-card>
 
-    <div class="filter-bar">
+    <el-card v-if="activeAdminSection === 'custom-ai-usage'" shadow="never" class="custom-ai-usage-card">
+      <div class="custom-ai-usage-header">
+        <div>
+          <span>用户自定义 AI 用量统计</span>
+          <strong>今日自定义 AI 调用</strong>
+        </div>
+        <div class="custom-ai-usage-controls">
+          <el-date-picker
+            v-model="customAiUsageDate"
+            type="date"
+            value-format="YYYY-MM-DD"
+            :clearable="false"
+            placeholder="选择日期"
+          />
+          <el-button :loading="customAiUsageLoading" @click="fetchCustomAiUsageStats">刷新统计</el-button>
+        </div>
+      </div>
+      <div class="custom-ai-usage-summary">
+        <div>
+          <span>总调用</span>
+          <strong>{{ customAiUsageStats.totalCalls }}</strong>
+        </div>
+        <div>
+          <span>配置用户</span>
+          <strong>{{ customAiUsageStats.configuredUserCount }}</strong>
+        </div>
+        <div>
+          <span>当日活跃</span>
+          <strong>{{ customAiUsageStats.activeUserCount }}</strong>
+        </div>
+      </div>
+      <div class="custom-ai-trend-section">
+        <div class="custom-ai-trend-header">
+          <div class="custom-ai-trend-copy">
+            <span class="custom-ai-usage-section-title">用户自定义 AI 按日趋势</span>
+            <small>{{ customAiUsageTrends.startDate }} 至 {{ customAiUsageTrends.endDate }}</small>
+          </div>
+          <div class="custom-ai-trend-summary" aria-label="用户自定义 AI 趋势摘要">
+            <span>区间总调用 <strong>{{ customAiUsageTrends.totalCalls }}</strong></span>
+            <span>活跃用户 <strong>{{ customAiUsageTrends.activeUserCount }}</strong></span>
+          </div>
+          <button
+            type="button"
+            class="custom-ai-trend-toggle"
+            :aria-expanded="customAiTrendExpanded ? 'true' : 'false'"
+            @click="customAiTrendExpanded = !customAiTrendExpanded"
+          >
+            {{ customAiTrendExpanded ? '收起趋势' : '展开趋势' }}
+          </button>
+        </div>
+        <div v-if="customAiTrendExpanded" class="custom-ai-trend-panel">
+          <div class="custom-ai-trend-controls">
+            <el-radio-group
+              v-model="customAiTrendPreset"
+              size="small"
+              @change="handleCustomAiTrendPresetChange"
+            >
+              <el-radio-button value="last7">近 7 天</el-radio-button>
+              <el-radio-button value="last30">近 30 天</el-radio-button>
+              <el-radio-button value="custom">自定义</el-radio-button>
+            </el-radio-group>
+            <el-date-picker
+              v-model="customAiTrendRange"
+              type="daterange"
+              value-format="YYYY-MM-DD"
+              range-separator="至"
+              start-placeholder="开始日期"
+              end-placeholder="结束日期"
+              :clearable="false"
+              :disabled="customAiTrendPreset !== 'custom'"
+              @change="handleCustomAiTrendRangeChange"
+            />
+            <el-button :loading="customAiTrendLoading" @click="fetchCustomAiUsageTrends">刷新趋势</el-button>
+          </div>
+          <div class="custom-ai-trend-chart" v-loading="customAiTrendLoading">
+            <Line
+              v-if="hasCustomAiTrendData"
+              :data="customAiTrendChartData"
+              :options="customAiTrendChartOptions"
+              :height="220"
+            />
+            <div v-else class="custom-ai-trend-empty">暂无趋势数据</div>
+          </div>
+        </div>
+      </div>
+      <div class="custom-ai-usage-section">
+        <span class="custom-ai-usage-section-title">功能分布</span>
+        <div class="custom-ai-type-list">
+          <span v-if="customAiUsageStats.typeStats.length === 0" class="custom-ai-empty-text">暂无调用</span>
+          <span
+            v-for="item in customAiUsageStats.typeStats"
+            :key="item.usageType"
+            class="custom-ai-type-chip"
+          >
+            {{ item.usageTypeDesc }} <strong>{{ item.callCount }}</strong>
+          </span>
+        </div>
+      </div>
+      <el-table
+        :data="customAiUsageStats.userStats"
+        v-loading="customAiUsageLoading"
+        border
+        size="small"
+        class="custom-ai-usage-table"
+        empty-text="当日暂无用户自定义 AI 调用"
+      >
+        <el-table-column prop="userId" label="用户ID" width="90" />
+        <el-table-column label="用户" min-width="150">
+          <template #default="{ row }">
+            <div class="custom-ai-user-cell">
+              <strong>{{ row.nickname || row.username || '--' }}</strong>
+              <span>{{ row.username || '--' }}</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="totalCalls" label="总调用" width="90" align="center" />
+        <el-table-column label="功能明细" min-width="260">
+          <template #default="{ row }">
+            <div class="custom-ai-type-list compact">
+              <span
+                v-for="item in row.typeStats"
+                :key="`${row.userId}-${item.usageType}`"
+                class="custom-ai-type-chip"
+              >
+                {{ item.usageTypeDesc }} <strong>{{ item.callCount }}</strong>
+              </span>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div class="custom-ai-usage-footer" v-if="customAiUsageStats.totalUsers > 0">
+        <el-pagination
+          background
+          layout="total, prev, pager, next"
+          :current-page="customAiUsagePagination.page"
+          :page-size="customAiUsagePagination.pageSize"
+          :total="customAiUsageStats.totalUsers"
+          @current-change="handleCustomAiUsagePageChange"
+        />
+      </div>
+    </el-card>
+
+    <div v-if="activeAdminSection === 'engine-config'" class="filter-bar">
       <!-- 引擎配置本地筛选：方便按业务类型和状态快速定位当前生效配置 -->
       <el-input
         v-model.trim="keyword"
@@ -146,18 +313,18 @@
       <el-button class="reset-btn" @click="resetFilters">重置筛选</el-button>
     </div>
 
-    <div class="filter-result">
+    <div v-if="activeAdminSection === 'engine-config'" class="filter-result">
       当前筛选结果：<span class="result-count">{{ filteredEngineList.length }}</span> / {{ engineList.length }} 条
     </div>
     <el-alert
-      v-if="hasMultiActiveRisk"
+      v-if="activeAdminSection === 'engine-config' && hasMultiActiveRisk"
       type="warning"
       :closable="false"
       class="risk-alert"
       title="检测到同业务存在多条启用配置，请尽快检查并完成收敛，避免运行时路由不确定。"
     />
 
-    <el-card shadow="never" class="table-card">
+    <el-card v-if="activeAdminSection === 'engine-config'" shadow="never" class="table-card">
       <el-table ref="engineTableRef"
         :data="pagedEngineList"
         v-loading="tableLoading"
@@ -385,7 +552,32 @@
         </el-row>
 
         <el-form-item label="模型名" prop="modelName">
-          <el-input v-model.trim="formData.modelName" :disabled="submitLoading" />
+          <div class="model-fetch-row">
+            <el-select
+              v-model="formData.modelName"
+              filterable
+              allow-create
+              default-first-option
+              clearable
+              style="width: 100%"
+              placeholder="选择或输入模型名"
+              :disabled="submitLoading"
+            >
+              <el-option
+                v-for="model in modelOptions"
+                :key="model.id"
+                :label="model.name || model.id"
+                :value="model.id"
+              />
+            </el-select>
+            <el-button
+              :loading="modelFetchLoading"
+              :disabled="submitLoading || !formData.baseUrl || (!isEditMode && !formData.apiKey)"
+              @click="handleModelFetch"
+            >
+              获取模型
+            </el-button>
+          </div>
         </el-form-item>
 
         <el-form-item v-if="formData.businessType === 'resume'" label="多模态">
@@ -528,12 +720,27 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Connection, Edit, Search } from '@element-plus/icons-vue'
+import { Line } from 'vue-chartjs'
+import {
+  Chart as ChartJS,
+  Title,
+  Tooltip,
+  Legend,
+  CategoryScale,
+  LinearScale,
+  LineElement,
+  PointElement,
+  Filler
+} from 'chart.js'
 import {
   createAdminAiEngine,
   deleteAiEngine,
   deleteAiEngines,
+  fetchAdminAiModels,
   getAdminAiEngines,
   getCustomAiDailyLimit,
+  getCustomAiUsageTrends,
+  getCustomAiUsageStats,
   testAdminAiEngineConnectivity,
   toggleAdminAiEngineActive,
   toggleAiEnginesBatchActive,
@@ -548,9 +755,14 @@ import {
   showAdminWarning
 } from '@/utils/adminFeedback'
 
+// 注册自定义 AI 趋势折线图所需模块，避免引入额外图表依赖。
+ChartJS.register(Title, Tooltip, Legend, CategoryScale, LinearScale, LineElement, PointElement, Filler)
+
 // 表格数据：AI 引擎配置列表。
 const engineList = ref([])
 const tableLoading = ref(false)
+// 页面主分区：默认展示引擎配置，统计与趋势放到独立分区，避免挤压配置主流程。
+const activeAdminSection = ref('engine-config')
 // 表格实例：用于全选操作
 const engineTableRef = ref(null)
 // 批量选择状态：用于批量删除操作
@@ -571,6 +783,19 @@ const customAiDailyLimitSaving = ref(false)
 const customAiDailyLimitForm = reactive({
   limit: 50
 })
+const customAiUsageDate = ref(formatDate(new Date()))
+const customAiUsageLoading = ref(false)
+const customAiUsagePagination = reactive({
+  page: 1,
+  pageSize: 5
+})
+const customAiUsageStats = ref(buildEmptyCustomAiUsageStats())
+const customAiTrendPreset = ref('last7')
+const customAiTrendRange = ref(buildRecentDateRange(7))
+const customAiTrendLoading = ref(false)
+const customAiUsageTrends = ref(buildEmptyCustomAiUsageTrends())
+// 自定义 AI 用量已隔离到独立分区，切换进入该分区后默认展开趋势图。
+const customAiTrendExpanded = ref(true)
 
 // 弹窗编辑状态：复用一个表单完成新增和编辑。
 const dialogVisible = ref(false)
@@ -578,6 +803,8 @@ const isEditMode = ref(false)
 const submitLoading = ref(false)
 const connectivityTestLoading = ref(false)
 const connectivityTestResult = ref(null)
+const modelFetchLoading = ref(false)
+const modelOptions = ref([])
 const formRef = ref(null)
 /** 正在切换状态的行 ID 集合（per-row 锁，避免全局互斥） */
 const toggleLoadingIds = ref(new Set())
@@ -881,6 +1108,7 @@ const resetFormData = () => {
   formData.sort = 0
   formData.remark = ''
   connectivityTestResult.value = null
+  modelOptions.value = []
 }
 
 /**
@@ -915,6 +1143,45 @@ const buildConnectivityTestPayload = () => {
     payload.apiKey = String(formData.apiKey).trim()
   }
   return payload
+}
+
+const buildModelFetchPayload = () => {
+  const payload = {
+    id: isEditMode.value ? formData.id : undefined,
+    providerType: String(formData.providerType || '').trim(),
+    baseUrl: String(formData.baseUrl || '').trim(),
+    timeoutMs: Number(formData.timeoutMs || 30000)
+  }
+  if (formData.apiKey) {
+    payload.apiKey = String(formData.apiKey).trim()
+  }
+  return payload
+}
+
+const handleModelFetch = async () => {
+  if (!formData.baseUrl || (!isEditMode.value && !formData.apiKey)) {
+    showAdminWarning('请先填写基础地址和 API Key')
+    return
+  }
+
+  modelFetchLoading.value = true
+  try {
+    const res = await fetchAdminAiModels(buildModelFetchPayload())
+    const data = res?.data || {}
+    if (!data.success) {
+      throw new Error(data.errorMessage || data.message || '模型列表获取失败')
+    }
+    // 模型候选只作为辅助输入，不覆盖管理员已经手动填写的模型名。
+    modelOptions.value = Array.isArray(data.models) ? data.models : []
+    if (!formData.modelName && modelOptions.value[0]?.id) {
+      formData.modelName = modelOptions.value[0].id
+    }
+    showAdminSuccess(data.message || '模型列表获取成功')
+  } catch (error) {
+    showAdminError(error, '模型列表获取失败，请手动输入模型名')
+  } finally {
+    modelFetchLoading.value = false
+  }
 }
 
 /**
@@ -1035,6 +1302,183 @@ const calculateMultiActiveRisk = (list) => {
   }, 0)
 }
 
+function formatDate(date) {
+  const year = date.getFullYear()
+  const month = `${date.getMonth() + 1}`.padStart(2, '0')
+  const day = `${date.getDate()}`.padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function buildEmptyCustomAiUsageStats() {
+  return {
+    date: customAiUsageDate?.value || formatDate(new Date()),
+    configuredUserCount: 0,
+    activeUserCount: 0,
+    totalCalls: 0,
+    totalUsers: 0,
+    page: 1,
+    pageSize: customAiUsagePagination?.pageSize || 5,
+    typeStats: [],
+    userStats: []
+  }
+}
+
+function normalizeCustomAiUsageStats(data) {
+  return {
+    ...buildEmptyCustomAiUsageStats(),
+    ...data,
+    configuredUserCount: Number(data?.configuredUserCount || 0),
+    activeUserCount: Number(data?.activeUserCount || 0),
+    totalCalls: Number(data?.totalCalls || 0),
+    totalUsers: Number(data?.totalUsers || 0),
+    page: Number(data?.page || customAiUsagePagination.page),
+    pageSize: Number(data?.pageSize || customAiUsagePagination.pageSize),
+    typeStats: Array.isArray(data?.typeStats) ? data.typeStats : [],
+    userStats: Array.isArray(data?.userStats) ? data.userStats : []
+  }
+}
+
+function buildRecentDateRange(dayCount) {
+  const end = new Date()
+  const start = new Date(end)
+  start.setDate(start.getDate() - (dayCount - 1))
+  return [formatDate(start), formatDate(end)]
+}
+
+function buildEmptyCustomAiUsageTrends() {
+  const fallbackRange = customAiTrendRange?.value || buildRecentDateRange(7)
+  return {
+    startDate: fallbackRange[0],
+    endDate: fallbackRange[1],
+    totalCalls: 0,
+    activeUserCount: 0,
+    days: []
+  }
+}
+
+function normalizeCustomAiUsageTrends(data) {
+  return {
+    ...buildEmptyCustomAiUsageTrends(),
+    ...data,
+    totalCalls: Number(data?.totalCalls || 0),
+    activeUserCount: Number(data?.activeUserCount || 0),
+    days: Array.isArray(data?.days)
+      ? data.days.map(item => ({
+          date: item?.date || '',
+          totalCalls: Number(item?.totalCalls || 0),
+          activeUserCount: Number(item?.activeUserCount || 0),
+          typeStats: Array.isArray(item?.typeStats) ? item.typeStats : []
+        }))
+      : []
+  }
+}
+
+function getNormalizedCustomAiTrendRange() {
+  if (Array.isArray(customAiTrendRange.value) && customAiTrendRange.value[0] && customAiTrendRange.value[1]) {
+    return [customAiTrendRange.value[0], customAiTrendRange.value[1]]
+  }
+  return buildRecentDateRange(customAiTrendPreset.value === 'last30' ? 30 : 7)
+}
+
+function formatTrendDateLabel(value) {
+  if (!value) return ''
+  const [, month, day] = String(value).split('-')
+  return month && day ? `${month}/${day}` : value
+}
+
+const customAiTrendDays = computed(() => {
+  const days = customAiUsageTrends.value?.days
+  return Array.isArray(days) ? days : []
+})
+
+const hasCustomAiTrendData = computed(() => customAiTrendDays.value.some(item =>
+  Number(item?.totalCalls || 0) > 0 || Number(item?.activeUserCount || 0) > 0
+))
+
+const customAiTrendChartData = computed(() => ({
+  labels: customAiTrendDays.value.map(item => formatTrendDateLabel(item.date)),
+  datasets: [
+    {
+      label: '总调用',
+      data: customAiTrendDays.value.map(item => Number(item.totalCalls || 0)),
+      borderColor: '#d35400',
+      backgroundColor: 'rgba(211, 84, 0, 0.12)',
+      pointBackgroundColor: '#d35400',
+      pointRadius: 3,
+      tension: 0.32,
+      yAxisID: 'calls'
+    },
+    {
+      label: '活跃用户',
+      data: customAiTrendDays.value.map(item => Number(item.activeUserCount || 0)),
+      borderColor: '#287c7a',
+      backgroundColor: 'rgba(40, 124, 122, 0.12)',
+      pointBackgroundColor: '#287c7a',
+      pointRadius: 3,
+      tension: 0.32,
+      yAxisID: 'users'
+    }
+  ]
+}))
+
+const customAiTrendChartOptions = computed(() => ({
+  responsive: true,
+  maintainAspectRatio: false,
+  interaction: {
+    mode: 'index',
+    intersect: false
+  },
+  plugins: {
+    legend: {
+      position: 'bottom',
+      labels: {
+        boxWidth: 10,
+        color: '#7a4c2a',
+        usePointStyle: true
+      }
+    },
+    tooltip: {
+      callbacks: {
+        label: (context) => `${context.dataset.label}: ${context.parsed.y || 0}`
+      }
+    }
+  },
+  scales: {
+    x: {
+      grid: {
+        color: 'rgba(217, 196, 170, 0.18)'
+      },
+      ticks: {
+        color: '#8f6f55'
+      }
+    },
+    calls: {
+      type: 'linear',
+      position: 'left',
+      beginAtZero: true,
+      ticks: {
+        precision: 0,
+        color: '#8f6f55'
+      },
+      grid: {
+        color: 'rgba(217, 196, 170, 0.22)'
+      }
+    },
+    users: {
+      type: 'linear',
+      position: 'right',
+      beginAtZero: true,
+      ticks: {
+        precision: 0,
+        color: '#287c7a'
+      },
+      grid: {
+        drawOnChartArea: false
+      }
+    }
+  }
+}))
+
 /**
  * 加载 AI 引擎配置列表。
  */
@@ -1065,6 +1509,66 @@ const fetchCustomAiDailyLimit = async () => {
 }
 
 /**
+ * 加载用户自定义 AI 用量统计。
+ * 说明：该统计只展示用户自带 Key 的调用，不混入平台 AI 额度消耗。
+ */
+const fetchCustomAiUsageStats = async () => {
+  customAiUsageLoading.value = true
+  try {
+    const res = await getCustomAiUsageStats({
+      date: customAiUsageDate.value,
+      page: customAiUsagePagination.page,
+      pageSize: customAiUsagePagination.pageSize
+    })
+    customAiUsageStats.value = normalizeCustomAiUsageStats(res?.data || {})
+  } catch (error) {
+    showAdminError(error?.message || '加载自定义 AI 用量统计失败')
+  } finally {
+    customAiUsageLoading.value = false
+  }
+}
+
+/**
+ * 加载用户自定义 AI 按日趋势。
+ * 说明：趋势筛选独立于单日明细筛选，避免切换图表范围时影响下方用户明细表格。
+ */
+const fetchCustomAiUsageTrends = async () => {
+  const [startDate, endDate] = getNormalizedCustomAiTrendRange()
+  customAiTrendRange.value = [startDate, endDate]
+  customAiTrendLoading.value = true
+  try {
+    const res = await getCustomAiUsageTrends({ startDate, endDate })
+    customAiUsageTrends.value = normalizeCustomAiUsageTrends(res?.data || {})
+  } catch (error) {
+    showAdminError(error?.message || '加载自定义 AI 趋势失败')
+  } finally {
+    customAiTrendLoading.value = false
+  }
+}
+
+const handleCustomAiTrendPresetChange = async (value) => {
+  const nextPreset = value || customAiTrendPreset.value
+  customAiTrendPreset.value = nextPreset
+  if (nextPreset === 'last7') {
+    customAiTrendRange.value = buildRecentDateRange(7)
+  } else if (nextPreset === 'last30') {
+    customAiTrendRange.value = buildRecentDateRange(30)
+  } else if (!Array.isArray(customAiTrendRange.value) || customAiTrendRange.value.length !== 2) {
+    customAiTrendRange.value = buildRecentDateRange(7)
+  }
+  await fetchCustomAiUsageTrends()
+}
+
+const handleCustomAiTrendRangeChange = async (value) => {
+  if (!Array.isArray(value) || value.length !== 2 || !value[0] || !value[1]) {
+    return
+  }
+  customAiTrendPreset.value = 'custom'
+  customAiTrendRange.value = [value[0], value[1]]
+  await fetchCustomAiUsageTrends()
+}
+
+/**
  * 保存用户自定义 AI 每日调用上限。
  * 说明：该配置只影响用户自带 Key 的服务器调用次数，不改变平台额度规则。
  */
@@ -1085,6 +1589,11 @@ const handleCustomAiDailyLimitSave = async () => {
   } finally {
     customAiDailyLimitSaving.value = false
   }
+}
+
+const handleCustomAiUsagePageChange = async (page) => {
+  customAiUsagePagination.page = Number(page) || 1
+  await fetchCustomAiUsageStats()
 }
 
 const openCreateDialog = () => {
@@ -1158,6 +1667,7 @@ const handlePageSizeChange = (nextPageSize) => {
 const openEditDialog = (row) => {
   isEditMode.value = true
   connectivityTestResult.value = null
+  modelOptions.value = []
   editOriginalPayload.value = {
     engineCode: row.engineCode || '',
     engineName: row.engineName || '',
@@ -1462,6 +1972,8 @@ const handleBatchEnable = async () => {
 onMounted(() => {
   fetchEngineList()
   fetchCustomAiDailyLimit()
+  fetchCustomAiUsageStats()
+  fetchCustomAiUsageTrends()
 })
 
 /**
@@ -1480,6 +1992,11 @@ watch(
     pagination.page = 1
   }
 )
+
+watch(customAiUsageDate, () => {
+  customAiUsagePagination.page = 1
+  fetchCustomAiUsageStats()
+})
 
 /**
  * 监听筛选结果长度：
@@ -1513,6 +2030,17 @@ watch(
     if (connectivityTestResult.value) {
       connectivityTestResult.value = null
     }
+  }
+)
+
+watch(
+  () => [
+    formData.providerType,
+    formData.baseUrl,
+    formData.apiKey
+  ],
+  () => {
+    modelOptions.value = []
   }
 )
 </script>
@@ -1589,6 +2117,39 @@ watch(
   border-color: #e67e22;
   color: #d35400;
   background: rgba(255, 140, 66, 0.06);
+}
+
+.admin-section-switch {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgba(217, 196, 170, 0.42);
+  border-radius: 12px;
+  background: rgba(255, 252, 248, 0.86);
+}
+
+.admin-section-tab {
+  min-height: 34px;
+  padding: 7px 16px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: #8f6f55;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.admin-section-tab.active {
+  background: #fff;
+  color: #d35400;
+  box-shadow: 0 3px 10px rgba(143, 69, 27, 0.08);
+}
+
+.admin-section-tab:hover {
+  color: #d35400;
 }
 
 .stats-grid {
@@ -1681,6 +2242,254 @@ watch(
   flex-shrink: 0;
 }
 
+.custom-ai-usage-card :deep(.el-card__body) {
+  padding: 18px 20px;
+}
+
+.custom-ai-usage-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.custom-ai-usage-header span,
+.custom-ai-usage-header strong {
+  display: block;
+}
+
+.custom-ai-usage-header span {
+  color: #a08060;
+  font-size: 13px;
+}
+
+.custom-ai-usage-header strong {
+  margin-top: 4px;
+  color: #5a4030;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.custom-ai-usage-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.custom-ai-usage-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.custom-ai-usage-summary > div {
+  min-height: 72px;
+  padding: 12px 14px;
+  border: 1px solid rgba(217, 196, 170, 0.35);
+  border-radius: 10px;
+  background: rgba(255, 252, 248, 0.72);
+}
+
+.custom-ai-usage-summary span {
+  display: block;
+  color: #8f6f55;
+  font-size: 12px;
+}
+
+.custom-ai-usage-summary strong {
+  display: block;
+  margin-top: 6px;
+  color: #5a4030;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.custom-ai-trend-section {
+  margin: 0 0 14px;
+  padding: 12px 0;
+  border-top: 1px solid rgba(217, 196, 170, 0.38);
+  border-bottom: 1px solid rgba(217, 196, 170, 0.38);
+}
+
+.custom-ai-trend-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.custom-ai-trend-copy {
+  min-width: 180px;
+}
+
+.custom-ai-trend-header small {
+  display: block;
+  color: #a08060;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.custom-ai-trend-summary {
+  display: flex;
+  justify-content: flex-end;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 180px;
+}
+
+.custom-ai-trend-summary span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 4px 9px;
+  border-radius: 8px;
+  background: rgba(230, 126, 34, 0.08);
+  color: #8f6f55;
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.custom-ai-trend-summary strong {
+  color: #5a4030;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.custom-ai-trend-toggle {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 6px 12px;
+  border: 1px solid rgba(217, 196, 170, 0.58);
+  border-radius: 8px;
+  background: #fffaf4;
+  color: #7a4c2a;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+}
+
+.custom-ai-trend-toggle:hover {
+  border-color: rgba(230, 126, 34, 0.72);
+  background: rgba(230, 126, 34, 0.08);
+  color: #d35400;
+}
+
+.custom-ai-trend-panel {
+  margin-top: 12px;
+}
+
+/* 旧版趋势图默认占用整块首屏；当前仅在展开面板中保留图表高度。 */
+.custom-ai-trend-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.custom-ai-trend-chart {
+  position: relative;
+  min-height: 220px;
+}
+
+.custom-ai-trend-chart :deep(canvas) {
+  max-height: 220px;
+}
+
+.custom-ai-trend-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 180px;
+  border: 1px dashed rgba(217, 196, 170, 0.48);
+  border-radius: 8px;
+  color: #a08060;
+  font-size: 13px;
+}
+
+.custom-ai-usage-section {
+  margin-bottom: 14px;
+}
+
+.custom-ai-usage-section-title {
+  display: block;
+  margin-bottom: 8px;
+  color: #8f6f55;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.custom-ai-type-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 26px;
+  align-items: center;
+}
+
+.custom-ai-type-list.compact {
+  min-height: 0;
+}
+
+.custom-ai-type-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 4px 9px;
+  border-radius: 8px;
+  background: rgba(230, 126, 34, 0.08);
+  color: #7a4c2a;
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.custom-ai-type-chip strong {
+  color: #5a4030;
+  font-weight: 700;
+}
+
+.custom-ai-empty-text {
+  color: #a08060;
+  font-size: 12px;
+}
+
+.custom-ai-usage-table {
+  width: 100%;
+}
+
+.custom-ai-user-cell strong,
+.custom-ai-user-cell span {
+  display: block;
+}
+
+.custom-ai-user-cell strong {
+  color: #5a4030;
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.custom-ai-user-cell span {
+  margin-top: 2px;
+  color: #a08060;
+  font-size: 12px;
+}
+
+.custom-ai-usage-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
 .filter-bar {
   display: flex;
   align-items: center;
@@ -1746,6 +2555,13 @@ watch(
 }
 
 .base-url-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.model-fetch-row {
   width: 100%;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1880,6 +2696,16 @@ watch(
     width: 100%;
   }
 
+  .admin-section-switch {
+    align-self: stretch;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-section-tab {
+    width: 100%;
+  }
+
   .filter-item,
   .filter-item.keyword {
     width: 100%;
@@ -1899,11 +2725,41 @@ watch(
     flex-wrap: wrap;
   }
 
+  .custom-ai-usage-header,
+  .custom-ai-usage-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .custom-ai-trend-header,
+  .custom-ai-trend-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .custom-ai-trend-summary {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .custom-ai-trend-toggle {
+    width: 100%;
+  }
+
+  .custom-ai-usage-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .custom-ai-usage-footer {
+    justify-content: center;
+  }
+
   .pagination-wrap {
     justify-content: center;
   }
 
-  .base-url-row {
+  .base-url-row,
+  .model-fetch-row {
     grid-template-columns: 1fr;
   }
 }

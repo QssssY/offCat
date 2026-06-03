@@ -271,7 +271,7 @@ describe('useVoiceCall', () => {
     expect(speech.cancel).not.toHaveBeenCalled()
   })
 
-  it('enters text fallback immediately for temporary browser service failures and retries in the background', async () => {
+  it('keeps text fallback after temporary browser service failures until the user retries', async () => {
     const call = useVoiceCall({ speech, textToSpeech, isReplying, onSend })
     call.startVoiceCall()
     speech.finalTranscript.value = '我负责订单模块'
@@ -279,7 +279,7 @@ describe('useVoiceCall', () => {
 
     speech.isRecording.value = false
     speech.errorCode.value = 'network'
-    speech.error.value = '当前浏览器语音服务暂不可用，可继续输入回答，系统会自动尝试恢复语音。'
+    speech.error.value = '当前浏览器语音服务暂不可用，可继续输入回答；需要恢复语音时请手动点击重试语音。'
     await nextTick()
 
     expect(call.isVoiceMode.value).toBe(true)
@@ -287,12 +287,18 @@ describe('useVoiceCall', () => {
     expect(call.pendingMessage.value).toBe('我负责订单模块')
     expect(speech.cancel).not.toHaveBeenCalled()
 
-    await vi.advanceTimersByTimeAsync(14999)
+    await vi.advanceTimersByTimeAsync(60000)
     expect(speech.start).toHaveBeenCalledTimes(1)
+    expect(call.isTextFallbackMode.value).toBe(true)
 
-    await vi.advanceTimersByTimeAsync(1)
-    expect(speech.start).toHaveBeenCalledTimes(2)
-    expect(call.isTextFallbackMode.value).toBe(false)
+    isReplying.value = true
+    await nextTick()
+    isReplying.value = false
+    await nextTick()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(speech.start).toHaveBeenCalledTimes(1)
+    expect(call.isTextFallbackMode.value).toBe(true)
   })
 
   it('manual speech retry triggers one immediate recovery probe from text fallback', async () => {
@@ -300,7 +306,7 @@ describe('useVoiceCall', () => {
     call.startVoiceCall()
     speech.isRecording.value = false
     speech.errorCode.value = 'service-not-allowed'
-    speech.error.value = '当前浏览器语音服务暂不可用，可继续输入回答，系统会自动尝试恢复语音。'
+    speech.error.value = '当前浏览器语音服务暂不可用，可继续输入回答；需要恢复语音时请手动点击重试语音。'
     await nextTick()
     speech.start.mockClear()
 
@@ -315,7 +321,7 @@ describe('useVoiceCall', () => {
     call.startVoiceCall()
     speech.isRecording.value = false
     speech.errorCode.value = 'start-timeout'
-    speech.error.value = '当前浏览器语音服务暂不可用，可继续输入回答，系统会自动尝试恢复语音。'
+    speech.error.value = '当前浏览器语音服务暂不可用，可继续输入回答；需要恢复语音时请手动点击重试语音。'
     await nextTick()
     speech.start.mockImplementation(() => {
       speech.isRecording.value = true
@@ -334,7 +340,7 @@ describe('useVoiceCall', () => {
     call.startVoiceCall()
     speech.isRecording.value = false
     speech.errorCode.value = 'service-not-allowed'
-    speech.error.value = '当前浏览器语音服务暂不可用，可继续输入回答，系统会自动尝试恢复语音。'
+    speech.error.value = '当前浏览器语音服务暂不可用，可继续输入回答；需要恢复语音时请手动点击重试语音。'
     await nextTick()
     speech.start.mockImplementation(() => {
       speech.isRecording.value = true
@@ -354,7 +360,7 @@ describe('useVoiceCall', () => {
     call.startVoiceCall()
     speech.isRecording.value = false
     speech.errorCode.value = 'start-timeout'
-    speech.error.value = '当前浏览器语音服务暂不可用，可继续输入回答，系统会自动尝试恢复语音。'
+    speech.error.value = '当前浏览器语音服务暂不可用，可继续输入回答；需要恢复语音时请手动点击重试语音。'
     await nextTick()
     speech.start.mockImplementation(() => {
       speech.isRecording.value = true
@@ -374,7 +380,7 @@ describe('useVoiceCall', () => {
     call.startVoiceCall()
     speech.isRecording.value = false
     speech.errorCode.value = 'network'
-    speech.error.value = '当前浏览器语音服务暂不可用，可继续输入回答，系统会自动尝试恢复语音。'
+    speech.error.value = '当前浏览器语音服务暂不可用，可继续输入回答；需要恢复语音时请手动点击重试语音。'
     await nextTick()
 
     textToSpeech.isSpeaking.value = true

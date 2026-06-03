@@ -2,7 +2,6 @@ import { onUnmounted, ref } from 'vue'
 import {
   detectSpeechRecognitionCapability,
   getSpeechRecognitionConstructor,
-  installLocalSpeechRecognition,
   SPEECH_RECOGNITION_CAPABILITY_STATUS,
 } from '@/utils/speechRecognitionCapability'
 
@@ -14,7 +13,7 @@ const HEALTHY_START_OBSERVATION_MS = 1000
 const FIRST_EFFECTIVE_EVENT_TIMEOUT_MS = 6000
 const UNSUPPORTED_RECOGNITION_ERROR_MESSAGE = '当前浏览器不支持语音识别，已降级为手动输入'
 const NETWORK_RECOGNITION_ERROR_MESSAGE = '当前浏览器语音识别服务不可用，已降级为手动输入'
-const TEMPORARILY_UNAVAILABLE_ERROR_MESSAGE = '当前浏览器语音服务暂不可用，可继续输入回答，系统会自动尝试恢复语音。'
+const TEMPORARILY_UNAVAILABLE_ERROR_MESSAGE = '当前浏览器语音服务暂不可用，可继续输入回答；需要恢复语音时请手动点击重试语音。'
 const MICROPHONE_PERMISSION_ERROR_MESSAGE = '麦克风权限被拒绝，已降级为手动输入'
 const AUDIO_CAPTURE_ERROR_MESSAGE = '未检测到可用麦克风，已降级为手动输入'
 const START_RECOGNITION_ERROR_MESSAGE = '启动语音识别失败，已降级为手动输入'
@@ -35,15 +34,12 @@ export function useSpeechToText() {
   const error = ref('')
   const errorCode = ref('')
   const engineStatus = ref(isSupported.value ? 'browser-service' : 'unsupported')
-  const supportsLocalProcessing = ref(false)
   const startConfirmed = ref(false)
   const capabilityStatus = ref(
     isSupported.value
       ? SPEECH_RECOGNITION_CAPABILITY_STATUS.WEBSPEECH_READY
       : SPEECH_RECOGNITION_CAPABILITY_STATUS.UNSUPPORTED
   )
-  const localSpeechInstallAvailable = ref(false)
-  const isInstallingLocalSpeech = ref(false)
   const language = ref('zh-CN')
 
   let recognition = null
@@ -56,7 +52,6 @@ export function useSpeechToText() {
   let voiceActivityStartedAt = 0
   let hasTranscriptResult = false
   let startRunId = 0
-  let preferLocalProcessing = true
   let startHealthTimer = null
   let firstEffectiveEventTimer = null
   let healthyStartProbe = null
@@ -67,12 +62,10 @@ export function useSpeechToText() {
     error.value = ''
     errorCode.value = ''
     if (isSupported.value && engineStatus.value === 'unavailable') {
-      engineStatus.value = supportsLocalProcessing.value ? 'system-local' : 'browser-service'
+      engineStatus.value = 'browser-service'
     }
     if (capabilityStatus.value === SPEECH_RECOGNITION_CAPABILITY_STATUS.TEMPORARILY_UNAVAILABLE) {
-      capabilityStatus.value = localSpeechInstallAvailable.value
-        ? SPEECH_RECOGNITION_CAPABILITY_STATUS.LOCAL_DOWNLOADABLE
-        : SPEECH_RECOGNITION_CAPABILITY_STATUS.WEBSPEECH_READY
+      capabilityStatus.value = SPEECH_RECOGNITION_CAPABILITY_STATUS.WEBSPEECH_READY
     }
   }
 
@@ -236,8 +229,6 @@ export function useSpeechToText() {
   const updateCapability = async () => {
     const capability = await detectSpeechRecognitionCapability({ lang: language.value })
     capabilityStatus.value = capability.status
-    localSpeechInstallAvailable.value = Boolean(capability.canInstallLocal)
-    supportsLocalProcessing.value = Boolean(capability.supportsLocalProcessing)
     isSupported.value = capability.status !== SPEECH_RECOGNITION_CAPABILITY_STATUS.UNSUPPORTED
     return capability
   }
@@ -356,7 +347,6 @@ export function useSpeechToText() {
       isStarting = false
       return waitForHealthyStart ? { ok: false, code: 'not-allowed' } : undefined
     }
-    const shouldUseLocalProcessing = preferLocalProcessing && capability.supportsLocalProcessing
     if (currentStartRunId !== startRunId || !isStarting || ignoreResults) {
       cleanupVoiceActivity()
       isStarting = false
@@ -365,18 +355,7 @@ export function useSpeechToText() {
     const healthyStartPromise = waitForHealthyStart ? createHealthyStartProbe() : null
 
     recognition = new SpeechRecognition()
-    let localProcessingEnabled = false
-    if (shouldUseLocalProcessing) {
-      try {
-        recognition.processLocally = true
-        localProcessingEnabled = recognition.processLocally === true
-      } catch (localProcessingError) {
-        console.warn('启用浏览器本地语音识别失败，改用浏览器默认识别', localProcessingError)
-        localProcessingEnabled = false
-      }
-    }
-    supportsLocalProcessing.value = localProcessingEnabled
-    engineStatus.value = localProcessingEnabled ? 'system-local' : 'browser-service'
+    engineStatus.value = 'browser-service'
     recognition.lang = language.value
     recognition.continuous = true
     recognition.interimResults = true
@@ -431,26 +410,6 @@ export function useSpeechToText() {
         resolveHealthyStartProbe(false, 'aborted')
         cleanupRecognition()
         cleanupVoiceActivity()
-        return
-      }
-      if (event.error === 'language-not-supported' && localProcessingEnabled) {
-        preferLocalProcessing = false
-        supportsLocalProcessing.value = false
-        engineStatus.value = 'browser-service'
-        error.value = ''
-        errorCode.value = ''
-        isRecording.value = false
-        startConfirmed.value = false
-        resolveHealthyStartProbe(false, 'language-not-supported')
-        const failedRecognition = recognition
-        cleanupRecognition()
-        try {
-          failedRecognition?.abort?.()
-        } catch (abortError) {
-          console.warn('切换浏览器语音识别模式时停止旧实例失败', abortError)
-        }
-        cleanupVoiceActivity()
-        void start()
         return
       }
       if (event.error === 'network') {
@@ -512,22 +471,6 @@ export function useSpeechToText() {
     return undefined
   }
 
-  const installLocalSpeech = async () => {
-    if (!localSpeechInstallAvailable.value || isInstallingLocalSpeech.value) {
-      return false
-    }
-
-    isInstallingLocalSpeech.value = true
-    try {
-      const result = await installLocalSpeechRecognition({ lang: language.value })
-      if (!result.ok) return false
-      await updateCapability()
-      return true
-    } finally {
-      isInstallingLocalSpeech.value = false
-    }
-  }
-
   const stop = () => {
     if (isStarting) {
       startRunId += 1
@@ -587,16 +530,12 @@ export function useSpeechToText() {
     error,
     errorCode,
     engineStatus,
-    supportsLocalProcessing,
     startConfirmed,
     capabilityStatus,
-    localSpeechInstallAvailable,
-    isInstallingLocalSpeech,
     language,
     start,
     stop,
     cancel,
     toggle,
-    installLocalSpeech,
   }
 }

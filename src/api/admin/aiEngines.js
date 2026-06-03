@@ -126,3 +126,49 @@ export function updateCustomAiDailyLimit(limit) {
     data: { limit }
   })
 }
+
+/**
+ * 查询用户自定义 AI 用量统计。
+ * @param {{date?: string, page?: number, pageSize?: number}} params
+ * @returns {Promise}
+ */
+export function getCustomAiUsageStats(params = {}) {
+  return adminRequest({
+    url: '/api/admin/custom-ai/usage-stats',
+    method: 'get',
+    params: {
+      date: params.date,
+      page: params.page || 1,
+      pageSize: params.pageSize || 20
+    }
+  })
+}
+
+/**
+ * 查询用户自定义 AI 按日趋势。
+ * @param {{startDate?: string, endDate?: string}} params
+ * @returns {Promise}
+ */
+export function getCustomAiUsageTrends(params = {}) {
+  return adminRequest({
+    url: '/api/admin/custom-ai/usage-trends',
+    method: 'get',
+    params: {
+      startDate: params.startDate,
+      endDate: params.endDate
+    }
+  })
+}
+
+/**
+ * 根据管理端当前 AI 引擎表单拉取 OpenAI 兼容模型列表；编辑态可由后端复用已保存密钥。
+ * @param {{id?: number, providerType: string, baseUrl: string, apiKey?: string, timeoutMs?: number}} data
+ * @returns {Promise}
+ */
+export function fetchAdminAiModels(data) {
+  return adminRequest({
+    url: '/api/admin/ai-engines/models',
+    method: 'post',
+    data
+  })
+}

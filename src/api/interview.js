@@ -1,5 +1,6 @@
 import request from '@/utils/request'
 import { API_CACHE_TTL, cachedGet, clearApiCacheByPrefix } from '@/utils/apiCache'
+import { getToken } from '@/utils/auth'
 
 /**
  * 创建面试会话。
@@ -115,6 +116,57 @@ export function getInterviewSessionStatus(sessionId) {
     url: `/api/interview/session/${sessionId}/status`,
     method: 'get'
   })
+}
+
+/**
+ * 查询当前语音面试是否可使用用户自定义云端 TTS。
+ * 该接口只返回可用性和配置类型，不返回 baseUrl / model / key 等敏感配置。
+ * @param {string} sessionId - 会话 ID
+ * @returns {Promise}
+ */
+export function getInterviewTtsCapability(sessionId) {
+  return request({
+    url: `/api/interview/session/${sessionId}/tts-capability`,
+    method: 'get',
+    skipDefaultErrorHandler: true
+  })
+}
+
+/**
+ * 调用后端合成面试官播报音频。
+ * 这里使用 fetch 接收 audio/mpeg Blob，避免 Axios 默认 JSON 解析干扰二进制响应。
+ * @param {string} sessionId - 会话 ID
+ * @param {string} text - 待合成文本
+ * @param {{ signal?: AbortSignal }} [options] - 可选取消信号
+ * @returns {Promise<Blob>}
+ */
+export async function synthesizeInterviewTts(sessionId, text, options = {}) {
+  const token = getToken()
+  const response = await fetch(`/api/interview/session/${sessionId}/tts`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: token ? `Bearer ${token}` : ''
+    },
+    body: JSON.stringify({ text }),
+    signal: options.signal
+  })
+
+  if (!response.ok) {
+    let message = `TTS 合成失败 (${response.status})`
+    let code = null
+    try {
+      const errorBody = await response.json()
+      code = errorBody.code ?? null
+      message = errorBody.message || errorBody.msg || message
+    } catch { /* 音频接口失败体不一定是 JSON，保留通用错误即可 */ }
+    const error = new Error(message)
+    error.status = response.status
+    error.code = code
+    throw error
+  }
+
+  return response.blob()
 }
 
 /**

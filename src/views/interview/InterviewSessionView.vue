@@ -210,56 +210,6 @@
           <div class="voice-engine-status voice-tts-status">{{ voiceTtsEngineText }}</div>
           <div class="voice-call-time">{{ formatCallDuration(voiceCall.callDuration.value) }}</div>
 
-          <div v-if="voiceSttLocalSpeechInstallAvailable" class="voice-local-pack-hint">
-            <span>{{ TEXT_LOCAL_SPEECH_PACK_HINT }}</span>
-            <button
-              class="voice-text-fallback-secondary"
-              type="button"
-              :title="TEXT_INSTALL_LOCAL_SPEECH_TITLE"
-              :disabled="voiceSttInstallingLocalSpeech"
-              @click="handleInstallLocalSpeech"
-            >
-              {{ voiceSttInstallingLocalSpeech ? TEXT_INSTALLING : TEXT_INSTALL }}
-            </button>
-          </div>
-
-          <div v-if="showVoiceTextFallbackCard" class="voice-text-fallback-card">
-            <div class="voice-text-fallback-header">
-              <strong class="voice-text-fallback-title">{{ voiceCallTitle }}</strong>
-              <span class="voice-text-fallback-help">{{ voiceFallbackMessage }}</span>
-              <span class="voice-text-fallback-help">{{ TEXT_SYSTEM_DICTATION_HINT }}</span>
-            </div>
-            <textarea
-              v-model="inputMessage"
-              :aria-label="TEXT_TEXT_ANSWER_LABEL"
-              maxlength="2000"
-              :placeholder="TEXT_ANSWER_PLACEHOLDER"
-              :disabled="replyLocked"
-              @keydown.ctrl.enter.prevent="sendMessage"
-            ></textarea>
-            <div class="voice-text-fallback-actions">
-              <button
-                v-if="voiceFeatureSupported && voiceCall.isTextFallbackMode.value"
-                class="voice-text-fallback-secondary"
-                type="button"
-                :title="TEXT_RETRY_VOICE_TITLE"
-                :disabled="replyLocked || voiceCall.isAiSpeaking.value"
-                @click="handleRetryVoiceRecognition"
-              >
-                {{ TEXT_RETRY_VOICE }}
-              </button>
-              <button
-                class="voice-text-fallback-primary"
-                type="button"
-                :title="TEXT_SEND_TEXT_ANSWER_TITLE"
-                :disabled="replyLocked || !inputMessage.trim()"
-                @click="sendMessage"
-              >
-                {{ TEXT_SEND_ANSWER }}
-              </button>
-            </div>
-          </div>
-
           <div v-if="voiceCall.pendingMessage.value" class="voice-pending-text voice-pending-floating">
             {{ voiceCall.pendingMessage.value }}
           </div>
@@ -273,7 +223,7 @@
               type="button"
               :aria-label="voiceCall.isManualResumePending.value ? '继续收音' : voiceCall.isVoiceMode.value ? '切换静音' : '开始通话'"
               :title="voiceCall.isManualResumePending.value ? '继续收音' : voiceCall.isVoiceMode.value ? '切换静音' : '开始通话'"
-              :disabled="!voiceFeatureSupported || replyLocked"
+              :disabled="!voiceFeatureSupported || modeSwitchLocked"
               @click="handleMicControl"
             >
               <FeatureIcon :name="voiceCall.isMuted.value ? 'microphone-off' : 'microphone-on'" size="sm" />
@@ -295,6 +245,7 @@
               type="button"
               aria-label="切换文本模式"
               title="切换文本模式"
+              :disabled="modeSwitchLocked"
               @click="switchToTextMode"
             >
               <FeatureIcon name="edit" size="sm" />
@@ -328,7 +279,7 @@
           <el-button
             v-if="!voiceCall.isVoiceMode.value"
             type="primary"
-            :disabled="!voiceFeatureSupported || replyLocked"
+            :disabled="!voiceFeatureSupported || modeSwitchLocked"
             @click="handleStartVoiceCall"
           >
             <FeatureIcon name="microphone-on" size="xs" class="button-feature-icon" />
@@ -338,6 +289,7 @@
             <el-button
               :type="voiceCall.isMuted.value ? 'warning' : 'default'"
               plain
+              :disabled="modeSwitchLocked"
               @click="handleToggleMute"
             >
               <FeatureIcon :name="voiceCall.isMuted.value ? 'microphone-off' : 'microphone-on'" size="xs" class="button-feature-icon" />
@@ -377,16 +329,19 @@
       </div>
       <div v-else-if="showTextInput" class="input-container">
         <div v-if="showVoiceDegradedBanner" class="voice-degraded-banner">
-          <span class="voice-degraded-text">
-            {{ voiceFeatureSupported ? '语音暂不可用，已切换为文本输入' : '当前浏览器不支持语音，已切换为文本输入' }}
-          </span>
+          <div class="voice-degraded-left">
+            <FeatureIcon name="microphone-on" size="sm" class="voice-degraded-icon" />
+            <span class="voice-degraded-text">{{ voiceDegradedBannerText }}</span>
+          </div>
           <button
             v-if="voiceFeatureSupported"
             class="voice-fallback-link-btn"
             type="button"
-            :disabled="replyLocked || voiceCall.isAiSpeaking.value"
+            title="重试语音面试"
+            :disabled="modeSwitchLocked"
             @click="handleRetryVoiceRecognition"
           >
+            <FeatureIcon name="retry" size="xs" class="voice-retry-icon" />
             重试语音
           </button>
         </div>
@@ -407,6 +362,7 @@
               v-if="canSwitchToVoice"
               plain
               size="small"
+              :disabled="modeSwitchLocked"
               @click="switchToVoiceMode"
             >
               <FeatureIcon name="microphone-on" size="xs" class="button-feature-icon" />
@@ -416,7 +372,7 @@
               v-if="sttSupported"
               :class="['mic-btn', { 'is-recording': sttRecording }]"
               :type="sttRecording ? 'danger' : 'default'"
-              :disabled="replyLocked"
+              :disabled="modeSwitchLocked"
               circle
               @click="sttToggle"
             >
@@ -468,6 +424,7 @@ import {
   endInterview as apiEndInterview,
   getInterviewSession,
   getInterviewSessionStatus,
+  getInterviewTtsCapability,
   streamInterviewMessage,
 } from "@/api/interview";
 import { prefetchInterviewReportRoute } from "@/router/routeLoaders";
@@ -477,6 +434,7 @@ import { getSettingsPreferences } from "@/utils/settingsPreferences";
 import FeatureIcon from "@/components/common/FeatureIcon.vue";
 import OptimizedImage from "@/components/common/OptimizedImage.vue";
 import { useSpeechToText } from "@/composables/useSpeechToText";
+import { useCloudTextToSpeech } from "@/composables/useCloudTextToSpeech";
 import { useTextToSpeech } from "@/composables/useTextToSpeech";
 import { useVoiceCall } from "@/composables/useVoiceCall";
 
@@ -488,17 +446,11 @@ const settingsPreferences = getSettingsPreferences();
 const RATE_LIMIT_STATUS = 429;
 const INTERVIEW_STREAM_RATE_LIMIT_MESSAGE = "发送太频繁，请稍后继续。10 分钟内最多 60 轮对话。";
 const OPENING_SPEECH_MAX_ATTEMPTS = 2;
-const TEXT_LOCAL_SPEECH_PACK_HINT = "\u53ef\u5b89\u88c5\u6d4f\u89c8\u5668\u672c\u5730\u8bed\u97f3\u5305\u4ee5\u63d0\u5347\u7a33\u5b9a\u6027";
-const TEXT_INSTALL_LOCAL_SPEECH_TITLE = "\u5b89\u88c5\u6d4f\u89c8\u5668\u672c\u5730\u8bed\u97f3\u5305";
-const TEXT_INSTALLING = "\u5b89\u88c5\u4e2d";
-const TEXT_INSTALL = "\u5b89\u88c5";
-const TEXT_SYSTEM_DICTATION_HINT = "\u4e5f\u53ef\u4f7f\u7528\u7cfb\u7edf\u542c\u5199\uff08Win + H\uff09\u540e\u7ee7\u7eed\u53d1\u9001\u3002";
-const TEXT_TEXT_ANSWER_LABEL = "\u6587\u672c\u56de\u7b54";
-const TEXT_ANSWER_PLACEHOLDER = "\u8f93\u5165\u4f60\u7684\u56de\u7b54\uff0cAI \u9762\u8bd5\u5b98\u5c06\u7ee7\u7eed\u8ffd\u95ee...";
-const TEXT_RETRY_VOICE_TITLE = "\u91cd\u65b0\u542f\u7528\u8bed\u97f3";
-const TEXT_RETRY_VOICE = "\u91cd\u8bd5\u8bed\u97f3";
-const TEXT_SEND_TEXT_ANSWER_TITLE = "\u53d1\u9001\u6587\u672c\u56de\u7b54";
-const TEXT_SEND_ANSWER = "\u53d1\u9001\u56de\u7b54";
+// 后续流式追问也必须检测 onstart，Chrome 接受 speak 但不发声时用默认 voice 重试。
+const INTERVIEW_STREAM_SPEECH_OPTIONS = Object.freeze({
+  allowDefaultVoice: true,
+  requireStartEvent: true,
+});
 
 const sessionId = computed(() => route.params.sessionId);
 const chatContainer = ref(null);
@@ -530,32 +482,33 @@ const preferTextInput = ref(false);
 // 语音 overlay 全屏窗口：语音会话 + 进行中 + 未折叠 + 语音可用 + 用户未切文本 + 未降级
 const showVoiceOverlay = computed(() =>
   isVoiceSession.value && isInProgress.value && !voiceCallCollapsed.value && !preferTextInput.value
+  && voiceFeatureSupported.value && !voiceCall.isTextFallbackMode.value
 );
 // 折叠语音面板
 const showCollapsedVoicePanel = computed(() =>
   isVoiceSession.value && isInProgress.value && voiceCallCollapsed.value
   && voiceFeatureSupported.value && !preferTextInput.value && !voiceCall.isTextFallbackMode.value
 );
-// 文本输入区
-const showVoiceTextFallbackCard = computed(() =>
-  isVoiceSession.value && isInProgress.value && !preferTextInput.value
-  && (!voiceFeatureSupported.value || voiceCall.isTextFallbackMode.value)
-);
-
 const showTextInput = computed(() =>
-  !isVoiceSession.value || preferTextInput.value || (voiceCallCollapsed.value && (!voiceFeatureSupported.value || voiceCall.isTextFallbackMode.value))
+  !isVoiceSession.value || preferTextInput.value || (isVoiceSession.value && (!voiceFeatureSupported.value || voiceCall.isTextFallbackMode.value))
 );
 // 降级提示横幅（语音不可用或运行时降级时显示）
 const showVoiceDegradedBanner = computed(() =>
   isVoiceSession.value && isInProgress.value && (voiceCall.isTextFallbackMode.value || !voiceFeatureSupported.value)
 );
+// 降级横幅文案保持短句，避免自动切换到文本区后压缩输入框布局。
+const voiceDegradedBannerText = computed(() => {
+  if (voiceCall.isTextFallbackMode.value) return '语音识别暂不可用，已自动切换为文本回答';
+  return '当前浏览器不支持语音，已自动切换为文本回答';
+});
 // 用户可主动切回语音的条件
 const canSwitchToVoice = computed(() =>
-  isVoiceSession.value && voiceFeatureSupported.value && !voiceCall.isTextFallbackMode.value
+  isVoiceSession.value && voiceFeatureSupported.value
 );
+// 模式切换锁：AI 播报 / 回复期间不能切换语音与文本，避免切换时 stop/cancel 打断浏览器 TTS 队列。
+const modeSwitchLocked = computed(() => Boolean(replyLocked.value || voiceCall.isAiSpeaking.value));
 const voiceRecognitionEngineText = computed(() => {
   if (!voiceSttSupported.value) return '识别引擎：当前浏览器不支持语音识别';
-  if (voiceSttEngineStatus?.value === 'system-local') return '识别引擎：系统本地识别';
   if (voiceSttEngineStatus?.value === 'browser-service') return '识别引擎：浏览器语音识别';
   if (voiceSttEngineStatus?.value === 'unavailable') return '识别引擎：浏览器语音识别不可用';
   if (voiceSttEngineStatus?.value === 'unsupported') return '识别引擎：当前浏览器不支持语音识别';
@@ -574,7 +527,7 @@ const voiceCallTitle = computed(() => {
 const voiceCallDescription = computed(() => {
   if (!voiceFeatureSupported.value) return "请切换到支持 Web Speech API 的 Chrome 或 Edge 浏览器。";
   if (!voiceCall.isVoiceMode.value) return "点击开始通话后再授权麦克风，页面刷新不会自动开麦。";
-  if (voiceCall.isTextFallbackMode.value) return "当前浏览器语音服务暂不可用，可继续输入回答，系统会自动尝试恢复语音。";
+  if (voiceCall.isTextFallbackMode.value) return "当前浏览器语音服务暂不可用，可继续输入回答；需要恢复语音时请手动点击重试语音。";
   if (voiceCall.isMuted.value) return "麦克风已关闭，取消静音后会继续收音。";
   if (voiceCall.isManualResumePending.value) return "已取消静音，再次点击麦克风后继续收音。";
   if (replyLocked.value || voiceCall.isAiSpeaking.value) return "AI 朗读时会暂停收音，避免播报内容被误识别。";
@@ -592,6 +545,7 @@ let openingPollingTimer = null;
 let openingSpeechAttemptCount = 0;
 let openingSpeechActive = false;
 let reportRoutePrefetchPromise = null;
+const cloudTtsFallbackWarned = ref(false);
 
 const {
   isSupported: sttSupported,
@@ -610,20 +564,17 @@ const {
   isVoiceActive: voiceSttVoiceActive,
   voiceActivityAt: voiceSttVoiceActivityAt,
   finalTranscript: voiceSttFinal,
-  localSpeechInstallAvailable: voiceSttLocalSpeechInstallAvailable,
-  isInstallingLocalSpeech: voiceSttInstallingLocalSpeech,
   interimTranscript: voiceSttInterim,
   error: voiceSttError,
   errorCode: voiceSttErrorCode,
   engineStatus: voiceSttEngineStatus,
   language: voiceSttLanguage,
-  installLocalSpeech: voiceSttInstallLocalSpeech,
   start: voiceSttStart,
   stop: voiceSttStop,
   cancel: voiceSttCancel,
 } = useSpeechToText();
 
-const textToSpeech = useTextToSpeech({
+const browserTextToSpeech = useTextToSpeech({
   rate: settingsPreferences.voiceSpeakingRate,
   pitch: settingsPreferences.voicePitch,
   volume: settingsPreferences.voiceVolume,
@@ -635,8 +586,65 @@ const textToSpeech = useTextToSpeech({
   }
 });
 
+function handleCloudTtsFallback(event = {}) {
+  const fallbackText = String(event.text || '').trim();
+  if (!cloudTtsFallbackWarned.value) {
+    cloudTtsFallbackWarned.value = true;
+    ElMessage.warning('云端语音暂不可用，已切回浏览器播报');
+  }
+  if (fallbackText && browserTextToSpeech.isSupported.value) {
+    browserTextToSpeech.speak(fallbackText, event.speechOptions || {});
+  }
+}
+
+const cloudTextToSpeech = useCloudTextToSpeech({
+  sessionId,
+  enabled: false,
+  onFallback: handleCloudTtsFallback,
+});
+
+const shouldUseCloudTts = () => isVoiceSession.value && cloudTextToSpeech.isSupported.value;
+
+const textToSpeech = {
+  isSupported: computed(() => browserTextToSpeech.isSupported.value || cloudTextToSpeech.isSupported.value),
+  isSpeaking: computed(() => browserTextToSpeech.isSpeaking.value || cloudTextToSpeech.isSpeaking.value),
+  voicePreferenceStatus: browserTextToSpeech.voicePreferenceStatus,
+  prepareForUserGesture: () => {
+    browserTextToSpeech.prepareForUserGesture?.();
+    cloudTextToSpeech.prepareForUserGesture?.();
+  },
+  speak: (text, speechOptions = {}) => {
+    if (shouldUseCloudTts()) {
+      cloudTextToSpeech.speak(text, speechOptions);
+      return;
+    }
+    browserTextToSpeech.speak(text, speechOptions);
+  },
+  speakStreaming: (chunk, speechOptions = {}) => {
+    if (shouldUseCloudTts()) {
+      cloudTextToSpeech.speakStreaming(chunk, speechOptions);
+      return;
+    }
+    browserTextToSpeech.speakStreaming(chunk, speechOptions);
+  },
+  flushRemaining: (speechOptions = {}) => {
+    if (shouldUseCloudTts()) {
+      cloudTextToSpeech.flushRemaining(speechOptions);
+      return;
+    }
+    browserTextToSpeech.flushRemaining(speechOptions);
+  },
+  stop: () => {
+    cloudTextToSpeech.stop();
+    browserTextToSpeech.stop();
+  },
+};
+
 const voiceTtsEngineText = computed(() => {
-  const status = textToSpeech.voicePreferenceStatus.value;
+  if (cloudTextToSpeech.isSupported.value) {
+    return '播报音色：云端 TTS';
+  }
+  const status = browserTextToSpeech.voicePreferenceStatus.value;
   const selectedVoiceName = status.selectedVoiceName || '浏览器系统默认 voice';
   if (status.isDegraded && status.requestedType === 'male') {
     return `播报音色：当前浏览器没有中文男声，实际使用 ${selectedVoiceName}`;
@@ -839,6 +847,20 @@ const parseAssistantFeedback = (content = "") => {
   };
 };
 
+const getAssistantSpeechDelta = (previousRawContent = "", nextRawContent = "") => {
+  const stripFeedbackForSpeech = (rawContent) => String(rawContent || "")
+    .replace(/<FEEDBACK>[\s\S]*?<\/FEEDBACK>/gi, "")
+    .replace(/<FEEDBACK>[\s\S]*$/i, "");
+  const previousSpeakable = stripFeedbackForSpeech(previousRawContent);
+  const nextSpeakable = stripFeedbackForSpeech(nextRawContent);
+  // 流式回复可能先输出即时反馈块再输出追问；播报差量基于“去掉反馈后的完整文本”计算，
+  // 避免看到 <FEEDBACK> 后把后续真正的问题也全部跳过。
+  if (nextSpeakable.startsWith(previousSpeakable)) {
+    return nextSpeakable.slice(previousSpeakable.length);
+  }
+  return stripFeedbackForSpeech(String(nextRawContent || "").slice(String(previousRawContent || "").length));
+};
+
 const getAssistantDisplay = (item) => {
   const source = item?.status === "streaming"
     ? item.displayContent || ""
@@ -978,6 +1000,24 @@ const recoverPersistedStreamReply = async (sentContent) => {
   }
 };
 
+const loadInterviewTtsCapability = async (nextSessionData) => {
+  if ((nextSessionData?.interactionType ?? INTERACTION_TYPE_TEXT) !== INTERACTION_TYPE_VOICE || !sessionId.value) {
+    cloudTextToSpeech.setEnabled(false);
+    return;
+  }
+  try {
+    const response = await getInterviewTtsCapability(sessionId.value);
+    const capability = response.data || {};
+    // capability 只决定本场播放层是否走用户自定义 TTS；不可用时继续浏览器播报，不触发平台 AI fallback。
+    cloudTextToSpeech.setEnabled(Boolean(capability.available));
+    if (capability.available) {
+      cloudTtsFallbackWarned.value = false;
+    }
+  } catch {
+    cloudTextToSpeech.setEnabled(false);
+  }
+};
+
 const fetchSessionDetail = async () => {
   if (!sessionId.value) {
     error.value = "会话 ID 不存在";
@@ -994,6 +1034,7 @@ const fetchSessionDetail = async () => {
       ...data,
       chatLogs: normalizeChatLogs(data.chatLogs),
     };
+    await loadInterviewTtsCapability(data);
     
     // 处理开场白待生成状态
     if (data.openingPending) {
@@ -1245,12 +1286,11 @@ const sendMessage = async (overrideContent = "", options = {}) => {
         msg.status = "streaming";
         msg.rawContent += normalizedData;
         msg.pendingContent += normalizedData;
-        if (isVoiceSession.value && voiceCall.isVoiceMode.value) {
+        if (isVoiceSession.value) {
           // 语音播报只读自然追问部分，避免把即时反馈标签和结构化反馈读出来。
-          const speechChunk = previousRawContent.includes("<FEEDBACK>")
-            ? ""
-            : normalizedData.split("<FEEDBACK>")[0];
-          textToSpeech.speakStreaming(speechChunk);
+          // 不依赖 isVoiceMode：用户切到文本输入后仍需听到面试官播报。
+          const speechChunk = getAssistantSpeechDelta(previousRawContent, msg.rawContent);
+          textToSpeech.speakStreaming(speechChunk, INTERVIEW_STREAM_SPEECH_OPTIONS);
         }
       }
       return;
@@ -1258,8 +1298,8 @@ const sendMessage = async (overrideContent = "", options = {}) => {
     if (payload.type === "done") {
       receivedDone = true;
       msg.streamFinished = true;
-      if (isVoiceSession.value && voiceCall.isVoiceMode.value) {
-        textToSpeech.flushRemaining();
+      if (isVoiceSession.value) {
+        textToSpeech.flushRemaining(INTERVIEW_STREAM_SPEECH_OPTIONS);
       }
       return;
     }
@@ -1367,6 +1407,8 @@ const sendMessage = async (overrideContent = "", options = {}) => {
     if (activeStreamController === streamController) {
       activeStreamController = null;
     }
+    replyLocked.value = false;
+    sending.value = false;
   } catch (err) {
     // AbortError 是主动取消（路由切换、连发新消息、组件卸载），不展示错误 toast。
     if (err?.name === "AbortError") {
@@ -1421,6 +1463,10 @@ const formatCallDuration = (duration) => {
 };
 
 const handleStartVoiceCall = () => {
+  if (modeSwitchLocked.value) {
+    ElMessage.warning('AI 面试官播报结束后再切换模式');
+    return;
+  }
   textToSpeech.prepareForUserGesture?.();
   const shouldDeferListening = shouldDeferListeningForOpeningSpeech();
   if (!voiceCall.startVoiceCall({ startListening: !shouldDeferListening })) {
@@ -1441,6 +1487,10 @@ const handleEndVoiceCall = () => {
 };
 
 const handleToggleMute = () => {
+  if (modeSwitchLocked.value) {
+    ElMessage.warning('AI 面试官播报结束后再操作语音识别');
+    return;
+  }
   const muted = voiceCall.toggleMute();
   if (voiceCall.isManualResumePending.value) {
     ElMessage.success("已取消静音，再次点击麦克风后继续收音");
@@ -1450,21 +1500,27 @@ const handleToggleMute = () => {
 };
 
 const handleRetryVoiceRecognition = async () => {
+  if (modeSwitchLocked.value) {
+    ElMessage.warning('AI 面试官播报结束后再切换模式');
+    return;
+  }
+  preferTextInput.value = false;
+  voiceCallCollapsed.value = false;
   const recovered = await voiceCall.retrySpeechNow();
+  if (!recovered) {
+    preferTextInput.value = true;
+  }
   ElMessage[recovered ? 'success' : 'warning'](
     recovered ? '语音已恢复' : '语音暂未恢复，可继续输入回答'
   );
 };
 
-const handleInstallLocalSpeech = async () => {
-  const installed = await voiceSttInstallLocalSpeech?.();
-  ElMessage[installed ? 'success' : 'warning'](
-    installed ? "\u6d4f\u89c8\u5668\u672c\u5730\u8bed\u97f3\u5305\u5df2\u5b89\u88c5" : "\u672c\u5730\u8bed\u97f3\u5305\u6682\u65f6\u65e0\u6cd5\u5b89\u88c5"
-  );
-};
-
 // 切换到文本模式
 const switchToTextMode = () => {
+  if (modeSwitchLocked.value) {
+    ElMessage.warning('AI 面试官播报结束后再切换模式');
+    return;
+  }
   preferTextInput.value = true;
   if (voiceCall.isVoiceMode.value) {
     voiceCall.endVoiceCall();
@@ -1473,6 +1529,10 @@ const switchToTextMode = () => {
 
 // 切换回语音模式
 const switchToVoiceMode = () => {
+  if (modeSwitchLocked.value) {
+    ElMessage.warning('AI 面试官播报结束后再切换模式');
+    return;
+  }
   preferTextInput.value = false;
   voiceCallCollapsed.value = false;
   handleStartVoiceCall();
@@ -1487,6 +1547,10 @@ const handleStopListeningAndSend = async () => {
 };
 
 const handleMicControl = () => {
+  if (modeSwitchLocked.value) {
+    ElMessage.warning('AI 面试官播报结束后再操作语音识别');
+    return;
+  }
   if (!voiceCall.isVoiceMode.value) {
     handleStartVoiceCall();
     return;
@@ -2439,164 +2503,84 @@ onBeforeUnmount(() => {
   max-height: 74px;
   overflow: auto;
 }
-.voice-local-pack-hint {
-  position: relative;
-  z-index: 1;
-  width: min(100%, 460px);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 12px;
-  padding: 10px 12px;
-  border: 1px solid rgba(21, 128, 61, 0.2);
-  border-radius: 10px;
-  background: rgba(240, 253, 244, 0.9);
-  color: #166534;
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.voice-text-fallback-card {
-  position: relative;
-  z-index: 1;
-  width: min(100%, 520px);
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-top: 18px;
-  padding: 16px;
-  border: 1px solid rgba(245, 158, 11, 0.26);
-  border-radius: 12px;
-  background: rgba(255, 251, 235, 0.94);
-  box-shadow: 0 18px 36px rgba(120, 72, 18, 0.12);
-}
-
-.voice-text-fallback-header {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  text-align: left;
-}
-
-.voice-text-fallback-title {
-  color: #7c2d12;
-  font-size: 15px;
-  line-height: 1.4;
-}
-
-.voice-text-fallback-help {
-  color: #854d0e;
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.voice-text-fallback-card textarea {
-  width: 100%;
-  min-height: 96px;
-  max-height: 180px;
-  resize: vertical;
-  padding: 10px 12px;
-  border: 1px solid rgba(217, 119, 6, 0.24);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.94);
-  color: #1f2937;
-  font-size: 14px;
-  line-height: 1.6;
-  outline: none;
-}
-
-.voice-text-fallback-card textarea:focus {
-  border-color: rgba(217, 119, 6, 0.58);
-  box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.16);
-}
-
-.voice-text-fallback-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.voice-text-fallback-secondary,
-.voice-text-fallback-primary {
-  min-height: 36px;
-  padding: 0 14px;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 13px;
-  transition: transform 180ms var(--interview-ease), box-shadow 180ms var(--interview-ease), background 180ms var(--interview-ease);
-}
-
-.voice-text-fallback-secondary {
-  border: 1px solid rgba(217, 119, 6, 0.28);
-  background: rgba(255, 255, 255, 0.82);
-  color: #92400e;
-}
-
-.voice-text-fallback-primary {
-  border: 1px solid rgba(234, 88, 12, 0.9);
-  background: #ea580c;
-  color: #fff;
-}
-
-.voice-text-fallback-secondary:hover,
-.voice-text-fallback-primary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 8px 18px rgba(167, 91, 34, 0.14);
-}
-
-.voice-text-fallback-secondary:disabled,
-.voice-text-fallback-primary:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-  transform: none;
-  box-shadow: none;
-}
-
-.voice-fallback-link-btn {
-  border: 1px solid rgba(255, 140, 66, 0.34);
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 13px;
-  transition: transform 180ms var(--interview-ease), box-shadow 180ms var(--interview-ease), background 180ms var(--interview-ease);
-}
-
-.voice-fallback-link-btn {
-  padding: 4px 10px;
-  background: rgba(255, 140, 66, 0.08);
-  color: #9a4f12;
-}
-
-.voice-fallback-link-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 8px 18px rgba(167, 91, 34, 0.14);
-}
-
-.voice-fallback-link-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-  transform: none;
-  box-shadow: none;
-}
 
 .voice-degraded-banner {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
   margin-bottom: 10px;
-  padding: 8px 14px;
+  padding: 10px 14px;
   border: 1px solid rgba(245, 158, 11, 0.22);
-  border-radius: 10px;
-  background: rgba(255, 248, 237, 0.9);
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(255, 248, 237, 0.95), rgba(255, 243, 224, 0.9));
   font-size: 13px;
   line-height: 1.5;
+  box-shadow: 0 1px 3px rgba(167, 91, 34, 0.06);
+}
+
+.voice-degraded-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.voice-degraded-icon {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  opacity: 0.8;
 }
 
 .voice-degraded-text {
   color: #8a5a20;
+  display: inline;
+}
+
+.voice-degraded-retry-hint {
+  color: #9a4f12;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.voice-fallback-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 5px 12px;
+  border: 1px solid rgba(255, 140, 66, 0.3);
+  border-radius: 8px;
+  background: rgba(255, 140, 66, 0.08);
+  color: #9a4f12;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: transform 180ms var(--interview-ease), box-shadow 180ms var(--interview-ease), background 180ms var(--interview-ease), border-color 180ms var(--interview-ease);
+}
+
+.voice-fallback-link-btn:hover:not(:disabled) {
+  background: rgba(255, 140, 66, 0.16);
+  border-color: rgba(255, 140, 66, 0.5);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(167, 91, 34, 0.12);
+}
+
+.voice-fallback-link-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.voice-fallback-link-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.voice-retry-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
 }
 
 .voice-dock-actions {

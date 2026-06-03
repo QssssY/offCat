@@ -6,10 +6,9 @@ const MUTE_RESUME_MODE_AUTO = 'auto'
 const TTS_RESUME_DELAY_MS = 800
 const RECOVERABLE_SPEECH_RESTART_DELAY_MS = 600
 const MAX_RECOVERABLE_SPEECH_RESTARTS = 2
-const TEXT_FALLBACK_RETRY_DELAYS_MS = Object.freeze([15000, 30000, 60000])
 const UNSUPPORTED_SPEECH_ERROR_MESSAGE = '当前浏览器不支持语音识别，已降级为手动输入'
 const UNSUPPORTED_TTS_ERROR_MESSAGE = '当前浏览器不支持语音播报，已降级为手动输入'
-const TEMPORARY_TEXT_FALLBACK_MESSAGE = '当前浏览器语音服务暂不可用，可继续输入回答，系统会自动尝试恢复语音。'
+const TEMPORARY_TEXT_FALLBACK_MESSAGE = '当前浏览器语音服务暂不可用，可继续输入回答；需要恢复语音时请手动点击重试语音。'
 const SHORT_RECOVERABLE_SPEECH_ERROR_CODES = new Set([
   'no-speech',
   'no-transcript',
@@ -22,11 +21,6 @@ const TEXT_FALLBACK_SPEECH_ERROR_CODES = new Set([
   'not-allowed',
   'audio-capture',
 ])
-const USER_ACTION_REQUIRED_SPEECH_ERROR_CODES = new Set([
-  'not-allowed',
-  'audio-capture',
-])
-
 /**
  * 语音通话模式编排。
  * STT 可恢复中断会优先自动重启，不可恢复错误才退出语音模式；AI 播报期间暂停收音，播报结束后按当前规则恢复。
@@ -57,8 +51,6 @@ export function useVoiceCall(options) {
   let ttsWasActive = false
   let ttsResumeTimer = null
   let recoverableSpeechRestartTimer = null
-  let textFallbackRetryTimer = null
-  let textFallbackRetryIndex = 0
   let recoverableSpeechRestartCount = 0
 
   const silenceTimeoutMs = Number(options.silenceTimeoutMs ?? DEFAULT_SILENCE_TIMEOUT_MS)
@@ -68,13 +60,6 @@ export function useVoiceCall(options) {
     if (recoverableSpeechRestartTimer) {
       clearTimeout(recoverableSpeechRestartTimer)
       recoverableSpeechRestartTimer = null
-    }
-  }
-
-  const clearTextFallbackRetryTimer = () => {
-    if (textFallbackRetryTimer) {
-      clearTimeout(textFallbackRetryTimer)
-      textFallbackRetryTimer = null
     }
   }
 
@@ -92,7 +77,6 @@ export function useVoiceCall(options) {
       ttsResumeTimer = null
     }
     clearRecoverableSpeechRestartTimer()
-    clearTextFallbackRetryTimer()
   }
 
   const clearPendingTranscript = () => {
@@ -113,9 +97,7 @@ export function useVoiceCall(options) {
     ttsWasActive = false
     isAutoSending = false
     recoverableSpeechRestartCount = 0
-    textFallbackRetryIndex = 0
     clearRecoverableSpeechRestartTimer()
-    clearTextFallbackRetryTimer()
   }
 
   const pauseListeningForAi = () => {
@@ -174,51 +156,24 @@ export function useVoiceCall(options) {
     }
   }
 
-  const scheduleTextFallbackRetry = (immediate = false) => {
-    clearTextFallbackRetryTimer()
-    if (!isVoiceMode.value || !isTextFallbackMode.value) return
-
-    const delay = immediate
-      ? 0
-      : TEXT_FALLBACK_RETRY_DELAYS_MS[Math.min(textFallbackRetryIndex, TEXT_FALLBACK_RETRY_DELAYS_MS.length - 1)]
-    if (!immediate) {
-      textFallbackRetryIndex += 1
-    }
-
-    textFallbackRetryTimer = setTimeout(() => {
-      textFallbackRetryTimer = null
-      void retrySpeechNow({ automatic: true })
-    }, delay)
-  }
-
-  const enterTextFallbackMode = (reason, code = '') => {
+  const enterTextFallbackMode = (reason) => {
     clearRecoverableSpeechRestartTimer()
     isManualResumePending.value = false
     isTextFallbackMode.value = true
     speechFallbackReason.value = reason || TEMPORARY_TEXT_FALLBACK_MESSAGE
     error.value = speechFallbackReason.value
-    textFallbackRetryIndex = 0
     options.speech.stop?.()
-    if (!USER_ACTION_REQUIRED_SPEECH_ERROR_CODES.has(code)) {
-      scheduleTextFallbackRetry()
-    }
   }
 
   const leaveTextFallbackMode = () => {
-    clearTextFallbackRetryTimer()
     isTextFallbackMode.value = false
     speechFallbackReason.value = ''
-    textFallbackRetryIndex = 0
     error.value = ''
   }
 
-  async function retrySpeechNow(retryOptions = {}) {
-    clearTextFallbackRetryTimer()
+  async function retrySpeechNow() {
     if (!isVoiceMode.value || !isTextFallbackMode.value) return false
     if (isMuted.value || options.isReplying?.value || options.textToSpeech.isSpeaking.value) {
-      if (retryOptions.automatic) {
-        scheduleTextFallbackRetry()
-      }
       return false
     }
     if (!options.speech.isSupported.value) {
@@ -234,7 +189,6 @@ export function useVoiceCall(options) {
         return true
       }
       if (healthResult && healthResult.ok === false) {
-        scheduleTextFallbackRetry()
         return false
       }
     }
@@ -244,7 +198,6 @@ export function useVoiceCall(options) {
       return true
     }
 
-    scheduleTextFallbackRetry()
     return false
   }
 
@@ -254,7 +207,7 @@ export function useVoiceCall(options) {
     lastSpeechAt = Date.now()
     if (recoverableSpeechRestartCount >= MAX_RECOVERABLE_SPEECH_RESTARTS) {
       // 连续短恢复失败后切入正式文本兜底，让面试继续进行，并交给后台退避探测恢复语音。
-      enterTextFallbackMode(error.value || TEMPORARY_TEXT_FALLBACK_MESSAGE, options.speech.errorCode?.value || '')
+      enterTextFallbackMode(error.value || TEMPORARY_TEXT_FALLBACK_MESSAGE)
       return
     }
     recoverableSpeechRestartCount += 1
@@ -371,7 +324,6 @@ export function useVoiceCall(options) {
     isMuted.value = !isMuted.value
     if (isMuted.value) {
       clearRecoverableSpeechRestartTimer()
-      clearTextFallbackRetryTimer()
       void options.speech.stop?.()
       return true
     }
@@ -430,7 +382,7 @@ export function useVoiceCall(options) {
       return
     }
     if (isTextFallbackMode.value) {
-      scheduleTextFallbackRetry(true)
+      // 已降级到文本后不再后台探测恢复，避免 AI 回复结束后未经用户选择自动切回语音。
       return
     }
     resumeListening()
@@ -445,7 +397,7 @@ export function useVoiceCall(options) {
         return
       }
       if (isTextFallbackMode.value) {
-        scheduleTextFallbackRetry(true)
+        // 文本降级只允许用户点击“重试语音”恢复，AI 回复完成不能主动切回语音。
         return
       }
       resumeListening()
@@ -457,7 +409,7 @@ export function useVoiceCall(options) {
     error.value = nextError
     const speechErrorCode = options.speech.errorCode?.value || ''
     if (TEXT_FALLBACK_SPEECH_ERROR_CODES.has(speechErrorCode)) {
-      enterTextFallbackMode(nextError, speechErrorCode)
+      enterTextFallbackMode(nextError)
       return
     }
     if (SHORT_RECOVERABLE_SPEECH_ERROR_CODES.has(speechErrorCode)) {
@@ -465,7 +417,7 @@ export function useVoiceCall(options) {
       scheduleRecoverableSpeechRestart()
       return
     }
-    enterTextFallbackMode(nextError, speechErrorCode)
+    enterTextFallbackMode(nextError)
   })
 
   onUnmounted(() => {

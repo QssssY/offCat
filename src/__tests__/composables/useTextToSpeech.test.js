@@ -232,6 +232,31 @@ describe('useTextToSpeech', () => {
     vi.useRealTimers()
   })
 
+  it('retries streamed speech with the browser default voice when Chrome never starts playback', async () => {
+    vi.useFakeTimers()
+    try {
+      window.speechSynthesis.speaking = true
+      window.speechSynthesis.pending = true
+      window.speechSynthesis.getVoices = vi.fn(() => [
+        { lang: 'zh-CN', name: 'Microsoft Xiaoxiao Natural', voiceURI: 'xiaoxiao-natural', localService: true },
+      ])
+      const tts = useTextToSpeech()
+
+      tts.speakStreaming('后续追问应该继续播报。', { allowDefaultVoice: true, requireStartEvent: true })
+      await Promise.resolve()
+
+      expect(window.speechSynthesis.speak).toHaveBeenCalledTimes(1)
+
+      await vi.advanceTimersByTimeAsync(6000)
+
+      expect(window.speechSynthesis.speak).toHaveBeenCalledTimes(2)
+      expect(spokenUtterances[1].text).toBe('后续追问应该继续播报。')
+      expect(spokenUtterances[1].voice).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('reports utterance start and end details to the caller', () => {
     const onStart = vi.fn()
     const onEnd = vi.fn()
@@ -560,13 +585,27 @@ describe('useTextToSpeech', () => {
     vi.useRealTimers()
   })
 
-  it('does not cancel browser speech before the first idle utterance', () => {
+  it('resets the global browser speech queue before an idle utterance starts', () => {
     const tts = useTextToSpeech()
 
     tts.speak('你好，我是本次 AI 面试官。')
 
-    expect(window.speechSynthesis.cancel).not.toHaveBeenCalled()
+    expect(window.speechSynthesis.cancel).toHaveBeenCalledTimes(1)
     expect(window.speechSynthesis.speak).toHaveBeenCalledTimes(1)
+  })
+
+  it('resets stale browser speech state for a fresh composable instance before preview playback', () => {
+    const interviewTts = useTextToSpeech()
+    interviewTts.speak('上一轮面试官播报。')
+    spokenUtterances[0].onend()
+    window.speechSynthesis.cancel.mockClear()
+
+    const previewTts = useTextToSpeech()
+    previewTts.speak('你好，我是你的 AI 面试官。')
+
+    expect(window.speechSynthesis.cancel).toHaveBeenCalledTimes(1)
+    expect(window.speechSynthesis.speak).toHaveBeenCalledTimes(2)
+    expect(spokenUtterances[1].text).toBe('你好，我是你的 AI 面试官。')
   })
 
   it('releases speaking state when Chrome still never starts after the default voice retry', () => {

@@ -482,6 +482,11 @@ export function useTextToSpeech(options = {}) {
   const enqueue = (text, runId = speechRunId, speechOptions = {}) => {
     const normalizedText = normalizeTextForSpeech(text)
     if (!normalizedText || !isSupported.value || !speechSynthesisRef.value) return
+    if (pendingCount === 0 && activeUtterances.size === 0 && speechQueue.length === 0) {
+      // Chrome 的 speechSynthesis 是页面级单例；上一轮卡死后即使本 composable 已空闲，
+      // 浏览器内部队列仍可能残留无声任务。新一轮首句入队前先清队列，保证面试播报和设置页试听都能重新发声。
+      speechSynthesisRef.value.cancel?.()
+    }
     const shouldAllowDefaultVoiceAfterWait = userGesturePrepared || speechOptions.allowDefaultVoice
     speechQueue.push({
       text: normalizedText,
@@ -531,7 +536,7 @@ export function useTextToSpeech(options = {}) {
   }
 
   const speak = (text, speechOptions = {}) => {
-    clearSpeechState(hasActiveSpeech())
+    clearSpeechState(false)
     enqueue(text, speechRunId, speechOptions)
   }
 
@@ -543,7 +548,7 @@ export function useTextToSpeech(options = {}) {
     speechSynthesisRef.value.resume?.()
   }
 
-  const speakStreaming = (chunk) => {
+  const speakStreaming = (chunk, speechOptions = {}) => {
     if (!chunk) return
     buffer += String(chunk).replace(FEEDBACK_BLOCK_REGEXP, '')
     if (!buffer.trim()) return
@@ -552,15 +557,17 @@ export function useTextToSpeech(options = {}) {
       if (endIndex === -1) break
       const sentence = buffer.slice(0, endIndex + 1).trim()
       buffer = buffer.slice(endIndex + 1)
-      enqueue(sentence)
+      // 流式播报同样透传 Chrome 启动检测参数，避免后续追问被 speak 接收但没有真正出声。
+      enqueue(sentence, speechRunId, speechOptions)
     }
   }
 
-  const flushRemaining = () => {
+  const flushRemaining = (speechOptions = {}) => {
     const remaining = buffer.trim()
     buffer = ''
     if (remaining) {
-      enqueue(remaining)
+      // 无标点结尾的最后一段也必须沿用同一兜底参数，否则 done 后 flush 的内容仍可能无声。
+      enqueue(remaining, speechRunId, speechOptions)
     } else if (pendingCount === 0) {
       options.onEnd?.()
     }

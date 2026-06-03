@@ -5,7 +5,14 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import ElementPlus, { ElMessage } from 'element-plus'
 import InterviewSessionView from '@/views/interview/InterviewSessionView.vue'
-import { endInterview as apiEndInterview, getInterviewSession, getInterviewSessionStatus, streamInterviewMessage } from '@/api/interview'
+import {
+  endInterview as apiEndInterview,
+  getInterviewSession,
+  getInterviewSessionStatus,
+  getInterviewTtsCapability,
+  streamInterviewMessage,
+  synthesizeInterviewTts,
+} from '@/api/interview'
 import { prefetchInterviewReportRoute } from '@/router/routeLoaders'
 import { saveSettingsPreferences } from '@/utils/settingsPreferences'
 import { useSpeechToText } from '@/composables/useSpeechToText'
@@ -18,6 +25,7 @@ const elMessageSuccess = vi.hoisted(() => vi.fn())
 let useSpeechToTextCall = 0
 let useSpeechToTextOptions = []
 let mountedWrappers = []
+let audioInstances = []
 
 const sttSupported = ref(true)
 const sttRecording = ref(false)
@@ -47,8 +55,6 @@ const voiceSttError = ref('')
 const voiceSttErrorCode = ref('')
 const voiceSttEngineStatus = ref('browser-service')
 const voiceSttModelReady = ref(false)
-const voiceSttLocalSpeechInstallAvailable = ref(false)
-const voiceSttInstallingLocalSpeech = ref(false)
 const voiceSttLanguage = ref('zh-CN')
 const voiceSttStart = vi.fn(() => {
   voiceSttRecording.value = true
@@ -62,7 +68,6 @@ const voiceSttCancel = vi.fn(() => {
   voiceSttInterim.value = ''
   voiceSttError.value = ''
 })
-const voiceSttInstallLocalSpeech = vi.fn(() => Promise.resolve(true))
 
 vi.mock('vue-router', () => ({
   useRouter: () => ({
@@ -94,7 +99,9 @@ vi.mock('@/api/interview', () => ({
   endInterview: vi.fn(() => Promise.resolve()),
   getInterviewSession: vi.fn(),
   getInterviewSessionStatus: vi.fn(),
+  getInterviewTtsCapability: vi.fn(),
   streamInterviewMessage: vi.fn(),
+  synthesizeInterviewTts: vi.fn(),
 }))
 
 vi.mock('@/router/routeLoaders', () => ({
@@ -135,13 +142,10 @@ vi.mock('@/composables/useSpeechToText', () => ({
       errorCode: voiceSttErrorCode,
       engineStatus: voiceSttEngineStatus,
       isModelReady: voiceSttModelReady,
-      localSpeechInstallAvailable: voiceSttLocalSpeechInstallAvailable,
-      isInstallingLocalSpeech: voiceSttInstallingLocalSpeech,
       language: voiceSttLanguage,
       start: voiceSttStart,
       stop: voiceSttStop,
       cancel: voiceSttCancel,
-      installLocalSpeech: voiceSttInstallLocalSpeech,
     }
   }),
 }))
@@ -249,8 +253,6 @@ describe('InterviewSessionView', () => {
     voiceSttErrorCode.value = ''
     voiceSttEngineStatus.value = 'browser-service'
     voiceSttModelReady.value = false
-    voiceSttLocalSpeechInstallAvailable.value = false
-    voiceSttInstallingLocalSpeech.value = false
     voiceSttLanguage.value = 'zh-CN'
     window.speechSynthesis = {
       getVoices: vi.fn(() => [{ lang: 'zh-CN' }]),
@@ -263,6 +265,17 @@ describe('InterviewSessionView', () => {
     window.SpeechSynthesisUtterance = vi.fn(function SpeechSynthesisUtterance(text) {
       this.text = text
     })
+    audioInstances = []
+    URL.createObjectURL = vi.fn((blob) => `blob:${blob.size}:${audioInstances.length}`)
+    URL.revokeObjectURL = vi.fn()
+    window.Audio = vi.fn(function Audio(url) {
+      this.src = url
+      this.play = vi.fn(() => Promise.resolve())
+      this.pause = vi.fn()
+      this.onended = null
+      this.onerror = null
+      audioInstances.push(this)
+    })
 
     getInterviewSession.mockResolvedValue({
       data: {
@@ -273,6 +286,10 @@ describe('InterviewSessionView', () => {
         ],
       },
     })
+    getInterviewTtsCapability.mockResolvedValue({
+      data: { available: false, engine: 'browser' },
+    })
+    synthesizeInterviewTts.mockResolvedValue(new Blob(['mp3'], { type: 'audio/mpeg' }))
     streamInterviewMessage.mockResolvedValue(createStreamResponse())
   })
 
@@ -656,6 +673,192 @@ describe('InterviewSessionView', () => {
     expect(wrapper.find('.voice-call-overlay [title="停止收听并发送"]').exists()).toBe(true)
   })
 
+  it('speaks the next assistant reply after a voice answer is sent', async () => {
+    streamInterviewMessage.mockResolvedValueOnce(createStreamResponse([
+      'data: {"type":"content","content":"好的，我们继续。"}\n\n',
+      'data: {"type":"done"}\n\n',
+    ]))
+    getInterviewSession.mockResolvedValue({
+      data: {
+        ...baseSession,
+        interactionType: 1,
+        chatLogs: [
+          { id: 1, messageRole: 'assistant', content: '你好，我是本次 AI 面试官。请先做一个自我介绍。', createTime: '2026-05-19 14:00:00' },
+        ],
+      },
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.findAll('.voice-dock-actions .voice-icon-btn')[1].trigger('click')
+    window.speechSynthesis.speak.mock.calls[0][0].onstart()
+    window.speechSynthesis.speak.mock.calls[0][0].onend()
+    await wrapper.vm.$nextTick()
+    window.speechSynthesis.speak.mockClear()
+    window.speechSynthesis.cancel.mockClear()
+
+    await wrapper.vm.sendMessage('好的')
+    await flushPromises()
+
+    expect(window.speechSynthesis.cancel).toHaveBeenCalled()
+    expect(window.speechSynthesis.speak).toHaveBeenCalledTimes(1)
+    expect(window.speechSynthesis.speak.mock.calls[0][0].text).toBe('好的，我们继续。')
+    window.speechSynthesis.speak.mock.calls[0][0].onstart()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.vm.replyLocked).toBe(false)
+    expect(wrapper.find('.voice-call-overlay [title="切换静音"]').attributes('disabled')).toBeDefined()
+
+    window.speechSynthesis.speak.mock.calls[0][0].onend()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.voice-call-overlay [title="切换静音"]').attributes('disabled')).toBeUndefined()
+  })
+
+  it('retries the next assistant reply when Chrome accepts streamed speech but never starts it', async () => {
+    vi.useFakeTimers()
+    try {
+      streamInterviewMessage.mockResolvedValueOnce(createStreamResponse([
+        'data: {"type":"content","content":"好的，我们继续。"}\n\n',
+        'data: {"type":"done"}\n\n',
+      ]))
+      getInterviewSession.mockResolvedValue({
+        data: {
+          ...baseSession,
+          interactionType: 1,
+          chatLogs: [
+            { id: 1, messageRole: 'assistant', content: '你好，我是本次 AI 面试官。请先做一个自我介绍。', createTime: '2026-05-19 14:00:00' },
+          ],
+        },
+      })
+
+      const wrapper = mountView()
+      await flushPromises()
+
+      await wrapper.findAll('.voice-dock-actions .voice-icon-btn')[1].trigger('click')
+      window.speechSynthesis.speak.mock.calls[0][0].onstart()
+      window.speechSynthesis.speaking = false
+      window.speechSynthesis.pending = false
+      window.speechSynthesis.speak.mock.calls[0][0].onend()
+      await wrapper.vm.$nextTick()
+      window.speechSynthesis.speak.mockClear()
+      window.speechSynthesis.cancel.mockClear()
+
+      window.speechSynthesis.speaking = true
+      window.speechSynthesis.pending = true
+      await wrapper.vm.sendMessage('好的')
+      await flushPromises()
+
+      expect(window.speechSynthesis.speak).toHaveBeenCalledTimes(1)
+
+      await vi.advanceTimersByTimeAsync(6000)
+      await wrapper.vm.$nextTick()
+
+      expect(window.speechSynthesis.speak).toHaveBeenCalledTimes(2)
+      expect(window.speechSynthesis.speak.mock.calls[1][0].text).toBe('好的，我们继续。')
+      expect(window.speechSynthesis.speak.mock.calls[1][0].voice).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('speaks the follow-up part after an immediate feedback block in a voice reply', async () => {
+    streamInterviewMessage.mockResolvedValueOnce(createStreamResponse([
+      'data: {"type":"content","content":"<FEEDBACK>上一题反馈：回答偏短。</FEEDBACK>"}\n\n',
+      'data: {"type":"content","content":"我们换一个问题，请介绍你的教学方法。"}\n\n',
+      'data: {"type":"done"}\n\n',
+    ]))
+    getInterviewSession.mockResolvedValue({
+      data: {
+        ...baseSession,
+        interactionType: 1,
+        feedbackMode: 'immediate',
+        chatLogs: [
+          { id: 1, messageRole: 'assistant', content: '你好，我是本次 AI 面试官。', createTime: '2026-05-19 14:00:00' },
+        ],
+      },
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.findAll('.voice-dock-actions .voice-icon-btn')[1].trigger('click')
+    window.speechSynthesis.speak.mock.calls[0][0].onstart()
+    window.speechSynthesis.speak.mock.calls[0][0].onend()
+    await wrapper.vm.$nextTick()
+    window.speechSynthesis.speak.mockClear()
+
+    await wrapper.vm.sendMessage('好的')
+    await flushPromises()
+
+    expect(window.speechSynthesis.speak).toHaveBeenCalledTimes(1)
+    expect(window.speechSynthesis.speak.mock.calls[0][0].text).toBe('我们换一个问题，请介绍你的教学方法。')
+  })
+
+  it('does not switch from voice mode to text mode while the interviewer is speaking', async () => {
+    getInterviewSession.mockResolvedValue({
+      data: {
+        ...baseSession,
+        interactionType: 1,
+        chatLogs: [
+          { id: 1, messageRole: 'assistant', content: '你好，我是本次 AI 面试官。请先做一个自我介绍。', createTime: '2026-05-19 14:00:00' },
+        ],
+      },
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.findAll('.voice-dock-actions .voice-icon-btn')[1].trigger('click')
+    window.speechSynthesis.speak.mock.calls[0][0].onstart()
+    await wrapper.vm.$nextTick()
+
+    const switchButton = wrapper.find('.voice-call-overlay [title="切换文本模式"]')
+    expect(switchButton.attributes('disabled')).toBeDefined()
+    const micButton = wrapper.find('.voice-call-overlay [title="切换静音"]')
+    expect(micButton.attributes('disabled')).toBeDefined()
+
+    wrapper.vm.switchToTextMode()
+    await wrapper.vm.$nextTick()
+    wrapper.vm.handleMicControl()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.vm.preferTextInput).toBe(false)
+    expect(wrapper.find('.voice-call-overlay').exists()).toBe(true)
+    expect(ElMessage.warning).toHaveBeenCalledWith('AI 面试官播报结束后再切换模式')
+    expect(voiceSttStop).not.toHaveBeenCalled()
+  })
+
+  it('does not switch from text fallback to voice mode while the interviewer is speaking', async () => {
+    getInterviewSession.mockResolvedValue({
+      data: {
+        ...baseSession,
+        interactionType: 1,
+        chatLogs: [],
+      },
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    wrapper.vm.switchToTextMode()
+    wrapper.vm.textToSpeech.speak('请继续介绍你的项目经历。')
+    window.speechSynthesis.speak.mock.calls[0][0].onstart()
+    await wrapper.vm.$nextTick()
+
+    const voiceModeButton = wrapper.find('.input-actions button')
+    expect(voiceModeButton.text()).toContain('语音模式')
+    expect(voiceModeButton.attributes('disabled')).toBeDefined()
+
+    wrapper.vm.switchToVoiceMode()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.vm.preferTextInput).toBe(true)
+    expect(voiceSttStart).not.toHaveBeenCalled()
+    expect(ElMessage.warning).toHaveBeenCalledWith('AI 面试官播报结束后再切换模式')
+  })
+
   it('uses explicit local speech recognition language preference', async () => {
     saveSettingsPreferences({
       voiceRecognitionLanguage: 'en-US'
@@ -728,6 +931,97 @@ describe('InterviewSessionView', () => {
     await wrapper.vm.$nextTick()
 
     expect(window.speechSynthesis.speak).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses cloud TTS for the opening message when user custom TTS is available', async () => {
+    getInterviewTtsCapability.mockResolvedValue({
+      data: { available: true, engine: 'user_custom_tts', configType: 'interview' },
+    })
+    getInterviewSession.mockResolvedValue({
+      data: {
+        ...baseSession,
+        interactionType: 1,
+        chatLogs: [
+          { id: 1, messageRole: 'assistant', content: '你好，我是本次 AI 面试官。请先做一个自我介绍。', createTime: '2026-05-19 14:00:00' },
+        ],
+      },
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.findAll('.voice-dock-actions .voice-icon-btn')[1].trigger('click')
+    await flushPromises()
+
+    expect(getInterviewTtsCapability).toHaveBeenCalledWith('session-1')
+    expect(synthesizeInterviewTts).toHaveBeenCalledWith(
+      'session-1',
+      '你好，我是本次 AI 面试官。请先做一个自我介绍。',
+      expect.any(Object)
+    )
+    expect(window.speechSynthesis.speak).not.toHaveBeenCalled()
+    expect(audioInstances[0].play).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).toContain('播报音色：云端 TTS')
+  })
+
+  it('uses cloud TTS for streamed voice replies without browser speech synthesis', async () => {
+    getInterviewTtsCapability.mockResolvedValue({
+      data: { available: true, engine: 'user_custom_tts', configType: 'interview' },
+    })
+    streamInterviewMessage.mockResolvedValueOnce(createStreamResponse([
+      'data: {"type":"content","content":"好的，我们继续。"}\n\n',
+      'data: {"type":"done"}\n\n',
+    ]))
+    getInterviewSession.mockResolvedValue({
+      data: {
+        ...baseSession,
+        interactionType: 1,
+        chatLogs: [],
+      },
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.findAll('.voice-dock-actions .voice-icon-btn')[1].trigger('click')
+    await wrapper.vm.sendMessage('我负责订单模块')
+    await flushPromises()
+
+    expect(synthesizeInterviewTts).toHaveBeenCalledWith('session-1', '好的，我们继续。', expect.any(Object))
+    expect(window.speechSynthesis.speak).not.toHaveBeenCalled()
+  })
+
+  it('falls back to browser TTS once when cloud TTS synthesis fails', async () => {
+    getInterviewTtsCapability.mockResolvedValue({
+      data: { available: true, engine: 'user_custom_tts', configType: 'interview' },
+    })
+    synthesizeInterviewTts.mockRejectedValue(new Error('cloud unavailable'))
+    getInterviewSession.mockResolvedValue({
+      data: {
+        ...baseSession,
+        interactionType: 1,
+        chatLogs: [
+          { id: 1, messageRole: 'assistant', content: '你好，我是本次 AI 面试官。', createTime: '2026-05-19 14:00:00' },
+        ],
+      },
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.findAll('.voice-dock-actions .voice-icon-btn')[1].trigger('click')
+    await flushPromises()
+
+    expect(ElMessage.warning).toHaveBeenCalledWith('云端语音暂不可用，已切回浏览器播报')
+    expect(window.speechSynthesis.speak).toHaveBeenCalledTimes(1)
+    expect(window.speechSynthesis.speak.mock.calls[0][0].text).toBe('你好，我是本次 AI 面试官。')
+
+    wrapper.vm.handleEndVoiceCall()
+    await wrapper.vm.$nextTick()
+    await wrapper.findAll('.voice-call-actions button')[0].trigger('click')
+    await flushPromises()
+
+    expect(ElMessage.warning).toHaveBeenCalledTimes(1)
   })
 
   it('falls back to opening speech after Chrome voices fail to load', async () => {
@@ -973,16 +1267,20 @@ describe('InterviewSessionView', () => {
 
     voiceSttRecording.value = false
     voiceSttErrorCode.value = 'network'
-    voiceSttError.value = '当前浏览器语音服务暂不可用，可继续输入回答，系统会自动尝试恢复语音。'
+    voiceSttError.value = '当前浏览器语音服务暂不可用，可继续输入回答；需要恢复语音时请手动点击重试语音。'
     await wrapper.vm.$nextTick()
 
-    expect(wrapper.find('.voice-call-overlay').exists()).toBe(true)
-    expect(wrapper.text()).toContain('当前浏览器语音服务暂不可用')
-    expect(wrapper.text()).toContain('Win + H')
+    expect(wrapper.find('.voice-call-overlay').exists()).toBe(false)
+    expect(wrapper.text()).toContain('语音识别暂不可用，已自动切换为文本回答')
+    expect(wrapper.text()).not.toContain('仍要重试语音面试吗')
+    expect(wrapper.find('.voice-degraded-banner [title="重试语音面试"]').exists()).toBe(true)
+    expect(wrapper.find('.voice-text-fallback-card').exists()).toBe(false)
     expect(wrapper.vm.inputMessage).toBe('我负责订单模块')
 
-    await wrapper.find('.voice-text-fallback-card textarea').setValue('我负责订单模块和支付链路')
-    await wrapper.find('.voice-text-fallback-card [title="发送文本回答"]').trigger('click')
+    expect(wrapper.find('.input-container textarea').exists()).toBe(true)
+
+    await wrapper.find('.input-container textarea').setValue('我负责订单模块和支付链路')
+    await wrapper.find('.send-btn').trigger('click')
     await flushPromises()
 
     expect(wrapper.vm.voiceCall.isVoiceMode.value).toBe(true)
@@ -994,6 +1292,50 @@ describe('InterviewSessionView', () => {
       'token',
       expect.objectContaining({ signal: expect.anything() })
     )
+  })
+
+  it('keeps text fallback after a text answer receives an interviewer reply', async () => {
+    vi.useFakeTimers()
+    try {
+      getInterviewSession.mockResolvedValue({
+        data: {
+          ...baseSession,
+          interactionType: 1,
+          chatLogs: [
+            { id: 1, messageRole: 'assistant', content: 'assistant question', createTime: '2026-05-19 14:00:00' },
+          ],
+        },
+      })
+
+      const wrapper = mountView()
+      await flushPromises()
+
+      await wrapper.findAll('.voice-dock-actions .voice-icon-btn')[1].trigger('click')
+      voiceSttRecording.value = false
+      voiceSttErrorCode.value = 'network'
+      voiceSttError.value = 'speech service unavailable'
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.vm.voiceCall.isVoiceMode.value).toBe(true)
+      expect(wrapper.vm.voiceCall.isTextFallbackMode.value).toBe(true)
+      expect(wrapper.find('.voice-call-overlay').exists()).toBe(false)
+      expect(wrapper.find('.input-container textarea').exists()).toBe(true)
+
+      voiceSttStart.mockClear()
+      await wrapper.find('.input-container textarea').setValue('fallback answer')
+      await wrapper.find('.send-btn').trigger('click')
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(0)
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.vm.voiceCall.isVoiceMode.value).toBe(true)
+      expect(wrapper.vm.voiceCall.isTextFallbackMode.value).toBe(true)
+      expect(wrapper.find('.voice-call-overlay').exists()).toBe(false)
+      expect(wrapper.find('.input-container textarea').exists()).toBe(true)
+      expect(voiceSttStart).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('shows text answer fallback when voice speech recognition is unsupported', async () => {
@@ -1012,12 +1354,15 @@ describe('InterviewSessionView', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    expect(wrapper.find('.voice-call-overlay').exists()).toBe(true)
-    expect(wrapper.text()).toContain('当前浏览器不支持语音通话')
-    expect(wrapper.find('.voice-text-fallback-card textarea').exists()).toBe(true)
+    expect(wrapper.find('.voice-call-overlay').exists()).toBe(false)
+    expect(wrapper.text()).toContain('当前浏览器不支持语音，已自动切换为文本回答')
+    expect(wrapper.find('[title="重试语音面试"]').exists()).toBe(false)
+    expect(wrapper.find('.voice-text-fallback-card').exists()).toBe(false)
 
-    await wrapper.find('.voice-text-fallback-card textarea').setValue('我负责订单模块和支付链路')
-    await wrapper.find('.voice-text-fallback-card [title="发送文本回答"]').trigger('click')
+    expect(wrapper.find('.input-container textarea').exists()).toBe(true)
+
+    await wrapper.find('.input-container textarea').setValue('我负责订单模块和支付链路')
+    await wrapper.find('.send-btn').trigger('click')
     await flushPromises()
 
     expect(voiceSttStart).not.toHaveBeenCalled()
@@ -1046,12 +1391,13 @@ describe('InterviewSessionView', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('当前浏览器不支持语音通话')
-    expect(wrapper.find('.voice-text-fallback-card textarea').exists()).toBe(true)
-    expect(wrapper.text()).toContain('Win + H')
+    expect(wrapper.find('.voice-text-fallback-card').exists()).toBe(false)
+    expect(wrapper.find('.voice-call-overlay').exists()).toBe(false)
+    expect(wrapper.find('.input-container textarea').exists()).toBe(true)
+    expect(wrapper.text()).toContain('当前浏览器不支持语音，已自动切换为文本回答')
   })
 
-  it('retries speech recognition from the text fallback recovery button', async () => {
+  it('offers a retry voice action above the text input when speech recognition degrades', async () => {
     getInterviewSession.mockResolvedValue({
       data: {
         ...baseSession,
@@ -1066,17 +1412,23 @@ describe('InterviewSessionView', () => {
     await wrapper.findAll('.voice-dock-actions .voice-icon-btn')[1].trigger('click')
     voiceSttRecording.value = false
     voiceSttErrorCode.value = 'service-not-allowed'
-    voiceSttError.value = '当前浏览器语音服务暂不可用，可继续输入回答，系统会自动尝试恢复语音。'
+    voiceSttError.value = '当前浏览器语音服务暂不可用，可继续输入回答；需要恢复语音时请手动点击重试语音。'
     await wrapper.vm.$nextTick()
-    voiceSttStart.mockClear()
 
-    await wrapper.find('[title="重新启用语音"]').trigger('click')
+    expect(wrapper.find('.voice-text-fallback-card').exists()).toBe(false)
+    expect(wrapper.find('.voice-call-overlay').exists()).toBe(false)
+    expect(wrapper.find('.input-container textarea').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('仍要重试语音面试吗')
+
+    voiceSttStart.mockClear()
+    await wrapper.find('[title="重试语音面试"]').trigger('click')
     await wrapper.vm.$nextTick()
 
     expect(voiceSttStart).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('.voice-call-overlay').exists()).toBe(true)
   })
 
-  it('shows a guarded local language pack install entry when browser support is downloadable', async () => {
+  it('does not show local language pack install prompts inside the voice call overlay', async () => {
     getInterviewSession.mockResolvedValue({
       data: {
         ...baseSession,
@@ -1084,17 +1436,14 @@ describe('InterviewSessionView', () => {
         chatLogs: [],
       },
     })
-    voiceSttLocalSpeechInstallAvailable.value = true
 
     const wrapper = mountView()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('可安装浏览器本地语音包以提升稳定性')
-
-    await wrapper.find('[title="安装浏览器本地语音包"]').trigger('click')
-    await flushPromises()
-
-    expect(voiceSttInstallLocalSpeech).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('.voice-call-overlay').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('可安装浏览器本地语音包')
+    expect(wrapper.text()).not.toContain('浏览器本地语音包已安装')
+    expect(wrapper.find('[title="安装浏览器本地语音包"]').exists()).toBe(false)
   })
 
   it('shows browser recognition status during voice calls', async () => {

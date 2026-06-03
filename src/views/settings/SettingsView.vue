@@ -311,20 +311,6 @@
                   @update:value="handleInterviewPreferenceSave"
                 />
               </div>
-              <div v-if="localSpeechInstallAvailable" class="preference-row stacked">
-                <div>
-                  <strong>浏览器本地语音包</strong>
-                  <span>安装本地语音识别模型可提升语音面试的识别稳定性，减少对网络服务的依赖。</span>
-                </div>
-                <n-button
-                  secondary
-                  class="preference-action"
-                  :loading="localSpeechInstalling"
-                  @click="handleInstallLocalSpeech"
-                >
-                  {{ localSpeechInstalling ? '安装中...' : '安装语音包' }}
-                </n-button>
-              </div>
               <div class="preference-row stacked">
                 <div>
                   <strong>重置语音偏好</strong>
@@ -348,19 +334,21 @@
               <h2 id="custom-ai-title">自定义 AI 接入</h2>
               <p>接入你自己的 OpenAI 兼容 API，命中时不消耗平台额度。</p>
             </div>
-            <button
-              type="button"
-              class="cai-refresh-btn"
-              :class="{ spinning: userAiConfigLoading }"
-              :disabled="userAiConfigLoading"
-              @click="fetchUserAiConfigState"
-              title="刷新"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 2v6h-6" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-                <path d="M3 22v-6h6" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
-              </svg>
-            </button>
+            <n-tooltip trigger="hover" placement="top">
+              <template #trigger>
+              <n-button
+                secondary
+                circle
+                class="data-overview-refresh-btn"
+                :class="{ 'is-refreshing': userAiConfigLoading }"
+                :disabled="userAiConfigLoading"
+                @click="fetchUserAiConfigState"
+              >
+              <FeatureIcon name="retry" size="md" class="settings-refresh-icon" />
+              </n-button>
+              </template>
+              刷新配置
+            </n-tooltip>
           </div>
 
           <div class="settings-panel-body">
@@ -407,6 +395,7 @@
                   <div class="cai-slot-detail">
                     <span class="cai-slot-name">{{ slot.config.providerName || slot.config.model || '未命名' }}</span>
                     <span class="cai-slot-endpoint">{{ slot.config.baseUrl }}</span>
+                    <span v-if="slot.type !== 'resume' && slot.config.ttsConfigured" class="cai-slot-tts">已配置 TTS</span>
                   </div>
                   <div class="cai-slot-footer">
                     <span
@@ -429,6 +418,14 @@
               <div class="cai-form-title">
                 <FeatureIcon :name="currentSlotIconName" size="sm" />
                 <span>{{ userAiConfigTypeLabelMap[userAiConfigForm.configType] || '通用兜底' }} 配置</span>
+                <n-button
+                  size="small"
+                  :loading="userAiModelFetching"
+                  secondary
+                  class="cai-form-title-action"
+                  :disabled="!userAiConfigForm.baseUrl?.trim() || !userAiConfigForm.apiKey?.trim()"
+                  @click="handleUserAiModelsFetch"
+                >获取模型</n-button>
               </div>
 
               <el-form class="cai-form" label-position="top">
@@ -437,7 +434,28 @@
                     <el-input v-model.trim="userAiConfigForm.providerName" maxlength="64" show-word-limit placeholder="例如 DeepSeek / OpenRouter" />
                   </el-form-item>
                   <el-form-item label="模型">
-                    <el-input v-model.trim="userAiConfigForm.model" maxlength="128" placeholder="例如 gpt-4o-mini / deepseek-chat" />
+                    <el-select
+                      v-if="userAiModelOptions.length"
+                      v-model="userAiConfigForm.model"
+                      filterable
+                      allow-create
+                      default-first-option
+                      clearable
+                      placeholder="选择或输入模型名"
+                    >
+                      <el-option
+                        v-for="model in userAiModelOptions"
+                        :key="model.id"
+                        :label="model.name || model.id"
+                        :value="model.id"
+                      />
+                    </el-select>
+                    <el-input
+                      v-else
+                      v-model.trim="userAiConfigForm.model"
+                      maxlength="128"
+                      placeholder="例如 deepseek-chat / gpt-4o"
+                    />
                   </el-form-item>
                 </div>
                 <el-form-item label="API 基础地址">
@@ -455,10 +473,146 @@
                   <n-switch v-model:value="userAiConfigForm.supportsMultimodal" />
                 </div>
 
+                <div v-if="isTtsSupportedAiConfig" class="cai-tts-section">
+                  <button
+                    type="button"
+                    class="cai-tts-heading"
+                    data-testid="custom-ai-tts-toggle"
+                    :aria-expanded="userTtsConfigExpanded"
+                    @click="userTtsConfigExpanded = !userTtsConfigExpanded"
+                  >
+                    <div class="cai-tts-heading-copy">
+                      <strong>TTS 语音合成</strong>
+                      <span>配置 OpenAI 兼容 /audio/speech，用于后续接入云端面试官播报。</span>
+                    </div>
+                    <span class="cai-tts-status" :class="{ active: hasAnyTtsFormValue }">
+                      {{ hasAnyTtsFormValue ? '已填写' : '未启用' }}
+                    </span>
+                    <FeatureIcon name="expand" size="xs" class="cai-tts-toggle-icon" :class="{ expanded: userTtsConfigExpanded }" />
+                  </button>
+                  <div v-if="userTtsConfigExpanded" class="cai-tts-body">
+                    <div class="cai-tts-discover-row">
+                      <el-form-item label="TTS 服务商" class="cai-tts-provider-field">
+                        <el-select
+                          v-model="userAiConfigForm.ttsProvider"
+                          placeholder="选择服务商"
+                          @change="handleTtsProviderChange"
+                        >
+                          <el-option
+                            v-for="p in TTS_PROVIDER_PRESETS"
+                            :key="p.value"
+                            :label="p.label"
+                            :value="p.value"
+                            :disabled="p.disabled"
+                          />
+                        </el-select>
+                      </el-form-item>
+                      <el-button
+                        class="cai-tts-discover-btn"
+                        :loading="ttsDiscovering"
+                        @click="handleTtsDiscovery"
+                        :disabled="!userAiConfigForm.ttsBaseUrl?.trim() || !userAiConfigForm.ttsApiKey?.trim()"
+                      >获取模型/音色</el-button>
+                    </div>
+                    <div class="cai-form-row-2col">
+                      <el-form-item label="TTS 地址">
+                        <el-input v-model.trim="userAiConfigForm.ttsBaseUrl" maxlength="512" placeholder="https://api.example.com/v1" />
+                      </el-form-item>
+                      <el-form-item label="TTS 模型">
+                        <el-select
+                          v-if="ttsDiscoveryResult?.success && ttsDiscoveryResult.models?.length"
+                          v-model="userAiConfigForm.ttsModel"
+                          filterable
+                          allow-create
+                          default-first-option
+                          placeholder="选择或输入模型名"
+                        >
+                          <el-option
+                            v-for="m in ttsDiscoveryResult.models"
+                            :key="m.id"
+                            :label="m.name"
+                            :value="m.id"
+                          />
+                        </el-select>
+                        <el-input
+                          v-else
+                          v-model.trim="userAiConfigForm.ttsModel"
+                          maxlength="128"
+                          placeholder="例如 tts-1 / doubao-tts"
+                        />
+                      </el-form-item>
+                    </div>
+                    <div class="cai-form-row-2col">
+                      <el-form-item label="TTS API Key">
+                        <el-input v-model="userAiConfigForm.ttsApiKey" type="password" show-password maxlength="1024" placeholder="测试或保存 TTS 时必须填写真实 Key" />
+                      </el-form-item>
+                      <el-form-item label="音色 ID" class="cai-tts-voice-field">
+                        <div class="cai-tts-voice-row">
+                          <el-select
+                            v-if="ttsDiscoveryResult?.success && ttsDiscoveryResult.voices?.length"
+                            v-model="userAiConfigForm.ttsVoiceId"
+                            filterable
+                            allow-create
+                            default-first-option
+                            placeholder="选择或输入音色"
+                          >
+                            <el-option
+                              v-for="v in ttsDiscoveryResult.voices"
+                              :key="v.id"
+                              :label="v.name"
+                              :value="v.id"
+                            />
+                          </el-select>
+                          <el-input
+                            v-else
+                            v-model.trim="userAiConfigForm.ttsVoiceId"
+                            maxlength="128"
+                            placeholder="例如 alloy / zh_female_xiaoxiao"
+                          />
+                          <n-button
+                            type="primary"
+                            secondary
+                            class="voice-preview-button tts-voice-preview-btn"
+                            title="试听"
+                            aria-label="试听当前 TTS 音色"
+                            :loading="ttsPreviewing"
+                            :disabled="!userAiConfigForm.ttsVoiceId?.trim()"
+                            @click="handleTtsVoicePreview"
+                          >
+                            <FeatureIcon v-if="!ttsPreviewing" name="announcement" size="md" class="voice-preview-icon" />
+                          </n-button>
+                        </div>
+                      </el-form-item>
+                    </div>
+                    <div v-if="ttsDiscoveryResult" class="cai-test-result" :class="{ failed: !ttsDiscoveryResult.success }">
+                      <span class="cai-test-icon">{{ ttsDiscoveryResult.success ? '✓' : '✗' }}</span>
+                      <span>{{
+                        ttsDiscoveryResult.success
+                          ? (ttsDiscoveryResult.voiceDiscoverySupported
+                              ? `发现 ${ttsDiscoveryResult.models?.length || 0} 个模型、${ttsDiscoveryResult.voices?.length || 0} 个音色`
+                              : `发现 ${ttsDiscoveryResult.models?.length || 0} 个模型，音色为预设列表`)
+                          : ttsDiscoveryResult.message
+                      }}</span>
+                    </div>
+                    <div v-if="userTtsConnectivityResult" class="cai-test-result" :class="{ failed: !userTtsConnectivityResult.success }">
+                      <span class="cai-test-icon">{{ userTtsConnectivityResult.success ? '✓' : '✗' }}</span>
+                      <span>{{ userTtsConnectivityResult.message }}</span>
+                      <span v-if="userTtsConnectivityResult.errorType" class="cai-test-latency">{{ userTtsConnectivityResult.errorType }}</span>
+                      <span v-else-if="userTtsConnectivityResult.latencyMs" class="cai-test-latency">{{ userTtsConnectivityResult.latencyMs }}ms</span>
+                    </div>
+                    <div class="cai-form-actions compact">
+                      <n-button :loading="userTtsConnectivityTesting" secondary @click="handleUserTtsConnectivityTest">
+                        测试 TTS
+                      </n-button>
+                    </div>
+                  </div>
+                </div>
+
                 <div v-if="userAiConnectivityResult" class="cai-test-result" :class="{ failed: !userAiConnectivityResult.success }">
                   <span class="cai-test-icon">{{ userAiConnectivityResult.success ? '✓' : '✗' }}</span>
                   <span>{{ userAiConnectivityResult.message }}</span>
-                  <span v-if="userAiConnectivityResult.latencyMs" class="cai-test-latency">{{ userAiConnectivityResult.latencyMs }}ms</span>
+                  <span v-if="userAiConnectivityResult.errorType" class="cai-test-latency">{{ userAiConnectivityResult.errorType }}</span>
+                  <span v-else-if="userAiConnectivityResult.latencyMs" class="cai-test-latency">{{ userAiConnectivityResult.latencyMs }}ms</span>
                 </div>
 
                 <div class="cai-form-actions">
@@ -1080,20 +1234,19 @@ import { getMembershipPlans } from '@/api/membership'
 import { clearResumeHistory } from '@/api/resume'
 import {
   deleteUserAiConfig,
+  discoverTtsModelsAndVoices,
+  fetchUserAiModels,
   getUserAiConfigs,
   getUserAiUsage,
+  previewTtsVoice,
   saveUserAiConfig,
   testUserAiConnectivity,
+  testUserTtsConnectivity,
   toggleUserAiConfig
 } from '@/api/userAiConfig'
 import { getUserSettings, saveUserSettings } from '@/api/userSettings'
 import OnboardingGuide from '@/components/OnboardingGuide.vue'
 import { useTextToSpeech } from '@/composables/useTextToSpeech'
-import {
-  detectSpeechRecognitionCapability,
-  installLocalSpeechRecognition,
-  SPEECH_RECOGNITION_CAPABILITY_STATUS
-} from '@/utils/speechRecognitionCapability'
 import { FEEDBACK_MODE_OPTIONS, INTERACTION_MODE_OPTIONS, INTERVIEW_MODE_OPTIONS } from '@/constants/interview'
 import { useThemeStore } from '@/stores/theme'
 import { useUserStore } from '@/stores/user'
@@ -1239,8 +1392,6 @@ const accountDeleteConfirmDialogVisible = ref(false)
 const notificationForm = ref(getSettingsPreferences())
 const interviewPreferenceForm = ref(getSettingsPreferences())
 const previewTextToSpeech = useTextToSpeech()
-const localSpeechInstallAvailable = ref(false)
-const localSpeechInstalling = ref(false)
 const userAiConfigs = ref([])
 const userAiConfigLoading = ref(false)
 const userAiConfigSaving = ref(false)
@@ -1248,14 +1399,86 @@ const userAiConnectivityTesting = ref(false)
 const userAiConnectivityResult = ref(null)
 const userAiUsage = ref({ used: 0, limit: 50, remaining: 50 })
 const userAiToggleLoadingType = ref('')
+/** TTS Provider 预设常量 */
+const TTS_PROVIDER_PRESETS = [
+  {
+    value: 'openai',
+    label: 'OpenAI',
+    disabled: false,
+    defaultBaseUrl: 'https://api.openai.com/v1',
+    defaultModel: 'tts-1',
+    defaultVoiceId: 'alloy',
+    endpointPath: '/audio/speech',
+    voices: [
+      { id: 'alloy', name: 'Alloy' }, { id: 'echo', name: 'Echo' },
+      { id: 'fable', name: 'Fable' }, { id: 'onyx', name: 'Onyx' },
+      { id: 'nova', name: 'Nova' }, { id: 'shimmer', name: 'Shimmer' }
+    ]
+  },
+  {
+    value: 'mimo',
+    label: 'MiMo（小米）',
+    disabled: false,
+    defaultBaseUrl: 'https://api.xiaomimimo.com/v1',
+    defaultModel: 'mimo-v2.5-tts',
+    defaultVoiceId: 'mimo_default',
+    endpointPath: '/chat/completions',
+    voices: [
+      { id: 'mimo_default', name: 'MiMo-默认' }, { id: '冰糖', name: '冰糖' },
+      { id: '茉莉', name: '茉莉' }, { id: '苏打', name: '苏打' },
+      { id: '白桦', name: '白桦' }, { id: 'Mia', name: 'Mia' },
+      { id: 'Chloe', name: 'Chloe' }, { id: 'Milo', name: 'Milo' },
+      { id: 'Dean', name: 'Dean' }
+    ]
+  },
+  { value: 'gemini', label: 'Gemini（暂未支持）', disabled: true },
+  { value: 'minimax', label: 'MiniMax（暂未支持）', disabled: true },
+  { value: 'qwen', label: 'Qwen（暂未支持）', disabled: true },
+  { value: 'xai', label: 'xAI（暂未支持）', disabled: true },
+]
+
+const userTtsConfigExpanded = ref(false)
 const userAiConfigForm = ref({
   configType: 'default',
   providerName: '',
   baseUrl: '',
   apiKey: '',
   model: '',
-  supportsMultimodal: false
+  supportsMultimodal: false,
+  ttsBaseUrl: '',
+  ttsApiKey: '',
+  ttsModel: '',
+  ttsVoiceId: '',
+  ttsEndpointPath: '',
+  ttsProvider: ''
 })
+const userTtsConnectivityTesting = ref(false)
+const userTtsConnectivityResult = ref(null)
+const ttsPreviewing = ref(false)
+let ttsPreviewAudio = null
+let ttsPreviewObjectUrl = ''
+const userAiModelFetching = ref(false)
+const userAiModelOptions = ref([])
+const ttsDiscovering = ref(false)
+const ttsDiscoveryResult = ref(null)
+
+/** 选择 TTS Provider 时自动填入预设默认值 */
+const handleTtsProviderChange = (providerId) => {
+  const preset = TTS_PROVIDER_PRESETS.find(p => p.value === providerId)
+  if (!preset || preset.disabled) return
+  userAiConfigForm.value.ttsBaseUrl = preset.defaultBaseUrl
+  userAiConfigForm.value.ttsModel = preset.defaultModel
+  userAiConfigForm.value.ttsVoiceId = preset.defaultVoiceId
+  userAiConfigForm.value.ttsEndpointPath = preset.endpointPath
+  // 用预设音色填充发现结果（跳过网络请求）
+  ttsDiscoveryResult.value = {
+    success: true,
+    models: preset.voices ? [{ id: preset.defaultModel, name: preset.defaultModel }] : [],
+    voices: preset.voices || [],
+    voiceDiscoverySupported: true,
+    ttsEndpointPath: preset.endpointPath
+  }
+}
 
 const themeChoice = ref(themeStore.followSystem ? 'system' : themeStore.manualTheme)
 const resolvedThemeText = computed(() => themeStore.resolvedTheme === 'dark' ? '暗色' : '亮色')
@@ -1354,6 +1577,17 @@ const userAiConfigSlots = computed(() =>
     config: userAiConfigs.value.find((c) => c.configType === slot.type) || null
   }))
 )
+
+const hasAnyTtsFormValue = computed(() =>
+  Boolean(
+    String(userAiConfigForm.value.ttsBaseUrl || '').trim()
+    || String(userAiConfigForm.value.ttsApiKey || '').trim()
+    || String(userAiConfigForm.value.ttsModel || '').trim()
+    || String(userAiConfigForm.value.ttsVoiceId || '').trim()
+  )
+)
+
+const isTtsSupportedAiConfig = computed(() => ['default', 'interview'].includes(userAiConfigForm.value.configType))
 
 const currentSlotIconName = computed(() => {
   const match = userAiSlotMeta.find((s) => s.type === userAiConfigForm.value.configType)
@@ -1580,14 +1814,25 @@ const fetchGrowthOverview = async () => {
   }
 }
 
-const buildUserAiConfigPayload = () => ({
-  configType: String(userAiConfigForm.value.configType || 'default').trim(),
-  providerName: String(userAiConfigForm.value.providerName || '').trim(),
-  baseUrl: String(userAiConfigForm.value.baseUrl || '').trim(),
-  apiKey: String(userAiConfigForm.value.apiKey || '').trim(),
-  model: String(userAiConfigForm.value.model || '').trim(),
-  supportsMultimodal: Boolean(userAiConfigForm.value.supportsMultimodal)
-})
+const buildUserAiConfigPayload = () => {
+  const payload = {
+    configType: String(userAiConfigForm.value.configType || 'default').trim(),
+    providerName: String(userAiConfigForm.value.providerName || '').trim(),
+    baseUrl: String(userAiConfigForm.value.baseUrl || '').trim(),
+    apiKey: String(userAiConfigForm.value.apiKey || '').trim(),
+    model: String(userAiConfigForm.value.model || '').trim(),
+    supportsMultimodal: Boolean(userAiConfigForm.value.supportsMultimodal)
+  }
+  if (['default', 'interview'].includes(payload.configType)) {
+    payload.ttsBaseUrl = String(userAiConfigForm.value.ttsBaseUrl || '').trim()
+    payload.ttsApiKey = String(userAiConfigForm.value.ttsApiKey || '').trim()
+    payload.ttsModel = String(userAiConfigForm.value.ttsModel || '').trim()
+    payload.ttsVoiceId = String(userAiConfigForm.value.ttsVoiceId || '').trim()
+    payload.ttsEndpointPath = String(userAiConfigForm.value.ttsEndpointPath || '').trim()
+    payload.ttsProvider = String(userAiConfigForm.value.ttsProvider || '').trim()
+  }
+  return payload
+}
 
 const validateUserAiConfigForm = () => {
   const payload = buildUserAiConfigPayload()
@@ -1600,7 +1845,62 @@ const validateUserAiConfigForm = () => {
     ElMessage.warning('请填写 API 地址、API Key 和模型')
     return null
   }
+  const ttsValues = [payload.ttsBaseUrl, payload.ttsApiKey, payload.ttsModel, payload.ttsVoiceId]
+  if (['default', 'interview'].includes(payload.configType) && ttsValues.some(Boolean) && !ttsValues.every(Boolean)) {
+    ElMessage.warning('启用 TTS 时请完整填写 TTS 地址、Key、模型和音色')
+    return null
+  }
   return payload
+}
+
+const buildUserTtsConnectivityPayload = () => ({
+  ttsBaseUrl: String(userAiConfigForm.value.ttsBaseUrl || '').trim(),
+  ttsApiKey: String(userAiConfigForm.value.ttsApiKey || '').trim(),
+  ttsModel: String(userAiConfigForm.value.ttsModel || '').trim(),
+  ttsVoiceId: String(userAiConfigForm.value.ttsVoiceId || '').trim(),
+  ttsEndpointPath: String(userAiConfigForm.value.ttsEndpointPath || '').trim(),
+  ttsProvider: String(userAiConfigForm.value.ttsProvider || '').trim()
+})
+
+const validateUserTtsConfigForm = () => {
+  if (!isTtsSupportedAiConfig.value) {
+    ElMessage.warning('TTS 仅用于通用兜底或面试对话配置')
+    return null
+  }
+  const payload = buildUserTtsConnectivityPayload()
+  if (!payload.ttsBaseUrl || !payload.ttsApiKey || !payload.ttsModel || !payload.ttsVoiceId) {
+    ElMessage.warning('请完整填写 TTS 地址、API Key、模型和音色')
+    return null
+  }
+  return payload
+}
+
+const handleUserAiModelsFetch = async () => {
+  const baseUrl = String(userAiConfigForm.value.baseUrl || '').trim()
+  const apiKey = String(userAiConfigForm.value.apiKey || '').trim()
+  if (!baseUrl || !apiKey) {
+    ElMessage.warning('请先填写 API 地址和 API Key')
+    return
+  }
+
+  userAiModelFetching.value = true
+  try {
+    const res = await fetchUserAiModels({ baseUrl, apiKey })
+    const data = res?.data || {}
+    if (!data.success) {
+      throw new Error(data.errorMessage || data.message || '模型列表获取失败')
+    }
+    // 模型发现只回填候选项；失败或为空都不覆盖用户手动填写的模型名。
+    userAiModelOptions.value = Array.isArray(data.models) ? data.models : []
+    if (!userAiConfigForm.value.model && userAiModelOptions.value[0]?.id) {
+      userAiConfigForm.value.model = userAiModelOptions.value[0].id
+    }
+    ElMessage.success(data.message || '模型列表获取成功')
+  } catch (err) {
+    ElMessage.error(err?.message || '模型列表获取失败，请手动输入模型名')
+  } finally {
+    userAiModelFetching.value = false
+  }
 }
 
 const fetchUserAiConfigState = async () => {
@@ -1627,9 +1927,20 @@ const fillUserAiConfigForm = (item) => {
     // 后端只返回脱敏 Key，编辑时必须重新输入真实 Key，避免把脱敏值误提交。
     apiKey: '',
     model: item?.model || '',
-    supportsMultimodal: Boolean(item?.supportsMultimodal)
+    supportsMultimodal: Boolean(item?.supportsMultimodal),
+    ttsBaseUrl: item?.ttsBaseUrl || '',
+    // 后端只返回脱敏 TTS Key，编辑或测试时必须重新输入真实 Key。
+    ttsApiKey: '',
+    ttsModel: item?.ttsModel || '',
+    ttsVoiceId: item?.ttsVoiceId || '',
+    ttsEndpointPath: item?.ttsEndpointPath || '',
+    ttsProvider: item?.ttsProvider || ''
   }
   userAiConnectivityResult.value = null
+  userTtsConnectivityResult.value = null
+  userAiModelOptions.value = []
+  ttsDiscoveryResult.value = null
+  userTtsConfigExpanded.value = false
 }
 
 const handleUserAiConfigTypeChange = (configType) => {
@@ -1644,9 +1955,19 @@ const handleUserAiConfigTypeChange = (configType) => {
     baseUrl: '',
     apiKey: '',
     model: '',
-    supportsMultimodal: false
+    supportsMultimodal: false,
+    ttsBaseUrl: '',
+    ttsApiKey: '',
+    ttsModel: '',
+    ttsVoiceId: '',
+    ttsEndpointPath: '',
+    ttsProvider: ''
   }
   userAiConnectivityResult.value = null
+  userTtsConnectivityResult.value = null
+  userAiModelOptions.value = []
+  ttsDiscoveryResult.value = null
+  userTtsConfigExpanded.value = false
 }
 
 const handleUserAiConnectivityTest = async () => {
@@ -1671,6 +1992,94 @@ const handleUserAiConnectivityTest = async () => {
     ElMessage.error(userAiConnectivityResult.value.message)
   } finally {
     userAiConnectivityTesting.value = false
+  }
+}
+
+const handleUserTtsConnectivityTest = async () => {
+  const payload = validateUserTtsConfigForm()
+  if (!payload) return
+  userTtsConnectivityTesting.value = true
+  userTtsConnectivityResult.value = null
+  try {
+    const res = await testUserTtsConnectivity(payload)
+    userTtsConnectivityResult.value = res?.data || { success: true, message: 'TTS 连通测试成功' }
+    ElMessage.success(userTtsConnectivityResult.value.message || 'TTS 连通测试成功')
+  } catch (err) {
+    userTtsConnectivityResult.value = {
+      success: false,
+      message: err?.message || 'TTS 连通测试失败'
+    }
+    ElMessage.error(userTtsConnectivityResult.value.message)
+  } finally {
+    userTtsConnectivityTesting.value = false
+  }
+}
+
+/** 释放试听音频资源，防止 ObjectURL 泄漏。 */
+const releaseTtsPreviewAudio = () => {
+  if (ttsPreviewAudio) {
+    ttsPreviewAudio.pause()
+    ttsPreviewAudio.onended = null
+    ttsPreviewAudio.onerror = null
+    ttsPreviewAudio = null
+  }
+  if (ttsPreviewObjectUrl) {
+    URL.revokeObjectURL(ttsPreviewObjectUrl)
+    ttsPreviewObjectUrl = ''
+  }
+}
+
+/** 试听当前 TTS 音色：合成最短音频后立即播放。 */
+const handleTtsVoicePreview = async () => {
+  const payload = validateUserTtsConfigForm()
+  if (!payload) return
+  releaseTtsPreviewAudio()
+  ttsPreviewing.value = true
+  try {
+    const blob = await previewTtsVoice(payload)
+    ttsPreviewObjectUrl = URL.createObjectURL(blob)
+    ttsPreviewAudio = new Audio(ttsPreviewObjectUrl)
+    ttsPreviewAudio.onended = () => releaseTtsPreviewAudio()
+    await ttsPreviewAudio.play()
+  } catch (err) {
+    ElMessage.error(err?.message || 'TTS 试听失败，请检查配置后重试')
+  } finally {
+    ttsPreviewing.value = false
+  }
+}
+
+const handleTtsDiscovery = async () => {
+  if (!userAiConfigForm.value.ttsBaseUrl?.trim() || !userAiConfigForm.value.ttsApiKey?.trim()) {
+    ElMessage.warning('请先填写 TTS 地址和 API Key')
+    return
+  }
+  ttsDiscovering.value = true
+  ttsDiscoveryResult.value = null
+  try {
+    const res = await discoverTtsModelsAndVoices({
+      ttsBaseUrl: userAiConfigForm.value.ttsBaseUrl,
+      ttsApiKey: userAiConfigForm.value.ttsApiKey,
+      ttsProvider: userAiConfigForm.value.ttsProvider
+    })
+    const data = res?.data
+    ttsDiscoveryResult.value = data
+    if (data?.success) {
+      // 将探测到的端点路径存入表单，随配置保存
+      if (data.ttsEndpointPath) {
+        userAiConfigForm.value.ttsEndpointPath = data.ttsEndpointPath
+      }
+      ElMessage.success(data.message || '获取成功')
+    } else {
+      ElMessage.warning(data?.message || '获取失败')
+    }
+  } catch (err) {
+    ttsDiscoveryResult.value = {
+      success: false, models: [], voices: [], voiceDiscoverySupported: false,
+      message: err?.message || 'TTS 模型/音色获取失败'
+    }
+    ElMessage.error(ttsDiscoveryResult.value.message)
+  } finally {
+    ttsDiscovering.value = false
   }
 }
 
@@ -2034,22 +2443,6 @@ const handleVoicePreferenceReset = () => {
   ElMessage.success('语音偏好已恢复默认')
 }
 
-const handleInstallLocalSpeech = async () => {
-  localSpeechInstalling.value = true
-  try {
-    const installResult = await installLocalSpeechRecognition()
-    const installed = Boolean(installResult?.ok)
-    ElMessage[installed ? 'success' : 'warning'](
-      installed ? '浏览器本地语音包已安装' : '本地语音包暂时无法安装'
-    )
-    if (installed) localSpeechInstallAvailable.value = false
-  } catch {
-    ElMessage.warning('本地语音包安装失败')
-  } finally {
-    localSpeechInstalling.value = false
-  }
-}
-
 const handleDataManagementSettingsSave = async () => {
   const previousPreferences = getSettingsPreferences()
   userSettingsSaving.value = true
@@ -2128,6 +2521,16 @@ const handleFeedbackSubmit = async () => {
   }
 }
 
+watch(
+  () => [
+    userAiConfigForm.value.baseUrl,
+    userAiConfigForm.value.apiKey
+  ],
+  () => {
+    userAiModelOptions.value = []
+  }
+)
+
 watch(activeSection, (value) => {
   if (value === 'security' && securityMode.value === 'accountDeletion') {
     // 每次重新进入注销页签都重置表单和确认状态，重新获取安全问题。
@@ -2152,20 +2555,12 @@ onMounted(async () => {
       membershipPlans.value = []
     })
   )
-  tasks.push(
-    detectSpeechRecognitionCapability().then((capability) => {
-      // 语音能力检测返回结构化对象，入口只在浏览器明确可下载本地语言包时展示。
-      localSpeechInstallAvailable.value = capability?.status === SPEECH_RECOGNITION_CAPABILITY_STATUS.LOCAL_DOWNLOADABLE
-    }).catch(() => {
-      // 检测失败时保持入口关闭，避免把不可确认的本地包能力展示给用户。
-      localSpeechInstallAvailable.value = false
-    })
-  )
   await Promise.all(tasks)
 })
 
 onBeforeUnmount(() => {
   clearAccountDeleteTimer()
+  releaseTtsPreviewAudio()
 })
 
 </script>
@@ -2544,6 +2939,12 @@ onBeforeUnmount(() => {
 
 .settings-form {
   max-width: 520px;
+  --el-input-height: 40px;
+  --el-component-size: 40px;
+}
+
+.settings-form :deep(.el-input__inner) {
+  font-size: 14px;
 }
 
 .feedback-form {
@@ -3100,6 +3501,16 @@ onBeforeUnmount(() => {
   opacity: 0.7;
 }
 
+.cai-slot-tts {
+  width: fit-content;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.12);
+  color: #15803d;
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .cai-slot-footer {
   display: flex;
   align-items: center;
@@ -3202,12 +3613,56 @@ onBeforeUnmount(() => {
   color: var(--text-title);
 }
 
+.cai-form-title-action {
+  margin-left: auto;
+}
+
 .cai-form-title :deep(.feature-icon) {
   flex-shrink: 0;
 }
 
 .cai-form .el-form-item {
   margin-bottom: 16px;
+}
+
+/* 自定义 AI 表单：统一输入控件高度，避免过扁 */
+.cai-form {
+  --cai-form-control-height: 40px;
+  --cai-form-control-inner-height: 32px;
+  --el-input-height: var(--cai-form-control-height);
+  --el-component-size: var(--cai-form-control-height);
+  --el-select-height: var(--cai-form-control-height);
+  font-size: 14px;
+}
+
+.cai-form :deep(.el-input__inner) {
+  font-size: 14px;
+}
+
+.cai-form :deep(.el-input__wrapper),
+.cai-form :deep(.el-select__wrapper) {
+  height: var(--cai-form-control-height);
+  min-height: var(--cai-form-control-height);
+  padding: 4px 12px;
+  box-sizing: border-box;
+}
+
+.cai-form :deep(.el-select) {
+  --el-input-height: var(--cai-form-control-height);
+  --el-component-size: var(--cai-form-control-height);
+  height: var(--cai-form-control-height);
+}
+
+.cai-form :deep(.el-select .el-input__wrapper),
+.cai-form :deep(.el-select .el-select__wrapper) {
+  height: var(--cai-form-control-height);
+  min-height: var(--cai-form-control-height);
+  padding: 4px 12px;
+  box-sizing: border-box;
+}
+
+.cai-form :deep(.el-textarea__inner) {
+  padding: 8px 12px;
 }
 
 .cai-form-row-2col {
@@ -3251,6 +3706,136 @@ onBeforeUnmount(() => {
   line-height: 1.4;
 }
 
+.cai-tts-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  margin-bottom: 16px;
+  background: color-mix(in srgb, var(--bg-card) 66%, var(--bg-page));
+  border: 1px solid var(--border-card);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* 获取模型/音色：服务商选择 + 按钮同行对齐 */
+.cai-tts-discover-row {
+  display: flex;
+  gap: 12px;
+}
+
+.cai-tts-provider-field {
+  flex: 1;
+}
+
+.cai-tts-discover-btn {
+  align-self: flex-end;
+  flex-shrink: 0;
+  height: var(--cai-form-control-height);
+  margin-bottom: 16px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 音色 ID + 试听按钮横向排列 */
+.cai-tts-voice-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.cai-tts-voice-row .el-select,
+.cai-tts-voice-row .el-input {
+  flex: 1;
+}
+
+/* TTS 试听喇叭按钮：复用面试偏好的样式，居中图标 */
+.tts-voice-preview-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+
+.cai-tts-heading {
+  all: unset;
+  box-sizing: border-box;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  cursor: pointer;
+}
+
+.cai-tts-heading:focus-visible {
+  outline: 2px solid var(--orange-main);
+  outline-offset: -2px;
+}
+
+.cai-tts-heading-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.cai-tts-heading strong {
+  font-size: 14px;
+  color: var(--text-title);
+}
+
+.cai-tts-heading span {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.cai-tts-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 58px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(96, 165, 250, 0.14);
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.cai-tts-status.active {
+  background: rgba(34, 197, 94, 0.14);
+  color: #15803d;
+}
+
+.cai-tts-toggle-icon {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.cai-tts-toggle-icon.expanded {
+  transform: rotate(180deg);
+}
+
+.cai-tts-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 16px 20px;
+}
+
 .cai-test-result {
   display: flex;
   align-items: center;
@@ -3288,6 +3873,10 @@ onBeforeUnmount(() => {
   gap: 10px;
 }
 
+.cai-form-actions.compact {
+  justify-content: flex-start;
+}
+
 .cai-hint {
   margin: 0;
   text-align: center;
@@ -3296,44 +3885,7 @@ onBeforeUnmount(() => {
   opacity: 0.6;
 }
 
-/* ── Custom AI: refresh button ── */
-.cai-refresh-btn {
-  all: unset;
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  flex-shrink: 0;
-  color: var(--text-muted);
-  border-radius: 50%;
-  cursor: pointer;
-  transition: color 0.2s, background 0.2s;
-}
-
-.cai-refresh-btn:hover {
-  color: var(--orange-main);
-  background: color-mix(in srgb, var(--orange-main) 8%, transparent);
-}
-
-.cai-refresh-btn:active {
-  transform: scale(0.92);
-}
-
-.cai-refresh-btn svg {
-  width: 20px;
-  height: 20px;
-  transition: transform 0.3s ease;
-}
-
-.cai-refresh-btn:hover svg,
-.cai-refresh-btn.spinning svg {
-  animation: cai-spin 0.75s linear infinite;
-}
-
-@keyframes cai-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
+/* ── Custom AI: refresh button (复用 data-overview-refresh-btn 样式) ── */
 
 
 .preference-action {
@@ -3941,5 +4493,21 @@ onBeforeUnmount(() => {
   .delete-warning-box {
     padding: 10px;
   }
+}
+
+/* 自定义 AI 表单：el-select 高度统一（非 scoped，穿透 Element Plus 组件） */
+.cai-form .el-select .el-input__wrapper,
+.cai-form .el-select .el-select__wrapper {
+  height: var(--cai-form-control-height, 40px) !important;
+  min-height: var(--cai-form-control-height, 40px) !important;
+  padding: 4px 12px !important;
+  box-sizing: border-box;
+}
+
+.cai-form .el-select .el-input__inner,
+.cai-form .el-select .el-select__input {
+  height: var(--cai-form-control-inner-height, 32px) !important;
+  line-height: var(--cai-form-control-inner-height, 32px) !important;
+  font-size: 14px !important;
 }
 </style>

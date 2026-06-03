@@ -1,5 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { nextTick } from 'vue'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import ElementPlus from 'element-plus'
@@ -9,17 +10,12 @@ import { clearInterviewHistory, getInterviewJobRoles } from '@/api/interview'
 import { getMembershipPlans } from '@/api/membership'
 import { clearResumeHistory } from '@/api/resume'
 import { getUserSettings, saveUserSettings } from '@/api/userSettings'
-import { getUserAiConfigs, getUserAiUsage, saveUserAiConfig, testUserAiConnectivity, toggleUserAiConfig } from '@/api/userAiConfig'
+import { fetchUserAiModels, getUserAiConfigs, getUserAiUsage, saveUserAiConfig, testUserAiConnectivity, testUserTtsConnectivity, toggleUserAiConfig } from '@/api/userAiConfig'
 import { deleteAccount, getCurrentAccountSecurityQuestion } from '@/api/auth'
 import { createUserFeedback } from '@/api/feedback'
 import { useUserStore } from '@/stores/user'
 import { useThemeStore } from '@/stores/theme'
 import { getSettingsPreferences, saveSettingsPreferences } from '@/utils/settingsPreferences'
-import {
-  detectSpeechRecognitionCapability,
-  installLocalSpeechRecognition,
-  SPEECH_RECOGNITION_CAPABILITY_STATUS
-} from '@/utils/speechRecognitionCapability'
 
 const push = vi.fn()
 const fetchUserInfo = vi.fn(() => Promise.resolve())
@@ -75,6 +71,25 @@ vi.mock('@/api/userSettings', () => ({
 
 vi.mock('@/api/userAiConfig', () => ({
   deleteUserAiConfig: vi.fn(() => Promise.resolve()),
+  discoverTtsModelsAndVoices: vi.fn(() => Promise.resolve({
+    data: {
+      success: true,
+      models: [{ id: 'tts-1', name: 'tts-1' }],
+      voices: [{ id: 'alloy', name: 'alloy' }],
+      voiceDiscoverySupported: true
+    }
+  })),
+  fetchUserAiModels: vi.fn(() => Promise.resolve({
+    data: {
+      success: true,
+      message: '模型列表获取成功',
+      models: [
+        { id: 'gpt-4o-mini', name: 'gpt-4o-mini' },
+        { id: 'deepseek-chat', name: 'deepseek-chat' }
+      ],
+      latencyMs: 18
+    }
+  })),
   getUserAiConfigs: vi.fn(() => Promise.resolve({
     data: [
       {
@@ -85,7 +100,12 @@ vi.mock('@/api/userAiConfig', () => ({
         model: 'deepseek-chat',
         enabled: true,
         supportsMultimodal: false,
-        verificationStatus: 'verified'
+        verificationStatus: 'verified',
+        ttsBaseUrl: 'https://tts.example.com/v1',
+        ttsApiKey: 'tts****abcd',
+        ttsModel: 'tts-1',
+        ttsVoiceId: 'alloy',
+        ttsConfigured: true
       }
     ]
   })),
@@ -102,6 +122,14 @@ vi.mock('@/api/userAiConfig', () => ({
       success: true,
       message: '连通测试成功',
       latencyMs: 23
+    }
+  })),
+  testUserTtsConnectivity: vi.fn(() => Promise.resolve({
+    data: {
+      success: true,
+      message: 'TTS 连通测试成功',
+      endpointPath: '/audio/speech',
+      latencyMs: 31
     }
   })),
   toggleUserAiConfig: vi.fn(() => Promise.resolve())
@@ -130,23 +158,6 @@ vi.mock('@/stores/user', () => ({
 
 vi.mock('@/stores/theme', () => ({
   useThemeStore: vi.fn()
-}))
-
-vi.mock('@/utils/speechRecognitionCapability', () => ({
-  SPEECH_RECOGNITION_CAPABILITY_STATUS: {
-    LOCAL_READY: 'local-ready',
-    LOCAL_DOWNLOADABLE: 'local-downloadable',
-    WEBSPEECH_READY: 'webspeech-ready',
-    TEMPORARILY_UNAVAILABLE: 'temporarily-unavailable',
-    PERMISSION_BLOCKED: 'permission-blocked',
-    UNSUPPORTED: 'unsupported'
-  },
-  detectSpeechRecognitionCapability: vi.fn(() => Promise.resolve({
-    status: 'webspeech-ready',
-    canInstallLocal: false,
-    supportsLocalProcessing: false
-  })),
-  installLocalSpeechRecognition: vi.fn(() => Promise.resolve({ ok: true, status: 'local-ready' }))
 }))
 
 vi.mock('@/components/OnboardingGuide.vue', () => ({
@@ -219,15 +230,6 @@ describe('SettingsView', () => {
       resolvedTheme: 'light',
       setTheme,
       setFollowSystem
-    })
-    detectSpeechRecognitionCapability.mockResolvedValue({
-      status: SPEECH_RECOGNITION_CAPABILITY_STATUS.WEBSPEECH_READY,
-      canInstallLocal: false,
-      supportsLocalProcessing: false
-    })
-    installLocalSpeechRecognition.mockResolvedValue({
-      ok: true,
-      status: SPEECH_RECOGNITION_CAPABILITY_STATUS.LOCAL_READY
     })
   })
 
@@ -324,6 +326,146 @@ describe('SettingsView', () => {
       supportsMultimodal: true
     })
     expect(toggleUserAiConfig).toHaveBeenCalledWith('default', false)
+  })
+
+  it('fetches user AI model options and selects the first model when empty', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    await switchSection(wrapper, 'customAi')
+
+    Object.assign(wrapper.vm.userAiConfigForm, {
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'sk-user-real',
+      model: ''
+    })
+
+    await wrapper.vm.handleUserAiModelsFetch()
+    await flushPromises()
+
+    expect(fetchUserAiModels).toHaveBeenCalledWith({
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'sk-user-real'
+    })
+    expect(wrapper.vm.userAiModelOptions).toEqual([
+      { id: 'gpt-4o-mini', name: 'gpt-4o-mini' },
+      { id: 'deepseek-chat', name: 'deepseek-chat' }
+    ])
+    expect(wrapper.vm.userAiConfigForm.model).toBe('gpt-4o-mini')
+  })
+
+  it('keeps manually entered user AI model when model discovery fails', async () => {
+    fetchUserAiModels.mockResolvedValueOnce({
+      data: {
+        success: false,
+        message: '获取失败',
+        models: []
+      }
+    })
+    const wrapper = mountView()
+    await flushPromises()
+    await switchSection(wrapper, 'customAi')
+
+    Object.assign(wrapper.vm.userAiConfigForm, {
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'sk-user-real',
+      model: 'manual-model'
+    })
+
+    await wrapper.vm.handleUserAiModelsFetch()
+    await flushPromises()
+
+    expect(wrapper.vm.userAiConfigForm.model).toBe('manual-model')
+  })
+
+  it('keeps TTS controls scoped to fallback and interview custom AI settings', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    await switchSection(wrapper, 'customAi')
+    wrapper.vm.handleUserAiConfigTypeChange('resume')
+    await nextTick()
+
+    expect(wrapper.text()).not.toContain('TTS 语音合成')
+
+    wrapper.vm.handleUserAiConfigTypeChange('default')
+    await nextTick()
+
+    expect(wrapper.text()).toContain('TTS 语音合成')
+    expect(wrapper.text()).not.toContain('TTS 地址')
+
+    await wrapper.find('[data-testid="custom-ai-tts-toggle"]').trigger('click')
+    expect(wrapper.text()).toContain('TTS 地址')
+
+    wrapper.vm.handleUserAiConfigTypeChange('interview')
+    await nextTick()
+
+    expect(wrapper.text()).toContain('TTS 语音合成')
+    await wrapper.find('[data-testid="custom-ai-tts-toggle"]').trigger('click')
+    expect(wrapper.text()).toContain('TTS 地址')
+
+    Object.assign(wrapper.vm.userAiConfigForm, {
+      configType: 'interview',
+      providerName: '面试模型',
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'sk-user-real',
+      model: 'gpt-4o-mini',
+      supportsMultimodal: false,
+      ttsBaseUrl: 'https://tts.example.com/v1',
+      ttsApiKey: 'tts-user-real',
+      ttsEndpointPath: '',
+      ttsModel: 'tts-1',
+      ttsVoiceId: 'alloy',
+      ttsProvider: ''
+    })
+
+    await wrapper.vm.handleUserTtsConnectivityTest()
+    await wrapper.vm.handleUserAiConfigSave()
+
+    expect(testUserTtsConnectivity).toHaveBeenCalledWith({
+      ttsBaseUrl: 'https://tts.example.com/v1',
+      ttsApiKey: 'tts-user-real',
+      ttsEndpointPath: '',
+      ttsModel: 'tts-1',
+      ttsVoiceId: 'alloy',
+      ttsProvider: ''
+    })
+    expect(saveUserAiConfig).toHaveBeenCalledWith({
+      configType: 'interview',
+      providerName: '面试模型',
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'sk-user-real',
+      model: 'gpt-4o-mini',
+      supportsMultimodal: false,
+      ttsBaseUrl: 'https://tts.example.com/v1',
+      ttsApiKey: 'tts-user-real',
+      ttsEndpointPath: '',
+      ttsModel: 'tts-1',
+      ttsVoiceId: 'alloy',
+      ttsProvider: ''
+    })
+  })
+
+  it('centers the TTS status capsule inside the collapsed heading', () => {
+    const source = settingsViewSource()
+
+    expect(source).toContain('class="cai-tts-status"')
+    expect(source).toContain('.cai-tts-status')
+    expect(source).toContain('display: inline-flex;')
+    expect(source).toContain('align-items: center;')
+    expect(source).toContain('justify-content: center;')
+  })
+
+  it('keeps custom AI select wrappers aligned with input control height styles', () => {
+    const source = settingsViewSource()
+
+    expect(source).toContain('.cai-form :deep(.el-input__wrapper),')
+    expect(source).toContain('.cai-form :deep(.el-select__wrapper)')
+    expect(source).toContain('.cai-form :deep(.el-select .el-input__wrapper),')
+    expect(source).toContain('.cai-form :deep(.el-select .el-select__wrapper)')
+    expect(source).toContain('.cai-tts-discover-btn')
+    expect(source).toContain('height: var(--cai-form-control-height);')
+    expect(source).toContain('.cai-form .el-select .el-input__wrapper,')
+    expect(source).toContain('.cai-form .el-select .el-select__wrapper')
   })
 
   it('uses readable local feature icon sizes inside the personal settings center', () => {
@@ -437,12 +579,7 @@ describe('SettingsView', () => {
     expect(wrapper.vm).not.toHaveProperty('handleOfflineSttClearConfirm')
   })
 
-  it('shows browser local speech pack install action when capability is downloadable', async () => {
-    detectSpeechRecognitionCapability.mockResolvedValueOnce({
-      status: SPEECH_RECOGNITION_CAPABILITY_STATUS.LOCAL_DOWNLOADABLE,
-      canInstallLocal: true,
-      supportsLocalProcessing: false
-    })
+  it('does not show browser local speech pack actions in settings center', async () => {
     const wrapper = mountView()
     await flushPromises()
 
@@ -451,38 +588,11 @@ describe('SettingsView', () => {
     await flushPromises()
     await waitForSecurityTransition()
 
-    expect(wrapper.text()).toContain('浏览器本地语音包')
-    expect(wrapper.text()).toContain('安装语音包')
-  }, 15000)
-
-  it('keeps browser local speech pack install action hidden when capability detection fails', async () => {
-    detectSpeechRecognitionCapability.mockRejectedValueOnce(new Error('capability unavailable'))
-    const wrapper = mountView()
-    await flushPromises()
-
-    await switchSection(wrapper, 'interview')
-    wrapper.vm.interviewSubTab = 'voice'
-    await flushPromises()
-
-    expect(wrapper.vm.localSpeechInstallAvailable).toBe(false)
+    expect(wrapper.text()).not.toContain('浏览器本地语音包')
     expect(wrapper.text()).not.toContain('安装语音包')
+    expect(wrapper.vm).not.toHaveProperty('handleInstallLocalSpeech')
+    expect(wrapper.vm).not.toHaveProperty('handleManageLocalSpeechPack')
   }, 15000)
-
-  it('keeps local speech pack install action visible when installation fails', async () => {
-    installLocalSpeechRecognition.mockResolvedValueOnce({
-      ok: false,
-      status: SPEECH_RECOGNITION_CAPABILITY_STATUS.TEMPORARILY_UNAVAILABLE
-    })
-    const wrapper = mountView()
-    await flushPromises()
-
-    wrapper.vm.localSpeechInstallAvailable = true
-    await wrapper.vm.handleInstallLocalSpeech()
-    await flushPromises()
-
-    expect(installLocalSpeechRecognition).toHaveBeenCalled()
-    expect(wrapper.vm.localSpeechInstallAvailable).toBe(true)
-  })
 
 
   it('shows subscription plan name without exposing internal identifiers', async () => {
