@@ -492,7 +492,7 @@ public class ResumeDiagnosisProcessor {
                     .last("limit 1"));
             if (task != null && UserAiConstants.BILLING_SOURCE_USER_CUSTOM.equals(task.getAiBillingSource())) {
                 if (userAiUsageLimitService != null) {
-                    userAiUsageLimitService.rollback(userId);
+                    userAiUsageLimitService.rollback(userId, UserAiConstants.USAGE_TYPE_RESUME_DIAGNOSIS);
                 }
                 log.info("任务失败，已回滚自定义 AI 次数, userId: {}, taskId: {}", userId, taskId);
                 return;

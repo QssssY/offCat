@@ -1,6 +1,7 @@
 package com.airesume.server.service.impl;
 
 import com.airesume.server.common.constants.AiEngineConstants;
+import com.airesume.server.common.constants.UserAiConstants;
 import com.airesume.server.dto.ai.ResolvedAiConfig;
 import com.airesume.server.dto.offer.SalaryNegotiationSimulationRequest;
 import com.airesume.server.dto.offer.SalaryNegotiationSimulationResponse;
@@ -129,8 +130,8 @@ class OfferAssistServiceImplTest {
 
         service.generateSalaryScript(1L, buildScriptRequest());
 
-        verify(userAiUsageLimitService).checkAndIncrement(1L);
-        verify(userAiUsageLimitService, never()).rollback(1L);
+        verify(userAiUsageLimitService).checkAndIncrement(1L, UserAiConstants.USAGE_TYPE_OFFER_ASSIST);
+        verify(userAiUsageLimitService, never()).rollback(1L, UserAiConstants.USAGE_TYPE_OFFER_ASSIST);
     }
 
     @Test
@@ -142,8 +143,8 @@ class OfferAssistServiceImplTest {
 
         assertThrows(IllegalStateException.class, () -> service.generateSalaryScript(1L, buildScriptRequest()));
 
-        verify(userAiUsageLimitService).checkAndIncrement(1L);
-        verify(userAiUsageLimitService).rollback(1L);
+        verify(userAiUsageLimitService).checkAndIncrement(1L, UserAiConstants.USAGE_TYPE_OFFER_ASSIST);
+        verify(userAiUsageLimitService).rollback(1L, UserAiConstants.USAGE_TYPE_OFFER_ASSIST);
     }
 
     private SalaryNegotiationSimulationRequest buildSimulationRequest() {

@@ -1,5 +1,7 @@
 package com.airesume.server.service;
 
+import com.airesume.server.common.constants.AiEngineConstants;
+import com.airesume.server.common.constants.UserAiConstants;
 import com.airesume.server.config.AiTokenLimitConfig;
 import com.airesume.server.util.TokenEstimator;
 import lombok.extern.slf4j.Slf4j;
@@ -43,6 +45,8 @@ public class InterviewContextCompressor {
     private final AiTokenLimitConfig tokenLimitConfig;
     private final AiChatClient aiChatClient;
     private final Clock clock;
+    private final UserAiConfigResolver userAiConfigResolver;
+    private final UserAiUsageLimitService userAiUsageLimitService;
 
     /** 摘要缓存：sessionId → 上次生成的摘要信息，避免每轮都重新调用 AI */
     private final ConcurrentHashMap<String, CachedSummary> summaryCache = new ConcurrentHashMap<>();
@@ -75,14 +79,29 @@ public class InterviewContextCompressor {
     }
 
     @Autowired
-    public InterviewContextCompressor(AiTokenLimitConfig tokenLimitConfig, AiChatClient aiChatClient) {
-        this(tokenLimitConfig, aiChatClient, Clock.systemDefaultZone());
+    public InterviewContextCompressor(
+            AiTokenLimitConfig tokenLimitConfig,
+            AiChatClient aiChatClient,
+            @Autowired(required = false) UserAiConfigResolver userAiConfigResolver,
+            @Autowired(required = false) UserAiUsageLimitService userAiUsageLimitService) {
+        this(tokenLimitConfig, aiChatClient, Clock.systemDefaultZone(), userAiConfigResolver, userAiUsageLimitService);
     }
 
     InterviewContextCompressor(AiTokenLimitConfig tokenLimitConfig, AiChatClient aiChatClient, Clock clock) {
+        this(tokenLimitConfig, aiChatClient, clock, null, null);
+    }
+
+    InterviewContextCompressor(
+            AiTokenLimitConfig tokenLimitConfig,
+            AiChatClient aiChatClient,
+            Clock clock,
+            UserAiConfigResolver userAiConfigResolver,
+            UserAiUsageLimitService userAiUsageLimitService) {
         this.tokenLimitConfig = tokenLimitConfig;
         this.aiChatClient = aiChatClient;
         this.clock = clock;
+        this.userAiConfigResolver = userAiConfigResolver;
+        this.userAiUsageLimitService = userAiUsageLimitService;
     }
 
     /** 摘要缓存条目 */
@@ -140,6 +159,15 @@ public class InterviewContextCompressor {
             List<InterviewAiService.ChatMessageItem> history,
             int currentRound,
             String sessionId) {
+        return compressHistory(history, currentRound, sessionId, null, false);
+    }
+
+    public List<InterviewAiService.ChatMessageItem> compressHistory(
+            List<InterviewAiService.ChatMessageItem> history,
+            int currentRound,
+            String sessionId,
+            Long userId,
+            boolean fallbackToPlatform) {
         if (history == null || history.isEmpty()) {
             return history;
         }
@@ -187,7 +215,7 @@ public class InterviewContextCompressor {
                 // 新消息不足，复用缓存摘要
                 log.debug("复用缓存摘要：缓存覆盖{}条，当前{}条，新增{}条（未达阈值{}）",
                         cached.messageCount(), summaryCount, newMessagesSinceCache, resummarizeThreshold);
-                summaryContent = cached.summary();
+                summaryContent = enforceSummaryLimit(cached.summary(), "缓存历史摘要");
             }
         }
 
@@ -196,7 +224,8 @@ public class InterviewContextCompressor {
             List<InterviewAiService.ChatMessageItem> messagesForAi = earlyMessages.size() > MAX_MESSAGES_FOR_AI_SUMMARY
                     ? earlyMessages.subList(earlyMessages.size() - MAX_MESSAGES_FOR_AI_SUMMARY, earlyMessages.size())
                     : earlyMessages;
-            String aiResult = aiSummarize(messagesForAi, COMPRESS_HISTORY_SYSTEM_PROMPT);
+            // 摘要链路沿用当前面试会话的 AI 来源，避免用户自定义会话在后台摘要阶段退回平台配置。
+            String aiResult = aiSummarize(messagesForAi, COMPRESS_HISTORY_SYSTEM_PROMPT, userId, fallbackToPlatform);
             if (aiResult != null) {
                 summaryContent = "[历史对话摘要 - AI 生成]\n" + aiResult;
                 // 更新缓存
@@ -204,7 +233,7 @@ public class InterviewContextCompressor {
                     summaryCache.put(sessionId, new CachedSummary(summaryContent, summaryCount, Instant.now(clock)));
                 }
             } else {
-                summaryContent = buildTruncatedSummary(earlyMessages);
+                summaryContent = enforceSummaryLimit(buildTruncatedSummary(earlyMessages), "历史对话降级摘要");
             }
         }
 
@@ -279,6 +308,14 @@ public class InterviewContextCompressor {
     public List<InterviewAiService.ChatMessageItem> compressForEvaluation(
             List<InterviewAiService.ChatMessageItem> history,
             String existingSummary) {
+        return compressForEvaluation(history, existingSummary, null, false);
+    }
+
+    public List<InterviewAiService.ChatMessageItem> compressForEvaluation(
+            List<InterviewAiService.ChatMessageItem> history,
+            String existingSummary,
+            Long userId,
+            boolean fallbackToPlatform) {
         if (history == null || history.isEmpty()) {
             return history;
         }
@@ -300,16 +337,17 @@ public class InterviewContextCompressor {
         String summaryText = null;
         if (existingSummary != null && !existingSummary.isBlank()) {
             // 已有阶段性摘要，直接使用
-            summaryText = existingSummary;
+            summaryText = enforceSummaryLimit(existingSummary, "已有评价摘要");
         } else {
             // 使用 AI 生成深度摘要（评价报告需要全局视角，不设 token 门槛）
             List<InterviewAiService.ChatMessageItem> messagesForAi = history.size() > MAX_MESSAGES_FOR_AI_SUMMARY
                     ? history.subList(history.size() - MAX_MESSAGES_FOR_AI_SUMMARY, history.size())
                     : history;
-            summaryText = aiSummarize(messagesForAi, COMPRESS_EVALUATION_SYSTEM_PROMPT);
+            // 最终报告压缩同样透传用户上下文，保证报告阶段和问答阶段使用同一 AI 来源。
+            summaryText = aiSummarize(messagesForAi, COMPRESS_EVALUATION_SYSTEM_PROMPT, userId, fallbackToPlatform);
             if (summaryText == null) {
                 // 降级：主题提取摘要
-                summaryText = generateConversationSummary(history);
+                summaryText = enforceSummaryLimit(generateConversationSummary(history), "评价主题降级摘要");
             }
         }
 
@@ -382,13 +420,22 @@ public class InterviewContextCompressor {
      * @param systemPrompt 摘要指令（COMPRESS_HISTORY_SYSTEM_PROMPT 或 COMPRESS_EVALUATION_SYSTEM_PROMPT）
      * @return AI 生成的摘要文本；若 AI 不可用或调用失败，返回 null
      */
-    private String aiSummarize(List<InterviewAiService.ChatMessageItem> messages, String systemPrompt) {
+    private String aiSummarize(
+            List<InterviewAiService.ChatMessageItem> messages,
+            String systemPrompt,
+            Long userId,
+            boolean fallbackToPlatform) {
         if (!tokenLimitConfig.isAiSummaryEnabled()) {
             log.debug("AI 摘要已禁用，跳过");
             return null;
         }
 
+        boolean customUsageCounted = false;
         try {
+            if (shouldCountCustomAiSummary(userId, fallbackToPlatform)) {
+                userAiUsageLimitService.checkAndIncrement(userId, UserAiConstants.USAGE_TYPE_INTERVIEW_SUMMARY);
+                customUsageCounted = true;
+            }
             String formatted = formatMessagesForSummary(messages);
             // 拼接结果过长时截断，防止超出模型上下文窗口
             int maxFormattedChars = 12000;
@@ -397,26 +444,64 @@ public class InterviewContextCompressor {
                 formatted = formatted.substring(formatted.length() - maxFormattedChars);
             }
             int timeoutMs = tokenLimitConfig.getAiSummaryTimeoutMs();
-            log.info("调用 AI 摘要：消息数={}, 输入长度={}字, 超时={}ms", messages.size(), formatted.length(), timeoutMs);
+            log.info("调用 AI 摘要：消息数={}, 输入长度={}字, 超时={}ms, userId={}, fallbackToPlatform={}",
+                    messages.size(), formatted.length(), timeoutMs, userId, fallbackToPlatform);
 
-            String result = aiChatClient.chat(systemPrompt, formatted, timeoutMs);
+            String result = aiChatClient.chat(systemPrompt, formatted, timeoutMs, userId, fallbackToPlatform);
 
             if (result != null && !result.isBlank() && result.length() > 20) {
-                // 防止 AI 返回过长摘要，截断到上限
                 if (result.length() > MAX_SUMMARY_LENGTH) {
-                    log.warn("AI 摘要过长({}字)，截断到{}字", result.length(), MAX_SUMMARY_LENGTH);
-                    result = result.substring(0, MAX_SUMMARY_LENGTH) + "...";
+                    // 模型未遵守摘要长度约束时不把 substring 当成正常成功，改走本地降级摘要。
+                    log.warn("AI 摘要过长({}字)，进入降级摘要策略，maxSummaryLength={}, last_resort_truncate=false",
+                            result.length(), MAX_SUMMARY_LENGTH);
+                    rollbackCustomSummaryUsage(userId, customUsageCounted);
+                    return null;
                 }
                 log.info("AI 摘要成功，长度={}字", result.length());
                 return result;
             }
 
             log.warn("AI 摘要返回结果过短或为空，降级到截断模式");
+            rollbackCustomSummaryUsage(userId, customUsageCounted);
             return null;
         } catch (Exception e) {
+            rollbackCustomSummaryUsage(userId, customUsageCounted);
             log.warn("AI 摘要调用失败，降级到截断模式: {}", e.getMessage());
             return null;
         }
+    }
+
+    private boolean shouldCountCustomAiSummary(Long userId, boolean fallbackToPlatform) {
+        if (userId == null || userAiConfigResolver == null || userAiUsageLimitService == null) {
+            return false;
+        }
+        try {
+            return userAiConfigResolver.resolve(userId, AiEngineConstants.BUSINESS_TYPE_INTERVIEW, fallbackToPlatform) != null;
+        } catch (Exception e) {
+            log.warn("摘要计数前解析用户自定义 AI 配置失败，降级为不调用自定义摘要, userId: {}, error: {}",
+                    userId, e.getMessage());
+            return false;
+        }
+    }
+
+    private void rollbackCustomSummaryUsage(Long userId, boolean customUsageCounted) {
+        if (!customUsageCounted || userId == null || userAiUsageLimitService == null) {
+            return;
+        }
+        try {
+            userAiUsageLimitService.rollback(userId, UserAiConstants.USAGE_TYPE_INTERVIEW_SUMMARY);
+        } catch (Exception rollbackError) {
+            log.warn("回滚摘要自定义 AI 用量失败, userId: {}, error: {}", userId, rollbackError.getMessage());
+        }
+    }
+
+    private String enforceSummaryLimit(String summary, String summaryType) {
+        if (summary == null || summary.length() <= MAX_SUMMARY_LENGTH) {
+            return summary;
+        }
+        log.warn("{}仍超出长度上限({}字>{}字)，执行最终保底截断, last_resort_truncate=true",
+                summaryType, summary.length(), MAX_SUMMARY_LENGTH);
+        return summary.substring(0, MAX_SUMMARY_LENGTH) + "...";
     }
 
     /**

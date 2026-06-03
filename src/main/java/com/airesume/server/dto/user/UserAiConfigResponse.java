@@ -18,6 +18,13 @@ public class UserAiConfigResponse {
     private String model;
     private Boolean enabled;
     private Boolean supportsMultimodal;
+    private String ttsBaseUrl;
+    private String ttsApiKey;
+    private String ttsModel;
+    private String ttsVoiceId;
+    private String ttsEndpointPath;
+    private String ttsProvider;
+    private Boolean ttsConfigured;
     private LocalDateTime lastVerifiedAt;
     private String verificationStatus;
     private LocalDateTime updateTime;

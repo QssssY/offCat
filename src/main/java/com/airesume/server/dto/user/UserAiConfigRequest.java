@@ -37,4 +37,28 @@ public class UserAiConfigRequest {
 
     /** 是否支持多模态。 */
     private Boolean supportsMultimodal;
+
+    /** OpenAI 兼容 TTS 基础地址，留空表示不启用 TTS 配置。 */
+    @Size(max = 512, message = "TTS 地址不能超过 512 个字符")
+    private String ttsBaseUrl;
+
+    /** TTS API Key。 */
+    @Size(max = 1024, message = "TTS API Key 不能超过 1024 个字符")
+    private String ttsApiKey;
+
+    /** TTS 模型名称。 */
+    @Size(max = 128, message = "TTS 模型不能超过 128 个字符")
+    private String ttsModel;
+
+    /** TTS 音色 ID。 */
+    @Size(max = 128, message = "TTS 音色不能超过 128 个字符")
+    private String ttsVoiceId;
+
+    /** TTS 合成端点路径，由发现接口自动探测填入。 */
+    @Size(max = 128, message = "TTS 端点路径不能超过 128 个字符")
+    private String ttsEndpointPath;
+
+    /** TTS 提供商标识：openai/mimo，为空按 OpenAI 兜底。 */
+    @Size(max = 32, message = "TTS Provider 标识不能超过 32 个字符")
+    private String ttsProvider;
 }

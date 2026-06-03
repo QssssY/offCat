@@ -25,6 +25,7 @@ DROP TABLE IF EXISTS `sys_job_role`;
 DROP TABLE IF EXISTS `sys_prompt`;
 DROP TABLE IF EXISTS `sys_version_log`;
 DROP TABLE IF EXISTS `sys_admin_notification`;
+DROP TABLE IF EXISTS `user_ai_usage_detail`;
 DROP TABLE IF EXISTS `user_ai_daily_usage`;
 DROP TABLE IF EXISTS `user_ai_config`;
 DROP TABLE IF EXISTS `sys_config`;
@@ -110,6 +111,8 @@ CREATE TABLE `user_ai_config` (
   `tts_api_key` VARCHAR(1024) NULL COMMENT '预留: TTS API Key密文',
   `tts_model` VARCHAR(128) NULL COMMENT '预留: TTS模型',
   `tts_voice_id` VARCHAR(128) NULL COMMENT '预留: TTS音色ID',
+  `tts_endpoint_path` VARCHAR(128) DEFAULT '/audio/speech' COMMENT 'TTS 合成端点路径，由发现接口自动探测',
+  `tts_provider` VARCHAR(32) DEFAULT NULL COMMENT 'TTS 提供商标识：openai/mimo，NULL 或空按 OpenAI 兜底',
   `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `is_deleted` TINYINT NOT NULL DEFAULT 0,
@@ -132,6 +135,22 @@ CREATE TABLE `user_ai_daily_usage` (
   INDEX `idx_user_ai_usage_date` (`usage_date`),
   CONSTRAINT `fk_user_ai_daily_usage_user_id` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户自定义AI每日使用量';
+
+CREATE TABLE `user_ai_usage_detail` (
+  `id` BIGINT NOT NULL COMMENT '雪花ID',
+  `user_id` BIGINT NOT NULL COMMENT '用户ID',
+  `usage_date` DATE NOT NULL COMMENT '使用日期',
+  `usage_type` VARCHAR(64) NOT NULL COMMENT '功能统计类型',
+  `call_count` INT NOT NULL DEFAULT 0 COMMENT '当日该功能已调用次数',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `is_deleted` TINYINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `uk_user_ai_usage_detail_user_date_type` (`user_id`, `usage_date`, `usage_type`),
+  INDEX `idx_user_ai_usage_detail_date_type` (`usage_date`, `usage_type`),
+  INDEX `idx_user_ai_usage_detail_user_date` (`user_id`, `usage_date`),
+  CONSTRAINT `fk_user_ai_usage_detail_user_id` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户自定义AI按功能每日使用明细';
 
 CREATE TABLE `sys_config` (
   `id` BIGINT NOT NULL COMMENT '雪花ID',

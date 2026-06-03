@@ -1,6 +1,7 @@
 package com.airesume.server.service.impl;
 
 import com.airesume.server.common.constants.AiEngineConstants;
+import com.airesume.server.common.constants.UserAiConstants;
 import com.airesume.server.dto.offer.SalaryNegotiationSimulationRequest;
 import com.airesume.server.dto.offer.SalaryNegotiationSimulationResponse;
 import com.airesume.server.dto.offer.SalaryScriptRequest;
@@ -56,13 +57,13 @@ public class OfferAssistServiceImpl implements OfferAssistService {
                 && userAiConfigResolver.resolve(userId, AiEngineConstants.BUSINESS_TYPE_INTERVIEW, false) != null;
         if (useCustomAi) {
             // Offer 辅助复用轻量聊天客户端的 interview/default 配置，命中自定义 AI 时纳入独立每日次数。
-            userAiUsageLimitService.checkAndIncrement(userId);
+            userAiUsageLimitService.checkAndIncrement(userId, UserAiConstants.USAGE_TYPE_OFFER_ASSIST);
         }
         try {
             return aiChatClient.chat(buildSalarySystemPrompt(), userPrompt, OFFER_AI_TIMEOUT_MS, userId, false);
         } catch (RuntimeException e) {
             if (useCustomAi) {
-                userAiUsageLimitService.rollback(userId);
+                userAiUsageLimitService.rollback(userId, UserAiConstants.USAGE_TYPE_OFFER_ASSIST);
             }
             throw e;
         }

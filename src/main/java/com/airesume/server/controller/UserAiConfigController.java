@@ -1,18 +1,28 @@
 package com.airesume.server.controller;
 
 import com.airesume.server.common.result.Result;
+import com.airesume.server.dto.ai.AiModelDiscoveryResponse;
 import com.airesume.server.dto.user.UserAiConfigRequest;
 import com.airesume.server.dto.user.UserAiConfigResponse;
 import com.airesume.server.dto.user.UserAiConfigToggleRequest;
 import com.airesume.server.dto.user.UserAiConnectivityTestRequest;
 import com.airesume.server.dto.user.UserAiConnectivityTestResponse;
+import com.airesume.server.dto.user.UserAiModelsRequest;
 import com.airesume.server.dto.user.UserAiUsageResponse;
+import com.airesume.server.dto.user.UserTtsConnectivityTestRequest;
+import com.airesume.server.dto.user.UserTtsConnectivityTestResponse;
+import com.airesume.server.dto.user.UserTtsDiscoveryRequest;
+import com.airesume.server.dto.user.UserTtsDiscoveryResponse;
+import com.airesume.server.service.AiModelDiscoveryService;
 import com.airesume.server.service.UserAiConfigService;
 import com.airesume.server.service.UserAiUsageLimitService;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.CacheControl;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,6 +44,7 @@ public class UserAiConfigController {
 
     private final UserAiConfigService userAiConfigService;
     private final UserAiUsageLimitService userAiUsageLimitService;
+    private final AiModelDiscoveryService aiModelDiscoveryService;
 
     /**
      * 查询当前用户自定义 AI 配置列表。
@@ -88,6 +99,61 @@ public class UserAiConfigController {
         log.info("用户自定义 AI 连通测试, userId: {}, model: {}", userId, request.getModel());
         UserAiConnectivityTestResponse response = userAiConfigService.testConnectivity(request);
         return Result.success(response.getMessage(), response);
+    }
+
+    @PostMapping("/models")
+    public Result<AiModelDiscoveryResponse> fetchModels(
+            @Valid @RequestBody UserAiModelsRequest request,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("用户自定义 AI 模型列表获取, userId: {}", userId);
+        AiModelDiscoveryResponse response =
+                aiModelDiscoveryService.fetchModels(request.getBaseUrl(), request.getApiKey(), 10000, "openai");
+        return Result.success(response.getMessage(), response);
+    }
+
+    /**
+     * 独立 TTS 连通测试，不保存配置。
+     */
+    @PostMapping("/test-tts-connectivity")
+    public Result<UserTtsConnectivityTestResponse> testTtsConnectivity(
+            @Valid @RequestBody UserTtsConnectivityTestRequest request,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("用户自定义 TTS 连通测试, userId: {}, model: {}, voiceId: {}",
+                userId, request.getModel(), request.getVoiceId());
+        UserTtsConnectivityTestResponse response = userAiConfigService.testTtsConnectivity(request);
+        return Result.success(response.getMessage(), response);
+    }
+
+    /**
+     * TTS 模型/音色发现，不保存配置。
+     */
+    @PostMapping("/tts-discovery")
+    public Result<UserTtsDiscoveryResponse> ttsDiscovery(
+            @Valid @RequestBody UserTtsDiscoveryRequest request,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("用户 TTS 模型/音色发现, userId: {}", userId);
+        UserTtsDiscoveryResponse response = userAiConfigService.discoverTtsModelsAndVoices(request);
+        return Result.success(response.getMessage(), response);
+    }
+
+    /**
+     * TTS 音色试听：用当前表单参数合成最短音频，返回 audio/mpeg 二进制流。
+     */
+    @PostMapping(value = "/tts-preview", produces = "audio/mpeg")
+    public ResponseEntity<byte[]> previewTtsVoice(
+            @Valid @RequestBody UserTtsConnectivityTestRequest request,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("用户 TTS 音色试听, userId: {}, model: {}, voiceId: {}",
+                userId, request.getModel(), request.getVoiceId());
+        byte[] audioBytes = userAiConfigService.previewTtsVoice(request);
+        return ResponseEntity.ok()
+                .contentType(MediaType.valueOf("audio/mpeg"))
+                .cacheControl(CacheControl.noStore())
+                .body(audioBytes);
     }
 
     /**

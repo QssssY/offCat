@@ -4,6 +4,10 @@ import com.airesume.server.dto.user.UserAiConfigRequest;
 import com.airesume.server.dto.user.UserAiConfigResponse;
 import com.airesume.server.dto.user.UserAiConnectivityTestRequest;
 import com.airesume.server.dto.user.UserAiConnectivityTestResponse;
+import com.airesume.server.dto.user.UserTtsConnectivityTestRequest;
+import com.airesume.server.dto.user.UserTtsConnectivityTestResponse;
+import com.airesume.server.dto.user.UserTtsDiscoveryRequest;
+import com.airesume.server.dto.user.UserTtsDiscoveryResponse;
 import com.airesume.server.entity.UserAiConfig;
 import com.baomidou.mybatisplus.extension.service.IService;
 import java.util.List;
@@ -37,6 +41,21 @@ public interface UserAiConfigService extends IService<UserAiConfig> {
      * 独立连通测试，不保存配置。
      */
     UserAiConnectivityTestResponse testConnectivity(UserAiConnectivityTestRequest request);
+
+    /**
+     * 独立 TTS 连通测试，不保存配置。
+     */
+    UserTtsConnectivityTestResponse testTtsConnectivity(UserTtsConnectivityTestRequest request);
+
+    /**
+     * TTS 音色试听：使用表单参数合成最短音频并返回字节。
+     */
+    byte[] previewTtsVoice(UserTtsConnectivityTestRequest request);
+
+    /**
+     * TTS 模型/音色发现，不保存配置。
+     */
+    UserTtsDiscoveryResponse discoverTtsModelsAndVoices(UserTtsDiscoveryRequest request);
 
     /**
      * 查询启用的用户配置。

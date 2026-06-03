@@ -7,6 +7,7 @@ import com.airesume.server.common.constants.UserRoleConstants;
 import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.Result;
 import com.airesume.server.common.util.PublicHttpsUrlValidator;
+import com.airesume.server.dto.ai.AiModelDiscoveryResponse;
 import com.airesume.server.dto.admin.*;
 import com.airesume.server.entity.SysAiEngineConfig;
 import com.airesume.server.entity.SysJobRole;
@@ -19,6 +20,7 @@ import com.airesume.server.service.AdminDashboardService;
 import com.airesume.server.service.AdminUserRightsService;
 import com.airesume.server.service.AiCredentialCrypto;
 import com.airesume.server.service.AiEngineConnectivityTestService;
+import com.airesume.server.service.AiModelDiscoveryService;
 import com.airesume.server.service.SysAiEngineConfigService;
 import com.airesume.server.service.SysJobRoleService;
 import com.airesume.server.service.SysConfigService;
@@ -59,6 +61,7 @@ public class AdminController {
     private final AdminUserRightsService adminUserRightsService;
     private final SysAiEngineConfigService sysAiEngineConfigService;
     private final AiEngineConnectivityTestService aiEngineConnectivityTestService;
+    private final AiModelDiscoveryService aiModelDiscoveryService;
     private final SysPromptService sysPromptService;
     private final SysJobRoleService sysJobRoleService;
     private final SysConfigService sysConfigService;
@@ -423,6 +426,20 @@ public class AdminController {
         String apiKey = isMockProvider(request.getProviderType()) ? null : normalizeConfigApiKeyForConnectivityTest(request);
         AiEngineConnectivityTestResponse response =
                 aiEngineConnectivityTestService.testConnectivity(request, apiKey);
+        return Result.success(response.getMessage(), response);
+    }
+
+    @PostMapping("/ai-engines/models")
+    public Result<AiModelDiscoveryResponse> fetchAiEngineModels(
+            @Valid @RequestBody AdminAiEngineModelsRequest request,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin fetch AI engine models, id: {}, provider: {}", request.getId(), request.getProviderType());
+
+        String apiKey = isMockProvider(request.getProviderType()) ? null : normalizeConfigApiKeyForModelDiscovery(request);
+        AiModelDiscoveryResponse response = aiModelDiscoveryService.fetchModels(
+                request.getBaseUrl(), apiKey, request.getTimeoutMs(), request.getProviderType());
         return Result.success(response.getMessage(), response);
     }
 
@@ -1652,6 +1669,29 @@ private UserListResponse buildUserListResponse(SysUser user) {
         String storedApiKey = trimToNull(aiCredentialCrypto.decrypt(config.getApiKey()));
         if (storedApiKey == null) {
             throw new BusinessException("当前配置未保存有效 API Key，请输入完整 API Key 后再测试");
+        }
+        return storedApiKey;
+    }
+
+    /**
+     * 解析模型列表获取使用的真实 API Key，规则与连通测试保持一致。
+     */
+    private String normalizeConfigApiKeyForModelDiscovery(AdminAiEngineModelsRequest request) {
+        String submittedApiKey = trimToNull(request.getApiKey());
+        if (submittedApiKey != null && !isMaskedApiKey(submittedApiKey)) {
+            return submittedApiKey;
+        }
+        if (request.getId() == null) {
+            throw new BusinessException("请先输入完整 API Key 后再获取模型列表");
+        }
+
+        SysAiEngineConfig config = sysAiEngineConfigService.getById(request.getId());
+        if (config == null) {
+            throw new BusinessException("AI 引擎配置不存在");
+        }
+        String storedApiKey = trimToNull(aiCredentialCrypto.decrypt(config.getApiKey()));
+        if (storedApiKey == null) {
+            throw new BusinessException("当前配置未保存有效 API Key，请输入完整 API Key 后再获取模型列表");
         }
         return storedApiKey;
     }

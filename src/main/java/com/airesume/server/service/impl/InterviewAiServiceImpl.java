@@ -172,7 +172,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 .clientConnector(new ReactorClientHttpConnector(httpClient))
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .build();
-        String tag = this.provider.toUpperCase();
+        String tag = platformLogTag(this.provider);
         log.info("============================================================");
         log.info("[{}] 模拟面试 AI 服务初始化", tag);
         log.info("============================================================");
@@ -191,14 +191,14 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         return lowerModel.contains("doubao-seed-2.0");
     }
 
-    private Thinking buildThinkingConfig(String modelName, String thinkingModeConfig) {
+    private Thinking buildThinkingConfig(String modelName, String thinkingModeConfig, String tag) {
         boolean modelSupportsThinking = supportsThinking(modelName);
         if ("none".equalsIgnoreCase(thinkingModeConfig)) {
             return null;
         }
         if (!modelSupportsThinking) {
             log.warn("[{}] 当前模型 {} 不支持 thinking 参数，已忽略配置: {}",
-                    provider.toUpperCase(), modelName, thinkingModeConfig);
+                    tag, modelName, thinkingModeConfig);
             return null;
         }
         if ("enabled".equalsIgnoreCase(thinkingModeConfig)) {
@@ -207,7 +207,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             return new Thinking("disabled");
         }
         log.warn("[{}] 未知的 thinking-mode 配置: {}, 使用 none",
-                provider.toUpperCase(), thinkingModeConfig);
+                tag, thinkingModeConfig);
         return null;
     }
 
@@ -300,7 +300,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                                  Long userId,
                                  boolean fallbackToPlatform) {
         RuntimeAiConfig runtimeConfig = resolveRuntimeConfig(userId, fallbackToPlatform);
-        String tag = runtimeConfig.provider().toUpperCase();
+        String tag = runtimeLogTag(runtimeConfig);
+        logRuntimeRoute(tag, runtimeConfig, "interview-reply");
 
         // 如果没有jobTargetContext，尝试获取最近的简历信息
         if (jobTargetContext == null && sessionId != null && !sessionId.isBlank()) {
@@ -311,7 +312,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             }
         }
 
-        List<ChatMessageItem> compressedHistory = compressHistoryIfEnabled(history, tag);
+        List<ChatMessageItem> compressedHistory = compressHistoryIfEnabled(history, tag, userId, fallbackToPlatform);
         String resolvedInterviewMode = resolveInterviewMode(sessionId, interviewMode);
 
         log.info("[{}] 生成面试官回复, sessionId: {}, historySize: {}, compressedSize: {}, userMessageLength: {}, jobRoleCode: {}, difficulty: {}, mode: {}, feedbackMode: {}",
@@ -329,7 +330,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 resolvedInterviewMode,
                 jobTargetContext,
                 feedbackMode,
-                interactionType
+                interactionType,
+                tag
         );
 
         try {
@@ -368,10 +370,11 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                                                    String feedbackMode,
                                                    String interviewMode,
                                                    Integer interactionType,
-                                                   Long userId,
-                                                   boolean fallbackToPlatform) {
+                                 Long userId,
+                                 boolean fallbackToPlatform) {
         RuntimeAiConfig runtimeConfig = resolveRuntimeConfig(userId, fallbackToPlatform);
-        String tag = runtimeConfig.provider().toUpperCase();
+        String tag = runtimeLogTag(runtimeConfig);
+        logRuntimeRoute(tag, runtimeConfig, "interview-reply-stream");
 
         // 如果没有jobTargetContext，尝试获取最近的简历信息
         if (jobTargetContext == null && sessionId != null && !sessionId.isBlank()) {
@@ -382,7 +385,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             }
         }
 
-        List<ChatMessageItem> compressedHistory = compressHistoryIfEnabled(history, tag);
+        List<ChatMessageItem> compressedHistory = compressHistoryIfEnabled(history, tag, userId, fallbackToPlatform);
         String resolvedInterviewMode = resolveInterviewMode(sessionId, interviewMode);
 
         log.info("[{}] 流式生成面试官回复, sessionId: {}, historySize: {}, compressedSize: {}, jobRoleCode: {}, difficulty: {}, mode: {}, feedbackMode: {}",
@@ -399,7 +402,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 resolvedInterviewMode,
                 jobTargetContext,
                 feedbackMode,
-                interactionType
+                interactionType,
+                tag
         );
 
         String apiKey = runtimeConfig.apiKey();
@@ -423,11 +427,12 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             );
         }
 
-        log.info("[{}] 流式请求地址: {}{}, model: {}, source: {}",
-                tag, runtimeConfig.baseUrl(), runtimeConfig.endpoint(), runtimeConfig.model(), runtimeConfig.source());
+        log.info("[{}] 流式请求地址: {}{}, model: {}, source: {}, configType: {}",
+                tag, runtimeConfig.baseUrl(), runtimeConfig.endpoint(), runtimeConfig.model(),
+                runtimeConfig.source(), runtimeConfig.configType());
 
         StreamRequestBody reqBody = new StreamRequestBody(runtimeConfig.model(), messages, true);
-        reqBody.thinking = buildThinkingConfig(runtimeConfig.model(), runtimeConfig.thinkingMode());
+        reqBody.thinking = buildThinkingConfig(runtimeConfig.model(), runtimeConfig.thinkingMode(), tag);
 
         try {
             String requestJson = objectMapper.writeValueAsString(reqBody);
@@ -846,7 +851,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     @Deprecated
     public EvaluationResult generateEvaluation(String sessionId, List<ChatMessageItem> history) {
         RuntimeAiConfig runtimeConfig = resolveRuntimeConfig();
-        String tag = runtimeConfig.provider().toUpperCase();
+        String tag = runtimeLogTag(runtimeConfig);
         log.info("[{}] 调用旧版评价接口, sessionId: {}, historySize: {}",
                 tag, sessionId, history == null ? 0 : history.size());
         InterviewEvaluationReport report = generateEvaluationReport(sessionId, history, "软件工程师", null, 2, "normal", null);
@@ -886,7 +891,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             boolean fallbackToPlatform
     ) {
         RuntimeAiConfig runtimeConfig = resolveRuntimeConfig(userId, fallbackToPlatform);
-        String tag = runtimeConfig.provider().toUpperCase();
+        String tag = runtimeLogTag(runtimeConfig);
+        logRuntimeRoute(tag, runtimeConfig, "interview-evaluation-report");
         // 优先读取流式阶段已缓存的摘要，避免重复调用 AI 摘要
         String cachedSummary = contextCompressor.getCachedSummary(sessionId);
         // 面试结束，清除摘要缓存
@@ -899,7 +905,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 history == null ? 0 : history.size());
 
         // 使用 AI 压缩生成评价专用摘要（保留最近 N 条完整对话 + 早期对话的全局摘要），确保评价涵盖全流程
-        List<ChatMessageItem> reportHistory = contextCompressor.compressForEvaluation(history, cachedSummary);
+        List<ChatMessageItem> reportHistory = contextCompressor.compressForEvaluation(
+                history, cachedSummary, userId, fallbackToPlatform);
 
         String systemPrompt = buildEvaluationSystemPrompt(jobRole, jobRoleCode, difficulty, interviewMode, jobTargetContext);
         String userPrompt = buildEvaluationUserPrompt(reportHistory, jobTargetContext);
@@ -909,23 +916,42 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         int totalTokens = systemTokens + userTokens;
         log.info("[{}] 评价报告预估token: {}(system:{}, user:{})", tag, totalTokens, systemTokens, userTokens);
 
-        // 安全兜底：压缩后仍超限时，简单截断保留最近消息
+        // 安全兜底：压缩后仍超限时，先改用更短结构化摘要，最后才做明确标记的保底截断。
         if (tokenLimitConfig.isTokenLimitEnabled() && totalTokens > tokenLimitConfig.getInterviewEvaluationMax()) {
-            log.warn("[{}] 评价报告token预估({})超过限制({})，回退到截断保留最近消息", tag, totalTokens, tokenLimitConfig.getInterviewEvaluationMax());
-            int keepRecent = tokenLimitConfig.getEvaluationRecentMessagesToKeep();
-            if (reportHistory.size() > keepRecent) {
-                reportHistory = reportHistory.subList(reportHistory.size() - keepRecent, reportHistory.size());
-            }
+            log.warn("[{}] 评价报告token预估({})超过限制({})，尝试使用短结构化摘要重建 prompt",
+                    tag, totalTokens, tokenLimitConfig.getInterviewEvaluationMax());
+            reportHistory = buildCompactEvaluationHistory(history, tokenLimitConfig.getEvaluationRecentMessagesToKeep());
             userPrompt = buildEvaluationUserPrompt(reportHistory, jobTargetContext);
             userTokens = TokenEstimator.estimateTokens(userPrompt);
             totalTokens = systemTokens + userTokens;
-            log.info("[{}] 截断后预估token: {}(system:{}, user:{})", tag, totalTokens, systemTokens, userTokens);
+            log.info("[{}] 短结构化摘要后预估token: {}(system:{}, user:{})", tag, totalTokens, systemTokens, userTokens);
+
+            if (totalTokens > tokenLimitConfig.getInterviewEvaluationMax()) {
+                int reducedKeepRecent = Math.max(2, Math.min(4, tokenLimitConfig.getEvaluationRecentMessagesToKeep()));
+                log.warn("[{}] 短结构化摘要仍超限({}>{})，减少最近消息保留数到{}后重建 prompt",
+                        tag, totalTokens, tokenLimitConfig.getInterviewEvaluationMax(), reducedKeepRecent);
+                reportHistory = buildCompactEvaluationHistory(history, reducedKeepRecent);
+                userPrompt = buildEvaluationUserPrompt(reportHistory, jobTargetContext);
+                userTokens = TokenEstimator.estimateTokens(userPrompt);
+                totalTokens = systemTokens + userTokens;
+                log.info("[{}] 减少最近消息后预估token: {}(system:{}, user:{})",
+                        tag, totalTokens, systemTokens, userTokens);
+            }
+
+            if (totalTokens > tokenLimitConfig.getInterviewEvaluationMax()) {
+                userPrompt = truncateEvaluationPromptAsLastResort(
+                        tag, userPrompt, systemTokens, tokenLimitConfig.getInterviewEvaluationMax());
+                userTokens = TokenEstimator.estimateTokens(userPrompt);
+                totalTokens = systemTokens + userTokens;
+                log.warn("[{}] 最终保底截断后预估token: {}(system:{}, user:{}), last_resort_truncate=true",
+                        tag, totalTokens, systemTokens, userTokens);
+            }
         }
 
         String aiResponse = chat(systemPrompt, userPrompt, runtimeConfig);
         log.info("[{}] AI 评价原始响应长度: {}", tag, aiResponse == null ? 0 : aiResponse.length());
 
-        InterviewEvaluationReport report = parseEvaluationResponse(aiResponse);
+        InterviewEvaluationReport report = parseEvaluationResponse(aiResponse, tag);
         calculateOverallScore(report, difficulty);
         mapLegacyFields(report);
 
@@ -1011,6 +1037,87 @@ public class InterviewAiServiceImpl implements InterviewAiService {
 
         sb.append("请输出 JSON 格式的评价报告。");
         return sb.toString();
+    }
+
+    /**
+     * 报告 prompt 超限时使用更短的结构化摘要保留全局视角，再追加最近消息作为评分证据。
+     */
+    private List<ChatMessageItem> buildCompactEvaluationHistory(List<ChatMessageItem> history, int keepRecent) {
+        if (history == null || history.isEmpty()) {
+            return history;
+        }
+        List<ChatMessageItem> compactHistory = new ArrayList<>();
+        compactHistory.add(new ChatMessageItem("system", buildLocalEvaluationLimitSummary(history)));
+
+        int safeKeepRecent = Math.min(Math.max(keepRecent, 0), history.size());
+        if (safeKeepRecent > 0) {
+            compactHistory.addAll(history.subList(history.size() - safeKeepRecent, history.size()));
+        }
+        return compactHistory;
+    }
+
+    private String buildLocalEvaluationLimitSummary(List<ChatMessageItem> history) {
+        StringBuilder summary = new StringBuilder();
+        summary.append("[评估参考摘要 - token 降级]\n");
+        summary.append("总消息数：").append(history.size()).append("\n");
+
+        int assistantCount = 0;
+        int userCount = 0;
+        for (ChatMessageItem item : history) {
+            if ("assistant".equalsIgnoreCase(item.role())) {
+                assistantCount++;
+            } else if ("user".equalsIgnoreCase(item.role())) {
+                userCount++;
+            }
+        }
+        summary.append("面试官消息数：").append(assistantCount).append("；候选人回答数：").append(userCount).append("\n");
+        summary.append("核心问答摘录：\n");
+
+        int roundNo = 0;
+        int writtenRounds = 0;
+        String pendingQuestion = null;
+        for (ChatMessageItem item : history) {
+            if ("assistant".equalsIgnoreCase(item.role())) {
+                pendingQuestion = trimPromptText(item.content(), 90);
+            } else if ("user".equalsIgnoreCase(item.role()) && pendingQuestion != null) {
+                roundNo++;
+                if (writtenRounds < 8) {
+                    summary.append("- 第").append(roundNo).append("轮：问=")
+                            .append(pendingQuestion)
+                            .append("；答=")
+                            .append(trimPromptText(item.content(), 120))
+                            .append("\n");
+                    writtenRounds++;
+                }
+                pendingQuestion = null;
+            }
+        }
+        if (roundNo > writtenRounds) {
+            summary.append("- 其余").append(roundNo - writtenRounds)
+                    .append("轮已压缩，仅保留在最近消息中作为直接评分证据。\n");
+        }
+        if (pendingQuestion != null) {
+            summary.append("- 尾部存在未回答追问：").append(pendingQuestion)
+                    .append("，只作为上一轮追问上下文，不作为独立 0 分题。\n");
+        }
+        return trimPromptText(summary.toString(), 1200);
+    }
+
+    private String truncateEvaluationPromptAsLastResort(
+            String tag,
+            String userPrompt,
+            int systemTokens,
+            int maxTokens) {
+        int maxUserTokens = Math.max(500, maxTokens - systemTokens);
+        int maxChars = Math.max(1000, maxUserTokens * 2);
+        if (userPrompt == null || userPrompt.length() <= maxChars) {
+            return userPrompt;
+        }
+        log.warn("[{}] 评价报告 prompt 经过摘要压缩后仍超限，执行最终保底截断, maxChars={}, last_resort_truncate=true",
+                tag, maxChars);
+        return userPrompt.substring(0, maxChars)
+                + "\n\n[系统提示：由于输入仍超出模型上下文，以上内容已执行最终保底截断，last_resort_truncate=true。]"
+                + "\n请基于保留内容输出 JSON 格式的评价报告。";
     }
 
     /**
@@ -1100,8 +1207,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     private record EvaluationRound(int roundNo, String question, String answer, String followUp) {
     }
 
-    private InterviewEvaluationReport parseEvaluationResponse(String aiResponse) {
-        String tag = provider.toUpperCase();
+    private InterviewEvaluationReport parseEvaluationResponse(String aiResponse, String tag) {
         if (aiResponse == null || aiResponse.isBlank()) {
             log.warn("[{}] AI 返回空响应，使用默认评价报告", tag);
             return buildDefaultEvaluationReport();
@@ -1256,7 +1362,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     }
 
     private String chat(String systemPrompt, String userPrompt, RuntimeAiConfig runtimeConfig) {
-        String tag = runtimeConfig.provider().toUpperCase();
+        String tag = runtimeLogTag(runtimeConfig);
         String apiKey = runtimeConfig.apiKey();
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException("未找到可用的面试 AI 密钥，请检查管理端激活配置或环境变量");
@@ -1270,13 +1376,14 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         );
         // 评价报告字段多且文本长，输出上限低会导致模型返回半截 JSON。
         request.max_tokens = 8192;
-        request.thinking = buildThinkingConfig(runtimeConfig.model(), runtimeConfig.thinkingMode());
+        request.thinking = buildThinkingConfig(runtimeConfig.model(), runtimeConfig.thinkingMode(), tag);
 
         try {
             log.info("[{}] ═══════════════════════════════════════════════", tag);
             log.info("[{}] ║  非流式请求参数验证  ║", tag);
             log.info("[{}] ═══════════════════════════════════════════════", tag);
-            log.info("[{}] 请求地址: {}{}", tag, runtimeConfig.baseUrl(), runtimeConfig.endpoint());
+            log.info("[{}] 请求地址: {}{}, source: {}, configType: {}",
+                    tag, runtimeConfig.baseUrl(), runtimeConfig.endpoint(), runtimeConfig.source(), runtimeConfig.configType());
             log.info("[{}] model: {}", tag, runtimeConfig.model());
             if (request.thinking != null) {
                 log.info("[{}] thinking.type: {}", tag, request.thinking.type);
@@ -1332,7 +1439,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     }
 
     private String chatWithMessages(List<Message> messages, RuntimeAiConfig runtimeConfig) {
-        String tag = runtimeConfig.provider().toUpperCase();
+        String tag = runtimeLogTag(runtimeConfig);
         String apiKey = runtimeConfig.apiKey();
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException("未找到可用的面试 AI 密钥，请检查管理端激活配置或环境变量");
@@ -1341,13 +1448,14 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         RequestBody request = new RequestBody();
         request.model = runtimeConfig.model();
         request.messages = messages;
-        request.thinking = buildThinkingConfig(runtimeConfig.model(), runtimeConfig.thinkingMode());
+        request.thinking = buildThinkingConfig(runtimeConfig.model(), runtimeConfig.thinkingMode(), tag);
 
         try {
             log.info("[{}] ═══════════════════════════════════════════════", tag);
             log.info("[{}] ║  多轮对话请求参数验证  ║", tag);
             log.info("[{}] ═══════════════════════════════════════════════", tag);
-            log.info("[{}] 请求地址: {}{}", tag, runtimeConfig.baseUrl(), runtimeConfig.endpoint());
+            log.info("[{}] 请求地址: {}{}, source: {}, configType: {}",
+                    tag, runtimeConfig.baseUrl(), runtimeConfig.endpoint(), runtimeConfig.source(), runtimeConfig.configType());
             log.info("[{}] model: {}", tag, runtimeConfig.model());
             if (request.thinking != null) {
                 log.info("[{}] thinking.type: {}", tag, request.thinking.type);
@@ -1401,7 +1509,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
     private List<Message> buildConversationMessages(List<ChatMessageItem> history, String currentUserMessage, String jobRole,
                                                     String jobRoleCode, Integer difficulty, String interviewMode,
                                                     InterviewJobTargetContext jobTargetContext, String feedbackMode,
-                                                    Integer interactionType) {
+                                                    Integer interactionType, String tag) {
         java.util.List<Message> messages = new java.util.ArrayList<>();
 
         String systemPrompt = buildSystemPromptFromJobRole(history, jobRole, jobRoleCode, difficulty, interviewMode, jobTargetContext, feedbackMode, interactionType);
@@ -1440,7 +1548,6 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             }
         }
 
-        String tag = provider.toUpperCase();
         int totalMessages = messages.size();
         int totalUserCount = historyUserCount + (userMessageAppended ? 1 : 0);
         String firstRole = totalMessages > 0 ? messages.get(0).role : "none";
@@ -2129,13 +2236,18 @@ public class InterviewAiServiceImpl implements InterviewAiService {
      * 2. 统计当前用户轮次，调用 InterviewContextCompressor 进行分层压缩
      * 3. 若发生压缩，记录压缩前后的 token 数差异，便于监控效果
      */
-    private List<ChatMessageItem> compressHistoryIfEnabled(List<ChatMessageItem> history, String tag) {
+    private List<ChatMessageItem> compressHistoryIfEnabled(
+            List<ChatMessageItem> history,
+            String tag,
+            Long userId,
+            boolean fallbackToPlatform) {
         if (!tokenLimitConfig.isCompressionEnabled() || history == null || history.isEmpty()) {
             return history;
         }
 
-        // 直接调用压缩，由compressHistory内部判断是否需要压缩（传入sessionId用于摘要缓存）
-        List<ChatMessageItem> compressed = contextCompressor.compressHistory(history, history.size(), tag);
+        // 常规问答压缩继续沿用本次会话 AI 来源，避免摘要阶段因为缺少 userId 切回平台配置。
+        List<ChatMessageItem> compressed = contextCompressor.compressHistory(
+                history, history.size(), tag, userId, fallbackToPlatform);
 
         // 若发生压缩（返回对象与原文不同），记录压缩效果
         if (compressed != history) {
@@ -2177,6 +2289,36 @@ public class InterviewAiServiceImpl implements InterviewAiService {
         return resolveRuntimeConfig(null, false);
     }
 
+    private String runtimeLogTag(RuntimeAiConfig runtimeConfig) {
+        if (runtimeConfig != null
+                && UserAiConstants.BILLING_SOURCE_USER_CUSTOM.equals(runtimeConfig.source())) {
+            return "USER_CUSTOM/openai-compatible";
+        }
+        if (runtimeConfig == null || runtimeConfig.provider() == null || runtimeConfig.provider().isBlank()) {
+            return "UNKNOWN";
+        }
+        return platformLogTag(runtimeConfig.provider());
+    }
+
+    private String platformLogTag(String providerName) {
+        String normalizedProvider = providerName == null ? "" : providerName.trim();
+        if (normalizedProvider.isBlank()) {
+            return "PLATFORM/UNKNOWN";
+        }
+        return "PLATFORM/" + normalizedProvider.toUpperCase(Locale.ROOT);
+    }
+
+    private void logRuntimeRoute(String tag, RuntimeAiConfig runtimeConfig, String stage) {
+        log.info("[{}] AI 路由: stage={}, source={}, baseUrl={}, endpoint={}, model={}, configType={}",
+                tag,
+                stage,
+                runtimeConfig.source(),
+                runtimeConfig.baseUrl(),
+                runtimeConfig.endpoint(),
+                runtimeConfig.model(),
+                runtimeConfig.configType());
+    }
+
     private RuntimeAiConfig resolveRuntimeConfig(Long userId, boolean fallbackToPlatform) {
         ResolvedAiConfig userConfig = userAiConfigResolver == null
                 ? null
@@ -2191,7 +2333,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                     userConfig.getApiKey(),
                     UserAiConstants.BILLING_SOURCE_USER_CUSTOM,
                     null,
-                    "none"
+                    "none",
+                    userConfig.getConfigType()
             );
         }
         String fallbackProvider = normalizeConfigValue(provider);
@@ -2270,7 +2413,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
                 runtimeApiKey,
                 source,
                 runtimeTimeoutMs,
-                runtimeThinkingMode
+                runtimeThinkingMode,
+                "platform"
         );
     }
 
@@ -2307,7 +2451,8 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             String apiKey,
             String source,
             Integer timeoutMs,
-            String thinkingMode
+            String thinkingMode,
+            String configType
     ) {
     }
 

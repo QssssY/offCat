@@ -155,7 +155,7 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
 
         // 1. 创建前锁定计费来源：用户自定义 AI 扣独立次数，平台 AI 保持原平台额度。
         if (useCustomAi) {
-            userAiUsageLimitService.checkAndIncrement(userId);
+            userAiUsageLimitService.checkAndIncrement(userId, UserAiConstants.USAGE_TYPE_RESUME_DIAGNOSIS);
         } else {
             boolean hasQuota = userQuotaService.checkResumeQuota(userId);
             if (!hasQuota) {

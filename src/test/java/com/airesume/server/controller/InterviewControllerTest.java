@@ -9,6 +9,8 @@ import com.airesume.server.dto.interview.InterviewJobRoleResponse;
 import com.airesume.server.dto.interview.InterviewSessionResponse;
 import com.airesume.server.dto.interview.SendMessageRequest;
 import com.airesume.server.dto.interview.SendMessageResponse;
+import com.airesume.server.dto.interview.TtsCapabilityResponse;
+import com.airesume.server.dto.interview.TtsSpeechRequest;
 import com.airesume.server.entity.InterviewSession;
 import com.airesume.server.entity.SysJobRole;
 import com.airesume.server.service.InterviewAiService;
@@ -17,11 +19,13 @@ import com.airesume.server.service.MockInterviewJobTargetService;
 import com.airesume.server.service.SysJobRoleService;
 import com.airesume.server.service.UserAiConfigResolver;
 import com.airesume.server.service.UserAiUsageLimitService;
+import com.airesume.server.service.UserTtsSpeechService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
 
@@ -43,6 +47,7 @@ class InterviewControllerTest {
     @Mock private MockInterviewJobTargetService mockInterviewJobTargetService;
     @Mock private UserAiConfigResolver userAiConfigResolver;
     @Mock private UserAiUsageLimitService userAiUsageLimitService;
+    @Mock private UserTtsSpeechService userTtsSpeechService;
     @Mock private Executor aiAsyncExecutor;
     @Mock private Authentication authentication;
 
@@ -53,7 +58,7 @@ class InterviewControllerTest {
         controller = new InterviewController(
                 interviewService, interviewAiService, sysJobRoleService,
                 mockInterviewJobTargetService, userAiConfigResolver,
-                userAiUsageLimitService, aiAsyncExecutor);
+                userAiUsageLimitService, userTtsSpeechService, aiAsyncExecutor);
         lenient().when(authentication.getPrincipal()).thenReturn(1L);
     }
 
@@ -275,5 +280,92 @@ class InterviewControllerTest {
         var inOrder = inOrder(interviewService);
         inOrder.verify(interviewService).chargePlatformFallbackQuotaIfNeeded(session, true);
         inOrder.verify(interviewService).saveUserMessage(session, request.getContent());
+    }
+
+    @Test
+    void getTtsCapabilityShouldReturnAvailableForOwnedVoiceSession() {
+        String sessionId = "voice-session";
+        InterviewSession session = buildSession(sessionId, InterviewConstants.INTERACTION_TYPE_VOICE,
+                InterviewConstants.STATUS_IN_PROGRESS);
+        when(interviewService.getSessionByOwnerOrThrow(sessionId, 1L)).thenReturn(session);
+        when(interviewService.resolveInteractionType(InterviewConstants.INTERACTION_TYPE_VOICE))
+                .thenReturn(InterviewConstants.INTERACTION_TYPE_VOICE);
+        when(userTtsSpeechService.resolveInterviewTtsConfig(1L))
+                .thenReturn(com.airesume.server.dto.user.ResolvedTtsConfig.builder()
+                        .configType("interview")
+                        .baseUrl("https://8.8.8.8/v1")
+                        .model("tts-1")
+                        .voiceId("alloy")
+                        .apiKey("hidden")
+                        .build());
+
+        Result<TtsCapabilityResponse> result = controller.getTtsCapability(sessionId, authentication);
+
+        assertEquals(CODE_SUCCESS, result.getCode());
+        assertEquals(true, result.getData().getAvailable());
+        assertEquals("user_custom", result.getData().getEngine());
+        assertEquals("interview", result.getData().getConfigType());
+    }
+
+    @Test
+    void getTtsCapabilityShouldReturnUnavailableForTextSessionWithoutResolvingConfig() {
+        String sessionId = "text-session";
+        InterviewSession session = buildSession(sessionId, InterviewConstants.INTERACTION_TYPE_TEXT,
+                InterviewConstants.STATUS_IN_PROGRESS);
+        when(interviewService.getSessionByOwnerOrThrow(sessionId, 1L)).thenReturn(session);
+        when(interviewService.resolveInteractionType(InterviewConstants.INTERACTION_TYPE_TEXT))
+                .thenReturn(InterviewConstants.INTERACTION_TYPE_TEXT);
+
+        Result<TtsCapabilityResponse> result = controller.getTtsCapability(sessionId, authentication);
+
+        assertEquals(false, result.getData().getAvailable());
+        assertEquals("browser", result.getData().getEngine());
+        verifyNoInteractions(userTtsSpeechService);
+    }
+
+    @Test
+    void synthesizeTtsShouldValidateOwnedInProgressVoiceSessionBeforeCallingProvider() {
+        String sessionId = "voice-session";
+        InterviewSession session = buildSession(sessionId, InterviewConstants.INTERACTION_TYPE_VOICE,
+                InterviewConstants.STATUS_IN_PROGRESS);
+        TtsSpeechRequest request = new TtsSpeechRequest();
+        request.setText("你好，请介绍一下自己。");
+        byte[] audio = new byte[]{1, 2, 3};
+        when(interviewService.getSessionByOwnerOrThrow(sessionId, 1L)).thenReturn(session);
+        when(interviewService.resolveInteractionType(InterviewConstants.INTERACTION_TYPE_VOICE))
+                .thenReturn(InterviewConstants.INTERACTION_TYPE_VOICE);
+        when(userTtsSpeechService.synthesizeInterviewSpeech(1L, "你好，请介绍一下自己。")).thenReturn(audio);
+
+        ResponseEntity<byte[]> response = controller.synthesizeTts(sessionId, request, authentication);
+
+        assertEquals(200, response.getStatusCode().value());
+        assertArrayEquals(audio, response.getBody());
+        assertEquals("audio/mpeg", response.getHeaders().getContentType().toString());
+        verify(interviewService).assertSessionInProgress(session);
+    }
+
+    @Test
+    void synthesizeTtsShouldRejectTextSession() {
+        String sessionId = "text-session";
+        InterviewSession session = buildSession(sessionId, InterviewConstants.INTERACTION_TYPE_TEXT,
+                InterviewConstants.STATUS_IN_PROGRESS);
+        TtsSpeechRequest request = new TtsSpeechRequest();
+        request.setText("请继续。");
+        when(interviewService.getSessionByOwnerOrThrow(sessionId, 1L)).thenReturn(session);
+        when(interviewService.resolveInteractionType(InterviewConstants.INTERACTION_TYPE_TEXT))
+                .thenReturn(InterviewConstants.INTERACTION_TYPE_TEXT);
+
+        assertThrows(com.airesume.server.common.exception.BusinessException.class,
+                () -> controller.synthesizeTts(sessionId, request, authentication));
+        verifyNoInteractions(userTtsSpeechService);
+    }
+
+    private InterviewSession buildSession(String sessionId, Integer interactionType, Integer status) {
+        InterviewSession session = new InterviewSession();
+        session.setSessionId(sessionId);
+        session.setUserId(1L);
+        session.setStatus(status);
+        session.setInteractionType(interactionType);
+        return session;
     }
 }

@@ -15,9 +15,19 @@ public interface UserAiUsageLimitService extends IService<UserAiDailyUsage> {
     void checkAndIncrement(Long userId);
 
     /**
+     * 检查并按功能口径递增今日调用次数；超限时抛业务异常。
+     */
+    void checkAndIncrement(Long userId, String usageType);
+
+    /**
      * AI 调用失败时回滚今日调用次数。
      */
     void rollback(Long userId);
+
+    /**
+     * AI 调用失败时回滚指定功能口径的今日调用次数。
+     */
+    void rollback(Long userId, String usageType);
 
     /**
      * 查询今日用量和上限。

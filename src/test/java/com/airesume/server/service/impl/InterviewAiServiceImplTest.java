@@ -1,7 +1,10 @@
 package com.airesume.server.service.impl;
 
+import com.airesume.server.common.constants.AiEngineConstants;
 import com.airesume.server.common.constants.InterviewConstants;
+import com.airesume.server.dto.ai.ResolvedAiConfig;
 import com.airesume.server.dto.interview.InterviewEvaluationReport;
+import com.airesume.server.entity.SysAiEngineConfig;
 import com.airesume.server.mapper.InterviewSessionMapper;
 import com.airesume.server.mapper.MockInterviewJobTargetRecordMapper;
 import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
@@ -12,6 +15,7 @@ import com.airesume.server.service.InterviewContextCompressor;
 import com.airesume.server.service.InterviewAiService.ChatMessageItem;
 import com.airesume.server.service.SysAiEngineConfigService;
 import com.airesume.server.service.SysPromptService;
+import com.airesume.server.service.UserAiConfigResolver;
 import com.airesume.server.config.AiTokenLimitConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import ch.qos.logback.classic.Level;
@@ -34,7 +38,13 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -56,11 +66,13 @@ class InterviewAiServiceImplTest {
     @Mock private AiCircuitBreaker aiCircuitBreaker;
     @Mock private AiCredentialCrypto aiCredentialCrypto;
     @Mock private RestClient restClient;
+    @Mock private UserAiConfigResolver userAiConfigResolver;
 
     @BeforeEach
     void setUp() {
         when(restClientBuilder.baseUrl(anyString())).thenReturn(restClientBuilder);
         when(restClientBuilder.defaultHeader(anyString(), any())).thenReturn(restClientBuilder);
+        lenient().when(restClientBuilder.requestFactory(any())).thenReturn(restClientBuilder);
         when(restClientBuilder.build()).thenReturn(restClient);
 
         service = new InterviewAiServiceImpl(
@@ -70,7 +82,7 @@ class InterviewAiServiceImplTest {
                 contextCompressor, tokenLimitConfig,
                 mockInterviewService, mockInterviewJobTargetRecordMapper,
                 resumeDiagnosisTaskMapper, interviewSessionMapper,
-                objectMapper, aiCircuitBreaker, aiCredentialCrypto);
+                objectMapper, aiCircuitBreaker, aiCredentialCrypto, userAiConfigResolver);
     }
 
     @Test
@@ -461,9 +473,76 @@ class InterviewAiServiceImplTest {
     }
 
     @Test
+    void buildConversationMessagesShouldUseRuntimeLogTagForCustomAi() throws Exception {
+        Method method = InterviewAiServiceImpl.class.getDeclaredMethod(
+                "buildConversationMessages", List.class, String.class, String.class, String.class,
+                Integer.class, String.class,
+                com.airesume.server.dto.interview.InterviewJobTargetContext.class,
+                String.class, Integer.class, String.class);
+        method.setAccessible(true);
+
+        Logger logger = (Logger) org.slf4j.LoggerFactory.getLogger(InterviewAiServiceImpl.class);
+        Level originalLevel = logger.getLevel();
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        logger.setLevel(Level.INFO);
+
+        try {
+            method.invoke(
+                    service,
+                    simpleHistory(),
+                    "continue",
+                    "Java engineer",
+                    "java",
+                    2,
+                    InterviewConstants.MODE_NORMAL,
+                    null,
+                    InterviewConstants.FEEDBACK_MODE_AFTER_INTERVIEW,
+                    InterviewConstants.INTERACTION_TYPE_TEXT,
+                    "USER_CUSTOM/openai-compatible");
+        } finally {
+            logger.detachAppender(appender);
+            logger.setLevel(originalLevel);
+        }
+
+        assertTrue(appender.list.stream().anyMatch(event ->
+                event.getFormattedMessage().startsWith("[USER_CUSTOM/openai-compatible]")));
+        assertTrue(appender.list.stream().noneMatch(event ->
+                event.getFormattedMessage().startsWith("[TEST]")));
+    }
+
+    @Test
+    void parseEvaluationResponseShouldUseRuntimeLogTagForCustomAi() throws Exception {
+        Method parseMethod = InterviewAiServiceImpl.class.getDeclaredMethod(
+                "parseEvaluationResponse", String.class, String.class);
+        parseMethod.setAccessible(true);
+
+        Logger logger = (Logger) org.slf4j.LoggerFactory.getLogger(InterviewAiServiceImpl.class);
+        Level originalLevel = logger.getLevel();
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        logger.setLevel(Level.INFO);
+
+        try {
+            parseMethod.invoke(service, validEvaluationJson(), "USER_CUSTOM/openai-compatible");
+        } finally {
+            logger.detachAppender(appender);
+            logger.setLevel(originalLevel);
+        }
+
+        assertTrue(appender.list.stream().anyMatch(event ->
+                event.getFormattedMessage().startsWith("[USER_CUSTOM/openai-compatible]")
+                        && event.getFormattedMessage().contains("JSON")));
+        assertTrue(appender.list.stream().noneMatch(event ->
+                event.getFormattedMessage().startsWith("[TEST]")));
+    }
+
+    @Test
     void parseEvaluationResponseShouldNormalizeNullCollections() throws Exception {
         Method parseMethod = InterviewAiServiceImpl.class.getDeclaredMethod(
-                "parseEvaluationResponse", String.class);
+                "parseEvaluationResponse", String.class, String.class);
         parseMethod.setAccessible(true);
         Method legacyMethod = InterviewAiServiceImpl.class.getDeclaredMethod(
                 "mapLegacyFields", InterviewEvaluationReport.class);
@@ -487,7 +566,7 @@ class InterviewAiServiceImplTest {
                 }
                 """;
 
-        InterviewEvaluationReport report = (InterviewEvaluationReport) parseMethod.invoke(service, aiResponse);
+        InterviewEvaluationReport report = (InterviewEvaluationReport) parseMethod.invoke(service, aiResponse, "TEST");
         assertEquals(82, report.getOverallScore());
         assertEquals("valid report", report.getSummary());
         assertNotNull(report.getWeaknesses());
@@ -503,13 +582,13 @@ class InterviewAiServiceImplTest {
     @Test
     void parseEvaluationResponseShouldRejectBrokenJson() throws Exception {
         Method parseMethod = InterviewAiServiceImpl.class.getDeclaredMethod(
-                "parseEvaluationResponse", String.class);
+                "parseEvaluationResponse", String.class, String.class);
         parseMethod.setAccessible(true);
 
         String brokenAiResponse = "{\"overallScore\":15,\"communication\":{\"score\":0";
 
         Exception exception = assertThrows(Exception.class,
-                () -> parseMethod.invoke(service, brokenAiResponse));
+                () -> parseMethod.invoke(service, brokenAiResponse, "TEST"));
         assertTrue(exception.getCause() instanceof IllegalStateException);
     }
 
@@ -550,6 +629,76 @@ class InterviewAiServiceImplTest {
         assertNotNull(report.getProblemSolving());
         assertNotNull(report.getPressureResistance());
         assertNotNull(report.getJobMatch());
+    }
+
+    @Test
+    void generateEvaluationReportShouldUseUserCustomRuntimeConfig() {
+        Long userId = 7L;
+        when(userAiConfigResolver.resolve(userId, AiEngineConstants.BUSINESS_TYPE_INTERVIEW, false))
+                .thenReturn(ResolvedAiConfig.builder()
+                        .provider("openai")
+                        .baseUrl("https://custom.example.com/v1")
+                        .apiKey("custom-key")
+                        .model("custom-model")
+                        .configType("interview")
+                        .build());
+        when(contextCompressor.getCachedSummary("session-custom")).thenReturn(null);
+        when(contextCompressor.compressForEvaluation(anyList(), any(), eq(userId), eq(false)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(tokenLimitConfig.isTokenLimitEnabled()).thenReturn(false);
+        when(aiCircuitBreaker.execute(anyString(), any())).thenReturn(validChatResponseJson());
+        clearInvocations(restClientBuilder, contextCompressor, aiCircuitBreaker);
+
+        InterviewEvaluationReport report = service.generateEvaluationReport(
+                "session-custom",
+                simpleHistory(),
+                "Java工程师",
+                "java",
+                2,
+                InterviewConstants.MODE_NORMAL,
+                null,
+                userId,
+                false);
+
+        assertEquals(82, report.getOverallScore());
+        verify(userAiConfigResolver).resolve(userId, AiEngineConstants.BUSINESS_TYPE_INTERVIEW, false);
+        verify(contextCompressor).compressForEvaluation(anyList(), eq(null), eq(userId), eq(false));
+        verify(restClientBuilder).baseUrl("https://custom.example.com/v1");
+    }
+
+    @Test
+    void generateEvaluationReportShouldIgnoreUserConfigWhenFallbackToPlatform() {
+        Long userId = 7L;
+        SysAiEngineConfig platformConfig = new SysAiEngineConfig();
+        platformConfig.setEngineCode("mimo-prod");
+        platformConfig.setProviderType("mimo");
+        platformConfig.setModelName("platform-model");
+        platformConfig.setBaseUrl("https://8.8.8.8/v1");
+        platformConfig.setApiKey("encrypted-platform-key");
+        when(sysAiEngineConfigService.getActiveByBusinessType(AiEngineConstants.BUSINESS_TYPE_INTERVIEW))
+                .thenReturn(platformConfig);
+        when(aiCredentialCrypto.decrypt("encrypted-platform-key")).thenReturn("platform-key");
+        when(contextCompressor.getCachedSummary("session-platform")).thenReturn(null);
+        when(contextCompressor.compressForEvaluation(anyList(), any(), eq(userId), eq(true)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(tokenLimitConfig.isTokenLimitEnabled()).thenReturn(false);
+        when(aiCircuitBreaker.execute(anyString(), any())).thenReturn(validChatResponseJson());
+        clearInvocations(restClientBuilder, contextCompressor, aiCircuitBreaker);
+
+        service.generateEvaluationReport(
+                "session-platform",
+                simpleHistory(),
+                "Java工程师",
+                "java",
+                2,
+                InterviewConstants.MODE_NORMAL,
+                null,
+                userId,
+                true);
+
+        verify(userAiConfigResolver).resolve(userId, AiEngineConstants.BUSINESS_TYPE_INTERVIEW, true);
+        verify(restClientBuilder).baseUrl("https://8.8.8.8/v1");
+        verify(restClientBuilder, never()).baseUrl("https://custom.example.com/v1");
     }
 
     @Test
@@ -604,21 +753,56 @@ class InterviewAiServiceImplTest {
     @Test
     void buildThinkingConfigShouldReturnNullForNone() throws Exception {
         Method method = InterviewAiServiceImpl.class.getDeclaredMethod(
-                "buildThinkingConfig", String.class, String.class);
+                "buildThinkingConfig", String.class, String.class, String.class);
         method.setAccessible(true);
 
-        assertNull(method.invoke(service, "gpt-4", "none"));
-        assertNull(method.invoke(service, "gpt-4", "unknown_mode"));
+        assertNull(method.invoke(service, "gpt-4", "none", "TEST"));
+        assertNull(method.invoke(service, "gpt-4", "unknown_mode", "TEST"));
     }
 
     @Test
     void buildThinkingConfigShouldReturnEnabledForEnabledMode() throws Exception {
         Method method = InterviewAiServiceImpl.class.getDeclaredMethod(
-                "buildThinkingConfig", String.class, String.class);
+                "buildThinkingConfig", String.class, String.class, String.class);
         method.setAccessible(true);
 
-        Object result = method.invoke(service, "doubao-seed-2.0", "enabled");
+        Object result = method.invoke(service, "doubao-seed-2.0", "enabled", "TEST");
         assertNotNull(result);
+    }
+
+    @Test
+    void buildThinkingConfigShouldUseRuntimeLogTagForWarnings() throws Exception {
+        Method method = InterviewAiServiceImpl.class.getDeclaredMethod(
+                "buildThinkingConfig", String.class, String.class, String.class);
+        method.setAccessible(true);
+
+        Logger logger = (Logger) org.slf4j.LoggerFactory.getLogger(InterviewAiServiceImpl.class);
+        Level originalLevel = logger.getLevel();
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        logger.setLevel(Level.WARN);
+
+        try {
+            method.invoke(service, "gpt-5.5", "enabled", "USER_CUSTOM/openai-compatible");
+        } finally {
+            logger.detachAppender(appender);
+            logger.setLevel(originalLevel);
+        }
+
+        assertTrue(appender.list.stream().anyMatch(event ->
+                event.getFormattedMessage().startsWith("[USER_CUSTOM/openai-compatible]")));
+        assertTrue(appender.list.stream().noneMatch(event ->
+                event.getFormattedMessage().startsWith("[TEST]")));
+    }
+
+    @Test
+    void platformLogTagShouldIncludePlatformPrefix() throws Exception {
+        Method method = InterviewAiServiceImpl.class.getDeclaredMethod("platformLogTag", String.class);
+        method.setAccessible(true);
+
+        assertEquals("PLATFORM/DEEPSEEK", method.invoke(service, "deepseek"));
+        assertEquals("PLATFORM/UNKNOWN", method.invoke(service, " "));
     }
 
     @Test
@@ -668,5 +852,40 @@ class InterviewAiServiceImplTest {
         assertTrue(appender.list.stream().noneMatch(event ->
                 event.getLevel() == Level.INFO
                         && event.getFormattedMessage().contains("流式处理完成-最终统计报告")));
+    }
+
+    private List<ChatMessageItem> simpleHistory() {
+        return List.of(
+                new ChatMessageItem("assistant", "请介绍项目。"),
+                new ChatMessageItem("user", "我负责订单系统核心链路。"));
+    }
+
+    private String validEvaluationJson() {
+        return """
+                {
+                  "overallScore": 82,
+                  "level": "A",
+                  "finalVerdict": "推荐进入下一轮",
+                  "summary": "候选人能清楚说明项目职责和核心链路。",
+                  "strengths": ["表达清楚"],
+                  "weaknesses": ["量化细节不足"],
+                  "improvementSuggestions": ["补充指标"],
+                  "technicalDepth": {"score": 82, "comment": "技术深度尚可"},
+                  "projectExpression": {"score": 82, "comment": "项目表达清楚"},
+                  "communication": {"score": 82, "comment": "沟通顺畅"},
+                  "problemSolving": {"score": 82, "comment": "能说明方案"},
+                  "pressureResistance": {"score": 82, "comment": "表现稳定"},
+                  "jobMatch": {"score": 82, "comment": "岗位匹配"}
+                }
+                """;
+    }
+
+    private String validChatResponseJson() {
+        String escapedContent = validEvaluationJson()
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\r", "")
+                .replace("\n", "\\n");
+        return "{\"choices\":[{\"message\":{\"content\":\"" + escapedContent + "\"}}]}";
     }
 }

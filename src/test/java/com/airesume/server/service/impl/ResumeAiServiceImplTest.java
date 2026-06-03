@@ -1,12 +1,20 @@
 package com.airesume.server.service.impl;
 
+import com.airesume.server.common.constants.AiEngineConstants;
+import com.airesume.server.common.constants.UserAiConstants;
 import com.airesume.server.config.AiTokenLimitConfig;
 import com.airesume.server.config.AiCircuitBreakerConfig;
+import com.airesume.server.dto.ai.ResolvedAiConfig;
 import com.airesume.server.service.AiCircuitBreaker;
 import com.airesume.server.service.AiCredentialCrypto;
 import com.airesume.server.service.SysAiEngineConfigService;
 import com.airesume.server.service.SysPromptService;
+import com.airesume.server.service.UserAiConfigResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.client.RestClient;
@@ -21,6 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class ResumeAiServiceImplTest {
 
@@ -93,6 +102,93 @@ class ResumeAiServiceImplTest {
         Field temperatureField = requestBodyClass.getDeclaredField("temperature");
         temperatureField.setAccessible(true);
         assertEquals(BigDecimal.ZERO, temperatureField.get(requestBody));
+    }
+
+    @Test
+    void userCustomResumeRuntimeLogsShouldUseCustomTagAndRouteDetails() throws Exception {
+        UserAiConfigResolver userAiConfigResolver = mock(UserAiConfigResolver.class);
+        when(userAiConfigResolver.resolve(7L, AiEngineConstants.BUSINESS_TYPE_RESUME, false))
+                .thenReturn(ResolvedAiConfig.builder()
+                        .provider("openai")
+                        .baseUrl("https://token-plan-cn.xiaomimimo.com/v1")
+                        .apiKey("custom-key")
+                        .model("mimo-v2.5")
+                        .configType(UserAiConstants.CONFIG_TYPE_RESUME)
+                        .build());
+        ResumeAiServiceImpl customService = createService("deepseek", "", userAiConfigResolver);
+        Method resolveMethod = ResumeAiServiceImpl.class.getDeclaredMethod(
+                "resolveRuntimeConfig", Long.class, boolean.class, boolean.class);
+        resolveMethod.setAccessible(true);
+        Object runtimeConfig = resolveMethod.invoke(customService, 7L, false, true);
+
+        Method tagMethod = ResumeAiServiceImpl.class.getDeclaredMethod("runtimeLogTag", runtimeConfig.getClass());
+        tagMethod.setAccessible(true);
+        String tag = (String) tagMethod.invoke(customService, runtimeConfig);
+
+        Logger logger = (Logger) org.slf4j.LoggerFactory.getLogger(ResumeAiServiceImpl.class);
+        Level originalLevel = logger.getLevel();
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        logger.setLevel(Level.INFO);
+
+        try {
+            Method routeMethod = ResumeAiServiceImpl.class.getDeclaredMethod(
+                    "logRuntimeRoute", String.class, runtimeConfig.getClass(), String.class);
+            routeMethod.setAccessible(true);
+            routeMethod.invoke(customService, tag, runtimeConfig, "resume-diagnosis");
+        } finally {
+            logger.detachAppender(appender);
+            logger.setLevel(originalLevel);
+        }
+
+        assertEquals("USER_CUSTOM/openai-compatible", tag);
+        assertTrue(appender.list.stream().anyMatch(event -> {
+            String message = event.getFormattedMessage();
+            return message.startsWith("[USER_CUSTOM/openai-compatible]")
+                    && message.contains("stage=resume-diagnosis")
+                    && message.contains("source=user_custom")
+                    && message.contains("baseUrl=https://token-plan-cn.xiaomimimo.com/v1")
+                    && message.contains("model=mimo-v2.5")
+                    && message.contains("configType=resume");
+        }));
+        assertTrue(appender.list.stream().noneMatch(event ->
+                event.getFormattedMessage().startsWith("[OPENAI]")));
+    }
+
+    @Test
+    void buildThinkingConfigShouldUseRuntimeLogTagForWarnings() throws Exception {
+        Method method = ResumeAiServiceImpl.class.getDeclaredMethod(
+                "buildThinkingConfig", String.class, String.class, String.class);
+        method.setAccessible(true);
+
+        Logger logger = (Logger) org.slf4j.LoggerFactory.getLogger(ResumeAiServiceImpl.class);
+        Level originalLevel = logger.getLevel();
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        logger.setLevel(Level.WARN);
+
+        try {
+            method.invoke(service, "mimo-v2.5", "enabled", "USER_CUSTOM/openai-compatible");
+        } finally {
+            logger.detachAppender(appender);
+            logger.setLevel(originalLevel);
+        }
+
+        assertTrue(appender.list.stream().anyMatch(event ->
+                event.getFormattedMessage().startsWith("[USER_CUSTOM/openai-compatible]")));
+        assertTrue(appender.list.stream().noneMatch(event ->
+                event.getFormattedMessage().startsWith("[DOUBAO]")));
+    }
+
+    @Test
+    void platformLogTagShouldIncludePlatformPrefix() throws Exception {
+        Method method = ResumeAiServiceImpl.class.getDeclaredMethod("platformLogTag", String.class);
+        method.setAccessible(true);
+
+        assertEquals("PLATFORM/DEEPSEEK", method.invoke(service, "deepseek"));
+        assertEquals("PLATFORM/UNKNOWN", method.invoke(service, " "));
     }
 
     @Test
@@ -290,6 +386,11 @@ class ResumeAiServiceImplTest {
     }
 
     private ResumeAiServiceImpl createService(String provider, String configuredBaseUrl) {
+        return createService(provider, configuredBaseUrl, null);
+    }
+
+    private ResumeAiServiceImpl createService(String provider, String configuredBaseUrl,
+                                              UserAiConfigResolver userAiConfigResolver) {
         return new ResumeAiServiceImpl(
                 provider,
                 configuredBaseUrl,
@@ -302,6 +403,7 @@ class ResumeAiServiceImplTest {
                 RestClient.builder(),
                 WebClient.builder(),
                 new AiCircuitBreaker(new AiCircuitBreakerConfig()),
-                new AiCredentialCrypto("test-secret-for-ai-key-encryption"));
+                new AiCredentialCrypto("test-secret-for-ai-key-encryption"),
+                userAiConfigResolver);
     }
 }

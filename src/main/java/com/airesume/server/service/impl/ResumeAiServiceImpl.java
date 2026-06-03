@@ -143,7 +143,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                 .baseUrl(this.resolvedBaseUrl)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, "application/json")
                 .build();
-        String tag = this.provider.toUpperCase();
+        String tag = platformLogTag(this.provider);
         log.info("============================================================");
         log.info("[{}] 简历诊断 AI 服务初始化", tag);
         log.info("============================================================");
@@ -163,14 +163,14 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         return lowerModel.contains("doubao-seed-2.0");
     }
 
-    private Thinking buildThinkingConfig(String modelName, String thinkingModeConfig) {
+    private Thinking buildThinkingConfig(String modelName, String thinkingModeConfig, String tag) {
         boolean modelSupportsThinking = supportsThinking(modelName);
         if ("none".equalsIgnoreCase(thinkingModeConfig)) {
             return null;
         }
         if (!modelSupportsThinking) {
             log.warn("[{}] 当前模型 {} 不支持 thinking 参数，已忽略配置: {}",
-                    provider.toUpperCase(), modelName, thinkingModeConfig);
+                    tag, modelName, thinkingModeConfig);
             return null;
         }
         if ("enabled".equalsIgnoreCase(thinkingModeConfig)) {
@@ -179,7 +179,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             return new Thinking("disabled");
         }
         log.warn("[{}] 未知的 thinking-mode 配置: {}, 使用 none",
-                provider.toUpperCase(), thinkingModeConfig);
+                tag, thinkingModeConfig);
         return null;
     }
 
@@ -221,7 +221,8 @@ public class ResumeAiServiceImpl implements ResumeAiService {
     public String diagnose(String resumeText, Long userId, boolean fallbackToPlatform, boolean requireUserCustom) {
         long startTime = System.currentTimeMillis();
         RuntimeAiConfig runtimeConfig = resolveRuntimeConfig(userId, fallbackToPlatform, requireUserCustom);
-        String tag = runtimeConfig.provider().toUpperCase();
+        String tag = runtimeLogTag(runtimeConfig);
+        logRuntimeRoute(tag, runtimeConfig, "resume-diagnosis");
         if (resumeText == null || resumeText.isBlank()) {
             throw new IllegalArgumentException("简历文本不能为空");
         }
@@ -314,7 +315,9 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         request.messages = List.of(
                 new Message("system", buildVisionExtractSystemPrompt()),
                 Message.userWithImage(buildVisionExtractUserPrompt(pageHint), imageDataUrl));
-        request.thinking = buildThinkingConfig(runtimeConfig.model(), runtimeConfig.thinkingMode());
+        String tag = runtimeLogTag(runtimeConfig);
+        logRuntimeRoute(tag, runtimeConfig, "resume-vision-extract");
+        request.thinking = buildThinkingConfig(runtimeConfig.model(), runtimeConfig.thinkingMode(), tag);
 
         // 【视觉模型超时保障】多模态识别需要更长处理时间，最低 180 秒。
         int configuredTimeout = resolveReadTimeoutMs(runtimeConfig.timeoutMs(), 180_000);
@@ -385,7 +388,8 @@ public class ResumeAiServiceImpl implements ResumeAiService {
     @Override
     public String diagnoseJobMatch(String resumeText, String jdText, Long userId, boolean fallbackToPlatform) {
         RuntimeAiConfig runtimeConfig = resolveRuntimeConfig(userId, fallbackToPlatform, false);
-        String tag = runtimeConfig.provider().toUpperCase();
+        String tag = runtimeLogTag(runtimeConfig);
+        logRuntimeRoute(tag, runtimeConfig, "resume-job-match");
         if (resumeText == null || resumeText.isBlank()) {
             throw new IllegalArgumentException("简历文本不能为空");
         }
@@ -411,7 +415,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         request.messages = List.of(
                 new Message("system", systemPrompt),
                 new Message("user", userPrompt));
-        request.thinking = buildThinkingConfig(runtimeConfig.model(), runtimeConfig.thinkingMode());
+        request.thinking = buildThinkingConfig(runtimeConfig.model(), runtimeConfig.thinkingMode(), tag);
         try {
             log.info("[{}] JD 匹配分析请求, model: {}, 配置来源: {}",
                     tag, runtimeConfig.model(), runtimeConfig.source());
@@ -505,7 +509,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         StreamRequestBody request = new StreamRequestBody(runtimeConfig.model(), List.of(
                 new Message("system", prompt.systemPrompt()),
                 new Message("user", prompt.userPrompt())), true);
-        request.thinking = buildThinkingConfig(runtimeConfig.model(), runtimeConfig.thinkingMode());
+        request.thinking = buildThinkingConfig(runtimeConfig.model(), runtimeConfig.thinkingMode(), tag);
         applyStableDiagnosisOptions(request);
         logDiagnosisRequest(tag, runtimeConfig, prompt.version(), retryCount, true, readTimeout, prompt.totalTokens());
 
@@ -581,7 +585,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         request.messages = List.of(
                 new Message("system", prompt.systemPrompt()),
                 new Message("user", prompt.userPrompt()));
-        request.thinking = buildThinkingConfig(runtimeConfig.model(), runtimeConfig.thinkingMode());
+        request.thinking = buildThinkingConfig(runtimeConfig.model(), runtimeConfig.thinkingMode(), tag);
         applyStableDiagnosisOptions(request);
         logDiagnosisRequest(tag, runtimeConfig, prompt.version(), retryCount, false, readTimeout, prompt.totalTokens());
 
@@ -636,9 +640,10 @@ public class ResumeAiServiceImpl implements ResumeAiService {
 
     private void logDiagnosisRequest(String tag, RuntimeAiConfig runtimeConfig, String promptVersion, int retryCount,
             boolean stream, int readTimeout, int estimatedTokens) {
-        log.info("[{}] 简历诊断请求准备完成, promptVersion: {}, retryCount: {}, stream: {}, source: {}, model: {}, estimatedTokens: {}",
-                tag, promptVersion, retryCount, stream, runtimeConfig.source(), runtimeConfig.model(), estimatedTokens);
-        log.info("[{}] HTTP 超时配置: configuredTimeoutMs={}, effectiveReadTimeoutMs={}, connectTimeoutMs=10000, endpoint: {}{}",
+        log.info("[{}] 简历诊断请求准备完成, promptVersion: {}, retryCount: {}, stream: {}, source: {}, baseUrl: {}, endpoint: {}, model: {}, configType: {}, estimatedTokens: {}",
+                tag, promptVersion, retryCount, stream, runtimeConfig.source(), runtimeConfig.baseUrl(),
+                runtimeConfig.endpoint(), runtimeConfig.model(), runtimeConfig.configType(), estimatedTokens);
+        log.info("[{}] HTTP 超时配置: configuredTimeoutMs={}, effectiveReadTimeoutMs={}, connectTimeoutMs=10000, requestUrl: {}{}",
                 tag, runtimeConfig.timeoutMs(), readTimeout, runtimeConfig.baseUrl(), runtimeConfig.endpoint());
     }
 
@@ -1003,6 +1008,43 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         return resolveRuntimeConfig(null, false, false);
     }
 
+    /**
+     * 用户自定义 AI 统一按 OpenAI-compatible 协议调用，日志标签必须突出真实来源，
+     * 避免把协议 provider=OPENAI 误读成实际调用 OpenAI 官方服务。
+     */
+    private String runtimeLogTag(RuntimeAiConfig runtimeConfig) {
+        if (runtimeConfig != null
+                && UserAiConstants.BILLING_SOURCE_USER_CUSTOM.equalsIgnoreCase(runtimeConfig.source())) {
+            return "USER_CUSTOM/openai-compatible";
+        }
+        if (runtimeConfig == null || runtimeConfig.provider() == null || runtimeConfig.provider().isBlank()) {
+            return "UNKNOWN";
+        }
+        return platformLogTag(runtimeConfig.provider());
+    }
+
+    private String platformLogTag(String providerName) {
+        String normalizedProvider = providerName == null ? "" : providerName.trim();
+        if (normalizedProvider.isBlank()) {
+            return "PLATFORM/UNKNOWN";
+        }
+        return "PLATFORM/" + normalizedProvider.toUpperCase(Locale.ROOT);
+    }
+
+    /**
+     * 所有简历相关 AI 调用统一打印运行时路由，排查时以 source/baseUrl/model/configType 为准。
+     */
+    private void logRuntimeRoute(String tag, RuntimeAiConfig runtimeConfig, String stage) {
+        log.info("[{}] AI 路由: stage={}, source={}, baseUrl={}, endpoint={}, model={}, configType={}",
+                tag,
+                stage,
+                runtimeConfig.source(),
+                runtimeConfig.baseUrl(),
+                runtimeConfig.endpoint(),
+                runtimeConfig.model(),
+                runtimeConfig.configType());
+    }
+
     private RuntimeAiConfig resolveRuntimeConfig(Long userId, boolean fallbackToPlatform, boolean requireUserCustom) {
         RuntimeAiConfig userRuntimeConfig = resolveUserRuntimeConfig(userId, fallbackToPlatform, requireUserCustom);
         if (userRuntimeConfig != null) {
@@ -1077,7 +1119,8 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                 source,
                 runtimeTimeoutMs,
                 runtimeThinkingMode,
-                activeConfig != null && Integer.valueOf(1).equals(activeConfig.getSupportsMultimodal()));
+                activeConfig != null && Integer.valueOf(1).equals(activeConfig.getSupportsMultimodal()),
+                "platform");
     }
 
     private RuntimeAiConfig resolveUserRuntimeConfig(Long userId, boolean fallbackToPlatform, boolean requireUserCustom) {
@@ -1100,7 +1143,10 @@ public class ResumeAiServiceImpl implements ResumeAiService {
                 UserAiConstants.BILLING_SOURCE_USER_CUSTOM,
                 null,
                 "none",
-                userConfig.isSupportsMultimodal());
+                userConfig.isSupportsMultimodal(),
+                normalizeConfigValue(userConfig.getConfigType()) == null
+                        ? UserAiConstants.CONFIG_TYPE_RESUME
+                        : normalizeConfigValue(userConfig.getConfigType()));
     }
 
     private String getEndpointByProvider(String providerType) {
@@ -1238,7 +1284,8 @@ public class ResumeAiServiceImpl implements ResumeAiService {
     public ResumePolishAiResult polishResume(String resumeText, String jdText,
             ResumeJobMatchAnalyzeResponse latestJobMatchAnalysis, Long userId, boolean fallbackToPlatform) {
         RuntimeAiConfig runtimeConfig = resolveRuntimeConfig(userId, fallbackToPlatform, false);
-        String tag = runtimeConfig.provider().toUpperCase();
+        String tag = runtimeLogTag(runtimeConfig);
+        logRuntimeRoute(tag, runtimeConfig, "resume-polish");
         if (resumeText == null || resumeText.isBlank()) {
             throw new IllegalArgumentException("简历文本不能为空");
         }
@@ -1289,7 +1336,7 @@ public class ResumeAiServiceImpl implements ResumeAiService {
         request.messages = List.of(
                 new Message("system", systemPrompt),
                 new Message("user", userPrompt));
-        request.thinking = buildThinkingConfig(runtimeConfig.model(), runtimeConfig.thinkingMode());
+        request.thinking = buildThinkingConfig(runtimeConfig.model(), runtimeConfig.thinkingMode(), tag);
         try {
             RestClient.Builder builder = restClientBuilder
                     .baseUrl(runtimeConfig.baseUrl())
@@ -2125,7 +2172,8 @@ public class ResumeAiServiceImpl implements ResumeAiService {
             String source,
             Integer timeoutMs,
             String thinkingMode,
-            boolean supportsMultimodal) {
+            boolean supportsMultimodal,
+            String configType) {
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

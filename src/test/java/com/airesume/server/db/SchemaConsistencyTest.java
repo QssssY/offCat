@@ -115,6 +115,19 @@ class SchemaConsistencyTest {
     }
 
     @Test
+    void shouldKeepUserCustomAiUsageStatsMigrationInSyncAndRepeatable() throws Exception {
+        String rootMigration = readSql("../db/migrations/TASK_68_CUSTOM_AI_USAGE_STATS.sql");
+        String serverMigration = readSql("db/migrations/TASK_68_CUSTOM_AI_USAGE_STATS.sql");
+
+        assertEquals(rootMigration, serverMigration, "TASK_68 自定义 AI 统计迁移脚本必须在两个 SQL 目录保持一致");
+        assertTrue(serverMigration.contains("SET NAMES utf8mb4;"));
+        assertTrue(serverMigration.contains("CREATE TABLE IF NOT EXISTS `user_ai_usage_detail`"));
+        assertTrue(serverMigration.contains("usage_type"));
+        assertTrue(serverMigration.contains("uk_user_ai_usage_detail_user_date_type"));
+        assertTrue(serverMigration.contains("idx_user_ai_usage_detail_date_type"));
+    }
+
+    @Test
     void shouldKeepInterviewPlatformFallbackBillingMigrationInSyncAndRepeatable() throws Exception {
         String rootMigration = readSql("../db/migrations/TASK_74_INTERVIEW_PLATFORM_FALLBACK_BILLING.sql");
         String serverMigration = readSql("db/migrations/TASK_74_INTERVIEW_PLATFORM_FALLBACK_BILLING.sql");
@@ -124,6 +137,20 @@ class SchemaConsistencyTest {
         assertTrue(serverMigration.contains("interview_session"));
         assertTrue(serverMigration.contains("ai_billing_source"));
         assertTrue(serverMigration.contains("platform_fallback"));
+    }
+
+    @Test
+    void shouldKeepTtsProviderMigrationsInSync() throws Exception {
+        String rootEndpointMigration = readSql("../db/migrations/alter_tts_endpoint_path.sql");
+        String serverEndpointMigration = readSql("db/migrations/alter_tts_endpoint_path.sql");
+        String rootProviderMigration = readSql("../db/migrations/alter_tts_provider.sql");
+        String serverProviderMigration = readSql("db/migrations/alter_tts_provider.sql");
+
+        assertEquals(rootEndpointMigration, serverEndpointMigration, "tts_endpoint_path migration must stay in sync");
+        assertEquals(rootProviderMigration, serverProviderMigration, "tts_provider migration must stay in sync");
+        assertTrue(serverEndpointMigration.contains("tts_endpoint_path"));
+        assertTrue(serverProviderMigration.contains("tts_provider"));
+        assertTrue(serverProviderMigration.contains("AFTER tts_endpoint_path"));
     }
 
     private void assertContainsCriticalSchema(String schema) {
@@ -145,7 +172,11 @@ class SchemaConsistencyTest {
         assertTrue(schema.contains("idx_chat_log_message_role"));
         assertTrue(schema.contains("CONVERT(0x"));
         assertTrue(schema.contains("CREATE TABLE `user_ai_config`"));
+        assertTrue(schema.contains("`tts_endpoint_path`"));
+        assertTrue(schema.contains("`tts_provider`"));
         assertTrue(schema.contains("CREATE TABLE `user_ai_daily_usage`"));
+        assertTrue(schema.contains("CREATE TABLE `user_ai_usage_detail`"));
+        assertTrue(schema.contains("idx_user_ai_usage_detail_date_type"));
         assertTrue(schema.contains("CREATE TABLE `sys_config`"));
         assertTrue(schema.contains("custom_ai_daily_limit"));
         assertTrue(schema.contains("ai_billing_source"));

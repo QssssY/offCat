@@ -247,7 +247,16 @@ class InterviewServiceTest {
 
         when(interviewSessionMapper.selectOne(any())).thenReturn(session);
         when(interviewMessageService.getMessageList(sessionId)).thenReturn(List.of());
-        when(interviewAiService.generateEvaluationReport(eq(sessionId), anyList(), anyString(), any(), any(), anyString(), any()))
+        when(interviewAiService.generateEvaluationReport(
+                eq(sessionId),
+                anyList(),
+                anyString(),
+                any(),
+                any(),
+                anyString(),
+                any(),
+                eq(session.getUserId()),
+                eq(true)))
                 .thenReturn(report);
         doAnswer((Answer<Void>) invocation -> {
             Object arg = invocation.getArgument(0);
@@ -263,6 +272,114 @@ class InterviewServiceTest {
         method.invoke(interviewService, sessionId);
 
         verify(notificationService, never()).createNotification(anyLong(), anyString(), anyString(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void shouldGenerateEvaluationReportWithUserCustomAiContextAndUsageCount() throws Exception {
+        String sessionId = "session-custom-report";
+        Long userId = 123L;
+        InterviewSession session = buildEndedSession(sessionId, userId, null);
+        session.setAiBillingSource(UserAiConstants.BILLING_SOURCE_USER_CUSTOM);
+
+        InterviewEvaluationReport report = InterviewEvaluationReport.builder()
+                .overallScore(88)
+                .summary("用户自定义 AI 生成的报告")
+                .build();
+
+        when(interviewSessionMapper.selectOne(any())).thenReturn(session);
+        when(interviewMessageService.getMessageList(sessionId)).thenReturn(List.of(
+                buildChatLog(1L, sessionId, "assistant", "请介绍项目。", 0),
+                buildChatLog(2L, sessionId, "user", "我负责订单链路。", 1)
+        ));
+        when(interviewAiService.generateEvaluationReport(
+                eq(sessionId),
+                anyList(),
+                eq(session.getJobRole()),
+                eq(session.getJobRoleCode()),
+                eq(session.getDifficulty()),
+                eq(session.getInterviewMode()),
+                any(),
+                eq(userId),
+                eq(false)
+        )).thenReturn(report);
+        doAnswer((Answer<Void>) invocation -> {
+            Object arg = invocation.getArgument(0);
+            if (arg instanceof TransactionCallbackWithoutResult callback) {
+                callback.doInTransaction(null);
+            } else if (arg instanceof java.util.function.Consumer) {
+                ((java.util.function.Consumer<Object>) arg).accept(null);
+            }
+            return null;
+        }).when(transactionTemplate).executeWithoutResult(Mockito.any());
+
+        Method method = InterviewService.class.getDeclaredMethod("generateAndPersistEvaluationReport", String.class);
+        method.setAccessible(true);
+        method.invoke(interviewService, sessionId);
+
+        verify(userAiUsageLimitService).checkAndIncrement(userId, UserAiConstants.USAGE_TYPE_INTERVIEW_REPORT);
+        verify(userAiUsageLimitService, never()).rollback(anyLong());
+        verify(interviewAiService).generateEvaluationReport(
+                eq(sessionId),
+                anyList(),
+                eq(session.getJobRole()),
+                eq(session.getJobRoleCode()),
+                eq(session.getDifficulty()),
+                eq(session.getInterviewMode()),
+                any(),
+                eq(userId),
+                eq(false)
+        );
+        verify(interviewAiService, never()).generateEvaluationReport(
+                eq(sessionId),
+                anyList(),
+                anyString(),
+                any(),
+                any(),
+                anyString(),
+                any()
+        );
+    }
+
+    @Test
+    void shouldRollbackCustomAiUsageWhenEvaluationReportGenerationFails() throws Exception {
+        String sessionId = "session-custom-report-fail";
+        Long userId = 123L;
+        InterviewSession session = buildEndedSession(sessionId, userId, null);
+        session.setAiBillingSource(UserAiConstants.BILLING_SOURCE_USER_CUSTOM);
+
+        when(interviewSessionMapper.selectOne(any())).thenReturn(session);
+        when(interviewMessageService.getMessageList(sessionId)).thenReturn(List.of(
+                buildChatLog(1L, sessionId, "assistant", "请介绍项目。", 0),
+                buildChatLog(2L, sessionId, "user", "我负责订单链路。", 1)
+        ));
+        when(interviewAiService.generateEvaluationReport(
+                eq(sessionId),
+                anyList(),
+                eq(session.getJobRole()),
+                eq(session.getJobRoleCode()),
+                eq(session.getDifficulty()),
+                eq(session.getInterviewMode()),
+                any(),
+                eq(userId),
+                eq(false)
+        )).thenThrow(new BusinessException(ResultCode.CUSTOM_AI_CALL_FAILED, "自定义 AI 失败"));
+        when(mockInterviewService.generateMockScore(sessionId)).thenReturn(60);
+        doAnswer((Answer<Void>) invocation -> {
+            Object arg = invocation.getArgument(0);
+            if (arg instanceof TransactionCallbackWithoutResult callback) {
+                callback.doInTransaction(null);
+            } else if (arg instanceof java.util.function.Consumer) {
+                ((java.util.function.Consumer<Object>) arg).accept(null);
+            }
+            return null;
+        }).when(transactionTemplate).executeWithoutResult(Mockito.any());
+
+        Method method = InterviewService.class.getDeclaredMethod("generateAndPersistEvaluationReport", String.class);
+        method.setAccessible(true);
+        method.invoke(interviewService, sessionId);
+
+        verify(userAiUsageLimitService).checkAndIncrement(userId, UserAiConstants.USAGE_TYPE_INTERVIEW_REPORT);
+        verify(userAiUsageLimitService).rollback(userId, UserAiConstants.USAGE_TYPE_INTERVIEW_REPORT);
     }
 
     @Test

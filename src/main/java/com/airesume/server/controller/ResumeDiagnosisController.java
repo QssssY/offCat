@@ -181,12 +181,12 @@ public class ResumeDiagnosisController {
         boolean fallbackToPlatform = Boolean.TRUE.equals(request.getFallbackToPlatform());
         boolean useCustomAi = shouldUseCustomAi(userId, fallbackToPlatform);
         if (useCustomAi) {
-            userAiUsageLimitService.checkAndIncrement(userId);
+            userAiUsageLimitService.checkAndIncrement(userId, UserAiConstants.USAGE_TYPE_JD_MATCH);
             try {
                 ResumeJobMatchAnalyzeResponse response = resumeJobMatchService.analyzeJobMatch(userId, request);
                 return Result.success("岗位 JD 对比分析完成", response);
             } catch (RuntimeException e) {
-                userAiUsageLimitService.rollback(userId);
+                userAiUsageLimitService.rollback(userId, UserAiConstants.USAGE_TYPE_JD_MATCH);
                 throw e;
             }
         }
@@ -210,12 +210,12 @@ public class ResumeDiagnosisController {
         boolean fallbackToPlatform = Boolean.TRUE.equals(request.getFallbackToPlatform());
         boolean useCustomAi = shouldUseCustomAi(userId, fallbackToPlatform);
         if (useCustomAi) {
-            userAiUsageLimitService.checkAndIncrement(userId);
+            userAiUsageLimitService.checkAndIncrement(userId, UserAiConstants.USAGE_TYPE_RESUME_POLISH);
             try {
                 ResumePolishAnalyzeResponse response = resumePolishService.analyzeResumePolish(userId, request);
                 return Result.success("AI 简历润色完成", response);
             } catch (RuntimeException e) {
-                userAiUsageLimitService.rollback(userId);
+                userAiUsageLimitService.rollback(userId, UserAiConstants.USAGE_TYPE_RESUME_POLISH);
                 throw e;
             }
         }

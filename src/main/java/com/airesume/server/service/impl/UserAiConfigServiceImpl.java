@@ -10,11 +10,17 @@ import com.airesume.server.dto.user.UserAiConfigRequest;
 import com.airesume.server.dto.user.UserAiConfigResponse;
 import com.airesume.server.dto.user.UserAiConnectivityTestRequest;
 import com.airesume.server.dto.user.UserAiConnectivityTestResponse;
+import com.airesume.server.dto.user.UserTtsConnectivityTestRequest;
+import com.airesume.server.dto.user.UserTtsConnectivityTestResponse;
+import com.airesume.server.dto.user.UserTtsDiscoveryRequest;
+import com.airesume.server.dto.user.UserTtsDiscoveryResponse;
 import com.airesume.server.entity.UserAiConfig;
 import com.airesume.server.mapper.UserAiConfigMapper;
 import com.airesume.server.service.AiCredentialCrypto;
 import com.airesume.server.service.AiEngineConnectivityTestService;
+import com.airesume.server.service.TtsDiscoveryService;
 import com.airesume.server.service.UserAiConfigService;
+import com.airesume.server.service.UserTtsConnectivityTestService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -36,9 +42,13 @@ public class UserAiConfigServiceImpl extends ServiceImpl<UserAiConfigMapper, Use
     private static final String STATUS_PENDING = "pending";
     private static final String STATUS_VERIFIED = "verified";
     private static final String STATUS_FAILED = "failed";
+    private static final String CONFIG_TYPE_DEFAULT = "default";
+    private static final String CONFIG_TYPE_INTERVIEW = "interview";
 
     private final AiCredentialCrypto aiCredentialCrypto;
     private final AiEngineConnectivityTestService aiEngineConnectivityTestService;
+    private final UserTtsConnectivityTestService userTtsConnectivityTestService;
+    private final TtsDiscoveryService ttsDiscoveryService;
 
     @Override
     public List<UserAiConfigResponse> listUserConfigs(Long userId) {
@@ -83,6 +93,7 @@ public class UserAiConfigServiceImpl extends ServiceImpl<UserAiConfigMapper, Use
         config.setApiKey(aiCredentialCrypto.encrypt(apiKey));
         config.setModel(model);
         config.setSupportsMultimodal(Boolean.TRUE.equals(request.getSupportsMultimodal()) ? 1 : 0);
+        applyTtsFields(config, request);
         config.setVerificationStatus(STATUS_VERIFIED);
         config.setLastVerifiedAt(LocalDateTime.now());
         saveOrUpdate(config);
@@ -138,6 +149,25 @@ public class UserAiConfigServiceImpl extends ServiceImpl<UserAiConfigMapper, Use
     }
 
     @Override
+    public UserTtsConnectivityTestResponse testTtsConnectivity(UserTtsConnectivityTestRequest request) {
+        UserTtsConnectivityTestRequest normalized = normalizeTtsRequest(request);
+        return userTtsConnectivityTestService.testConnectivity(normalized);
+    }
+
+    @Override
+    public byte[] previewTtsVoice(UserTtsConnectivityTestRequest request) {
+        UserTtsConnectivityTestRequest normalized = normalizeTtsRequest(request);
+        return userTtsConnectivityTestService.previewVoice(normalized);
+    }
+
+    @Override
+    public UserTtsDiscoveryResponse discoverTtsModelsAndVoices(UserTtsDiscoveryRequest request) {
+        String baseUrl = normalizeRequired(request.getBaseUrl(), "TTS 地址不能为空");
+        String apiKey = normalizeRequired(request.getApiKey(), "TTS API Key 不能为空");
+        return ttsDiscoveryService.discover(baseUrl, apiKey, request.getProvider());
+    }
+
+    @Override
     public UserAiConfig findEnabledConfig(Long userId, String configType) {
         if (userId == null) {
             return null;
@@ -164,6 +194,7 @@ public class UserAiConfigServiceImpl extends ServiceImpl<UserAiConfigMapper, Use
     }
 
     private UserAiConfigResponse buildResponse(UserAiConfig config) {
+        boolean allowTts = supportsTtsConfigType(config.getConfigType());
         return UserAiConfigResponse.builder()
                 .configType(config.getConfigType())
                 .providerName(config.getProviderName())
@@ -172,10 +203,88 @@ public class UserAiConfigServiceImpl extends ServiceImpl<UserAiConfigMapper, Use
                 .model(config.getModel())
                 .enabled(Integer.valueOf(1).equals(config.getIsEnabled()))
                 .supportsMultimodal(Integer.valueOf(1).equals(config.getSupportsMultimodal()))
+                .ttsBaseUrl(allowTts ? config.getTtsBaseUrl() : null)
+                .ttsApiKey(allowTts ? maskApiKey(decryptNullable(config.getTtsApiKey())) : null)
+                .ttsModel(allowTts ? config.getTtsModel() : null)
+                .ttsVoiceId(allowTts ? config.getTtsVoiceId() : null)
+                .ttsEndpointPath(allowTts ? config.getTtsEndpointPath() : null)
+                .ttsProvider(allowTts ? config.getTtsProvider() : null)
+                .ttsConfigured(allowTts && isTtsConfigured(config))
                 .lastVerifiedAt(config.getLastVerifiedAt())
                 .verificationStatus(config.getVerificationStatus() == null ? STATUS_PENDING : config.getVerificationStatus())
                 .updateTime(config.getUpdateTime())
                 .build();
+    }
+
+    /**
+     * TTS 只服务通用兜底与面试对话播报预留能力，简历诊断保存时一律清空，避免无关配置挤入简历链路。
+     */
+    private void applyTtsFields(UserAiConfig config, UserAiConfigRequest request) {
+        if (!supportsTtsConfigType(config.getConfigType()) || !hasAnyTtsField(request)) {
+            config.setTtsBaseUrl(null);
+            config.setTtsApiKey(null);
+            config.setTtsModel(null);
+            config.setTtsVoiceId(null);
+            config.setTtsEndpointPath(null);
+            config.setTtsProvider(null);
+            return;
+        }
+        UserTtsConnectivityTestRequest ttsRequest = new UserTtsConnectivityTestRequest();
+        ttsRequest.setBaseUrl(request.getTtsBaseUrl());
+        ttsRequest.setApiKey(request.getTtsApiKey());
+        ttsRequest.setModel(request.getTtsModel());
+        ttsRequest.setVoiceId(request.getTtsVoiceId());
+        ttsRequest.setEndpointPath(request.getTtsEndpointPath());
+        ttsRequest.setTtsProvider(request.getTtsProvider());
+        UserTtsConnectivityTestRequest normalized = normalizeTtsRequest(ttsRequest);
+        UserTtsConnectivityTestResponse response = userTtsConnectivityTestService.testConnectivity(normalized);
+        if (!Boolean.TRUE.equals(response.getSuccess())) {
+            throw new BusinessException(ResultCode.CUSTOM_AI_CONNECTIVITY_FAILED, response.getMessage());
+        }
+        config.setTtsBaseUrl(normalized.getBaseUrl());
+        config.setTtsApiKey(aiCredentialCrypto.encrypt(normalized.getApiKey()));
+        config.setTtsModel(normalized.getModel());
+        config.setTtsVoiceId(normalized.getVoiceId());
+        config.setTtsEndpointPath(normalized.getEndpointPath());
+        config.setTtsProvider(trimToNull(request.getTtsProvider()));
+    }
+
+    private UserTtsConnectivityTestRequest normalizeTtsRequest(UserTtsConnectivityTestRequest request) {
+        UserTtsConnectivityTestRequest normalized = new UserTtsConnectivityTestRequest();
+        normalized.setBaseUrl(validateBaseUrl(normalizeRequired(request.getBaseUrl(), "TTS 地址不能为空")));
+        String apiKey = normalizeRequired(request.getApiKey(), "TTS API Key 不能为空");
+        if (isMaskedApiKey(apiKey)) {
+            throw new BusinessException(ResultCode.CUSTOM_AI_CONFIG_INVALID, "TTS API Key 不能使用脱敏值保存或测试");
+        }
+        normalized.setApiKey(apiKey);
+        normalized.setModel(normalizeRequired(request.getModel(), "TTS 模型不能为空"));
+        normalized.setVoiceId(normalizeRequired(request.getVoiceId(), "TTS 音色不能为空"));
+        // TTS 端点和 Provider 是下游合成协议选择的关键参数，测试、试听、保存前验证必须一起透传。
+        normalized.setEndpointPath(trimToNull(request.getEndpointPath()));
+        normalized.setTtsProvider(trimToNull(request.getTtsProvider()));
+        return normalized;
+    }
+
+    private boolean hasAnyTtsField(UserAiConfigRequest request) {
+        return trimToNull(request.getTtsBaseUrl()) != null
+                || trimToNull(request.getTtsApiKey()) != null
+                || trimToNull(request.getTtsModel()) != null
+                || trimToNull(request.getTtsVoiceId()) != null;
+    }
+
+    private boolean isTtsConfigured(UserAiConfig config) {
+        return trimToNull(config.getTtsBaseUrl()) != null
+                && trimToNull(config.getTtsApiKey()) != null
+                && trimToNull(config.getTtsModel()) != null
+                && trimToNull(config.getTtsVoiceId()) != null;
+    }
+
+    private boolean supportsTtsConfigType(String configType) {
+        return CONFIG_TYPE_DEFAULT.equals(configType) || CONFIG_TYPE_INTERVIEW.equals(configType);
+    }
+
+    private String decryptNullable(String encryptedValue) {
+        return trimToNull(encryptedValue) == null ? null : aiCredentialCrypto.decrypt(encryptedValue);
     }
 
     private String normalizeConfigType(String configType) {

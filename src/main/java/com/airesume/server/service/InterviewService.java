@@ -314,7 +314,7 @@ public class InterviewService {
         boolean fallbackToPlatform = Boolean.TRUE.equals(request.getFallbackToPlatform());
         boolean useCustomAi = shouldUseCustomAi(userId, fallbackToPlatform);
         if (useCustomAi) {
-            userAiUsageLimitService.checkAndIncrement(userId);
+            userAiUsageLimitService.checkAndIncrement(userId, UserAiConstants.USAGE_TYPE_INTERVIEW_MESSAGE);
         } else {
             chargePlatformFallbackQuotaIfNeeded(session, fallbackToPlatform);
         }
@@ -336,7 +336,7 @@ public class InterviewService {
             );
         } catch (RuntimeException e) {
             if (useCustomAi) {
-                userAiUsageLimitService.rollback(userId);
+                userAiUsageLimitService.rollback(userId, UserAiConstants.USAGE_TYPE_INTERVIEW_MESSAGE);
             }
             throw e;
         }
@@ -456,7 +456,15 @@ public class InterviewService {
 
         Integer score;
         String evaluationReportJson;
+        boolean useCustomAiForReport = UserAiConstants.BILLING_SOURCE_USER_CUSTOM.equals(session.getAiBillingSource());
+        boolean fallbackToPlatformForReport = !useCustomAiForReport;
+        boolean customAiReportCounted = false;
         try {
+            if (useCustomAiForReport && userAiUsageLimitService != null) {
+                // 报告生成属于真实用户自定义 AI 调用，需要和问答一样计入用户每日自定义 AI 次数。
+                userAiUsageLimitService.checkAndIncrement(session.getUserId(), UserAiConstants.USAGE_TYPE_INTERVIEW_REPORT);
+                customAiReportCounted = true;
+            }
             InterviewEvaluationReport report = interviewAiService.generateEvaluationReport(
                     sessionId,
                     history,
@@ -464,7 +472,9 @@ public class InterviewService {
                     session.getJobRoleCode(),
                     session.getDifficulty(),
                     session.getInterviewMode(),
-                    jobTargetContext
+                    jobTargetContext,
+                    session.getUserId(),
+                    fallbackToPlatformForReport
             );
             score = report.getOverallScore();
             mockInterviewJobTargetService.updateFeedback(
@@ -472,8 +482,12 @@ public class InterviewService {
                     mockInterviewJobTargetService.buildFeedback(report, jobTargetContext)
             );
             evaluationReportJson = writeEvaluationReport(report);
-            log.info("异步 AI 评估报告生成成功, sessionId: {}, score: {}", sessionId, score);
+            log.info("异步 AI 评估报告生成成功, sessionId: {}, score: {}, aiBillingSource: {}, fallbackToPlatform: {}",
+                    sessionId, score, session.getAiBillingSource(), fallbackToPlatformForReport);
         } catch (Exception e) {
+            if (customAiReportCounted && userAiUsageLimitService != null) {
+                userAiUsageLimitService.rollback(session.getUserId(), UserAiConstants.USAGE_TYPE_INTERVIEW_REPORT);
+            }
             log.warn("异步 AI 评估失败，降级使用 Mock 报告, sessionId: {}, error: {}", sessionId, e.getMessage());
             InterviewEvaluationReport fallbackReport = buildFallbackEvaluationReport(session, jobTargetContext, e.getMessage());
             score = fallbackReport.getOverallScore();

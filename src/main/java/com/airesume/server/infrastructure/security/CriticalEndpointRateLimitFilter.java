@@ -44,7 +44,12 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
     private static final String INTERVIEW_SESSION_PATH = "/api/interview/session";
     private static final String INTERVIEW_SESSION_PREFIX = "/api/interview/session/";
     private static final String INTERVIEW_STREAM_SUFFIX = "/message/stream";
+    private static final String INTERVIEW_TTS_SUFFIX = "/tts";
     private static final String USER_AI_CONNECTIVITY_TEST_PATH = "/api/user/ai-config/test-connectivity";
+    private static final String USER_AI_MODELS_PATH = "/api/user/ai-config/models";
+    private static final String USER_TTS_CONNECTIVITY_TEST_PATH = "/api/user/ai-config/test-tts-connectivity";
+    private static final String USER_TTS_DISCOVERY_PATH = "/api/user/ai-config/tts-discovery";
+    private static final String USER_TTS_PREVIEW_PATH = "/api/user/ai-config/tts-preview";
     private static final String OFFER_API_PREFIX = "/api/offer/";
     private static final String COMMUNITY_POST_PATH = "/api/community/posts";
     private static final String COMMUNITY_IMAGE_UPLOAD_PATH = "/api/community/images/upload";
@@ -70,11 +75,25 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
     // 保持独立策略便于观测和拦截异常刷接口，60 次 / 10 分钟覆盖高强度语音面试节奏。
     private static final RateLimitPolicy INTERVIEW_STREAM_POLICY = new RateLimitPolicy(
             "interview_stream", INTERVIEW_STREAM_SUFFIX, MatchType.SUFFIX, 60, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
+    // 云端 TTS 每一句都会触发服务端出网合成，独立限频避免被当作音频生成代理滥用。
+    private static final RateLimitPolicy INTERVIEW_TTS_POLICY = new RateLimitPolicy(
+            "interview_tts", INTERVIEW_TTS_SUFFIX, MatchType.SUFFIX, 30, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
     private static final RateLimitPolicy INTERVIEW_ACTION_POLICY = new RateLimitPolicy(
             "interview_action", INTERVIEW_SESSION_PREFIX, MatchType.PREFIX, 40, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
     // 用户连通测试会触发服务端出网请求，单独限制为每用户每分钟 5 次，避免被滥用为探测代理。
     private static final RateLimitPolicy USER_AI_CONNECTIVITY_TEST_POLICY = new RateLimitPolicy(
             "user_ai_connectivity_test", USER_AI_CONNECTIVITY_TEST_PATH, MatchType.EXACT, 5, Duration.ofMinutes(1).toMillis(), KeyStrategy.USER_OR_IP);
+    private static final RateLimitPolicy USER_AI_MODELS_POLICY = new RateLimitPolicy(
+            "user_ai_models", USER_AI_MODELS_PATH, MatchType.EXACT, 5, Duration.ofMinutes(1).toMillis(), KeyStrategy.USER_OR_IP);
+    // TTS 连通测试同样会触发服务端出网请求，沿用用户 AI 连通测试的限流强度。
+    private static final RateLimitPolicy USER_TTS_CONNECTIVITY_TEST_POLICY = new RateLimitPolicy(
+            "user_tts_connectivity_test", USER_TTS_CONNECTIVITY_TEST_PATH, MatchType.EXACT, 5, Duration.ofMinutes(1).toMillis(), KeyStrategy.USER_OR_IP);
+    // TTS 模型/音色发现会触发服务端出网请求（/models + 音色端点探测），沿用用户连通测试限流强度。
+    private static final RateLimitPolicy USER_TTS_DISCOVERY_POLICY = new RateLimitPolicy(
+            "user_tts_discovery", USER_TTS_DISCOVERY_PATH, MatchType.EXACT, 5, Duration.ofMinutes(1).toMillis(), KeyStrategy.USER_OR_IP);
+    // TTS 音色试听会触发服务端出网请求合成音频，限流策略与连通测试一致。
+    private static final RateLimitPolicy USER_TTS_PREVIEW_POLICY = new RateLimitPolicy(
+            "user_tts_preview", USER_TTS_PREVIEW_PATH, MatchType.EXACT, 5, Duration.ofMinutes(1).toMillis(), KeyStrategy.USER_OR_IP);
     private static final RateLimitPolicy OFFER_ACTION_POLICY = new RateLimitPolicy(
             "offer_action", OFFER_API_PREFIX, MatchType.PREFIX, 10, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
     private static final RateLimitPolicy COMMUNITY_POST_CREATE_POLICY = new RateLimitPolicy(
@@ -239,11 +258,27 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
         if (INTERVIEW_STREAM_POLICY.matches(requestMethod, requestUri)) {
             return INTERVIEW_STREAM_POLICY;
         }
+        if (INTERVIEW_TTS_POLICY.matches(requestMethod, requestUri)
+                && requestUri.startsWith(INTERVIEW_SESSION_PREFIX)) {
+            return INTERVIEW_TTS_POLICY;
+        }
         if (INTERVIEW_ACTION_POLICY.matches(requestMethod, requestUri)) {
             return INTERVIEW_ACTION_POLICY;
         }
         if (USER_AI_CONNECTIVITY_TEST_POLICY.matches(requestMethod, requestUri)) {
             return USER_AI_CONNECTIVITY_TEST_POLICY;
+        }
+        if (USER_AI_MODELS_POLICY.matches(requestMethod, requestUri)) {
+            return USER_AI_MODELS_POLICY;
+        }
+        if (USER_TTS_CONNECTIVITY_TEST_POLICY.matches(requestMethod, requestUri)) {
+            return USER_TTS_CONNECTIVITY_TEST_POLICY;
+        }
+        if (USER_TTS_DISCOVERY_POLICY.matches(requestMethod, requestUri)) {
+            return USER_TTS_DISCOVERY_POLICY;
+        }
+        if (USER_TTS_PREVIEW_POLICY.matches(requestMethod, requestUri)) {
+            return USER_TTS_PREVIEW_POLICY;
         }
         if (OFFER_ACTION_POLICY.matches(requestMethod, requestUri)) {
             return OFFER_ACTION_POLICY;

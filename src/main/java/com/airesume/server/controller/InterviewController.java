@@ -4,6 +4,7 @@ import com.airesume.server.common.result.PageResult;
 import com.airesume.server.common.result.Result;
 import com.airesume.server.common.constants.InterviewConstants;
 import com.airesume.server.common.constants.AiEngineConstants;
+import com.airesume.server.common.constants.UserAiConstants;
 import com.airesume.server.dto.interview.CreateSessionRequest;
 import com.airesume.server.dto.interview.InterviewHistoryResponse;
 import com.airesume.server.dto.interview.InterviewJobRoleResponse;
@@ -12,7 +13,10 @@ import com.airesume.server.dto.interview.InterviewSessionResponse;
 import com.airesume.server.dto.interview.InterviewSessionStatusResponse;
 import com.airesume.server.dto.interview.SendMessageRequest;
 import com.airesume.server.dto.interview.SendMessageResponse;
+import com.airesume.server.dto.interview.TtsCapabilityResponse;
+import com.airesume.server.dto.interview.TtsSpeechRequest;
 import com.airesume.server.dto.user.DataCleanupResponse;
+import com.airesume.server.dto.user.ResolvedTtsConfig;
 import com.airesume.server.entity.InterviewChatLog;
 import com.airesume.server.entity.InterviewSession;
 import com.airesume.server.entity.SysJobRole;
@@ -22,6 +26,8 @@ import com.airesume.server.service.MockInterviewJobTargetService;
 import com.airesume.server.service.SysJobRoleService;
 import com.airesume.server.service.UserAiConfigResolver;
 import com.airesume.server.service.UserAiUsageLimitService;
+import com.airesume.server.service.UserTtsSpeechService;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +35,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscription;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.CacheControl;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.validation.annotation.Validated;
@@ -63,6 +72,7 @@ public class InterviewController {
     private final MockInterviewJobTargetService mockInterviewJobTargetService;
     private final UserAiConfigResolver userAiConfigResolver;
     private final UserAiUsageLimitService userAiUsageLimitService;
+    private final UserTtsSpeechService userTtsSpeechService;
     @Qualifier("aiAsyncExecutor")
     private final Executor aiAsyncExecutor;
 
@@ -162,7 +172,7 @@ public class InterviewController {
                 boolean useCustomAi = userAiConfigResolver.resolve(
                         userId, AiEngineConstants.BUSINESS_TYPE_INTERVIEW, fallbackToPlatform) != null;
                 if (useCustomAi) {
-                    userAiUsageLimitService.checkAndIncrement(userId);
+                    userAiUsageLimitService.checkAndIncrement(userId, UserAiConstants.USAGE_TYPE_INTERVIEW_MESSAGE);
                     customAiCounted.set(true);
                 } else {
                     interviewService.chargePlatformFallbackQuotaIfNeeded(session, fallbackToPlatform);
@@ -192,12 +202,12 @@ public class InterviewController {
                         sessionId, emitter, publisher, fullReply, streamClosed, done, subscriptionRef,
                         () -> {
                             if (customAiCounted.compareAndSet(true, false)) {
-                                userAiUsageLimitService.rollback(userId);
+                                userAiUsageLimitService.rollback(userId, UserAiConstants.USAGE_TYPE_INTERVIEW_MESSAGE);
                             }
                         });
             } catch (Exception e) {
                 if (customAiCounted.compareAndSet(true, false)) {
-                    userAiUsageLimitService.rollback(userId);
+                    userAiUsageLimitService.rollback(userId, UserAiConstants.USAGE_TYPE_INTERVIEW_MESSAGE);
                 }
                 if (!streamClosed.get()) {
                     log.error("流式处理异常, sessionId: {}", sessionId, e);
@@ -260,6 +270,51 @@ public class InterviewController {
         InterviewSessionStatusResponse response = interviewService.getSessionStatus(userId, sessionId);
         return Result.success(response);
     }
+
+    /**
+     * 查询当前语音面试是否可使用用户自定义云端 TTS。
+     */
+    @GetMapping("/session/{sessionId}/tts-capability")
+    public Result<TtsCapabilityResponse> getTtsCapability(
+            @PathVariable String sessionId,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        InterviewSession session = interviewService.getSessionByOwnerOrThrow(sessionId, userId);
+        if (!isVoiceSession(session)) {
+            return Result.success(TtsCapabilityResponse.builder()
+                    .available(false)
+                    .engine("browser")
+                    .build());
+        }
+        ResolvedTtsConfig config = userTtsSpeechService.resolveInterviewTtsConfig(userId);
+        return Result.success(TtsCapabilityResponse.builder()
+                .available(config != null)
+                .engine(config == null ? "browser" : "user_custom")
+                .configType(config == null ? null : config.getConfigType())
+                .build());
+    }
+
+    /**
+     * 使用用户自定义云端 TTS 合成语音面试播报音频。
+     */
+    @PostMapping(value = "/session/{sessionId}/tts", produces = "audio/mpeg")
+    public ResponseEntity<byte[]> synthesizeTts(
+            @PathVariable String sessionId,
+            @Valid @RequestBody TtsSpeechRequest request,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        InterviewSession session = interviewService.getSessionByOwnerOrThrow(sessionId, userId);
+        interviewService.assertSessionInProgress(session);
+        if (!isVoiceSession(session)) {
+            throw new com.airesume.server.common.exception.BusinessException("文字面试不支持云端 TTS 播报");
+        }
+        byte[] audioBytes = userTtsSpeechService.synthesizeInterviewSpeech(userId, request.getText());
+        return ResponseEntity.ok()
+                .contentType(MediaType.valueOf("audio/mpeg"))
+                .cacheControl(CacheControl.noStore())
+                .body(audioBytes);
+    }
+
     /**
      * 结束面试。
      */
@@ -338,6 +393,10 @@ public class InterviewController {
         }
         log.info("流式面试连接已关闭，跳过剩余处理, sessionId: {}", sessionId);
         return true;
+    }
+
+    private boolean isVoiceSession(InterviewSession session) {
+        return interviewService.resolveInteractionType(session.getInteractionType()) == InterviewConstants.INTERACTION_TYPE_VOICE;
     }
 
     private InterviewJobRoleResponse buildInterviewJobRoleResponse(SysJobRole jobRole) {

@@ -102,7 +102,7 @@ public class AiChatClient {
      */
     public String chatWithMessages(List<Message> messages, int timeoutMs, Long userId, boolean fallbackToPlatform) {
         RuntimeAiConfig runtimeConfig = resolveRuntimeConfig(userId, fallbackToPlatform, false);
-        String tag = runtimeConfig.provider().toUpperCase(Locale.ROOT);
+        String tag = runtimeLogTag(runtimeConfig);
         String apiKey = runtimeConfig.apiKey();
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException("未找到可用的 AI 密钥，请检查管理端激活配置或环境变量");
@@ -115,7 +115,14 @@ public class AiChatClient {
 
         try {
             return aiCircuitBreaker.execute(AI_SUMMARY_BREAKER, () -> {
-                log.info("[{}] AiChatClient 调用: model={}, timeout={}ms", tag, runtimeConfig.model(), timeoutMs);
+                log.info("[{}] AiChatClient 调用: source={}, baseUrl={}, endpoint={}, model={}, configType={}, timeout={}ms",
+                        tag,
+                        runtimeConfig.source(),
+                        runtimeConfig.baseUrl(),
+                        runtimeConfig.endpoint(),
+                        runtimeConfig.model(),
+                        runtimeConfig.configType(),
+                        timeoutMs);
 
                 // 摘要链路也要走熔断，避免上游连续故障时每次都把超时跑满。
                 int readTimeout = Math.max(Math.min(timeoutMs, MAX_READ_TIMEOUT), MIN_READ_TIMEOUT);
@@ -183,7 +190,8 @@ public class AiChatClient {
                     userConfig.getApiKey(),
                     UserAiConstants.BILLING_SOURCE_USER_CUSTOM,
                     null,
-                    "none"
+                    "none",
+                    userConfig.getConfigType()
             );
         }
         if (requireUserCustom) {
@@ -247,8 +255,27 @@ public class AiChatClient {
                 runtimeApiKey,
                 source,
                 runtimeTimeoutMs,
-                runtimeThinkingMode
+                runtimeThinkingMode,
+                "platform"
         );
+    }
+
+    private String runtimeLogTag(RuntimeAiConfig runtimeConfig) {
+        if (runtimeConfig != null && UserAiConstants.BILLING_SOURCE_USER_CUSTOM.equals(runtimeConfig.source())) {
+            return "USER_CUSTOM/openai-compatible";
+        }
+        if (runtimeConfig == null || runtimeConfig.provider() == null || runtimeConfig.provider().isBlank()) {
+            return "UNKNOWN";
+        }
+        return platformLogTag(runtimeConfig.provider());
+    }
+
+    private String platformLogTag(String providerName) {
+        String normalizedProvider = providerName == null ? "" : providerName.trim();
+        if (normalizedProvider.isBlank()) {
+            return "PLATFORM/UNKNOWN";
+        }
+        return "PLATFORM/" + normalizedProvider.toUpperCase(Locale.ROOT);
     }
 
     private String resolveBaseUrl(String provider, String configuredUrl) {
@@ -301,7 +328,8 @@ public class AiChatClient {
             String apiKey,
             String source,
             Integer timeoutMs,
-            String thinkingMode) {
+            String thinkingMode,
+            String configType) {
     }
 
     static class RequestBody {

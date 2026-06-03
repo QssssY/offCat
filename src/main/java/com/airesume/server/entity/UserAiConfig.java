@@ -55,16 +55,27 @@ public class UserAiConfig extends BaseEntity {
     @TableField("verification_status")
     private String verificationStatus;
 
-    /** TTS 预留字段，本期不暴露前端也不参与调用。 */
+    /** OpenAI 兼容 TTS 地址，本轮仅用于用户配置和连通测试，不切换面试播报主链路。 */
     @TableField("tts_base_url")
     private String ttsBaseUrl;
 
+    /** AES/GCM 加密后的 TTS API Key。 */
     @TableField("tts_api_key")
     private String ttsApiKey;
 
+    /** TTS 模型标识。 */
     @TableField("tts_model")
     private String ttsModel;
 
+    /** TTS 音色 ID。 */
     @TableField("tts_voice_id")
     private String ttsVoiceId;
+
+    /** TTS 合成端点路径，由发现接口自动探测并存入（如 /audio/speech、/v1/tts）。 */
+    @TableField("tts_endpoint_path")
+    private String ttsEndpointPath;
+
+    /** TTS 提供商标识：openai/mimo，NULL 或空按 OpenAI 兜底。 */
+    @TableField("tts_provider")
+    private String ttsProvider;
 }

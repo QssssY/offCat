@@ -14,6 +14,7 @@ import com.airesume.server.service.AdminDashboardService;
 import com.airesume.server.service.AdminUserRightsService;
 import com.airesume.server.service.AiCredentialCrypto;
 import com.airesume.server.service.AiEngineConnectivityTestService;
+import com.airesume.server.service.AiModelDiscoveryService;
 import com.airesume.server.service.SysAiEngineConfigService;
 import com.airesume.server.service.SysConfigService;
 import com.airesume.server.service.SysJobRoleService;
@@ -64,6 +65,7 @@ class AdminControllerTest {
     @Mock private AdminUserRightsService adminUserRightsService;
     @Mock private SysAiEngineConfigService sysAiEngineConfigService;
     @Mock private AiEngineConnectivityTestService aiEngineConnectivityTestService;
+    @Mock private AiModelDiscoveryService aiModelDiscoveryService;
     @Mock private SysPromptService sysPromptService;
     @Mock private SysJobRoleService sysJobRoleService;
     @Mock private SysConfigService sysConfigService;
@@ -85,6 +87,7 @@ class AdminControllerTest {
                 adminUserRightsService,
                 sysAiEngineConfigService,
                 aiEngineConnectivityTestService,
+                aiModelDiscoveryService,
                 sysPromptService,
                 sysJobRoleService,
                 sysConfigService,
