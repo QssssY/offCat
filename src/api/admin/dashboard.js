@@ -1,6 +1,19 @@
 import adminRequest from '@/utils/adminRequest'
 
 /**
+ * 获取管理端看板聚合数据。
+ * @param {{startDate?: string, endDate?: string, limit?: number}} params
+ * @returns {Promise}
+ */
+export function getAdminDashboardSummary(params = {}) {
+  return adminRequest({
+    url: '/api/admin/dashboard/summary',
+    method: 'get',
+    params
+  })
+}
+
+/**
  * 获取管理端总览统计。
  * @param {{startDate?: string, endDate?: string}} params
  * @returns {Promise}

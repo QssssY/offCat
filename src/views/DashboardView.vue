@@ -132,7 +132,7 @@
         <div class="column-header">
           <div class="header-left">
             <div class="header-icon resume">
-              <FeatureIcon name="resume-analysis" size="sm" />
+              <FeatureIcon name="resume-analysis" size="md" />
             </div>
             <h3 class="column-title">最近简历诊断</h3>
           </div>
@@ -153,7 +153,7 @@
             >
               <div class="record-left">
                 <div class="file-icon">
-                  <FeatureIcon name="resume-analysis" size="xs" />
+                  <FeatureIcon name="resume-analysis" size="sm" />
                 </div>
                 <div class="record-info">
                   <div class="record-name">{{ record.fileName }}</div>
@@ -181,7 +181,7 @@
         <div class="column-header">
           <div class="header-left">
             <div class="header-icon interview">
-              <FeatureIcon name="mock-interview" size="sm" />
+              <FeatureIcon name="mock-interview" size="md" />
             </div>
             <h3 class="column-title">最近模拟面试</h3>
           </div>
@@ -202,7 +202,7 @@
             >
               <div class="record-left">
                 <div class="interview-icon-wrap">
-                  <FeatureIcon name="ai-interviewer" size="xs" />
+                  <FeatureIcon name="ai-interviewer" size="sm" />
                 </div>
                 <div class="record-info">
                   <div class="record-name">{{ record.jobRole }}</div>
@@ -1084,9 +1084,6 @@ const viewAllInterview = () => {
 }
 
 .header-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1098,12 +1095,10 @@ const viewAllInterview = () => {
 }
 
 .header-icon.resume {
-  background: var(--orange-light-bg);
   color: var(--orange-main);
 }
 
 .header-icon.interview {
-  background: var(--orange-light-bg);
   color: var(--orange-deep);
 }
 
@@ -1191,10 +1186,6 @@ const viewAllInterview = () => {
 
 .file-icon,
 .interview-icon-wrap {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  background: var(--orange-light-bg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1203,8 +1194,6 @@ const viewAllInterview = () => {
 
 .file-icon svg,
 .interview-icon-wrap svg {
-  width: 18px;
-  height: 18px;
   color: var(--orange-main);
 }
 
@@ -1586,9 +1575,6 @@ const viewAllInterview = () => {
   }
   .file-icon,
   .interview-icon-wrap {
-    width: 30px;
-    height: 30px;
-    border-radius: 6px;
     flex-shrink: 0;
   }
   .file-icon svg,

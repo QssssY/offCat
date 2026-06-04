@@ -196,10 +196,7 @@ ChartJS.register(
 );
 
 import {
-  getAdminDashboardBusinessDistribution,
-  getAdminDashboardHotJobRoles,
-  getAdminDashboardOverview,
-  getAdminDashboardTrends,
+  getAdminDashboardSummary,
 } from "@/api/admin/dashboard";
 
 const loading = ref(false);
@@ -261,6 +258,28 @@ const businessDistribution = reactive({
   jdMatchPercent: 0,
   communityPercent: 0,
 });
+
+const applyDashboardSummary = (summaryData = {}) => {
+  const od = summaryData.overview || {};
+  overview.totalUserCount = Number(od.totalUserCount ?? 0);
+  overview.vipUserCount = Number(od.vipUserCount ?? 0);
+  overview.activePromptCount = Number(od.activePromptCount ?? 0);
+  overview.activeJobRoleCount = Number(od.activeJobRoleCount ?? 0);
+  overview.activeAiEngineCount = Number(od.activeAiEngineCount ?? 0);
+  overview.todayInterviewSessionCount = Number(od.todayInterviewSessionCount ?? 0);
+  overview.todayResumeDiagnosisCount = Number(od.todayResumeDiagnosisCount ?? 0);
+  overview.feedbackCount = Number(od.feedbackCount ?? 0);
+  overview.communityPostCount = Number(od.communityPostCount ?? 0);
+  overview.resumePolishCount = Number(od.resumePolishCount ?? 0);
+  overview.jdMatchCount = Number(od.jdMatchCount ?? 0);
+  overview.orderCount = Number(od.orderCount ?? 0);
+  overview.orderRevenue = Number(od.orderRevenue ?? 0);
+  trends.value = Array.isArray(summaryData.trends) ? summaryData.trends : [];
+  hotJobRoles.value = Array.isArray(summaryData.hotJobRoles)
+    ? summaryData.hotJobRoles
+    : [];
+  Object.assign(businessDistribution, summaryData.businessDistribution || {});
+};
 
 // 格式化收入金额
 const formatRevenue = (val) => {
@@ -574,39 +593,14 @@ const loadDashboardData = async () => {
   if (!validateFilters()) return;
   loading.value = true;
   errorMessage.value = "";
-  const commonParams = { ...dateParams.value };
 
   try {
-    const [overviewRes, trendsRes, hotRolesRes, distributionRes] =
-      await Promise.all([
-        getAdminDashboardOverview(commonParams),
-        getAdminDashboardTrends(commonParams),
-        getAdminDashboardHotJobRoles({
-          ...commonParams,
-          limit: filters.hotLimit,
-        }),
-        getAdminDashboardBusinessDistribution(commonParams),
-      ]);
-
-    const od = overviewRes?.data || {};
-    overview.totalUserCount = Number(od.totalUserCount ?? 0);
-    overview.vipUserCount = Number(od.vipUserCount ?? 0);
-    overview.activePromptCount = Number(od.activePromptCount ?? 0);
-    overview.activeJobRoleCount = Number(od.activeJobRoleCount ?? 0);
-    overview.activeAiEngineCount = Number(od.activeAiEngineCount ?? 0);
-    overview.todayInterviewSessionCount = Number(od.todayInterviewSessionCount ?? 0);
-    overview.todayResumeDiagnosisCount = Number(od.todayResumeDiagnosisCount ?? 0);
-    overview.feedbackCount = Number(od.feedbackCount ?? 0);
-    overview.communityPostCount = Number(od.communityPostCount ?? 0);
-    overview.resumePolishCount = Number(od.resumePolishCount ?? 0);
-    overview.jdMatchCount = Number(od.jdMatchCount ?? 0);
-    overview.orderCount = Number(od.orderCount ?? 0);
-    overview.orderRevenue = Number(od.orderRevenue ?? 0);
-    trends.value = Array.isArray(trendsRes?.data) ? trendsRes.data : [];
-    hotJobRoles.value = Array.isArray(hotRolesRes?.data)
-      ? hotRolesRes.data
-      : [];
-    Object.assign(businessDistribution, distributionRes?.data || {});
+    // 看板首屏使用后端聚合接口，避免路由进入或筛选时同时打四个统计接口。
+    const summaryRes = await getAdminDashboardSummary({
+      ...dateParams.value,
+      limit: filters.hotLimit,
+    });
+    applyDashboardSummary(summaryRes?.data || {});
   } catch (error) {
     errorMessage.value = error?.message || "加载管理端看板数据失败";
   } finally {

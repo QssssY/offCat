@@ -535,7 +535,7 @@ describe('SettingsView', () => {
     await flushPromises()
     const source = settingsViewSource()
 
-    expect(source).toContain('min-height: calc(100dvh - 178px)')
+    expect(source).toContain('min-height: calc(100dvh - var(--header-height, 82px) - 96px)')
     expect(source).toContain('.settings-workspace')
     expect(source).toContain('.settings-panel-body')
     expect(source).toContain('.settings-fill-note')

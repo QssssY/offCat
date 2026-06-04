@@ -13,26 +13,26 @@
       </button>
     </div>
 
-    <!-- 加载状态 -->
-    <div v-if="loading" class="log-loading">
+    <!-- 加载状态（首次加载） -->
+    <div v-if="loading && records.length === 0" class="log-loading">
       <div class="loading-spinner"></div>
       <span>加载消费记录...</span>
     </div>
 
     <!-- 空状态 -->
-    <div v-else-if="records.length === 0" class="log-empty">
+    <div v-else-if="records.length === 0 && !loading" class="log-empty">
       <FeatureIcon name="empty-state" size="sm" />
       <span>暂无消费记录</span>
     </div>
 
     <!-- 记录列表 -->
-    <div v-else class="log-list">
+    <div v-if="records.length > 0" class="log-list">
       <div v-for="item in records" :key="item.id" class="log-item">
         <!-- 左侧：类型图标+名称 -->
         <div class="log-left">
-          <div class="log-type-badge" :class="'type-' + item.quotaType">
-            {{ item.quotaTypeName?.charAt(0) || '?' }}
-          </div>
+          <el-icon class="log-type-icon" :style="{ color: typeColorMap[item.quotaType] || '#999' }" :size="28">
+            <component :is="typeIconMap[item.quotaType] || Document" />
+          </el-icon>
           <div class="log-detail">
             <div class="log-type-name">{{ item.quotaTypeName }}</div>
             <div class="log-meta">
@@ -51,26 +51,50 @@
       </div>
     </div>
 
-    <!-- 分页器 -->
-    <div v-if="total > pageSize" class="log-pagination">
-      <el-pagination
-        v-model:current-page="currentPage"
-        :page-size="pageSize"
-        :total="total"
-        layout="prev, pager, next"
-        small
-        @current-change="onPageChange"
-      />
+    <!-- 加载更多 / 到底提示 -->
+    <div v-if="records.length > 0" class="log-footer">
+      <span class="log-total">已加载 {{ records.length }} / {{ total }} 条</span>
+      <button
+        v-if="hasMore"
+        class="load-more-btn"
+        :disabled="loadingMore"
+        @click="loadMore"
+      >
+        <div v-if="loadingMore" class="loading-spinner small"></div>
+        {{ loadingMore ? '加载中...' : '加载更多' }}
+      </button>
+      <span v-else-if="records.length >= total" class="log-end">没有更多了</span>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, markRaw } from 'vue'
 import { getConsumptionLog } from '@/api/quota'
 import FeatureIcon from '@/components/common/FeatureIcon.vue'
+import { Headset, Document, EditPen, Position, Files, Suitcase } from '@element-plus/icons-vue'
 
 defineOptions({ name: 'ConsumptionLogPanel' })
+
+/** 额度类型 → Element Plus 图标组件映射 */
+const typeIconMap = {
+  INTERVIEW: markRaw(Headset),
+  RESUME: markRaw(Document),
+  POLISH: markRaw(EditPen),
+  JD_MATCH: markRaw(Position),
+  TEMPLATE: markRaw(Files),
+  OFFER: markRaw(Suitcase),
+}
+
+/** 额度类型 → 图标颜色映射（无底色，仅图标着色） */
+const typeColorMap = {
+  INTERVIEW: '#FF8C42',
+  RESUME: '#E67A35',
+  POLISH: '#5B8DEF',
+  JD_MATCH: '#3ABAB4',
+  TEMPLATE: '#7B68EE',
+  OFFER: '#E667AF',
+}
 
 /** 额度类型筛选选项 */
 const typeOptions = [
@@ -91,45 +115,97 @@ const currentPage = ref(1)
 const pageSize = 20
 /** 总记录数 */
 const total = ref(0)
-/** 消费记录列表 */
+/** 消费记录列表（追加模式） */
 const records = ref([])
-/** 加载状态 */
+/** 首次加载状态 */
 const loading = ref(false)
+/** 加载更多状态 */
+const loadingMore = ref(false)
+/** 是否还有更多数据 */
+const hasMore = computed(() => records.value.length < total.value)
+/** 列表请求版本号：筛选切换会让旧响应失效，避免异步结果串入新列表 */
+let listRequestVersion = 0
+/** 追加请求版本号：筛选重载或再次追加会让旧追加响应失效 */
+let loadMoreRequestVersion = 0
 
-/** 获取消费记录 */
+/** 首次获取消费记录 */
 const fetchLogs = async () => {
+  const requestVersion = ++listRequestVersion
+  const requestType = activeType.value
+  loadMoreRequestVersion++
   loading.value = true
+  loadingMore.value = false
   try {
     const params = {
-      pageNum: currentPage.value,
+      pageNum: 1,
       pageSize,
     }
-    if (activeType.value) {
-      params.quotaType = activeType.value
+    if (requestType) {
+      params.quotaType = requestType
     }
     const res = await getConsumptionLog(params)
+    if (requestVersion !== listRequestVersion || requestType !== activeType.value) {
+      return
+    }
     const data = res.data
     records.value = data?.list || []
     total.value = data?.total || 0
+    currentPage.value = 1
   } catch {
+    if (requestVersion !== listRequestVersion || requestType !== activeType.value) {
+      return
+    }
     records.value = []
     total.value = 0
   } finally {
-    loading.value = false
+    if (requestVersion === listRequestVersion && requestType === activeType.value) {
+      loading.value = false
+    }
   }
 }
 
-/** 类型切换时重置页码并重新加载 */
+/** 加载更多（追加到现有列表） */
+const loadMore = async () => {
+  if (loadingMore.value || !hasMore.value) return
+  const requestVersion = listRequestVersion
+  const requestType = activeType.value
+  const loadRequestVersion = ++loadMoreRequestVersion
+  loadingMore.value = true
+  try {
+    const nextPage = currentPage.value + 1
+    const params = {
+      pageNum: nextPage,
+      pageSize,
+    }
+    if (requestType) {
+      params.quotaType = requestType
+    }
+    const res = await getConsumptionLog(params)
+    if (
+      requestVersion !== listRequestVersion ||
+      loadRequestVersion !== loadMoreRequestVersion ||
+      requestType !== activeType.value
+    ) {
+      return
+    }
+    const data = res.data
+    const newRecords = data?.list || []
+    records.value = [...records.value, ...newRecords]
+    total.value = data?.total || 0
+    currentPage.value = nextPage
+  } catch {
+    // 追加失败时保持现有数据不变
+  } finally {
+    if (loadRequestVersion === loadMoreRequestVersion) {
+      loadingMore.value = false
+    }
+  }
+}
+
+/** 类型切换时重置并重新加载 */
 watch(activeType, () => {
-  currentPage.value = 1
   fetchLogs()
 })
-
-/** 页码切换 */
-const onPageChange = (page) => {
-  currentPage.value = page
-  fetchLogs()
-}
 
 /** 时间格式化 */
 const formatTime = (timeStr) => {
@@ -252,25 +328,13 @@ onMounted(() => {
   flex: 1;
 }
 
-.log-type-badge {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
+/* 类型图标 — 无底色无边框，纯彩色图标 */
+.log-type-icon {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
-  font-weight: 600;
-  flex-shrink: 0;
-  color: #fff;
 }
-
-.type-INTERVIEW { background: var(--orange-main); }
-.type-RESUME { background: var(--orange-deep); }
-.type-POLISH { background: #5B8DEF; }
-.type-JD_MATCH { background: #3ABAB4; }
-.type-TEMPLATE { background: #7B68EE; }
-.type-OFFER { background: #E667AF; }
 
 .log-detail {
   min-width: 0;
@@ -327,11 +391,55 @@ onMounted(() => {
   color: var(--text-placeholder);
 }
 
-/* 分页 */
-.log-pagination {
+/* 底部：加载更多 / 到底提示 */
+.log-footer {
   display: flex;
+  align-items: center;
   justify-content: center;
-  padding-top: 8px;
+  gap: 16px;
+  padding-top: 12px;
+}
+
+.log-total {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.load-more-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 24px;
+  border: 1px solid var(--border-card);
+  border-radius: 20px;
+  background: var(--bg-card);
+  font-size: 13px;
+  color: var(--text-body);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.load-more-btn:hover:not(:disabled) {
+  border-color: var(--orange-main);
+  color: var(--orange-main);
+}
+
+.load-more-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.loading-spinner.small {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+}
+
+.log-end {
+  font-size: 12px;
+  color: var(--text-placeholder);
 }
 
 /* 响应式 */
@@ -346,10 +454,8 @@ onMounted(() => {
   .log-item {
     padding: 12px 10px;
   }
-  .log-type-badge {
-    width: 30px;
-    height: 30px;
-    font-size: 12px;
+  .log-type-icon {
+    font-size: 22px !important;
   }
   .log-type-name {
     font-size: 13px;

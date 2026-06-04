@@ -621,10 +621,6 @@ onMounted(() => {
 }
 
 .header-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
-  background: linear-gradient(135deg, var(--orange-light-bg) 0%, rgba(255, 140, 66, 0.08) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -696,10 +692,6 @@ onMounted(() => {
 }
 
 .error-icon-wrapper {
-  width: 80px;
-  height: 80px;
-  border-radius: 20px;
-  background: linear-gradient(135deg, var(--tag-bg-danger) 0%, rgba(245, 108, 108, 0.08) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -726,10 +718,6 @@ onMounted(() => {
 }
 
 .empty-icon-wrapper {
-  width: 80px;
-  height: 80px;
-  border-radius: 20px;
-  background: linear-gradient(135deg, #fff3e8 0%, #ffe0c8 100%);
   display: flex;
   align-items: center;
   justify-content: center;

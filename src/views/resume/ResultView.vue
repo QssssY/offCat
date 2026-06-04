@@ -670,7 +670,8 @@ const polishTemplateText = computed(() =>
   ''
 )
 const PENDING_POLL_INTERVAL = 3000
-const PROCESSING_POLL_INTERVAL = 2000
+// AI 分析阶段通常耗时更长，放慢轮询以减少状态接口噪音；排队阶段仍保持 3 秒响应速度。
+const PROCESSING_POLL_INTERVAL = 6000
 const POLL_MAX_ROUNDS = 90
 const pollTimeout = ref(false)
 
