@@ -45,17 +45,20 @@ public class AdminUserRightsServiceImpl implements AdminUserRightsService {
     public UserRightsResponse getUserRights(Long userId) {
         SysUser user = getExistingUser(userId);
 
-        // 复用与用户侧 /me 接口一致的额度计算语义。
-        // 同时确保管理员读取权益详情前，缺失的额度记录会被初始化。
-        int resumeQuota = userQuotaService.getRemainingResumeQuota(userId);
-        int interviewQuota = userQuotaService.getRemainingInterviewQuota(userId);
-        // 会员有效性要统一复用服务层判断，避免列表页和详情页判定口径不一致。
-        boolean vipActive = sysUserService.isVipUser(userId);
-
+        // 管理端详情只需要一次额度查询；刷新后直接复用同一个对象，避免重复查 quota。
         UserQuota userQuota = userQuotaService.getByUserId(userId);
         if (userQuota == null) {
             throw new BusinessException("用户额度记录不存在");
         }
+        userQuotaService.refreshDailyQuotaIfNeeded(userId, userQuota);
+        int resumeQuota = Math.max(0, safeValue(userQuota.getResumeQuota()));
+        int interviewQuota = Math.max(0, safeValue(userQuota.getInterviewQuota()));
+
+        // 会员有效性直接基于已读取的用户快照判断，避免再次查询 sys_user。
+        boolean vipActive = user.getRole() != null
+                && user.getRole() == UserRoleConstants.ROLE_VIP
+                && user.getVipExpireTime() != null
+                && user.getVipExpireTime().isAfter(LocalDateTime.now());
 
         return UserRightsResponse.builder()
                 .userId(user.getId())

@@ -5,6 +5,7 @@ import com.airesume.server.dto.membership.MembershipUpgradeRequest;
 import com.airesume.server.entity.MembershipOrder;
 import com.airesume.server.entity.MembershipPlan;
 import com.airesume.server.entity.SysUser;
+import com.airesume.server.entity.UserQuota;
 import com.airesume.server.service.MembershipOrderService;
 import com.airesume.server.service.MembershipPlanService;
 import com.airesume.server.service.SysUserService;
@@ -84,8 +85,7 @@ class MembershipServiceImplTest {
 
         when(membershipPlanService.getActiveByCode("vip_pro")).thenReturn(plan);
         when(sysUserService.getById(99L)).thenReturn(user);
-        when(userQuotaService.getRemainingResumeQuota(99L)).thenReturn(16);
-        when(userQuotaService.getRemainingInterviewQuota(99L)).thenReturn(28);
+        when(userQuotaService.getByUserId(99L)).thenReturn(quota(99L, 16, 28));
 
         membershipService.mockUpgrade(99L, request);
 
@@ -93,6 +93,37 @@ class MembershipServiceImplTest {
         verify(membershipOrderService).save(captor.capture());
         assertEquals(16, captor.getValue().getGrantedResumeQuota());
         assertEquals(28, captor.getValue().getGrantedInterviewQuota());
+    }
+
+    @Test
+    void mockUpgradeShouldReadUpdatedQuotaOnceAfterCacheEvictingWrites() {
+        MembershipPlan plan = plan(10L, "vip_pro", "Pro Plan", "Pro intro", 16, 28);
+        plan.setBonusResumeQuota(2);
+        SysUser user = new SysUser();
+        user.setId(99L);
+        user.setRole(0);
+        user.setStatus(MembershipConstants.PLAN_STATUS_ENABLED);
+        user.setVipExpireTime(LocalDateTime.now().minusDays(1));
+        MembershipUpgradeRequest request = new MembershipUpgradeRequest();
+        request.setPlanCode("vip_pro");
+
+        UserQuota updatedQuota = new UserQuota();
+        updatedQuota.setUserId(99L);
+        updatedQuota.setResumeQuota(18);
+        updatedQuota.setInterviewQuota(28);
+
+        when(membershipPlanService.getActiveByCode("vip_pro")).thenReturn(plan);
+        when(sysUserService.getById(99L)).thenReturn(user);
+        when(userQuotaService.getByUserId(99L)).thenReturn(updatedQuota);
+
+        var response = membershipService.mockUpgrade(99L, request);
+
+        assertEquals(18, response.getResumeQuota());
+        assertEquals(28, response.getInterviewQuota());
+        verify(userQuotaService).getByUserId(99L);
+        verify(userQuotaService).refreshDailyQuotaIfNeeded(99L, updatedQuota);
+        verify(userQuotaService, never()).getRemainingResumeQuota(99L);
+        verify(userQuotaService, never()).getRemainingInterviewQuota(99L);
     }
 
     @Test
@@ -110,12 +141,19 @@ class MembershipServiceImplTest {
         when(membershipPlanService.getActiveByCode("vip_pro")).thenReturn(plan);
         when(membershipPlanService.getByPlanCode("vip_pro")).thenReturn(plan);
         when(sysUserService.getById(99L)).thenReturn(user);
-        when(userQuotaService.getRemainingResumeQuota(99L)).thenReturn(16);
-        when(userQuotaService.getRemainingInterviewQuota(99L)).thenReturn(28);
+        when(userQuotaService.getByUserId(99L)).thenReturn(quota(99L, 16, 28));
 
         membershipService.mockUpgrade(99L, request);
 
         verify(userQuotaService, never()).resetCycleQuota(99L);
+    }
+
+    private static UserQuota quota(Long userId, Integer resumeQuota, Integer interviewQuota) {
+        UserQuota quota = new UserQuota();
+        quota.setUserId(userId);
+        quota.setResumeQuota(resumeQuota);
+        quota.setInterviewQuota(interviewQuota);
+        return quota;
     }
 
     private static MembershipPlan plan(Long id,

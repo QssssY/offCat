@@ -738,6 +738,81 @@ class InterviewServiceTest {
     }
 
     @Test
+    void shouldKeepUsingPlatformAfterFallbackSessionAlreadyMarkedWithoutRequestFlag() {
+        String sessionId = "session-platform-fallback-locked";
+        Long userId = 123L;
+        SendMessageRequest request = new SendMessageRequest();
+        request.setContent("continue after fallback");
+        InterviewSession session = buildInProgressSession(sessionId, userId);
+        session.setAiBillingSource(UserAiConstants.BILLING_SOURCE_PLATFORM_FALLBACK);
+
+        when(interviewSessionMapper.selectOne(any())).thenReturn(session);
+        when(interviewMessageService.getMessageList(sessionId)).thenReturn(List.of());
+        when(interviewAiService.generateReply(
+                eq(sessionId),
+                anyList(),
+                eq(request.getContent()),
+                eq(session.getJobRoleCode()),
+                eq(session.getJobRole()),
+                eq(session.getDifficulty()),
+                any(),
+                eq("after_interview"),
+                eq("normal"),
+                eq(0),
+                eq(userId),
+                eq(true)
+        )).thenReturn("platform locked reply");
+
+        SendMessageResponse response = interviewService.sendMessage(userId, sessionId, request);
+
+        assertEquals("platform locked reply", response.getReplyContent());
+        verify(userQuotaService, never()).deductInterviewQuota(anyLong());
+        verify(userAiUsageLimitService, never()).checkAndIncrement(anyLong(), anyString());
+        verify(interviewSessionMapper, never()).markPlatformFallbackBillingIfCustom(
+                anyString(),
+                anyLong(),
+                anyString(),
+                any(LocalDateTime.class));
+    }
+
+    @Test
+    void shouldKeepPlatformSessionOnPlatformEvenWhenUserHasCustomAiConfig() {
+        String sessionId = "session-platform-locked";
+        Long userId = 123L;
+        SendMessageRequest request = new SendMessageRequest();
+        request.setContent("continue platform session");
+        InterviewSession session = buildInProgressSession(sessionId, userId);
+        session.setAiBillingSource(UserAiConstants.BILLING_SOURCE_PLATFORM);
+
+        lenient().when(userAiConfigResolver.resolve(userId, "interview", false))
+                .thenReturn(ResolvedAiConfig.builder().configType("interview").build());
+        when(interviewSessionMapper.selectOne(any())).thenReturn(session);
+        when(interviewMessageService.getMessageList(sessionId)).thenReturn(List.of());
+        when(interviewAiService.generateReply(
+                eq(sessionId),
+                anyList(),
+                eq(request.getContent()),
+                eq(session.getJobRoleCode()),
+                eq(session.getJobRole()),
+                eq(session.getDifficulty()),
+                any(),
+                eq("after_interview"),
+                eq("normal"),
+                eq(0),
+                eq(userId),
+                eq(true)
+        )).thenReturn("platform session reply");
+
+        SendMessageResponse response = interviewService.sendMessage(userId, sessionId, request);
+
+        assertEquals("platform session reply", response.getReplyContent());
+        verify(userAiConfigResolver).resolve(userId, "interview", true);
+        verify(userAiConfigResolver, never()).resolve(userId, "interview", false);
+        verify(userAiUsageLimitService, never()).checkAndIncrement(anyLong(), anyString());
+        verify(userQuotaService, never()).deductInterviewQuota(anyLong());
+    }
+
+    @Test
     void shouldSaveVoiceInteractionTypeWhenCreatingSession() {
         CreateSessionRequest request = buildCreateRequest();
         request.setInteractionType(1);

@@ -2,6 +2,7 @@ package com.airesume.server.service.impl;
 
 import com.airesume.server.common.constants.QuotaConstants;
 import com.airesume.server.common.exception.BusinessException;
+import com.airesume.server.entity.MembershipPlan;
 import com.airesume.server.entity.UserQuota;
 import com.airesume.server.mapper.ResumePolishRecordMapper;
 import com.airesume.server.mapper.UserQuotaMapper;
@@ -40,20 +41,247 @@ class UserQuotaServiceImplAtomicDeductionTest {
 
     private TestableUserQuotaService createService(Long userId, boolean vipUser) {
         SysUserService sysUserService = mock(SysUserService.class);
-        when(sysUserService.isVipUser(userId)).thenReturn(vipUser);
         if (vipUser) {
-            lenient().when(sysUserService.getVipDailyResumeLimit(userId)).thenReturn(QuotaConstants.VIP_USER_DAILY_RESUME_LIMIT);
-            lenient().when(sysUserService.getVipDailyInterviewLimit(userId)).thenReturn(QuotaConstants.VIP_USER_DAILY_INTERVIEW_LIMIT);
+            MembershipPlan plan = new MembershipPlan();
+            plan.setResumeQuota(QuotaConstants.VIP_USER_DAILY_RESUME_LIMIT);
+            plan.setInterviewQuota(QuotaConstants.VIP_USER_DAILY_INTERVIEW_LIMIT);
+            when(sysUserService.getActiveMembershipPlan(userId)).thenReturn(plan);
         }
 
+        return createService(sysUserService, mock(ResumePolishRecordMapper.class), userId);
+    }
+
+    private TestableUserQuotaService createService(SysUserService sysUserService,
+                                                   ResumePolishRecordMapper polishRecordMapper,
+                                                   Long userId) {
         UserQuota quota = new UserQuota();
         quota.setUserId(userId);
         quota.setLastRefreshDate(LocalDate.now());
 
-        TestableUserQuotaService service = spy(new TestableUserQuotaService(sysUserService, mock(ResumePolishRecordMapper.class), quota));
+        return createService(sysUserService, polishRecordMapper, quota);
+    }
+
+    private TestableUserQuotaService createService(SysUserService sysUserService,
+                                                   ResumePolishRecordMapper polishRecordMapper,
+                                                   UserQuota quota) {
+        TestableUserQuotaService service = spy(new TestableUserQuotaService(sysUserService, polishRecordMapper, quota));
         ReflectionTestUtils.setField(service, "baseMapper", userQuotaMapper);
         ReflectionTestUtils.setField(service, "self", service);
         return service;
+    }
+
+    private MembershipPlan createFeaturePlan() {
+        MembershipPlan plan = new MembershipPlan();
+        plan.setDailyPolishLimit(6);
+        plan.setTotalPolishQuota(20);
+        plan.setDailyJdMatchLimit(7);
+        plan.setTotalJdMatchQuota(21);
+        plan.setDailyTemplateLimit(8);
+        plan.setTotalTemplateQuota(22);
+        plan.setDailyOfferLimit(9);
+        plan.setTotalOfferQuota(23);
+        return plan;
+    }
+
+    private MembershipPlan createResumeInterviewPlan() {
+        MembershipPlan plan = new MembershipPlan();
+        plan.setResumeQuota(13);
+        plan.setInterviewQuota(11);
+        return plan;
+    }
+
+    private SysUserService createLegacyCompatibleVipService(MembershipPlan plan) {
+        SysUserService sysUserService = mock(SysUserService.class);
+        when(sysUserService.getActiveMembershipPlan(VIP_USER_ID)).thenReturn(plan);
+
+        // 旧实现会分散查询 VIP 身份、每日额度和周期额度；新实现应只读取一次生效套餐。
+        lenient().when(sysUserService.isVipUser(VIP_USER_ID)).thenReturn(true);
+        lenient().when(sysUserService.getVipDailyPolishLimit(VIP_USER_ID)).thenReturn(plan.getDailyPolishLimit());
+        lenient().when(sysUserService.getVipDailyJdMatchLimit(VIP_USER_ID)).thenReturn(plan.getDailyJdMatchLimit());
+        lenient().when(sysUserService.getVipDailyTemplateLimit(VIP_USER_ID)).thenReturn(plan.getDailyTemplateLimit());
+        lenient().when(sysUserService.getVipDailyOfferLimit(VIP_USER_ID)).thenReturn(plan.getDailyOfferLimit());
+        lenient().when(sysUserService.getVipCycleLimit(VIP_USER_ID, "polish")).thenReturn(plan.getTotalPolishQuota());
+        lenient().when(sysUserService.getVipCycleLimit(VIP_USER_ID, "jd_match")).thenReturn(plan.getTotalJdMatchQuota());
+        lenient().when(sysUserService.getVipCycleLimit(VIP_USER_ID, "template")).thenReturn(plan.getTotalTemplateQuota());
+        lenient().when(sysUserService.getVipCycleLimit(VIP_USER_ID, "offer")).thenReturn(plan.getTotalOfferQuota());
+        return sysUserService;
+    }
+
+    @Test
+    @DisplayName("VIP AI润色配额扣减应该只查询一次生效套餐")
+    void shouldUseActiveMembershipPlanOnceWhenDeductingPolishQuotaForVipUser() {
+        MembershipPlan plan = createFeaturePlan();
+        SysUserService sysUserService = createLegacyCompatibleVipService(plan);
+        ResumePolishRecordMapper polishRecordMapper = mock(ResumePolishRecordMapper.class);
+        when(polishRecordMapper.selectCount(any())).thenReturn(0L);
+        TestableUserQuotaService service = createService(sysUserService, polishRecordMapper, VIP_USER_ID);
+        when(userQuotaMapper.consumeVipDailyPolishQuotaAtomic(VIP_USER_ID, 6, 20)).thenReturn(1);
+
+        service.checkAndDeductPolishQuota(VIP_USER_ID, 1001L);
+
+        verify(sysUserService).getActiveMembershipPlan(VIP_USER_ID);
+        verify(sysUserService, never()).isVipUser(VIP_USER_ID);
+        verify(sysUserService, never()).getVipDailyPolishLimit(VIP_USER_ID);
+        verify(sysUserService, never()).getVipCycleLimit(VIP_USER_ID, "polish");
+        verify(userQuotaMapper).consumeVipDailyPolishQuotaAtomic(VIP_USER_ID, 6, 20);
+    }
+
+    @Test
+    @DisplayName("VIP JD匹配配额扣减应该只查询一次生效套餐")
+    void shouldUseActiveMembershipPlanOnceWhenDeductingJdMatchQuotaForVipUser() {
+        MembershipPlan plan = createFeaturePlan();
+        SysUserService sysUserService = createLegacyCompatibleVipService(plan);
+        TestableUserQuotaService service = createService(sysUserService, mock(ResumePolishRecordMapper.class), VIP_USER_ID);
+        when(userQuotaMapper.consumeVipDailyJdMatchQuotaAtomic(VIP_USER_ID, 7, 21)).thenReturn(1);
+
+        service.checkAndDeductJdMatchQuota(VIP_USER_ID);
+
+        verify(sysUserService).getActiveMembershipPlan(VIP_USER_ID);
+        verify(sysUserService, never()).isVipUser(VIP_USER_ID);
+        verify(sysUserService, never()).getVipDailyJdMatchLimit(VIP_USER_ID);
+        verify(sysUserService, never()).getVipCycleLimit(VIP_USER_ID, "jd_match");
+        verify(userQuotaMapper).consumeVipDailyJdMatchQuotaAtomic(VIP_USER_ID, 7, 21);
+    }
+
+    @Test
+    @DisplayName("VIP 模板配额扣减应该只查询一次生效套餐")
+    void shouldUseActiveMembershipPlanOnceWhenDeductingTemplateQuotaForVipUser() {
+        MembershipPlan plan = createFeaturePlan();
+        SysUserService sysUserService = createLegacyCompatibleVipService(plan);
+        TestableUserQuotaService service = createService(sysUserService, mock(ResumePolishRecordMapper.class), VIP_USER_ID);
+        when(userQuotaMapper.consumeVipDailyTemplateQuotaAtomic(VIP_USER_ID, 8, 22)).thenReturn(1);
+
+        service.checkAndDeductTemplateQuota(VIP_USER_ID);
+
+        verify(sysUserService).getActiveMembershipPlan(VIP_USER_ID);
+        verify(sysUserService, never()).isVipUser(VIP_USER_ID);
+        verify(sysUserService, never()).getVipDailyTemplateLimit(VIP_USER_ID);
+        verify(sysUserService, never()).getVipCycleLimit(VIP_USER_ID, "template");
+        verify(userQuotaMapper).consumeVipDailyTemplateQuotaAtomic(VIP_USER_ID, 8, 22);
+    }
+
+    @Test
+    @DisplayName("VIP Offer配额扣减应该只查询一次生效套餐")
+    void shouldUseActiveMembershipPlanOnceWhenDeductingOfferQuotaForVipUser() {
+        MembershipPlan plan = createFeaturePlan();
+        SysUserService sysUserService = createLegacyCompatibleVipService(plan);
+        TestableUserQuotaService service = createService(sysUserService, mock(ResumePolishRecordMapper.class), VIP_USER_ID);
+        when(userQuotaMapper.consumeVipDailyOfferQuotaAtomic(VIP_USER_ID, 9, 23)).thenReturn(1);
+
+        service.checkAndDeductOfferQuota(VIP_USER_ID);
+
+        verify(sysUserService).getActiveMembershipPlan(VIP_USER_ID);
+        verify(sysUserService, never()).isVipUser(VIP_USER_ID);
+        verify(sysUserService, never()).getVipDailyOfferLimit(VIP_USER_ID);
+        verify(sysUserService, never()).getVipCycleLimit(VIP_USER_ID, "offer");
+        verify(userQuotaMapper).consumeVipDailyOfferQuotaAtomic(VIP_USER_ID, 9, 23);
+    }
+
+    @Test
+    @DisplayName("VIP 面试额度检查应该只查询一次生效套餐")
+    void shouldUseActiveMembershipPlanOnceWhenCheckingInterviewQuotaForVipUser() {
+        MembershipPlan plan = createResumeInterviewPlan();
+        SysUserService sysUserService = mock(SysUserService.class);
+        when(sysUserService.getActiveMembershipPlan(VIP_USER_ID)).thenReturn(plan);
+        lenient().when(sysUserService.isVipUser(VIP_USER_ID)).thenReturn(true);
+        lenient().when(sysUserService.getVipDailyInterviewLimit(VIP_USER_ID)).thenReturn(plan.getInterviewQuota());
+
+        UserQuota quota = new UserQuota();
+        quota.setUserId(VIP_USER_ID);
+        quota.setLastRefreshDate(LocalDate.now());
+        quota.setDailyInterviewUsed(10);
+        quota.setInterviewQuota(0);
+        TestableUserQuotaService service = createService(sysUserService, mock(ResumePolishRecordMapper.class), quota);
+
+        boolean result = service.checkInterviewQuota(VIP_USER_ID);
+
+        assertEquals(true, result);
+        verify(sysUserService).getActiveMembershipPlan(VIP_USER_ID);
+        verify(sysUserService, never()).isVipUser(VIP_USER_ID);
+        verify(sysUserService, never()).getVipDailyInterviewLimit(VIP_USER_ID);
+    }
+
+    @Test
+    @DisplayName("VIP 简历额度检查应该只查询一次生效套餐")
+    void shouldUseActiveMembershipPlanOnceWhenCheckingResumeQuotaForVipUser() {
+        MembershipPlan plan = createResumeInterviewPlan();
+        SysUserService sysUserService = mock(SysUserService.class);
+        when(sysUserService.getActiveMembershipPlan(VIP_USER_ID)).thenReturn(plan);
+        lenient().when(sysUserService.isVipUser(VIP_USER_ID)).thenReturn(true);
+        lenient().when(sysUserService.getVipDailyResumeLimit(VIP_USER_ID)).thenReturn(plan.getResumeQuota());
+
+        UserQuota quota = new UserQuota();
+        quota.setUserId(VIP_USER_ID);
+        quota.setLastRefreshDate(LocalDate.now());
+        quota.setDailyResumeUsed(12);
+        quota.setResumeQuota(0);
+        TestableUserQuotaService service = createService(sysUserService, mock(ResumePolishRecordMapper.class), quota);
+
+        boolean result = service.checkResumeQuota(VIP_USER_ID);
+
+        assertEquals(true, result);
+        verify(sysUserService).getActiveMembershipPlan(VIP_USER_ID);
+        verify(sysUserService, never()).isVipUser(VIP_USER_ID);
+        verify(sysUserService, never()).getVipDailyResumeLimit(VIP_USER_ID);
+    }
+
+    @Test
+    @DisplayName("VIP 面试配额扣减应该只查询一次生效套餐")
+    void shouldUseActiveMembershipPlanOnceWhenDeductingInterviewQuotaForVipUser() {
+        MembershipPlan plan = createResumeInterviewPlan();
+        SysUserService sysUserService = mock(SysUserService.class);
+        when(sysUserService.getActiveMembershipPlan(VIP_USER_ID)).thenReturn(plan);
+        lenient().when(sysUserService.isVipUser(VIP_USER_ID)).thenReturn(true);
+        lenient().when(sysUserService.getVipDailyInterviewLimit(VIP_USER_ID)).thenReturn(plan.getInterviewQuota());
+        TestableUserQuotaService service = createService(sysUserService, mock(ResumePolishRecordMapper.class), VIP_USER_ID);
+        when(userQuotaMapper.consumeVipDailyInterviewQuotaAtomic(VIP_USER_ID, 11)).thenReturn(1);
+
+        service.deductInterviewQuota(VIP_USER_ID);
+
+        verify(sysUserService).getActiveMembershipPlan(VIP_USER_ID);
+        verify(sysUserService, never()).isVipUser(VIP_USER_ID);
+        verify(sysUserService, never()).getVipDailyInterviewLimit(VIP_USER_ID);
+        verify(userQuotaMapper).consumeVipDailyInterviewQuotaAtomic(VIP_USER_ID, 11);
+        verify(userQuotaMapper, never()).deductInterviewQuotaAtomic(anyLong());
+    }
+
+    @Test
+    @DisplayName("VIP 简历配额扣减应该只查询一次生效套餐")
+    void shouldUseActiveMembershipPlanOnceWhenDeductingResumeQuotaForVipUser() {
+        MembershipPlan plan = createResumeInterviewPlan();
+        SysUserService sysUserService = mock(SysUserService.class);
+        when(sysUserService.getActiveMembershipPlan(VIP_USER_ID)).thenReturn(plan);
+        lenient().when(sysUserService.isVipUser(VIP_USER_ID)).thenReturn(true);
+        lenient().when(sysUserService.getVipDailyResumeLimit(VIP_USER_ID)).thenReturn(plan.getResumeQuota());
+        TestableUserQuotaService service = createService(sysUserService, mock(ResumePolishRecordMapper.class), VIP_USER_ID);
+        when(userQuotaMapper.consumeVipDailyResumeQuotaAtomic(VIP_USER_ID, 13)).thenReturn(1);
+
+        service.deductResumeQuota(VIP_USER_ID);
+
+        verify(sysUserService).getActiveMembershipPlan(VIP_USER_ID);
+        verify(sysUserService, never()).isVipUser(VIP_USER_ID);
+        verify(sysUserService, never()).getVipDailyResumeLimit(VIP_USER_ID);
+        verify(userQuotaMapper).consumeVipDailyResumeQuotaAtomic(VIP_USER_ID, 13);
+        verify(userQuotaMapper, never()).deductResumeQuotaAtomic(anyLong());
+    }
+
+    @Test
+    @DisplayName("VIP 简历退还应该只查询一次生效套餐")
+    void shouldUseActiveMembershipPlanOnceWhenRefundingResumeQuotaForVipUser() {
+        MembershipPlan plan = createResumeInterviewPlan();
+        SysUserService sysUserService = mock(SysUserService.class);
+        when(sysUserService.getActiveMembershipPlan(VIP_USER_ID)).thenReturn(plan);
+        lenient().when(sysUserService.isVipUser(VIP_USER_ID)).thenReturn(true);
+        lenient().when(sysUserService.getVipDailyResumeLimit(VIP_USER_ID)).thenReturn(plan.getResumeQuota());
+        TestableUserQuotaService service = createService(sysUserService, mock(ResumePolishRecordMapper.class), VIP_USER_ID);
+        when(userQuotaMapper.refundResumeQuotaAtomic(VIP_USER_ID, 13)).thenReturn(1);
+
+        service.refundResumeQuota(VIP_USER_ID);
+
+        verify(sysUserService).getActiveMembershipPlan(VIP_USER_ID);
+        verify(sysUserService, never()).isVipUser(VIP_USER_ID);
+        verify(sysUserService, never()).getVipDailyResumeLimit(VIP_USER_ID);
+        verify(userQuotaMapper).refundResumeQuotaAtomic(VIP_USER_ID, 13);
     }
 
     @Test

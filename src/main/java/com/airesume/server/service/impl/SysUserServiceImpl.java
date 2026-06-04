@@ -153,10 +153,21 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
 
     private MembershipPlan getCurrentActiveMembershipPlan(Long userId) {
         SysUser user = self.getById(userId);
-        if (user == null || !isVipUser(userId) || user.getMembershipPlanCode() == null) {
+        if (user == null || user.getRole() == null || user.getRole() != UserRoleConstants.ROLE_VIP) {
+            return null;
+        }
+        if (user.getVipExpireTime() == null || !user.getVipExpireTime().isAfter(LocalDateTime.now())) {
+            return null;
+        }
+        if (user.getMembershipPlanCode() == null) {
             return null;
         }
         return membershipPlanService.getActiveByCode(user.getMembershipPlanCode());
+    }
+
+    @Override
+    public MembershipPlan getActiveMembershipPlan(Long userId) {
+        return getCurrentActiveMembershipPlan(userId);
     }
 
     @Override

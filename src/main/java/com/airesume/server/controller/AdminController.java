@@ -1132,6 +1132,8 @@ SysPrompt prompt = new SysPrompt();
         if (quota == null) {
             throw new BusinessException("用户额度记录不存在");
         }
+        // 已查到的额度对象先刷新再复用，避免 getRemainingResume/Interview 再各查一次。
+        userQuotaService.refreshDailyQuotaIfNeeded(userId, quota);
 
         SysUser user = sysUserService.getById(userId);
         String username = user != null ? user.getUsername() : "";
@@ -1144,8 +1146,8 @@ SysPrompt prompt = new SysPrompt();
                 .totalResumeUsed(quota.getTotalResumeUsed())
                 .dailyInterviewUsed(quota.getDailyInterviewUsed())
                 .dailyResumeUsed(quota.getDailyResumeUsed())
-                .interviewQuota(userQuotaService.getRemainingInterviewQuota(userId))
-                .resumeQuota(userQuotaService.getRemainingResumeQuota(userId))
+                .interviewQuota(Math.max(0, quota.getInterviewQuota() == null ? 0 : quota.getInterviewQuota()))
+                .resumeQuota(Math.max(0, quota.getResumeQuota() == null ? 0 : quota.getResumeQuota()))
                 .lastRefreshDate(quota.getLastRefreshDate())
                 .createTime(quota.getCreateTime())
                 .updateTime(quota.getUpdateTime())

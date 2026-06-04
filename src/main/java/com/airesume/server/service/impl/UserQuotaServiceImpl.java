@@ -3,6 +3,7 @@ package com.airesume.server.service.impl;
 import com.airesume.server.common.constants.QuotaConstants;
 import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.ResultCode;
+import com.airesume.server.entity.MembershipPlan;
 import com.airesume.server.entity.UserQuota;
 import com.airesume.server.mapper.ResumePolishRecordMapper;
 import com.airesume.server.mapper.UserQuotaMapper;
@@ -99,8 +100,12 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
         UserQuota userQuota = ensureUserQuota(userId);
         refreshDailyQuotaIfNeeded(userId, userQuota);
 
-        if (sysUserService.isVipUser(userId)) {
-            return getVipDailyInterviewRemaining(userQuota) > 0 || safeValue(userQuota.getInterviewQuota()) > 0;
+        // VIP 检查直接复用当前生效套餐，避免 isVipUser + dailyLimit 两次重复查询。
+        MembershipPlan plan = sysUserService.getActiveMembershipPlan(userId);
+        if (plan != null) {
+            int dailyLimit = Math.max(0, safeValue(plan.getInterviewQuota()));
+            int dailyRemaining = Math.max(0, dailyLimit - safeValue(userQuota.getDailyInterviewUsed()));
+            return dailyRemaining > 0 || safeValue(userQuota.getInterviewQuota()) > 0;
         }
 
         return safeValue(userQuota.getInterviewQuota()) > 0;
@@ -111,8 +116,12 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
         UserQuota userQuota = ensureUserQuota(userId);
         refreshDailyQuotaIfNeeded(userId, userQuota);
 
-        if (sysUserService.isVipUser(userId)) {
-            return getVipDailyResumeRemaining(userQuota) > 0 || safeValue(userQuota.getResumeQuota()) > 0;
+        // VIP 检查直接复用当前生效套餐，避免 isVipUser + dailyLimit 两次重复查询。
+        MembershipPlan plan = sysUserService.getActiveMembershipPlan(userId);
+        if (plan != null) {
+            int dailyLimit = Math.max(0, safeValue(plan.getResumeQuota()));
+            int dailyRemaining = Math.max(0, dailyLimit - safeValue(userQuota.getDailyResumeUsed()));
+            return dailyRemaining > 0 || safeValue(userQuota.getResumeQuota()) > 0;
         }
 
         return safeValue(userQuota.getResumeQuota()) > 0;
@@ -125,10 +134,14 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
         UserQuota userQuota = ensureUserQuota(userId);
         refreshDailyQuotaIfNeeded(userId, userQuota);
 
-        if (sysUserService.isVipUser(userId)
-                && getBaseMapper().consumeVipDailyInterviewQuotaAtomic(userId, getVipDailyInterviewLimit(userId)) > 0) {
-            log.info("VIP deducted interview daily quota for userId: {}", userId);
-            return;
+        // VIP 扣减直接读取一次生效套餐，套餐为空即按普通额度原子扣减。
+        MembershipPlan plan = sysUserService.getActiveMembershipPlan(userId);
+        if (plan != null) {
+            int dailyLimit = Math.max(0, safeValue(plan.getInterviewQuota()));
+            if (getBaseMapper().consumeVipDailyInterviewQuotaAtomic(userId, dailyLimit) > 0) {
+                log.info("VIP deducted interview daily quota for userId: {}", userId);
+                return;
+            }
         }
 
         int affected = getBaseMapper().deductInterviewQuotaAtomic(userId);
@@ -143,7 +156,9 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
     @CacheEvict(value = {"auth:userInfo", "user:quota"}, key = "#userId")
     public void refundResumeQuota(Long userId) {
         ensureUserQuota(userId);
-        int dailyLimit = sysUserService.isVipUser(userId) ? getVipDailyResumeLimit(userId) : 0;
+        // 退还时只读取一次生效套餐，用套餐日额度判断是否需要恢复总额度。
+        MembershipPlan plan = sysUserService.getActiveMembershipPlan(userId);
+        int dailyLimit = plan == null ? 0 : Math.max(0, safeValue(plan.getResumeQuota()));
         getBaseMapper().refundResumeQuotaAtomic(userId, dailyLimit);
         log.info("Refunded resume quota for userId: {}", userId);
     }
@@ -155,10 +170,14 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
         UserQuota userQuota = ensureUserQuota(userId);
         refreshDailyQuotaIfNeeded(userId, userQuota);
 
-        if (sysUserService.isVipUser(userId)
-                && getBaseMapper().consumeVipDailyResumeQuotaAtomic(userId, getVipDailyResumeLimit(userId)) > 0) {
-            log.info("VIP deducted resume daily quota for userId: {}", userId);
-            return;
+        // VIP 扣减直接读取一次生效套餐，套餐为空即按普通额度原子扣减。
+        MembershipPlan plan = sysUserService.getActiveMembershipPlan(userId);
+        if (plan != null) {
+            int dailyLimit = Math.max(0, safeValue(plan.getResumeQuota()));
+            if (getBaseMapper().consumeVipDailyResumeQuotaAtomic(userId, dailyLimit) > 0) {
+                log.info("VIP deducted resume daily quota for userId: {}", userId);
+                return;
+            }
         }
 
         int affected = getBaseMapper().deductResumeQuotaAtomic(userId);
@@ -238,22 +257,6 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
         return userQuota;
     }
 
-    private int getVipDailyInterviewRemaining(UserQuota userQuota) {
-        return Math.max(0, getVipDailyInterviewLimit(userQuota.getUserId()) - safeValue(userQuota.getDailyInterviewUsed()));
-    }
-
-    private int getVipDailyResumeRemaining(UserQuota userQuota) {
-        return Math.max(0, getVipDailyResumeLimit(userQuota.getUserId()) - safeValue(userQuota.getDailyResumeUsed()));
-    }
-
-    private int getVipDailyInterviewLimit(Long userId) {
-        return Math.max(0, sysUserService.getVipDailyInterviewLimit(userId));
-    }
-
-    private int getVipDailyResumeLimit(Long userId) {
-        return Math.max(0, sysUserService.getVipDailyResumeLimit(userId));
-    }
-
     // ==================== 新功能配额：AI润色 / JD匹配 / 模板 / Offer ====================
 
     @Override
@@ -272,9 +275,11 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
             throw new BusinessException(ResultCode.POLISH_ALREADY_USED);
         }
 
-        if (sysUserService.isVipUser(userId)) {
-            int dailyLimit = Math.max(0, sysUserService.getVipDailyPolishLimit(userId));
-            int cycleLimit = sysUserService.getVipCycleLimit(userId, "polish");
+        // VIP 配额一次性读取当前生效套餐，避免在同一次扣减中重复查询用户和套餐。
+        MembershipPlan plan = sysUserService.getActiveMembershipPlan(userId);
+        if (plan != null) {
+            int dailyLimit = Math.max(0, safeValue(plan.getDailyPolishLimit()));
+            int cycleLimit = safeValue(plan.getTotalPolishQuota());
             int affected = getBaseMapper().consumeVipDailyPolishQuotaAtomic(userId, dailyLimit, cycleLimit);
             if (affected == 0) {
                 throw new BusinessException(ResultCode.POLISH_QUOTA_EXHAUSTED);
@@ -298,9 +303,11 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
         UserQuota userQuota = ensureUserQuota(userId);
         refreshDailyQuotaIfNeeded(userId, userQuota);
 
-        if (sysUserService.isVipUser(userId)) {
-            int dailyLimit = Math.max(0, sysUserService.getVipDailyJdMatchLimit(userId));
-            int cycleLimit = sysUserService.getVipCycleLimit(userId, "jd_match");
+        // VIP 配额一次性读取当前生效套餐，避免在同一次扣减中重复查询用户和套餐。
+        MembershipPlan plan = sysUserService.getActiveMembershipPlan(userId);
+        if (plan != null) {
+            int dailyLimit = Math.max(0, safeValue(plan.getDailyJdMatchLimit()));
+            int cycleLimit = safeValue(plan.getTotalJdMatchQuota());
             int affected = getBaseMapper().consumeVipDailyJdMatchQuotaAtomic(userId, dailyLimit, cycleLimit);
             if (affected == 0) {
                 throw new BusinessException(ResultCode.JD_MATCH_QUOTA_EXHAUSTED);
@@ -323,9 +330,11 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
         UserQuota userQuota = ensureUserQuota(userId);
         refreshDailyQuotaIfNeeded(userId, userQuota);
 
-        if (sysUserService.isVipUser(userId)) {
-            int dailyLimit = Math.max(0, sysUserService.getVipDailyTemplateLimit(userId));
-            int cycleLimit = sysUserService.getVipCycleLimit(userId, "template");
+        // VIP 配额一次性读取当前生效套餐，避免在同一次扣减中重复查询用户和套餐。
+        MembershipPlan plan = sysUserService.getActiveMembershipPlan(userId);
+        if (plan != null) {
+            int dailyLimit = Math.max(0, safeValue(plan.getDailyTemplateLimit()));
+            int cycleLimit = safeValue(plan.getTotalTemplateQuota());
             int affected = getBaseMapper().consumeVipDailyTemplateQuotaAtomic(userId, dailyLimit, cycleLimit);
             if (affected == 0) {
                 throw new BusinessException(ResultCode.TEMPLATE_QUOTA_EXHAUSTED);
@@ -348,9 +357,11 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
         UserQuota userQuota = ensureUserQuota(userId);
         refreshDailyQuotaIfNeeded(userId, userQuota);
 
-        if (sysUserService.isVipUser(userId)) {
-            int dailyLimit = Math.max(0, sysUserService.getVipDailyOfferLimit(userId));
-            int cycleLimit = sysUserService.getVipCycleLimit(userId, "offer");
+        // VIP 配额一次性读取当前生效套餐，避免在同一次扣减中重复查询用户和套餐。
+        MembershipPlan plan = sysUserService.getActiveMembershipPlan(userId);
+        if (plan != null) {
+            int dailyLimit = Math.max(0, safeValue(plan.getDailyOfferLimit()));
+            int cycleLimit = safeValue(plan.getTotalOfferQuota());
             int affected = getBaseMapper().consumeVipDailyOfferQuotaAtomic(userId, dailyLimit, cycleLimit);
             if (affected == 0) {
                 throw new BusinessException(ResultCode.OFFER_QUOTA_EXHAUSTED);

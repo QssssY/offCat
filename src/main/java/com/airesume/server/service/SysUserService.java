@@ -1,5 +1,6 @@
 package com.airesume.server.service;
 
+import com.airesume.server.entity.MembershipPlan;
 import com.airesume.server.entity.SysUser;
 import com.baomidou.mybatisplus.extension.service.IService;
 
@@ -47,6 +48,9 @@ public interface SysUserService extends IService<SysUser> {
 
     /** VIP每日Offer辅助次数限制。 */
     int getVipDailyOfferLimit(Long userId);
+
+    /** 获取用户当前生效的会员套餐（非VIP或已过期返回null）。 */
+    MembershipPlan getActiveMembershipPlan(Long userId);
 
     /** VIP套餐周期内功能总额度（0=不限）。featureType: polish/jd_match/template/offer/resume/interview */
     int getVipCycleLimit(Long userId, String featureType);

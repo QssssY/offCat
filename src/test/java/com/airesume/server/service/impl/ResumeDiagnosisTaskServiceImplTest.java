@@ -7,6 +7,10 @@ import com.airesume.server.entity.ResumeDiagnosisTask;
 import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
 import com.airesume.server.mapper.ResumeJobMatchRecordMapper;
 import com.airesume.server.mapper.ResumePolishRecordMapper;
+import com.airesume.server.mq.DirectProcessRouter;
+import com.airesume.server.mq.ResumeDiagnosisProducer;
+import com.airesume.server.service.NotificationService;
+import com.airesume.server.service.UserQuotaService;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
@@ -22,6 +26,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -35,6 +40,10 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class ResumeDiagnosisTaskServiceImplTest {
 
+    @Mock private UserQuotaService userQuotaService;
+    @Mock private ResumeDiagnosisProducer resumeDiagnosisProducer;
+    @Mock private DirectProcessRouter directProcessRouter;
+    @Mock private NotificationService notificationService;
     @Mock private ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper;
     @Mock private ResumeJobMatchRecordMapper resumeJobMatchRecordMapper;
     @Mock private ResumePolishRecordMapper resumePolishRecordMapper;
@@ -49,7 +58,7 @@ class ResumeDiagnosisTaskServiceImplTest {
                 new MapperBuilderAssistant(new MybatisConfiguration(), ""),
                 ResumeDiagnosisTask.class);
         service = new ResumeDiagnosisTaskServiceImpl(
-                null, null, null, null, null, null, null,
+                userQuotaService, resumeDiagnosisProducer, directProcessRouter, null, notificationService, null, null,
                 resumeJobMatchRecordMapper, resumePolishRecordMapper);
         ReflectionTestUtils.setField(service, "baseMapper", resumeDiagnosisTaskMapper);
         ReflectionTestUtils.setField(service, "cacheManager", cacheManager);
@@ -97,6 +106,50 @@ class ResumeDiagnosisTaskServiceImplTest {
 
         String fileName = (String) method.invoke(service);
         assertTrue(fileName.matches("\\d+_[a-f0-9]+\\.pdf"), "Expected format: timestamp_uuid.pdf, got: " + fileName);
+    }
+
+    @Test
+    void shouldCreatePlatformTaskWithoutPrecheckingResumeQuota() {
+        lenient().when(userQuotaService.checkResumeQuota(123L)).thenReturn(true);
+        when(resumeDiagnosisTaskMapper.insert(any(ResumeDiagnosisTask.class))).thenAnswer(invocation -> {
+            ResumeDiagnosisTask task = invocation.getArgument(0);
+            task.setId(100L);
+            return 1;
+        });
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            Long taskId = service.createTask(123L, "/uploads/resumes/resume.pdf", false);
+
+            assertEquals(100L, taskId);
+            verify(userQuotaService, never()).checkResumeQuota(123L);
+            verify(userQuotaService).deductResumeQuota(123L);
+            verify(notificationService, never()).createQuotaNotificationIfNeeded(123L);
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    void shouldNotifyWhenAtomicResumeQuotaDeductionReportsExhausted() {
+        lenient().when(userQuotaService.checkResumeQuota(123L)).thenReturn(true);
+        when(resumeDiagnosisTaskMapper.insert(any(ResumeDiagnosisTask.class))).thenAnswer(invocation -> {
+            ResumeDiagnosisTask task = invocation.getArgument(0);
+            task.setId(100L);
+            return 1;
+        });
+        doThrow(new BusinessException(ResultCode.RESUME_QUOTA_EXHAUSTED))
+                .when(userQuotaService).deductResumeQuota(123L);
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            BusinessException exception = assertThrows(BusinessException.class,
+                    () -> service.createTask(123L, "/uploads/resumes/resume.pdf", false));
+
+            assertEquals(ResultCode.RESUME_QUOTA_EXHAUSTED.getCode(), exception.getCode());
+            verify(userQuotaService, never()).checkResumeQuota(123L);
+            verify(notificationService).createQuotaNotificationIfNeeded(123L);
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
     }
 
     @Test

@@ -156,12 +156,6 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
         // 1. 创建前锁定计费来源：用户自定义 AI 扣独立次数，平台 AI 保持原平台额度。
         if (useCustomAi) {
             userAiUsageLimitService.checkAndIncrement(userId, UserAiConstants.USAGE_TYPE_RESUME_DIAGNOSIS);
-        } else {
-            boolean hasQuota = userQuotaService.checkResumeQuota(userId);
-            if (!hasQuota) {
-                notificationService.createQuotaNotificationIfNeeded(userId);
-                throw new BusinessException(ResultCode.RESUME_QUOTA_EXHAUSTED);
-            }
         }
 
         // 2. 创建任务记录
@@ -181,7 +175,15 @@ public class ResumeDiagnosisTaskServiceImpl extends ServiceImpl<ResumeDiagnosisT
 
         // 3. 平台 AI 在任务创建时扣平台额度；用户自定义 AI 已扣每日次数。
         if (!useCustomAi) {
-            userQuotaService.deductResumeQuota(userId);
+            try {
+                // 平台额度由原子扣减 SQL 同时完成检查与扣减，避免创建前后重复查询 quota。
+                userQuotaService.deductResumeQuota(userId);
+            } catch (BusinessException e) {
+                if (ResultCode.RESUME_QUOTA_EXHAUSTED.getCode() == e.getCode()) {
+                    notificationService.createQuotaNotificationIfNeeded(userId);
+                }
+                throw e;
+            }
         }
 
         // 4. 事务提交后智能路由：系统空闲时直连异步处理，繁忙时走 MQ 排队

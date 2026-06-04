@@ -9,6 +9,7 @@ import com.airesume.server.dto.membership.MembershipUpgradeRequest;
 import com.airesume.server.entity.MembershipOrder;
 import com.airesume.server.entity.MembershipPlan;
 import com.airesume.server.entity.SysUser;
+import com.airesume.server.entity.UserQuota;
 import com.airesume.server.service.MembershipOrderService;
 import com.airesume.server.service.MembershipPlanService;
 import com.airesume.server.service.MembershipService;
@@ -118,8 +119,11 @@ public class MembershipServiceImpl implements MembershipService {
             userQuotaService.addBonusQuota(userId, safeQuota(plan.getBonusResumeQuota()), safeQuota(plan.getBonusInterviewQuota()));
         }
 
-        int resumeQuota = userQuotaService.getRemainingResumeQuota(userId);
-        int interviewQuota = userQuotaService.getRemainingInterviewQuota(userId);
+        // 写操作会清理额度缓存；这里统一读取一次最新额度并复用，避免两个 getRemaining 再各查一次。
+        UserQuota updatedQuota = userQuotaService.getByUserId(userId);
+        userQuotaService.refreshDailyQuotaIfNeeded(userId, updatedQuota);
+        int resumeQuota = updatedQuota == null ? 0 : safeQuota(updatedQuota.getResumeQuota());
+        int interviewQuota = updatedQuota == null ? 0 : safeQuota(updatedQuota.getInterviewQuota());
 
         log.info("Membership upgraded successfully, userId: {}, planCode: {}, orderNo: {}",
                 userId, plan.getPlanCode(), order.getOrderNo());

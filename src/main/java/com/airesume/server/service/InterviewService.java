@@ -311,12 +311,13 @@ public class InterviewService {
         log.info("发送面试消息配置解析完成, sessionId: {}, requestFeedbackMode: {}, sessionFeedbackMode: {}, resolvedFeedbackMode: {}",
                 sessionId, request.getFeedbackMode(), session.getFeedbackMode(), resolvedFeedbackMode);
 
-        boolean fallbackToPlatform = Boolean.TRUE.equals(request.getFallbackToPlatform());
-        boolean useCustomAi = shouldUseCustomAi(userId, fallbackToPlatform);
+        boolean requestFallbackToPlatform = Boolean.TRUE.equals(request.getFallbackToPlatform());
+        boolean effectiveFallbackToPlatform = resolveEffectiveFallbackToPlatform(session, requestFallbackToPlatform);
+        boolean useCustomAi = shouldUseCustomAi(userId, effectiveFallbackToPlatform);
         if (useCustomAi) {
             userAiUsageLimitService.checkAndIncrement(userId, UserAiConstants.USAGE_TYPE_INTERVIEW_MESSAGE);
         } else {
-            chargePlatformFallbackQuotaIfNeeded(session, fallbackToPlatform);
+            chargePlatformFallbackQuotaIfNeeded(session, requestFallbackToPlatform);
         }
         String reply;
         try {
@@ -332,7 +333,7 @@ public class InterviewService {
                     session.getInterviewMode(),
                     resolveInteractionType(session.getInteractionType()),
                     userId,
-                    fallbackToPlatform
+                    effectiveFallbackToPlatform
             );
         } catch (RuntimeException e) {
             if (useCustomAi) {
@@ -1548,6 +1549,22 @@ public class InterviewService {
     private boolean shouldUseCustomAi(Long userId, boolean fallbackToPlatform) {
         return userAiConfigResolver != null
                 && userAiConfigResolver.resolve(userId, AiEngineConstants.BUSINESS_TYPE_INTERVIEW, fallbackToPlatform) != null;
+    }
+
+    /**
+     * 解析本轮面试消息实际是否强制使用平台 AI。
+     * 请求参数只负责触发首次手动切换；已计费为平台或平台兜底的会话，后续请求即使前端未继续携带参数也必须锁定平台路由。
+     */
+    public boolean resolveEffectiveFallbackToPlatform(InterviewSession session, boolean requestFallbackToPlatform) {
+        if (requestFallbackToPlatform) {
+            return true;
+        }
+        if (session == null) {
+            return false;
+        }
+        String billingSource = session.getAiBillingSource();
+        return UserAiConstants.BILLING_SOURCE_PLATFORM.equals(billingSource)
+                || UserAiConstants.BILLING_SOURCE_PLATFORM_FALLBACK.equals(billingSource);
     }
 
     /**

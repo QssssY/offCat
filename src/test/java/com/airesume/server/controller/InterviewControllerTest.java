@@ -1,6 +1,7 @@
 package com.airesume.server.controller;
 
 import com.airesume.server.common.constants.InterviewConstants;
+import com.airesume.server.common.constants.UserAiConstants;
 import com.airesume.server.common.result.PageResult;
 import com.airesume.server.common.result.Result;
 import com.airesume.server.dto.interview.CreateSessionRequest;
@@ -274,12 +275,58 @@ class InterviewControllerTest {
         when(interviewService.getChatLogsForStream(session)).thenReturn(List.of());
         when(interviewService.resolveInteractionType(0)).thenReturn(0);
         when(interviewService.resolveFeedbackMode(null, session)).thenReturn(InterviewConstants.FEEDBACK_MODE_AFTER_INTERVIEW);
+        when(interviewService.resolveEffectiveFallbackToPlatform(session, true)).thenReturn(true);
 
         controller.streamMessage(sessionId, request, authentication);
 
         var inOrder = inOrder(interviewService);
         inOrder.verify(interviewService).chargePlatformFallbackQuotaIfNeeded(session, true);
         inOrder.verify(interviewService).saveUserMessage(session, request.getContent());
+    }
+
+    @Test
+    void streamMessageShouldKeepUsingPlatformWhenFallbackSessionAlreadyMarkedWithoutRequestFlag() {
+        String sessionId = "session-fallback-locked";
+        SendMessageRequest request = new SendMessageRequest();
+        request.setContent("继续面试");
+        InterviewSession session = new InterviewSession();
+        session.setSessionId(sessionId);
+        session.setUserId(1L);
+        session.setJobRole("Java工程师");
+        session.setJobRoleCode("java");
+        session.setDifficulty(2);
+        session.setInterviewMode(InterviewConstants.MODE_NORMAL);
+        session.setInteractionType(0);
+        session.setAiBillingSource(UserAiConstants.BILLING_SOURCE_PLATFORM_FALLBACK);
+
+        doAnswer(invocation -> {
+            invocation.<Runnable>getArgument(0).run();
+            return null;
+        }).when(aiAsyncExecutor).execute(any());
+        when(interviewService.getSessionByOwnerOrThrow(sessionId, 1L)).thenReturn(session);
+        when(interviewService.getChatLogsForStream(session)).thenReturn(List.of());
+        when(interviewService.resolveInteractionType(0)).thenReturn(0);
+        when(interviewService.resolveFeedbackMode(null, session)).thenReturn(InterviewConstants.FEEDBACK_MODE_AFTER_INTERVIEW);
+        when(interviewService.resolveEffectiveFallbackToPlatform(session, false)).thenReturn(true);
+
+        controller.streamMessage(sessionId, request, authentication);
+
+        verify(interviewService).chargePlatformFallbackQuotaIfNeeded(session, false);
+        verify(interviewAiService).generateReplyStream(
+                eq(sessionId),
+                anyList(),
+                eq(request.getContent()),
+                eq("java"),
+                eq("Java工程师"),
+                eq(2),
+                any(),
+                eq(InterviewConstants.FEEDBACK_MODE_AFTER_INTERVIEW),
+                eq(InterviewConstants.MODE_NORMAL),
+                eq(0),
+                eq(1L),
+                eq(true)
+        );
+        verify(userAiUsageLimitService, never()).checkAndIncrement(anyLong(), anyString());
     }
 
     @Test

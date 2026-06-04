@@ -168,14 +168,16 @@ public class InterviewController {
                 log.info("流式面试消息配置解析完成, sessionId: {}, requestFeedbackMode: {}, sessionFeedbackMode: {}, resolvedFeedbackMode: {}",
                         sessionId, request.getFeedbackMode(), session.getFeedbackMode(), resolvedFeedbackMode);
 
-                boolean fallbackToPlatform = Boolean.TRUE.equals(request.getFallbackToPlatform());
+                boolean requestFallbackToPlatform = Boolean.TRUE.equals(request.getFallbackToPlatform());
+                boolean effectiveFallbackToPlatform =
+                        interviewService.resolveEffectiveFallbackToPlatform(session, requestFallbackToPlatform);
                 boolean useCustomAi = userAiConfigResolver.resolve(
-                        userId, AiEngineConstants.BUSINESS_TYPE_INTERVIEW, fallbackToPlatform) != null;
+                        userId, AiEngineConstants.BUSINESS_TYPE_INTERVIEW, effectiveFallbackToPlatform) != null;
                 if (useCustomAi) {
                     userAiUsageLimitService.checkAndIncrement(userId, UserAiConstants.USAGE_TYPE_INTERVIEW_MESSAGE);
                     customAiCounted.set(true);
                 } else {
-                    interviewService.chargePlatformFallbackQuotaIfNeeded(session, fallbackToPlatform);
+                    interviewService.chargePlatformFallbackQuotaIfNeeded(session, requestFallbackToPlatform);
                 }
 
                 // 平台 fallback 额度校验和扣减必须先完成，再保存用户消息，避免额度不足时留下无回复的半截会话。
@@ -196,7 +198,7 @@ public class InterviewController {
                         interviewMode,
                         interactionType,
                         userId,
-                        fallbackToPlatform
+                        effectiveFallbackToPlatform
                 );
                 interviewService.subscribeAndWriteStream(
                         sessionId, emitter, publisher, fullReply, streamClosed, done, subscriptionRef,

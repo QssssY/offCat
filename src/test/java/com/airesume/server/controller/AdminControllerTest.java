@@ -7,9 +7,11 @@ import com.airesume.server.dto.admin.AdminUserBanRequest;
 import com.airesume.server.dto.admin.AdminUserUnbanRequest;
 import com.airesume.server.dto.admin.BatchActiveRequest;
 import com.airesume.server.dto.admin.BatchUserBanRequest;
+import com.airesume.server.dto.admin.UserQuotaResponse;
 import com.airesume.server.dto.admin.UserQuotaUpdateRequest;
 import com.airesume.server.dto.admin.UserRightsUpdateRequest;
 import com.airesume.server.entity.SysUser;
+import com.airesume.server.entity.UserQuota;
 import com.airesume.server.service.AdminDashboardService;
 import com.airesume.server.service.AdminUserRightsService;
 import com.airesume.server.service.AiCredentialCrypto;
@@ -131,6 +133,35 @@ class AdminControllerTest {
         String sqlSegment = wrapperCaptor.getValue().getSqlSegment();
         assertTrue(sqlSegment.contains("role"));
         assertTrue(sqlSegment.contains("vip_expire_time"));
+    }
+
+    @Test
+    void getUserQuotaShouldUseLoadedQuotaAndRefreshOnlyOnce() {
+        SysUser target = new SysUser();
+        target.setId(2L);
+        target.setUsername("target-user");
+        when(sysUserService.getById(2L)).thenReturn(target);
+
+        UserQuota quota = new UserQuota();
+        quota.setId(10L);
+        quota.setUserId(2L);
+        quota.setInterviewQuota(4);
+        quota.setResumeQuota(5);
+        quota.setTotalInterviewUsed(1);
+        quota.setTotalResumeUsed(2);
+        quota.setDailyInterviewUsed(3);
+        quota.setDailyResumeUsed(4);
+        when(userQuotaService.getByUserId(2L)).thenReturn(quota);
+
+        Result<UserQuotaResponse> result = controller.getUserQuota(2L, authentication);
+
+        assertEquals(4, result.getData().getInterviewQuota());
+        assertEquals(5, result.getData().getResumeQuota());
+        assertEquals("target-user", result.getData().getUsername());
+        verify(userQuotaService).getByUserId(2L);
+        verify(userQuotaService).refreshDailyQuotaIfNeeded(2L, quota);
+        verify(userQuotaService, never()).getRemainingInterviewQuota(2L);
+        verify(userQuotaService, never()).getRemainingResumeQuota(2L);
     }
 
     @Test

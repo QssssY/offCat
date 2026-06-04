@@ -10,6 +10,7 @@ import com.airesume.server.dto.auth.ResetPasswordRequest;
 import com.airesume.server.dto.auth.SecurityQuestionResponse;
 import com.airesume.server.dto.auth.SecurityQuestionUpdateRequest;
 import com.airesume.server.dto.auth.UserInfoResponse;
+import com.airesume.server.entity.MembershipPlan;
 import com.airesume.server.entity.SysUser;
 import com.airesume.server.entity.UserQuota;
 import com.airesume.server.infrastructure.security.JwtProperties;
@@ -260,8 +261,11 @@ public class AuthServiceImpl implements AuthService {
         userQuotaService.refreshDailyQuotaIfNeeded(userId, userQuota);
         int resumeQuota = userQuota == null ? 0 : Math.max(0, safeValue(userQuota.getResumeQuota()));
         int interviewQuota = userQuota == null ? 0 : Math.max(0, safeValue(userQuota.getInterviewQuota()));
-        int vipDailyResumeLimit = sysUserService.getVipDailyResumeLimit(userId);
-        int vipDailyInterviewLimit = sysUserService.getVipDailyInterviewLimit(userId);
+
+        // 一次查询会员套餐，提取所有每日限额，避免 6 次重复 VIP + plan 查询
+        MembershipPlan plan = sysUserService.getActiveMembershipPlan(userId);
+        int vipDailyResumeLimit = plan == null || plan.getResumeQuota() == null ? 0 : Math.max(0, plan.getResumeQuota());
+        int vipDailyInterviewLimit = plan == null || plan.getInterviewQuota() == null ? 0 : Math.max(0, plan.getInterviewQuota());
         int vipDailyResumeQuota = userQuota == null
                 ? 0
                 : Math.max(0, vipDailyResumeLimit - safeValue(userQuota.getDailyResumeUsed()));
@@ -269,19 +273,18 @@ public class AuthServiceImpl implements AuthService {
                 ? 0
                 : Math.max(0, vipDailyInterviewLimit - safeValue(userQuota.getDailyInterviewUsed()));
 
-        // 新功能配额：VIP每日剩余 = plan limit - today used
         int vipDailyPolishQuota = userQuota == null
                 ? 0
-                : Math.max(0, sysUserService.getVipDailyPolishLimit(userId) - safeValue(userQuota.getDailyPolishUsed()));
+                : Math.max(0, (plan == null || plan.getDailyPolishLimit() == null ? 0 : plan.getDailyPolishLimit()) - safeValue(userQuota.getDailyPolishUsed()));
         int vipDailyJdMatchQuota = userQuota == null
                 ? 0
-                : Math.max(0, sysUserService.getVipDailyJdMatchLimit(userId) - safeValue(userQuota.getDailyJdMatchUsed()));
+                : Math.max(0, (plan == null || plan.getDailyJdMatchLimit() == null ? 0 : plan.getDailyJdMatchLimit()) - safeValue(userQuota.getDailyJdMatchUsed()));
         int vipDailyTemplateQuota = userQuota == null
                 ? 0
-                : Math.max(0, sysUserService.getVipDailyTemplateLimit(userId) - safeValue(userQuota.getDailyTemplateUsed()));
+                : Math.max(0, (plan == null || plan.getDailyTemplateLimit() == null ? 0 : plan.getDailyTemplateLimit()) - safeValue(userQuota.getDailyTemplateUsed()));
         int vipDailyOfferQuota = userQuota == null
                 ? 0
-                : Math.max(0, sysUserService.getVipDailyOfferLimit(userId) - safeValue(userQuota.getDailyOfferUsed()));
+                : Math.max(0, (plan == null || plan.getDailyOfferLimit() == null ? 0 : plan.getDailyOfferLimit()) - safeValue(userQuota.getDailyOfferUsed()));
 
         log.debug("User info fetched successfully, userId: {}, username: {}, resumeQuota: {}, interviewQuota: {}",
                 userId, user.getUsername(), resumeQuota, interviewQuota);
