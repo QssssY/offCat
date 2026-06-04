@@ -34,16 +34,20 @@ public class AdminCustomAiStatsController {
     private final SysUserService sysUserService;
 
     /**
-     * 查询用户自定义 AI 每日统计。
+     * 查询用户自定义 AI 日期范围统计。
      *
      * 统计口径：
-     * - 总调用次数来自自定义 AI 明细表按日期聚合。
-     * - 用户明细只返回指定日期有实际调用的用户，并按调用次数倒序分页。
+     * - date 为旧版单日参数，传入时优先按 date 单日查询。
+     * - startDate/endDate 为新版范围参数，功能分布和用户明细共享同一范围。
      */
     @GetMapping("/usage-stats")
     public Result<CustomAiUsageStatsResponse> getCustomAiUsageStats(
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
             @RequestParam(defaultValue = "1") Integer page,
             @RequestParam(defaultValue = "20") Integer pageSize,
             Authentication authentication) {
@@ -52,9 +56,10 @@ public class AdminCustomAiStatsController {
         // 管理端分页参数来自请求边界，页码和页大小都做上限收敛，避免极端输入造成 offset 溢出。
         int normalizedPage = Math.min(MAX_PAGE, Math.max(1, page == null ? 1 : page));
         int normalizedPageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, pageSize == null ? 20 : pageSize));
-        log.info("Admin query custom AI usage stats, adminUserId: {}, date: {}, page: {}, pageSize: {}",
-                userId, date, normalizedPage, normalizedPageSize);
-        return Result.success(userAiUsageStatsService.getDailyStats(date, normalizedPage, normalizedPageSize));
+        log.info("Admin query custom AI usage stats, adminUserId: {}, date: {}, startDate: {}, endDate: {}, page: {}, pageSize: {}",
+                userId, date, startDate, endDate, normalizedPage, normalizedPageSize);
+        return Result.success(userAiUsageStatsService.getDailyStats(
+                date, startDate, endDate, normalizedPage, normalizedPageSize));
     }
 
     /**

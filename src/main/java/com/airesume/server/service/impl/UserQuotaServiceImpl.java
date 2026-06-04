@@ -7,6 +7,7 @@ import com.airesume.server.entity.MembershipPlan;
 import com.airesume.server.entity.UserQuota;
 import com.airesume.server.mapper.ResumePolishRecordMapper;
 import com.airesume.server.mapper.UserQuotaMapper;
+import com.airesume.server.service.QuotaConsumptionLogService;
 import com.airesume.server.service.SysUserService;
 import com.airesume.server.service.UserQuotaService;
 import com.airesume.server.entity.ResumePolishRecord;
@@ -32,6 +33,7 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
 
     private final SysUserService sysUserService;
     private final ResumePolishRecordMapper polishRecordMapper;
+    private final QuotaConsumptionLogService consumptionLogService;
 
     /** 自注入：通过 Spring 代理调用自身方法，使 @Cacheable 在自调用时生效 */
     @Lazy
@@ -140,6 +142,10 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
             int dailyLimit = Math.max(0, safeValue(plan.getInterviewQuota()));
             if (getBaseMapper().consumeVipDailyInterviewQuotaAtomic(userId, dailyLimit) > 0) {
                 log.info("VIP deducted interview daily quota for userId: {}", userId);
+                // 记录VIP每日额度消费
+                int dailyRemaining = Math.max(0, dailyLimit - safeValue(userQuota.getDailyInterviewUsed()) - 1);
+                consumptionLogService.logConsumption(userId, "INTERVIEW", 1, dailyRemaining,
+                        "VIP_DAILY", null, null, "INTERVIEW_SESSION", "模拟面试-VIP每日额度扣减");
                 return;
             }
         }
@@ -149,18 +155,26 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
             throw new BusinessException(ResultCode.INTERVIEW_QUOTA_EXHAUSTED);
         }
         log.info("Deducted interview quota atomically for userId: {}", userId);
+        // 记录免费额度消费
+        int freeRemaining = Math.max(0, safeValue(userQuota.getInterviewQuota()) - 1);
+        consumptionLogService.logConsumption(userId, "INTERVIEW", 1, freeRemaining,
+                "FREE", null, null, "INTERVIEW_SESSION", "模拟面试-免费额度扣减");
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     @CacheEvict(value = {"auth:userInfo", "user:quota"}, key = "#userId")
     public void refundResumeQuota(Long userId) {
-        ensureUserQuota(userId);
+        UserQuota userQuota = ensureUserQuota(userId);
         // 退还时只读取一次生效套餐，用套餐日额度判断是否需要恢复总额度。
         MembershipPlan plan = sysUserService.getActiveMembershipPlan(userId);
         int dailyLimit = plan == null ? 0 : Math.max(0, safeValue(plan.getResumeQuota()));
         getBaseMapper().refundResumeQuotaAtomic(userId, dailyLimit);
         log.info("Refunded resume quota for userId: {}", userId);
+        // 记录退款（changeAmount=-1，source 根据是否有VIP判断）
+        String source = plan != null ? "VIP_DAILY" : "FREE";
+        consumptionLogService.logConsumption(userId, "RESUME", -1, null,
+                source, null, null, "RESUME_DIAGNOSIS", "简历诊断失败退款");
     }
 
     @Override
@@ -176,6 +190,10 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
             int dailyLimit = Math.max(0, safeValue(plan.getResumeQuota()));
             if (getBaseMapper().consumeVipDailyResumeQuotaAtomic(userId, dailyLimit) > 0) {
                 log.info("VIP deducted resume daily quota for userId: {}", userId);
+                // 记录VIP每日额度消费
+                int dailyRemaining = Math.max(0, dailyLimit - safeValue(userQuota.getDailyResumeUsed()) - 1);
+                consumptionLogService.logConsumption(userId, "RESUME", 1, dailyRemaining,
+                        "VIP_DAILY", null, null, "RESUME_DIAGNOSIS", "简历诊断-VIP每日额度扣减");
                 return;
             }
         }
@@ -185,6 +203,10 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
             throw new BusinessException(ResultCode.RESUME_QUOTA_EXHAUSTED);
         }
         log.info("Deducted resume quota atomically for userId: {}", userId);
+        // 记录免费额度消费
+        int freeRemaining = Math.max(0, safeValue(userQuota.getResumeQuota()) - 1);
+        consumptionLogService.logConsumption(userId, "RESUME", 1, freeRemaining,
+                "FREE", null, null, "RESUME_DIAGNOSIS", "简历诊断-免费额度扣减");
     }
 
     @Override
@@ -285,6 +307,10 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
                 throw new BusinessException(ResultCode.POLISH_QUOTA_EXHAUSTED);
             }
             log.info("VIP 扣减AI润色配额成功，userId={}", userId);
+            // 记录VIP每日额度消费
+            int dailyRemaining = Math.max(0, dailyLimit - safeValue(userQuota.getDailyPolishUsed()) - 1);
+            consumptionLogService.logConsumption(userId, "POLISH", 1, dailyRemaining,
+                    "VIP_DAILY", null, resumeTaskId, "RESUME_POLISH", "AI润色-VIP每日额度扣减");
             return;
         }
 
@@ -294,6 +320,10 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
             throw new BusinessException(ResultCode.VIP_FEATURE_REQUIRED);
         }
         log.info("非会员扣减免费润色次数成功，userId={}", userId);
+        // 记录免费额度消费
+        int freeRemaining = Math.max(0, safeValue(userQuota.getFreePolishLeft()) - 1);
+        consumptionLogService.logConsumption(userId, "POLISH", 1, freeRemaining,
+                "FREE", null, resumeTaskId, "RESUME_POLISH", "AI润色-免费额度扣减");
     }
 
     @Override
@@ -313,6 +343,10 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
                 throw new BusinessException(ResultCode.JD_MATCH_QUOTA_EXHAUSTED);
             }
             log.info("VIP 扣减JD匹配配额成功，userId={}", userId);
+            // 记录VIP每日额度消费
+            int dailyRemaining = Math.max(0, dailyLimit - safeValue(userQuota.getDailyJdMatchUsed()) - 1);
+            consumptionLogService.logConsumption(userId, "JD_MATCH", 1, dailyRemaining,
+                    "VIP_DAILY", null, null, "JOB_MATCH", "JD匹配-VIP每日额度扣减");
             return;
         }
 
@@ -321,6 +355,10 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
             throw new BusinessException(ResultCode.VIP_FEATURE_REQUIRED);
         }
         log.info("非会员扣减免费JD匹配次数成功，userId={}", userId);
+        // 记录免费额度消费
+        int freeRemaining = Math.max(0, safeValue(userQuota.getFreeJdMatchLeft()) - 1);
+        consumptionLogService.logConsumption(userId, "JD_MATCH", 1, freeRemaining,
+                "FREE", null, null, "JOB_MATCH", "JD匹配-免费额度扣减");
     }
 
     @Override
@@ -340,6 +378,10 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
                 throw new BusinessException(ResultCode.TEMPLATE_QUOTA_EXHAUSTED);
             }
             log.info("VIP 扣减模板使用配额成功，userId={}", userId);
+            // 记录VIP每日额度消费
+            int dailyRemaining = Math.max(0, dailyLimit - safeValue(userQuota.getDailyTemplateUsed()) - 1);
+            consumptionLogService.logConsumption(userId, "TEMPLATE", 1, dailyRemaining,
+                    "VIP_DAILY", null, null, "TEMPLATE_USE", "模板使用-VIP每日额度扣减");
             return;
         }
 
@@ -348,6 +390,10 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
             throw new BusinessException(ResultCode.VIP_FEATURE_REQUIRED);
         }
         log.info("非会员扣减免费模板次数成功，userId={}", userId);
+        // 记录免费额度消费
+        int freeRemaining = Math.max(0, safeValue(userQuota.getFreeTemplateLeft()) - 1);
+        consumptionLogService.logConsumption(userId, "TEMPLATE", 1, freeRemaining,
+                "FREE", null, null, "TEMPLATE_USE", "模板使用-免费额度扣减");
     }
 
     @Override
@@ -367,6 +413,10 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
                 throw new BusinessException(ResultCode.OFFER_QUOTA_EXHAUSTED);
             }
             log.info("VIP 扣减Offer辅助配额成功，userId={}", userId);
+            // 记录VIP每日额度消费
+            int dailyRemaining = Math.max(0, dailyLimit - safeValue(userQuota.getDailyOfferUsed()) - 1);
+            consumptionLogService.logConsumption(userId, "OFFER", 1, dailyRemaining,
+                    "VIP_DAILY", null, null, "OFFER_ASSIST", "Offer辅助-VIP每日额度扣减");
             return;
         }
 
@@ -375,6 +425,10 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
             throw new BusinessException(ResultCode.VIP_FEATURE_REQUIRED);
         }
         log.info("非会员扣减免费Offer次数成功，userId={}", userId);
+        // 记录免费额度消费
+        int freeRemaining = Math.max(0, safeValue(userQuota.getFreeOfferLeft()) - 1);
+        consumptionLogService.logConsumption(userId, "OFFER", 1, freeRemaining,
+                "FREE", null, null, "OFFER_ASSIST", "Offer辅助-免费额度扣减");
     }
 
     @Override

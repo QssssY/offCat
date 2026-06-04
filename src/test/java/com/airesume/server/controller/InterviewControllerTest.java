@@ -339,6 +339,7 @@ class InterviewControllerTest {
                 .thenReturn(InterviewConstants.INTERACTION_TYPE_VOICE);
         when(userTtsSpeechService.resolveInterviewTtsConfig(1L))
                 .thenReturn(com.airesume.server.dto.user.ResolvedTtsConfig.builder()
+                        .source("user_custom")
                         .configType("interview")
                         .baseUrl("https://8.8.8.8/v1")
                         .model("tts-1")
@@ -352,6 +353,35 @@ class InterviewControllerTest {
         assertEquals(true, result.getData().getAvailable());
         assertEquals("user_custom", result.getData().getEngine());
         assertEquals("interview", result.getData().getConfigType());
+        assertEquals(false, result.getData().getSystemTtsAvailable());
+    }
+
+    @Test
+    void getTtsCapabilityShouldReturnSystemTtsAvailabilityWhenOnlySystemConfigExists() {
+        String sessionId = "voice-session-system";
+        InterviewSession session = buildSession(sessionId, InterviewConstants.INTERACTION_TYPE_VOICE,
+                InterviewConstants.STATUS_IN_PROGRESS);
+        when(interviewService.getSessionByOwnerOrThrow(sessionId, 1L)).thenReturn(session);
+        when(interviewService.resolveInteractionType(InterviewConstants.INTERACTION_TYPE_VOICE))
+                .thenReturn(InterviewConstants.INTERACTION_TYPE_VOICE);
+        when(userTtsSpeechService.hasSystemTtsConfig()).thenReturn(true);
+        when(userTtsSpeechService.resolveInterviewTtsConfig(1L))
+                .thenReturn(com.airesume.server.dto.user.ResolvedTtsConfig.builder()
+                        .source("system")
+                        .configType("system")
+                        .baseUrl("https://system-tts.example.com/v1")
+                        .model("tts-1")
+                        .voiceId("alloy")
+                        .apiKey("hidden")
+                        .build());
+
+        Result<TtsCapabilityResponse> result = controller.getTtsCapability(sessionId, authentication);
+
+        assertEquals(CODE_SUCCESS, result.getCode());
+        assertEquals(true, result.getData().getAvailable());
+        assertEquals(true, result.getData().getSystemTtsAvailable());
+        assertEquals("system", result.getData().getEngine());
+        assertEquals("system", result.getData().getConfigType());
     }
 
     @Test

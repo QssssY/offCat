@@ -281,28 +281,12 @@ public class GrowthServiceImpl implements GrowthService {
         // 最近JD匹配分数（复用已查询的记录）
         Integer latestJobMatchScore = latestJobMatchRecord != null ? latestJobMatchRecord.getMatchScore() : null;
 
-        // 累计简历诊断次数（使用查询到的列表大小，但需要查总数）
-        Integer resumeDiagnosisCount = Math.toIntExact(resumeDiagnosisTaskMapper.selectCount(
-                new LambdaQueryWrapper<ResumeDiagnosisTask>()
-                        .eq(ResumeDiagnosisTask::getUserId, userId)
-                        .eq(ResumeDiagnosisTask::getStatus, RESUME_STATUS_COMPLETED)));
-
-        // 累计模拟面试次数
-        Integer mockInterviewCount = Math.toIntExact(
-                interviewSessionMapper.selectCount(new QueryWrapper<InterviewSession>()
-                        .eq("user_id", userId)
-                        .eq("status", INTERVIEW_STATUS_ENDED)
-                        .eq("is_deleted", 0)));
-
-        // 累计JD匹配次数
-        Integer jobMatchCount = Math.toIntExact(resumeJobMatchRecordMapper.selectCount(
-                new LambdaQueryWrapper<ResumeJobMatchRecord>()
-                        .eq(ResumeJobMatchRecord::getUserId, userId)));
-
-        // 累计AI润色次数
-        Integer polishCount = Math.toIntExact(resumePolishRecordMapper.selectCount(
-                new LambdaQueryWrapper<ResumePolishRecord>()
-                        .eq(ResumePolishRecord::getUserId, userId)));
+        // 累计活动次数：4 张表合并为一次查询
+        Map<String, Object> counts = resumeDiagnosisTaskMapper.selectGrowthActivityCounts(userId);
+        Integer resumeDiagnosisCount = ((Number) counts.get("resumeDiagnosisCount")).intValue();
+        Integer mockInterviewCount = ((Number) counts.get("mockInterviewCount")).intValue();
+        Integer jobMatchCount = ((Number) counts.get("jobMatchCount")).intValue();
+        Integer polishCount = ((Number) counts.get("polishCount")).intValue();
 
         return SummaryVO.builder()
                 .latestResumeScore(latestResumeScore)

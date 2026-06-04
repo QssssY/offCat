@@ -10,6 +10,8 @@ import lombok.Data;
 @Builder
 public class ResolvedTtsConfig {
 
+    /** 配置来源：user_custom/system，用于控制层和前端区分展示。 */
+    private String source;
     private String baseUrl;
     private String apiKey;
     private String model;

@@ -33,27 +33,29 @@ class UserAiUsageStatsServiceImplTest {
     }
 
     @Test
-    void shouldBuildDailyStatsWithTypeBreakdownAndPagedUserDetails() {
-        LocalDate date = LocalDate.of(2026, 6, 3);
+    void shouldBuildRangeStatsWithTypeBreakdownAndPagedUserDetails() {
+        LocalDate startDate = LocalDate.of(2026, 6, 1);
+        LocalDate endDate = LocalDate.of(2026, 6, 3);
         when(mapper.countConfiguredUsers()).thenReturn(3);
-        when(mapper.countActiveUsers(date)).thenReturn(2);
-        when(mapper.sumTotalCalls(date)).thenReturn(9);
-        when(mapper.selectTypeStats(date)).thenReturn(List.of(
+        when(mapper.countActiveUsers(startDate, endDate)).thenReturn(2);
+        when(mapper.sumTotalCalls(startDate, endDate)).thenReturn(9);
+        when(mapper.selectTypeStats(startDate, endDate)).thenReturn(List.of(
                 typeStat(UserAiConstants.USAGE_TYPE_RESUME_DIAGNOSIS, 4),
                 typeStat(UserAiConstants.USAGE_TYPE_INTERVIEW_MESSAGE, 5)
         ));
-        when(mapper.countUserStats(date)).thenReturn(1L);
-        when(mapper.selectUserStatsPage(date, 0, 20)).thenReturn(List.of(
+        when(mapper.countUserStats(startDate, endDate)).thenReturn(1L);
+        when(mapper.selectUserStatsPage(startDate, endDate, 0, 20)).thenReturn(List.of(
                 userStat(10L, "alice", "Alice", 9)
         ));
-        when(mapper.selectUserTypeStats(date, List.of(10L))).thenReturn(List.of(
+        when(mapper.selectUserTypeStats(startDate, endDate, List.of(10L))).thenReturn(List.of(
                 userTypeStat(10L, UserAiConstants.USAGE_TYPE_RESUME_DIAGNOSIS, 4),
                 userTypeStat(10L, UserAiConstants.USAGE_TYPE_INTERVIEW_MESSAGE, 5)
         ));
 
-        CustomAiUsageStatsResponse response = service.getDailyStats(date, 1, 20);
+        CustomAiUsageStatsResponse response = service.getDailyStats(null, startDate, endDate, 1, 20);
 
-        assertEquals(date, response.getDate());
+        assertEquals(startDate, response.getStartDate());
+        assertEquals(endDate, response.getEndDate());
         assertEquals(3, response.getConfiguredUserCount());
         assertEquals(2, response.getActiveUserCount());
         assertEquals(9, response.getTotalCalls());
@@ -61,20 +63,41 @@ class UserAiUsageStatsServiceImplTest {
         assertEquals("简历诊断", response.getTypeStats().get(0).getUsageTypeDesc());
         assertEquals(9, response.getUserStats().get(0).getTotalCalls());
         assertEquals(2, response.getUserStats().get(0).getTypeStats().size());
-        verify(mapper).selectUserStatsPage(date, 0, 20);
+        verify(mapper).selectUserStatsPage(startDate, endDate, 0, 20);
     }
 
     @Test
-    void shouldClampPageBoundsBeforeQueryingUserStats() {
+    void shouldTreatDateParamAsSingleDayStatsForBackwardCompatibility() {
         LocalDate date = LocalDate.of(2026, 6, 3);
-        when(mapper.selectTypeStats(date)).thenReturn(List.of());
-        when(mapper.selectUserStatsPage(date, 999_900, 100)).thenReturn(List.of());
+        when(mapper.selectTypeStats(date, date)).thenReturn(List.of());
+        when(mapper.selectUserStatsPage(date, date, 999_900, 100)).thenReturn(List.of());
 
-        CustomAiUsageStatsResponse response = service.getDailyStats(date, Integer.MAX_VALUE, Integer.MAX_VALUE);
+        CustomAiUsageStatsResponse response =
+                service.getDailyStats(date, LocalDate.of(2026, 6, 1), LocalDate.of(2026, 6, 7),
+                        Integer.MAX_VALUE, Integer.MAX_VALUE);
 
+        assertEquals(date, response.getDate());
+        assertEquals(date, response.getStartDate());
+        assertEquals(date, response.getEndDate());
         assertEquals(10_000, response.getPage());
         assertEquals(100, response.getPageSize());
-        verify(mapper).selectUserStatsPage(date, 999_900, 100);
+        verify(mapper).selectUserStatsPage(date, date, 999_900, 100);
+    }
+
+    @Test
+    void shouldRejectInvalidStatsDateRange() {
+        LocalDate startDate = LocalDate.of(2026, 6, 4);
+        LocalDate endDate = LocalDate.of(2026, 6, 3);
+
+        assertThrows(BusinessException.class, () -> service.getDailyStats(null, startDate, endDate, 1, 20));
+    }
+
+    @Test
+    void shouldRejectStatsDateRangeOverNinetyDays() {
+        LocalDate startDate = LocalDate.of(2026, 1, 1);
+        LocalDate endDate = LocalDate.of(2026, 4, 1);
+
+        assertThrows(BusinessException.class, () -> service.getDailyStats(null, startDate, endDate, 1, 20));
     }
 
     @Test

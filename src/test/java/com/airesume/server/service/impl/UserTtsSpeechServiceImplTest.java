@@ -3,8 +3,10 @@ package com.airesume.server.service.impl;
 import com.airesume.server.common.constants.UserAiConstants;
 import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.dto.user.ResolvedTtsConfig;
+import com.airesume.server.entity.SysTtsConfig;
 import com.airesume.server.entity.UserAiConfig;
 import com.airesume.server.service.AiCredentialCrypto;
+import com.airesume.server.service.SysTtsConfigService;
 import com.airesume.server.service.UserAiConfigService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -37,7 +39,8 @@ class UserTtsSpeechServiceImplTest {
     void shouldResolveInterviewTtsConfigBeforeDefaultFallback() {
         UserAiConfigService configService = mock(UserAiConfigService.class);
         AiCredentialCrypto crypto = mock(AiCredentialCrypto.class);
-        UserTtsSpeechServiceImpl service = new UserTtsSpeechServiceImpl(configService, crypto, RestClient.builder(), new ObjectMapper());
+        UserTtsSpeechServiceImpl service = new UserTtsSpeechServiceImpl(
+                configService, mock(SysTtsConfigService.class), crypto, RestClient.builder(), new ObjectMapper());
         UserAiConfig interviewConfig = buildTtsConfig("interview", "https://8.8.8.8/v1", "enc-interview", "tts-1", "alloy");
         UserAiConfig defaultConfig = buildTtsConfig("default", "https://1.1.1.1/v1", "enc-default", "tts-1", "nova");
         when(configService.findEnabledConfig(7L, UserAiConstants.CONFIG_TYPE_INTERVIEW)).thenReturn(interviewConfig);
@@ -57,7 +60,8 @@ class UserTtsSpeechServiceImplTest {
     void shouldFallbackToDefaultTtsConfigWhenInterviewMissing() {
         UserAiConfigService configService = mock(UserAiConfigService.class);
         AiCredentialCrypto crypto = mock(AiCredentialCrypto.class);
-        UserTtsSpeechServiceImpl service = new UserTtsSpeechServiceImpl(configService, crypto, RestClient.builder(), new ObjectMapper());
+        UserTtsSpeechServiceImpl service = new UserTtsSpeechServiceImpl(
+                configService, mock(SysTtsConfigService.class), crypto, RestClient.builder(), new ObjectMapper());
         UserAiConfig defaultConfig = buildTtsConfig("default", "https://1.1.1.1/v1", "enc-default", "tts-1", "nova");
         when(configService.findEnabledConfig(9L, UserAiConstants.CONFIG_TYPE_DEFAULT)).thenReturn(defaultConfig);
         when(crypto.decrypt("enc-default")).thenReturn("default-tts-key");
@@ -70,9 +74,48 @@ class UserTtsSpeechServiceImplTest {
     }
 
     @Test
+    void shouldFallbackToSystemTtsConfigWhenUserTtsMissing() {
+        UserAiConfigService configService = mock(UserAiConfigService.class);
+        SysTtsConfigService sysTtsConfigService = mock(SysTtsConfigService.class);
+        AiCredentialCrypto crypto = mock(AiCredentialCrypto.class);
+        UserTtsSpeechServiceImpl service = new UserTtsSpeechServiceImpl(
+                configService, sysTtsConfigService, crypto, RestClient.builder(), new ObjectMapper());
+        SysTtsConfig systemConfig = buildSystemTtsConfig();
+        when(sysTtsConfigService.getEnabledConfigEntity()).thenReturn(systemConfig);
+        when(crypto.decrypt("enc-system-tts")).thenReturn("system-real-key");
+
+        ResolvedTtsConfig resolved = service.resolveInterviewTtsConfig(13L);
+
+        assertEquals("system", resolved.getSource());
+        assertEquals("system", resolved.getConfigType());
+        assertEquals("https://8.8.8.8/v1", resolved.getBaseUrl());
+        assertEquals("system-real-key", resolved.getApiKey());
+    }
+
+    @Test
+    void shouldPreferUserCustomTtsBeforeSystemTtsConfig() {
+        UserAiConfigService configService = mock(UserAiConfigService.class);
+        SysTtsConfigService sysTtsConfigService = mock(SysTtsConfigService.class);
+        AiCredentialCrypto crypto = mock(AiCredentialCrypto.class);
+        UserTtsSpeechServiceImpl service = new UserTtsSpeechServiceImpl(
+                configService, sysTtsConfigService, crypto, RestClient.builder(), new ObjectMapper());
+        UserAiConfig interviewConfig = buildTtsConfig("interview", "https://8.8.8.8/v1", "enc-interview", "tts-1", "nova");
+        when(configService.findEnabledConfig(14L, UserAiConstants.CONFIG_TYPE_INTERVIEW)).thenReturn(interviewConfig);
+        when(crypto.decrypt("enc-interview")).thenReturn("user-tts-key");
+
+        ResolvedTtsConfig resolved = service.resolveInterviewTtsConfig(14L);
+
+        assertEquals("user_custom", resolved.getSource());
+        assertEquals("interview", resolved.getConfigType());
+        assertEquals("user-tts-key", resolved.getApiKey());
+        verify(sysTtsConfigService, never()).resolveEnabledConfig();
+    }
+
+    @Test
     void shouldReturnUnavailableWhenTtsFieldsIncomplete() {
         UserAiConfigService configService = mock(UserAiConfigService.class);
-        UserTtsSpeechServiceImpl service = new UserTtsSpeechServiceImpl(configService, mock(AiCredentialCrypto.class), RestClient.builder(), new ObjectMapper());
+        UserTtsSpeechServiceImpl service = new UserTtsSpeechServiceImpl(
+                configService, mock(SysTtsConfigService.class), mock(AiCredentialCrypto.class), RestClient.builder(), new ObjectMapper());
         UserAiConfig incompleteConfig = buildTtsConfig("interview", "https://8.8.8.8/v1", "enc-interview", "", "alloy");
         when(configService.findEnabledConfig(10L, UserAiConstants.CONFIG_TYPE_INTERVIEW)).thenReturn(incompleteConfig);
 
@@ -137,10 +180,22 @@ class UserTtsSpeechServiceImplTest {
         return config;
     }
 
+    private SysTtsConfig buildSystemTtsConfig() {
+        SysTtsConfig config = new SysTtsConfig();
+        config.setEnabled(1);
+        config.setBaseUrl("https://8.8.8.8/v1");
+        config.setApiKey("enc-system-tts");
+        config.setModel("tts-1");
+        config.setVoiceId("alloy");
+        config.setEndpointPath("/audio/speech");
+        config.setTtsProvider("openai");
+        return config;
+    }
+
     private UserTtsSpeechServiceImpl buildService(UserAiConfigService configService,
                                                   AiCredentialCrypto crypto,
                                                   RestClient.Builder builder) {
-        return new UserTtsSpeechServiceImpl(configService, crypto, builder, new ObjectMapper()) {
+        return new UserTtsSpeechServiceImpl(configService, mock(SysTtsConfigService.class), crypto, builder, new ObjectMapper()) {
             @Override
             protected RestClient createRestClient(String baseUrl, int timeoutMs) {
                 return builder.clone()

@@ -48,12 +48,12 @@ class AdminCustomAiStatsControllerTest {
         LocalDate date = LocalDate.of(2026, 6, 3);
         CustomAiUsageStatsResponse response = new CustomAiUsageStatsResponse();
         response.setDate(date);
-        when(statsService.getDailyStats(date, 1, 100)).thenReturn(response);
+        when(statsService.getDailyStats(date, null, null, 1, 100)).thenReturn(response);
 
-        var result = controller.getCustomAiUsageStats(date, 0, 500, authentication);
+        var result = controller.getCustomAiUsageStats(date, null, null, 0, 500, authentication);
 
         assertEquals(date, result.getData().getDate());
-        verify(statsService).getDailyStats(date, 1, 100);
+        verify(statsService).getDailyStats(date, null, null, 1, 100);
     }
 
     @Test
@@ -66,12 +66,34 @@ class AdminCustomAiStatsControllerTest {
         LocalDate date = LocalDate.of(2026, 6, 3);
         CustomAiUsageStatsResponse response = new CustomAiUsageStatsResponse();
         response.setDate(date);
-        when(statsService.getDailyStats(date, 10_000, 100)).thenReturn(response);
+        when(statsService.getDailyStats(date, null, null, 10_000, 100)).thenReturn(response);
 
-        var result = controller.getCustomAiUsageStats(date, Integer.MAX_VALUE, Integer.MAX_VALUE, authentication);
+        var result = controller.getCustomAiUsageStats(
+                date, null, null, Integer.MAX_VALUE, Integer.MAX_VALUE, authentication);
 
         assertEquals(date, result.getData().getDate());
-        verify(statsService).getDailyStats(date, 10_000, 100);
+        verify(statsService).getDailyStats(date, null, null, 10_000, 100);
+    }
+
+    @Test
+    void shouldDelegateStatsDateRangeQuery() {
+        SysUser admin = new SysUser();
+        admin.setId(1L);
+        admin.setRole(UserRoleConstants.ROLE_ADMIN);
+        when(sysUserService.getById(1L)).thenReturn(admin);
+
+        LocalDate startDate = LocalDate.of(2026, 6, 1);
+        LocalDate endDate = LocalDate.of(2026, 6, 7);
+        CustomAiUsageStatsResponse response = new CustomAiUsageStatsResponse();
+        response.setStartDate(startDate);
+        response.setEndDate(endDate);
+        when(statsService.getDailyStats(null, startDate, endDate, 2, 5)).thenReturn(response);
+
+        var result = controller.getCustomAiUsageStats(null, startDate, endDate, 2, 5, authentication);
+
+        assertEquals(startDate, result.getData().getStartDate());
+        assertEquals(endDate, result.getData().getEndDate());
+        verify(statsService).getDailyStats(null, startDate, endDate, 2, 5);
     }
 
     @Test
@@ -82,7 +104,7 @@ class AdminCustomAiStatsControllerTest {
         when(sysUserService.getById(1L)).thenReturn(normalUser);
 
         assertThrows(BusinessException.class,
-                () -> controller.getCustomAiUsageStats(LocalDate.now(), 1, 20, authentication));
+                () -> controller.getCustomAiUsageStats(LocalDate.now(), null, null, 1, 20, authentication));
     }
 
     @Test

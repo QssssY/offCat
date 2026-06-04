@@ -8,6 +8,8 @@ import com.airesume.server.service.SysConfigService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class SysConfigServiceImpl extends ServiceImpl<SysConfigMapper, SysConfig> implements SysConfigService {
 
     @Override
+    @Cacheable(value = "config:sysConfig", key = "'customAiDailyLimit'")
     public int getCustomAiDailyLimit() {
         SysConfig config = getOne(new LambdaQueryWrapper<SysConfig>()
                 .eq(SysConfig::getConfigKey, UserAiConstants.CUSTOM_AI_DAILY_LIMIT_KEY)
@@ -36,6 +39,7 @@ public class SysConfigServiceImpl extends ServiceImpl<SysConfigMapper, SysConfig
     }
 
     @Override
+    @CacheEvict(value = "config:sysConfig", key = "'customAiDailyLimit'")
     @Transactional(rollbackFor = Exception.class)
     public void updateCustomAiDailyLimit(int limit) {
         if (limit < 1 || limit > 10000) {

@@ -21,6 +21,7 @@ import com.airesume.server.service.SysPromptService;
 import com.airesume.server.service.SysUserService;
 import com.airesume.server.service.UserQuotaService;
 import com.airesume.server.service.NotificationService;
+import com.airesume.server.service.QuotaConsumptionLogService;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.core.Authentication;
 
@@ -161,7 +162,8 @@ class AdminAiEngineConnectivityControllerTest {
                 sysUserService,
                 mock(UserQuotaService.class),
                 credentialCrypto,
-                mock(NotificationService.class)
+                mock(NotificationService.class),
+                mock(QuotaConsumptionLogService.class)
         );
     }
 

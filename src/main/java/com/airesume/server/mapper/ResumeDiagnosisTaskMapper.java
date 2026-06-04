@@ -164,4 +164,20 @@ public interface ResumeDiagnosisTaskMapper extends BaseMapper<ResumeDiagnosisTas
             </script>
             """)
     int logicalDeleteByTaskIds(@Param("taskIds") Collection<Long> taskIds);
+
+    /**
+     * 一次查询聚合成长概览所需的 4 张表的累计次数，避免 4 次独立 COUNT 的网络往返。
+     */
+    @Select("""
+            SELECT
+              (SELECT COUNT(*) FROM resume_diagnosis_task
+               WHERE user_id = #{userId} AND status = 2 AND is_deleted = 0) AS resumeDiagnosisCount,
+              (SELECT COUNT(*) FROM interview_session
+               WHERE user_id = #{userId} AND status = 1 AND is_deleted = 0) AS mockInterviewCount,
+              (SELECT COUNT(*) FROM resume_job_match_record
+               WHERE user_id = #{userId} AND is_deleted = 0) AS jobMatchCount,
+              (SELECT COUNT(*) FROM resume_polish_record
+               WHERE user_id = #{userId} AND is_deleted = 0) AS polishCount
+            """)
+    Map<String, Object> selectGrowthActivityCounts(@Param("userId") Long userId);
 }

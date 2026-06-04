@@ -38,4 +38,13 @@ public class UserInfoResponse implements Serializable {
     /** VIP每日Offer辅助剩余次数。 */
     private Integer vipDailyOfferQuota;
 
+    /** 非VIP用户免费AI润色剩余次数。 */
+    private Integer freePolishLeft;
+    /** 非VIP用户免费JD匹配剩余次数。 */
+    private Integer freeJdMatchLeft;
+    /** 非VIP用户免费模板使用剩余次数。 */
+    private Integer freeTemplateLeft;
+    /** 非VIP用户免费Offer辅助剩余次数。 */
+    private Integer freeOfferLeft;
+
 }

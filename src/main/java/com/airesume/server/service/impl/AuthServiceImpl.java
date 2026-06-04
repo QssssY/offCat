@@ -286,6 +286,13 @@ public class AuthServiceImpl implements AuthService {
                 ? 0
                 : Math.max(0, (plan == null || plan.getDailyOfferLimit() == null ? 0 : plan.getDailyOfferLimit()) - safeValue(userQuota.getDailyOfferUsed()));
 
+        // 非VIP用户（或VIP已过期）的4种免费额度剩余
+        boolean isNonVip = plan == null;
+        Integer freePolishLeft = isNonVip && userQuota != null ? Math.max(0, safeValue(userQuota.getFreePolishLeft())) : null;
+        Integer freeJdMatchLeft = isNonVip && userQuota != null ? Math.max(0, safeValue(userQuota.getFreeJdMatchLeft())) : null;
+        Integer freeTemplateLeft = isNonVip && userQuota != null ? Math.max(0, safeValue(userQuota.getFreeTemplateLeft())) : null;
+        Integer freeOfferLeft = isNonVip && userQuota != null ? Math.max(0, safeValue(userQuota.getFreeOfferLeft())) : null;
+
         log.debug("User info fetched successfully, userId: {}, username: {}, resumeQuota: {}, interviewQuota: {}",
                 userId, user.getUsername(), resumeQuota, interviewQuota);
 
@@ -306,6 +313,10 @@ public class AuthServiceImpl implements AuthService {
                 .vipDailyJdMatchQuota(vipDailyJdMatchQuota)
                 .vipDailyTemplateQuota(vipDailyTemplateQuota)
                 .vipDailyOfferQuota(vipDailyOfferQuota)
+                .freePolishLeft(freePolishLeft)
+                .freeJdMatchLeft(freeJdMatchLeft)
+                .freeTemplateLeft(freeTemplateLeft)
+                .freeOfferLeft(freeOfferLeft)
                 .build();
     }
 

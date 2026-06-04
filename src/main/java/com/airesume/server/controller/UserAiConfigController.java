@@ -2,6 +2,7 @@ package com.airesume.server.controller;
 
 import com.airesume.server.common.result.Result;
 import com.airesume.server.dto.ai.AiModelDiscoveryResponse;
+import com.airesume.server.dto.user.SystemTtsStatusResponse;
 import com.airesume.server.dto.user.UserAiConfigRequest;
 import com.airesume.server.dto.user.UserAiConfigResponse;
 import com.airesume.server.dto.user.UserAiConfigToggleRequest;
@@ -16,6 +17,7 @@ import com.airesume.server.dto.user.UserTtsDiscoveryResponse;
 import com.airesume.server.service.AiModelDiscoveryService;
 import com.airesume.server.service.UserAiConfigService;
 import com.airesume.server.service.UserAiUsageLimitService;
+import com.airesume.server.service.UserTtsSpeechService;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -45,6 +47,7 @@ public class UserAiConfigController {
     private final UserAiConfigService userAiConfigService;
     private final UserAiUsageLimitService userAiUsageLimitService;
     private final AiModelDiscoveryService aiModelDiscoveryService;
+    private final UserTtsSpeechService userTtsSpeechService;
 
     /**
      * 查询当前用户自定义 AI 配置列表。
@@ -163,5 +166,16 @@ public class UserAiConfigController {
     public Result<UserAiUsageResponse> getUsage(Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         return Result.success(userAiUsageLimitService.getUsage(userId));
+    }
+
+    /**
+     * 查询系统级 TTS 是否可作为用户未配置自定义 TTS 时的兜底能力。
+     * 仅返回布尔值，不暴露系统 TTS 的地址、模型、音色或密钥，避免用户侧读取管理员配置细节。
+     */
+    @GetMapping("/system-tts-status")
+    public Result<SystemTtsStatusResponse> getSystemTtsStatus() {
+        return Result.success(SystemTtsStatusResponse.builder()
+                .systemTtsAvailable(userTtsSpeechService.hasSystemTtsConfig())
+                .build());
     }
 }

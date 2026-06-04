@@ -52,6 +52,17 @@ class RedisConfigTest {
 
         assertEquals(Duration.ofMinutes(5), cacheConfigurations.get("admin:userStats").getTtl());
     }
+
+    @Test
+    void shouldConfigureSystemTtsConfigCacheTtlForThirtyMinutes() {
+        RedisConfig redisConfig = new RedisConfig();
+        RedisCacheConfiguration defaultConfig = RedisCacheConfiguration.defaultCacheConfig()
+                .entryTtl(Duration.ofMinutes(5));
+        Map<String, RedisCacheConfiguration> cacheConfigurations = redisConfig.initialCacheConfigurations(defaultConfig);
+
+        assertEquals(Duration.ofMinutes(30), cacheConfigurations.get("config:systemTts").getTtl());
+    }
+
     @Test
     void shouldConfigureHighFrequencyCacheTtls() {
         RedisConfig redisConfig = new RedisConfig();

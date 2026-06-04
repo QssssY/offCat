@@ -6,8 +6,10 @@ import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.ResultCode;
 import com.airesume.server.common.util.PublicHttpsUrlValidator;
 import com.airesume.server.dto.user.ResolvedTtsConfig;
+
 import com.airesume.server.entity.UserAiConfig;
 import com.airesume.server.service.AiCredentialCrypto;
+import com.airesume.server.service.SysTtsConfigService;
 import com.airesume.server.service.UserAiConfigService;
 import com.airesume.server.service.UserTtsSpeechService;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -28,7 +30,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
 /**
- * 用户自定义 TTS 运行时服务。
+ * 语音面试 TTS 运行时服务。
  */
 @Slf4j
 @Service
@@ -40,6 +42,7 @@ public class UserTtsSpeechServiceImpl implements UserTtsSpeechService {
     private static final int TTS_TIMEOUT_MS = 15000;
 
     private final UserAiConfigService userAiConfigService;
+    private final SysTtsConfigService sysTtsConfigService;
     private final AiCredentialCrypto aiCredentialCrypto;
     private final RestClient.Builder restClientBuilder;
     private final ObjectMapper objectMapper;
@@ -49,18 +52,28 @@ public class UserTtsSpeechServiceImpl implements UserTtsSpeechService {
         if (userId == null) {
             return null;
         }
-        // TTS 只服务语音面试播报，解析顺序固定为 interview -> default，永远不读取 resume 配置。
+        // TTS 只服务语音面试播报，用户配置优先级固定为 interview -> default，永远不读取 resume 配置。
         UserAiConfig interviewConfig = userAiConfigService.findEnabledConfig(userId, UserAiConstants.CONFIG_TYPE_INTERVIEW);
         ResolvedTtsConfig resolved = buildResolvedConfig(interviewConfig);
         if (resolved != null) {
             return resolved;
         }
-        return buildResolvedConfig(userAiConfigService.findEnabledConfig(userId, UserAiConstants.CONFIG_TYPE_DEFAULT));
+        resolved = buildResolvedConfig(userAiConfigService.findEnabledConfig(userId, UserAiConstants.CONFIG_TYPE_DEFAULT));
+        if (resolved != null) {
+            return resolved;
+        }
+        // 用户未配置可用 TTS 时，才启用系统级 TTS 兜底；用户自定义始终优先于系统默认。
+        return sysTtsConfigService.resolveEnabledConfig();
     }
 
     @Override
     public boolean hasInterviewTtsConfig(Long userId) {
         return resolveInterviewTtsConfig(userId) != null;
+    }
+
+    @Override
+    public boolean hasSystemTtsConfig() {
+        return sysTtsConfigService.resolveEnabledConfig() != null;
     }
 
     @Override
@@ -100,12 +113,12 @@ public class UserTtsSpeechServiceImpl implements UserTtsSpeechService {
         } catch (BusinessException ex) {
             throw ex;
         } catch (RestClientResponseException ex) {
-            log.warn("用户自定义 TTS 合成失败 (OpenAI), userId: {}, configType: {}, status: {}",
-                    userId, config.getConfigType(), ex.getStatusCode().value());
+            log.warn("语音面试 TTS 合成失败 (OpenAI), userId: {}, source: {}, configType: {}, status: {}",
+                    userId, config.getSource(), config.getConfigType(), ex.getStatusCode().value());
             throw new BusinessException(ResultCode.CUSTOM_AI_CALL_FAILED, "TTS 合成失败，请检查语音合成配置");
         } catch (Exception ex) {
-            log.warn("用户自定义 TTS 合成异常 (OpenAI), userId: {}, configType: {}, errorType: {}",
-                    userId, config.getConfigType(), ex.getClass().getSimpleName());
+            log.warn("语音面试 TTS 合成异常 (OpenAI), userId: {}, source: {}, configType: {}, errorType: {}",
+                    userId, config.getSource(), config.getConfigType(), ex.getClass().getSimpleName());
             throw new BusinessException(ResultCode.CUSTOM_AI_CALL_FAILED, "TTS 合成失败，请稍后重试");
         }
     }
@@ -164,12 +177,12 @@ public class UserTtsSpeechServiceImpl implements UserTtsSpeechService {
         } catch (BusinessException ex) {
             throw ex;
         } catch (RestClientResponseException ex) {
-            log.warn("用户自定义 TTS 合成失败 (ChatCompletions), userId: {}, configType: {}, status: {}",
-                    userId, config.getConfigType(), ex.getStatusCode().value());
+            log.warn("语音面试 TTS 合成失败 (ChatCompletions), userId: {}, source: {}, configType: {}, status: {}",
+                    userId, config.getSource(), config.getConfigType(), ex.getStatusCode().value());
             throw new BusinessException(ResultCode.CUSTOM_AI_CALL_FAILED, "TTS 合成失败，请检查语音合成配置");
         } catch (Exception ex) {
-            log.warn("用户自定义 TTS 合成异常 (ChatCompletions), userId: {}, configType: {}, errorType: {}",
-                    userId, config.getConfigType(), ex.getClass().getSimpleName());
+            log.warn("语音面试 TTS 合成异常 (ChatCompletions), userId: {}, source: {}, configType: {}, errorType: {}",
+                    userId, config.getSource(), config.getConfigType(), ex.getClass().getSimpleName());
             throw new BusinessException(ResultCode.CUSTOM_AI_CALL_FAILED, "TTS 合成失败，请稍后重试");
         }
     }
@@ -214,6 +227,7 @@ public class UserTtsSpeechServiceImpl implements UserTtsSpeechService {
             return null;
         }
         return ResolvedTtsConfig.builder()
+                .source("user_custom")
                 .baseUrl(baseUrl)
                 .apiKey(apiKey)
                 .model(config.getTtsModel().trim())

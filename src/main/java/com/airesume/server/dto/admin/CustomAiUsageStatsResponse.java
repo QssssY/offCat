@@ -9,7 +9,9 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * 管理端用户自定义 AI 每日统计响应。
+ * 管理端用户自定义 AI 统计响应。
+ *
+ * date 保留给旧版单日统计回显；startDate/endDate 表示当前统计实际覆盖的日期范围。
  */
 @Data
 @Builder
@@ -18,6 +20,8 @@ import lombok.NoArgsConstructor;
 public class CustomAiUsageStatsResponse {
 
     private LocalDate date;
+    private LocalDate startDate;
+    private LocalDate endDate;
     private Integer configuredUserCount;
     private Integer activeUserCount;
     private Integer totalCalls;

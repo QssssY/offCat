@@ -78,60 +78,64 @@ public interface UserAiUsageDetailMapper extends BaseMapper<UserAiUsageDetail> {
     int countConfiguredUsers();
 
     /**
-     * 查询指定日期实际使用过自定义 AI 的用户数。
+     * 查询指定日期范围内实际使用过自定义 AI 的用户数。
      */
     @Select("""
             SELECT COUNT(DISTINCT user_id)
             FROM user_ai_usage_detail
-            WHERE usage_date = #{usageDate}
+            WHERE usage_date BETWEEN #{startDate} AND #{endDate}
               AND call_count > 0
               AND is_deleted = 0
             """)
-    int countActiveUsers(@Param("usageDate") LocalDate usageDate);
+    int countActiveUsers(@Param("startDate") LocalDate startDate,
+                         @Param("endDate") LocalDate endDate);
 
     /**
-     * 查询指定日期自定义 AI 总调用次数。
+     * 查询指定日期范围内自定义 AI 总调用次数。
      */
     @Select("""
             SELECT COALESCE(SUM(call_count), 0)
             FROM user_ai_usage_detail
-            WHERE usage_date = #{usageDate}
+            WHERE usage_date BETWEEN #{startDate} AND #{endDate}
               AND is_deleted = 0
             """)
-    int sumTotalCalls(@Param("usageDate") LocalDate usageDate);
+    int sumTotalCalls(@Param("startDate") LocalDate startDate,
+                      @Param("endDate") LocalDate endDate);
 
     /**
-     * 查询指定日期按功能聚合的调用次数。
+     * 查询指定日期范围内按功能聚合的调用次数。
      */
     @Select("""
             SELECT usage_type AS usageType,
                    SUM(call_count) AS callCount
             FROM user_ai_usage_detail
-            WHERE usage_date = #{usageDate}
+            WHERE usage_date BETWEEN #{startDate} AND #{endDate}
               AND is_deleted = 0
             GROUP BY usage_type
             ORDER BY callCount DESC, usage_type ASC
             """)
-    List<CustomAiUsageTypeStatResponse> selectTypeStats(@Param("usageDate") LocalDate usageDate);
+    List<CustomAiUsageTypeStatResponse> selectTypeStats(@Param("startDate") LocalDate startDate,
+                                                        @Param("endDate") LocalDate endDate);
 
     /**
-     * 查询指定日期有调用记录的用户数，用于分页。
+     * 查询指定日期范围内有调用记录的用户数，用于分页。
      */
     @Select("""
             SELECT COUNT(*)
             FROM (
                 SELECT user_id
                 FROM user_ai_usage_detail
-                WHERE usage_date = #{usageDate}
+                WHERE usage_date BETWEEN #{startDate} AND #{endDate}
                   AND call_count > 0
                   AND is_deleted = 0
                 GROUP BY user_id
             ) t
             """)
-    long countUserStats(@Param("usageDate") LocalDate usageDate);
+    long countUserStats(@Param("startDate") LocalDate startDate,
+                        @Param("endDate") LocalDate endDate);
 
     /**
-     * 查询指定日期按用户聚合的调用明细页。
+     * 查询指定日期范围内按用户聚合的调用明细页。
      */
     @Select("""
             SELECT d.user_id AS userId,
@@ -140,19 +144,20 @@ public interface UserAiUsageDetailMapper extends BaseMapper<UserAiUsageDetail> {
                    SUM(d.call_count) AS totalCalls
             FROM user_ai_usage_detail d
             LEFT JOIN sys_user u ON u.id = d.user_id
-            WHERE d.usage_date = #{usageDate}
+            WHERE d.usage_date BETWEEN #{startDate} AND #{endDate}
               AND d.call_count > 0
               AND d.is_deleted = 0
             GROUP BY d.user_id, u.username, u.nickname
             ORDER BY totalCalls DESC, d.user_id DESC
             LIMIT #{limit} OFFSET #{offset}
             """)
-    List<CustomAiUserUsageStatResponse> selectUserStatsPage(@Param("usageDate") LocalDate usageDate,
+    List<CustomAiUserUsageStatResponse> selectUserStatsPage(@Param("startDate") LocalDate startDate,
+                                                            @Param("endDate") LocalDate endDate,
                                                             @Param("offset") int offset,
                                                             @Param("limit") int limit);
 
     /**
-     * 查询一组用户在指定日期的功能拆分明细。
+     * 查询一组用户在指定日期范围内的功能拆分明细。
      */
     @Select("""
             <script>
@@ -160,7 +165,7 @@ public interface UserAiUsageDetailMapper extends BaseMapper<UserAiUsageDetail> {
                    usage_type AS usageType,
                    SUM(call_count) AS callCount
             FROM user_ai_usage_detail
-            WHERE usage_date = #{usageDate}
+            WHERE usage_date BETWEEN #{startDate} AND #{endDate}
               AND call_count > 0
               AND is_deleted = 0
               AND user_id IN
@@ -171,7 +176,8 @@ public interface UserAiUsageDetailMapper extends BaseMapper<UserAiUsageDetail> {
             ORDER BY user_id DESC, callCount DESC, usage_type ASC
             </script>
             """)
-    List<CustomAiUserUsageTypeStatResponse> selectUserTypeStats(@Param("usageDate") LocalDate usageDate,
+    List<CustomAiUserUsageTypeStatResponse> selectUserTypeStats(@Param("startDate") LocalDate startDate,
+                                                                @Param("endDate") LocalDate endDate,
                                                                 @Param("userIds") List<Long> userIds);
 
     /**

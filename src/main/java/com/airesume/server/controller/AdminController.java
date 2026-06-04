@@ -6,8 +6,10 @@ import com.airesume.server.common.constants.PromptConstants;
 import com.airesume.server.common.constants.UserRoleConstants;
 import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.Result;
+import com.airesume.server.common.result.PageResult;
 import com.airesume.server.common.util.PublicHttpsUrlValidator;
 import com.airesume.server.dto.ai.AiModelDiscoveryResponse;
+import com.airesume.server.dto.quota.ConsumptionLogResponse;
 import com.airesume.server.dto.admin.*;
 import com.airesume.server.entity.SysAiEngineConfig;
 import com.airesume.server.entity.SysJobRole;
@@ -28,6 +30,7 @@ import com.airesume.server.service.SysPromptService;
 import com.airesume.server.service.SysUserService;
 import com.airesume.server.service.UserQuotaService;
 import com.airesume.server.service.NotificationService;
+import com.airesume.server.service.QuotaConsumptionLogService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.validation.Valid;
@@ -69,6 +72,7 @@ public class AdminController {
     private final UserQuotaService userQuotaService;
     private final AiCredentialCrypto aiCredentialCrypto;
     private final NotificationService notificationService;
+    private final QuotaConsumptionLogService consumptionLogService;
 
     // ==================== 提示词模板管理接口 ====================
 
@@ -1213,6 +1217,35 @@ SysPrompt prompt = new SysPrompt();
     /**
      * 查询用户自定义 AI 每日调用上限。
      */
+
+    // ==================== 消费记录管理接口 ====================
+
+    /**
+     * 管理员查询指定用户的额度消费记录
+     *
+     * @param userId    目标用户ID
+     * @param quotaType 额度类型筛选（不传=全部）
+     * @param pageNum   页码
+     * @param pageSize  每页条数
+     */
+    @GetMapping("/users/{userId}/consumption-log")
+    public Result<PageResult<ConsumptionLogResponse>> getUserConsumptionLog(
+            @PathVariable Long userId,
+            @RequestParam(required = false) String quotaType,
+            @RequestParam(defaultValue = "1") int pageNum,
+            @RequestParam(defaultValue = "20") int pageSize,
+            Authentication authentication) {
+        Long adminUserId = (Long) authentication.getPrincipal();
+        checkAdminPermission(adminUserId);
+        log.info("Admin get user consumption log, userId: {}, quotaType: {}, page: {}", userId, quotaType, pageNum);
+
+        int safePage = Math.max(1, pageNum);
+        int safeSize = Math.min(100, Math.max(1, pageSize));
+        PageResult<ConsumptionLogResponse> result = consumptionLogService.getAdminConsumptionLog(
+                userId, quotaType, safePage, safeSize);
+        return Result.success(result);
+    }
+
     @GetMapping("/custom-ai/daily-limit")
     public Result<CustomAiDailyLimitResponse> getCustomAiDailyLimit(Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();

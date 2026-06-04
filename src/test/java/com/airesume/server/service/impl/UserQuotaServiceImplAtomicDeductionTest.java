@@ -6,6 +6,7 @@ import com.airesume.server.entity.MembershipPlan;
 import com.airesume.server.entity.UserQuota;
 import com.airesume.server.mapper.ResumePolishRecordMapper;
 import com.airesume.server.mapper.UserQuotaMapper;
+import com.airesume.server.service.QuotaConsumptionLogService;
 import com.airesume.server.service.SysUserService;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import org.junit.jupiter.api.DisplayName;
@@ -396,7 +397,10 @@ class UserQuotaServiceImplAtomicDeductionTest {
         quota.setInterviewQuota(7);
         quota.setResumeQuota(4);
 
-        UserQuotaServiceImpl service = spy(new UserQuotaServiceImpl(sysUserService, mock(ResumePolishRecordMapper.class)));
+        UserQuotaServiceImpl service = spy(new UserQuotaServiceImpl(
+                sysUserService,
+                mock(ResumePolishRecordMapper.class),
+                mock(QuotaConsumptionLogService.class)));
         ReflectionTestUtils.setField(service, "baseMapper", userQuotaMapper);
         ReflectionTestUtils.setField(service, "entityClass", UserQuota.class);
         doReturn(true).when(service).update(any(UpdateWrapper.class));
@@ -418,7 +422,7 @@ class UserQuotaServiceImplAtomicDeductionTest {
         private TestableUserQuotaService(SysUserService sysUserService,
                                          ResumePolishRecordMapper polishRecordMapper,
                                          UserQuota quota) {
-            super(sysUserService, polishRecordMapper);
+            super(sysUserService, polishRecordMapper, mock(QuotaConsumptionLogService.class));
             this.quota = quota;
         }
 

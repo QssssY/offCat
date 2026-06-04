@@ -140,6 +140,19 @@ class SchemaConsistencyTest {
     }
 
     @Test
+    void shouldKeepSystemTtsConfigMigrationInSyncAndRepeatable() throws Exception {
+        String rootMigration = readSql("../db/migrations/TASK_80_SYSTEM_TTS_CONFIG.sql");
+        String serverMigration = readSql("db/migrations/TASK_80_SYSTEM_TTS_CONFIG.sql");
+
+        assertEquals(rootMigration, serverMigration, "TASK_80 系统级 TTS 配置迁移脚本必须在两个 SQL 目录保持一致");
+        assertTrue(serverMigration.contains("SET NAMES utf8mb4;"));
+        assertTrue(serverMigration.contains("CREATE TABLE IF NOT EXISTS `sys_tts_config`"));
+        assertTrue(serverMigration.contains("singleton_key"));
+        assertTrue(serverMigration.contains("uk_sys_tts_config_singleton"));
+        assertTrue(serverMigration.contains("idx_sys_tts_config_enabled"));
+    }
+
+    @Test
     void shouldKeepTtsProviderMigrationsInSync() throws Exception {
         String rootEndpointMigration = readSql("../db/migrations/alter_tts_endpoint_path.sql");
         String serverEndpointMigration = readSql("db/migrations/alter_tts_endpoint_path.sql");
@@ -182,6 +195,9 @@ class SchemaConsistencyTest {
         assertTrue(schema.contains("ai_billing_source"));
         assertTrue(schema.contains("fallback_to_platform"));
         assertTrue(schema.contains("platform_fallback"));
+        assertTrue(schema.contains("CREATE TABLE `sys_tts_config`"));
+        assertTrue(schema.contains("uk_sys_tts_config_singleton"));
+        assertTrue(schema.contains("idx_sys_tts_config_enabled"));
     }
 
     private String readSql(String path) throws Exception {

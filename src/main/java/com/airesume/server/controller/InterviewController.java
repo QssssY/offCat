@@ -286,13 +286,16 @@ public class InterviewController {
             return Result.success(TtsCapabilityResponse.builder()
                     .available(false)
                     .engine("browser")
+                    .systemTtsAvailable(false)
                     .build());
         }
         ResolvedTtsConfig config = userTtsSpeechService.resolveInterviewTtsConfig(userId);
+        boolean systemTtsAvailable = userTtsSpeechService.hasSystemTtsConfig();
         return Result.success(TtsCapabilityResponse.builder()
                 .available(config != null)
-                .engine(config == null ? "browser" : "user_custom")
+                .engine(resolveTtsCapabilityEngine(config))
                 .configType(config == null ? null : config.getConfigType())
+                .systemTtsAvailable(systemTtsAvailable)
                 .build());
     }
 
@@ -399,6 +402,13 @@ public class InterviewController {
 
     private boolean isVoiceSession(InterviewSession session) {
         return interviewService.resolveInteractionType(session.getInteractionType()) == InterviewConstants.INTERACTION_TYPE_VOICE;
+    }
+
+    private String resolveTtsCapabilityEngine(ResolvedTtsConfig config) {
+        if (config == null) {
+            return "browser";
+        }
+        return "system".equals(config.getSource()) ? "system" : "user_custom";
     }
 
     private InterviewJobRoleResponse buildInterviewJobRoleResponse(SysJobRole jobRole) {

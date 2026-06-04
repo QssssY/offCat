@@ -37,25 +37,28 @@ public class UserAiUsageStatsServiceImpl implements UserAiUsageStatsService {
     private final UserAiUsageDetailMapper userAiUsageDetailMapper;
 
     @Override
-    public CustomAiUsageStatsResponse getDailyStats(LocalDate date, int page, int pageSize) {
-        LocalDate targetDate = date == null ? LocalDate.now() : date;
+    public CustomAiUsageStatsResponse getDailyStats(LocalDate date, LocalDate startDate, LocalDate endDate,
+                                                    int page, int pageSize) {
+        DateRange range = resolveStatsDateRange(date, startDate, endDate);
         // Service 层再次收敛分页边界，防止绕过 Controller 的调用传入异常页码。
         int normalizedPage = Math.min(MAX_PAGE, Math.max(1, page));
         int normalizedPageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, pageSize));
         int offset = (normalizedPage - 1) * normalizedPageSize;
 
         List<CustomAiUsageTypeStatResponse> typeStats = withLabels(
-                userAiUsageDetailMapper.selectTypeStats(targetDate));
+                userAiUsageDetailMapper.selectTypeStats(range.startDate(), range.endDate()));
         List<CustomAiUserUsageStatResponse> userStats =
-                userAiUsageDetailMapper.selectUserStatsPage(targetDate, offset, normalizedPageSize);
-        attachUserTypeStats(targetDate, userStats);
+                userAiUsageDetailMapper.selectUserStatsPage(range.startDate(), range.endDate(), offset, normalizedPageSize);
+        attachUserTypeStats(range, userStats);
 
         return CustomAiUsageStatsResponse.builder()
-                .date(targetDate)
+                .date(range.startDate().equals(range.endDate()) ? range.startDate() : null)
+                .startDate(range.startDate())
+                .endDate(range.endDate())
                 .configuredUserCount(userAiUsageDetailMapper.countConfiguredUsers())
-                .activeUserCount(userAiUsageDetailMapper.countActiveUsers(targetDate))
-                .totalCalls(userAiUsageDetailMapper.sumTotalCalls(targetDate))
-                .totalUsers(userAiUsageDetailMapper.countUserStats(targetDate))
+                .activeUserCount(userAiUsageDetailMapper.countActiveUsers(range.startDate(), range.endDate()))
+                .totalCalls(userAiUsageDetailMapper.sumTotalCalls(range.startDate(), range.endDate()))
+                .totalUsers(userAiUsageDetailMapper.countUserStats(range.startDate(), range.endDate()))
                 .page(normalizedPage)
                 .pageSize(normalizedPageSize)
                 .typeStats(typeStats)
@@ -97,15 +100,16 @@ public class UserAiUsageStatsServiceImpl implements UserAiUsageStatsService {
                 .build();
     }
 
-    private void attachUserTypeStats(LocalDate targetDate, List<CustomAiUserUsageStatResponse> userStats) {
+    private void attachUserTypeStats(DateRange range, List<CustomAiUserUsageStatResponse> userStats) {
         if (userStats == null || userStats.isEmpty()) {
             return;
         }
         List<Long> userIds = userStats.stream()
                 .map(CustomAiUserUsageStatResponse::getUserId)
                 .toList();
+        // 用户明细和功能分布必须使用同一日期范围，避免表格总调用与功能拆分口径不一致。
         Map<Long, List<CustomAiUsageTypeStatResponse>> statsByUser = userAiUsageDetailMapper
-                .selectUserTypeStats(targetDate, userIds)
+                .selectUserTypeStats(range.startDate(), range.endDate(), userIds)
                 .stream()
                 .map(this::toTypeStat)
                 .collect(Collectors.groupingBy(CustomAiUsageTypeStatResponseWithUser::userId,
@@ -180,6 +184,25 @@ public class UserAiUsageStatsServiceImpl implements UserAiUsageStatsService {
                 .toList();
     }
 
+    private DateRange resolveStatsDateRange(LocalDate date, LocalDate startDate, LocalDate endDate) {
+        if (date != null) {
+            // 旧版 date 参数优先级最高，确保旧前端和外部调用仍按单日统计。
+            return new DateRange(date, date);
+        }
+        LocalDate safeStart = startDate;
+        LocalDate safeEnd = endDate;
+        if (safeStart == null && safeEnd == null) {
+            // usage-stats 的无参兼容语义保持为“今天”，真正的默认近 7 天由新版前端显式传参。
+            safeEnd = LocalDate.now();
+            safeStart = safeEnd;
+        } else if (safeStart == null) {
+            safeStart = safeEnd;
+        } else if (safeEnd == null) {
+            safeEnd = safeStart;
+        }
+        return validateDateRange(safeStart, safeEnd);
+    }
+
     private DateRange resolveTrendDateRange(LocalDate startDate, LocalDate endDate) {
         LocalDate safeStart = startDate;
         LocalDate safeEnd = endDate;
@@ -193,6 +216,10 @@ public class UserAiUsageStatsServiceImpl implements UserAiUsageStatsService {
             // 只传 startDate 时按单日查询，保持和管理端日期选择交互一致。
             safeEnd = safeStart;
         }
+        return validateDateRange(safeStart, safeEnd);
+    }
+
+    private DateRange validateDateRange(LocalDate safeStart, LocalDate safeEnd) {
         if (safeStart.isAfter(safeEnd)) {
             throw new BusinessException("startDate 不能大于 endDate");
         }

@@ -104,7 +104,11 @@ public class RedisConfig {
         cacheConfigMap.put("admin:dashboardOverview", defaultConfig.entryTtl(Duration.ofMinutes(5)));
         cacheConfigMap.put("admin:dashboardDistribution", defaultConfig.entryTtl(Duration.ofMinutes(5)));
         cacheConfigMap.put("config:aiEngine", defaultConfig.entryTtl(Duration.ofMinutes(30)));
+        // 系统级 TTS 配置是管理端低频写、语音面试高频读的单例配置，缓存加密态实体，运行时再解密。
+        cacheConfigMap.put("config:systemTts", defaultConfig.entryTtl(Duration.ofMinutes(30)));
         cacheConfigMap.put("config:prompt", defaultConfig.entryTtl(Duration.ofMinutes(30)));
+        // 系统配置缓存：极低频写（管理员操作）、高频读（每次 AI 请求），写入时主动驱逐。
+        cacheConfigMap.put("config:sysConfig", defaultConfig.entryTtl(Duration.ofMinutes(30)));
         // 用户配额缓存：每次 AI 操作都会读取，5 分钟 TTL + 变更方法主动驱逐。
         cacheConfigMap.put("user:quota", defaultConfig.entryTtl(Duration.ofMinutes(5)));
         // 用户名缓存：登录校验会读取完整用户记录；改密、封禁等用户变更需要主动驱逐。

@@ -303,6 +303,24 @@ CREATE TABLE `sys_ai_engine_config` (
   INDEX `idx_sys_ai_engine_config_provider` (`provider_type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Admin configurable AI engine configs';
 
+CREATE TABLE `sys_tts_config` (
+  `id` BIGINT NOT NULL COMMENT '雪花ID',
+  `singleton_key` TINYINT NOT NULL DEFAULT 1 COMMENT '系统TTS单例键，固定为1',
+  `tts_provider` VARCHAR(32) NOT NULL DEFAULT 'openai' COMMENT 'TTS提供商标识: openai/mimo等',
+  `base_url` VARCHAR(512) NULL COMMENT 'TTS服务基础地址',
+  `api_key` VARCHAR(1024) NULL COMMENT 'TTS API Key密文',
+  `model` VARCHAR(128) NULL COMMENT 'TTS模型标识',
+  `voice_id` VARCHAR(128) NULL COMMENT 'TTS音色ID',
+  `endpoint_path` VARCHAR(128) NOT NULL DEFAULT '/audio/speech' COMMENT 'TTS合成端点路径',
+  `enabled` TINYINT NOT NULL DEFAULT 0 COMMENT '是否启用系统TTS: 1=启用, 0=禁用',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除标记',
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `uk_sys_tts_config_singleton` (`singleton_key`, `is_deleted`),
+  INDEX `idx_sys_tts_config_enabled` (`enabled`, `is_deleted`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='系统级TTS配置';
+
 CREATE TABLE `user_rights_change_log` (
   `id` BIGINT NOT NULL COMMENT 'Primary key',
   `user_id` BIGINT NOT NULL COMMENT 'Target user id',
@@ -731,5 +749,30 @@ VALUES
 
 INSERT INTO `sys_config` (`id`, `config_key`, `config_value`, `description`)
 VALUES (1, 'custom_ai_daily_limit', '50', '用户自定义API Key每日调用上限');
+
+-- 用户额度消费记录表
+CREATE TABLE IF NOT EXISTS `user_quota_consumption_log` (
+  `id` BIGINT NOT NULL COMMENT '雪花ID（主键）',
+  `user_id` BIGINT NOT NULL COMMENT '用户ID',
+  `quota_type` VARCHAR(32) NOT NULL COMMENT '额度类型: INTERVIEW/RESUME/POLISH/JD_MATCH/TEMPLATE/OFFER',
+  `change_amount` INT NOT NULL COMMENT '变动数量（正数=消耗，负数=退款）',
+  `balance_after` INT DEFAULT NULL COMMENT '变动后该类型额度余额（当日剩余或免费剩余）',
+  `source` VARCHAR(32) NOT NULL COMMENT '扣减来源: FREE/VIP_DAILY/VIP_CYCLE',
+  `billing_source` VARCHAR(32) DEFAULT NULL COMMENT 'AI计费来源: PLATFORM/USER_CUSTOM/PLATFORM_FALLBACK',
+  `business_id` BIGINT DEFAULT NULL COMMENT '关联业务ID',
+  `business_type` VARCHAR(32) DEFAULT NULL COMMENT '业务类型标识',
+  `description` VARCHAR(255) DEFAULT NULL COMMENT '操作描述',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '记录时间',
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除',
+  PRIMARY KEY (`id`),
+  INDEX `idx_user_type_time` (`user_id`, `quota_type`, `create_time`),
+  INDEX `idx_user_time` (`user_id`, `create_time`),
+  INDEX `idx_create_time` (`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户额度消费记录表';
+
+-- 消费记录保留天数配置（默认 90 天）
+INSERT INTO `sys_config` (`id`, `config_key`, `config_value`, `description`)
+VALUES (2, 'consumption_log_retention_days', '90', '消费记录保留天数，定时任务据此清理过期记录');
 
 SET FOREIGN_KEY_CHECKS = 1;

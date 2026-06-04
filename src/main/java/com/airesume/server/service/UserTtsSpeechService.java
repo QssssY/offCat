@@ -3,12 +3,12 @@ package com.airesume.server.service;
 import com.airesume.server.dto.user.ResolvedTtsConfig;
 
 /**
- * 用户自定义 TTS 运行时合成服务。
+ * 语音面试 TTS 运行时合成服务。
  */
 public interface UserTtsSpeechService {
 
     /**
-     * 解析语音面试可用的 TTS 配置，优先 interview，随后 default。
+     * 解析语音面试可用的 TTS 配置，优先用户 interview/default，随后系统级配置。
      */
     ResolvedTtsConfig resolveInterviewTtsConfig(Long userId);
 
@@ -18,7 +18,12 @@ public interface UserTtsSpeechService {
     boolean hasInterviewTtsConfig(Long userId);
 
     /**
-     * 使用用户自定义 OpenAI 兼容 TTS 合成面试官播报音频。
+     * 判断当前是否存在可用系统级 TTS 配置。
+     */
+    boolean hasSystemTtsConfig();
+
+    /**
+     * 使用解析后的 TTS 配置合成面试官播报音频。
      */
     byte[] synthesizeInterviewSpeech(Long userId, String text);
 }

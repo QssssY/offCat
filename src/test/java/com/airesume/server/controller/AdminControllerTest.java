@@ -24,6 +24,7 @@ import com.airesume.server.service.SysPromptService;
 import com.airesume.server.service.SysUserService;
 import com.airesume.server.service.UserQuotaService;
 import com.airesume.server.service.NotificationService;
+import com.airesume.server.service.QuotaConsumptionLogService;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
@@ -75,6 +76,7 @@ class AdminControllerTest {
     @Mock private UserQuotaService userQuotaService;
     @Mock private AiCredentialCrypto aiCredentialCrypto;
     @Mock private NotificationService notificationService;
+    @Mock private QuotaConsumptionLogService quotaConsumptionLogService;
     @Mock private Authentication authentication;
 
     private AdminController controller;
@@ -96,7 +98,8 @@ class AdminControllerTest {
                 sysUserService,
                 userQuotaService,
                 aiCredentialCrypto,
-                notificationService
+                notificationService,
+                quotaConsumptionLogService
         );
 
         lenient().when(authentication.getPrincipal()).thenReturn(1L);

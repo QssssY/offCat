@@ -25,6 +25,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -133,10 +134,9 @@ class GrowthServiceImplTest {
         interviewSession.setCreateTime(LocalDateTime.of(2026, 5, 21, 9, 0));
         when(resumeDiagnosisTaskMapper.selectList(any())).thenReturn(List.of(resumeTask));
         when(interviewSessionMapper.selectList(any())).thenReturn(List.of(interviewSession));
-        when(resumeDiagnosisTaskMapper.selectCount(any())).thenReturn(1L);
-        when(interviewSessionMapper.selectCount(any())).thenReturn(1L);
-        when(resumeJobMatchRecordMapper.selectCount(any())).thenReturn(0L);
-        when(resumePolishRecordMapper.selectCount(any())).thenReturn(0L);
+        when(resumeDiagnosisTaskMapper.selectGrowthActivityCounts(userId))
+                .thenReturn(Map.of("resumeDiagnosisCount", 1L, "mockInterviewCount", 1L,
+                        "jobMatchCount", 0L, "polishCount", 0L));
         when(sysGrowthConfigService.getByGroup("encouragement")).thenReturn(List.of(
                 buildGrowthConfig("encourage_resume_80", "你的简历质量已经超过 80 分，适合继续打磨岗位匹配。", "encouragement", "简历高分鼓励", 1)
         ));
@@ -192,10 +192,9 @@ class GrowthServiceImplTest {
             return polishRecord;
         }).when(resumePolishRecordMapper).selectOne(any());
         when(interviewSessionMapper.selectList(any())).thenReturn(List.of());
-        when(resumeDiagnosisTaskMapper.selectCount(any())).thenReturn(1L);
-        when(interviewSessionMapper.selectCount(any())).thenReturn(0L);
-        when(resumeJobMatchRecordMapper.selectCount(any())).thenReturn(1L);
-        when(resumePolishRecordMapper.selectCount(any())).thenReturn(1L);
+        when(resumeDiagnosisTaskMapper.selectGrowthActivityCounts(userId))
+                .thenReturn(Map.of("resumeDiagnosisCount", 1L, "mockInterviewCount", 0L,
+                        "jobMatchCount", 1L, "polishCount", 1L));
         when(sysGrowthConfigService.getByGroup("encouragement")).thenReturn(List.of());
         when(sysGrowthConfigService.getByGroup("milestone")).thenReturn(List.of());
 
