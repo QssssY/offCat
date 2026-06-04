@@ -6,7 +6,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.List;
@@ -77,11 +79,18 @@ class GlobalExceptionHandlerTest {
 
     @Test
     @DisplayName("不支持的请求方法返回参数错误，不按系统异常处理")
-    void shouldHandleUnsupportedRequestMethodAsClientError() {
+    void shouldHandleUnsupportedRequestMethodAsClientError() throws NoSuchMethodException {
         HttpRequestMethodNotSupportedException ex =
                 new HttpRequestMethodNotSupportedException("GET", List.of("POST"));
         Result<Void> result = handler.handleHttpRequestMethodNotSupportedException(ex);
         assertEquals(ResultCode.PARAM_ERROR.getCode(), result.getCode());
         assertEquals("请求方法不支持", result.getMessage());
+
+        ResponseStatus responseStatus = GlobalExceptionHandler.class
+                .getDeclaredMethod("handleHttpRequestMethodNotSupportedException",
+                        HttpRequestMethodNotSupportedException.class)
+                .getAnnotation(ResponseStatus.class);
+        assertNotNull(responseStatus);
+        assertEquals(HttpStatus.METHOD_NOT_ALLOWED, responseStatus.value());
     }
 }

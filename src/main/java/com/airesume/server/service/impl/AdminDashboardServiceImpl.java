@@ -9,6 +9,7 @@ import com.airesume.server.common.constants.CommunityConstants;
 import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.dto.admin.BusinessDistributionResponse;
 import com.airesume.server.dto.admin.DashboardOverviewResponse;
+import com.airesume.server.dto.admin.DashboardSummaryResponse;
 import com.airesume.server.dto.admin.DashboardTrendResponse;
 import com.airesume.server.dto.admin.HotJobRoleResponse;
 import com.airesume.server.dto.admin.MonitorOverviewResponse;
@@ -150,6 +151,18 @@ public class AdminDashboardServiceImpl implements AdminDashboardService {
                 .jdMatchCount(jdMatchFuture.join())
                 .orderCount(orderCountFuture.join())
                 .orderRevenue(orderRevenueFuture.join())
+                .build();
+    }
+
+    @Override
+    @Cacheable(value = "admin:dashboardSummary", key = "#startDate + ':' + #endDate + ':' + #hotRoleLimit", sync = true)
+    public DashboardSummaryResponse getDashboardSummary(LocalDate startDate, LocalDate endDate, Integer hotRoleLimit) {
+        // 聚合接口只编排现有四块看板数据，旧接口保持兼容，避免前端首屏同时打四个请求。
+        return DashboardSummaryResponse.builder()
+                .overview(getDashboardOverview(startDate, endDate))
+                .trends(getDashboardTrends(startDate, endDate))
+                .hotJobRoles(getHotJobRoles(startDate, endDate, hotRoleLimit))
+                .businessDistribution(getBusinessDistribution(startDate, endDate))
                 .build();
     }
 

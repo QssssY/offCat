@@ -100,6 +100,7 @@ public class RedisConfig {
         cacheConfigMap.put("user:monthlyStats", defaultConfig.entryTtl(Duration.ofMinutes(5)));
         cacheConfigMap.put("user:growthOverview", defaultConfig.entryTtl(Duration.ofMinutes(5)));
         // 管理后台看板缓存：聚合查询较多，5 分钟 TTL 平衡实时性与数据库压力。
+        cacheConfigMap.put("admin:dashboardSummary", defaultConfig.entryTtl(Duration.ofMinutes(5)));
         cacheConfigMap.put("admin:dashboardTrends", defaultConfig.entryTtl(Duration.ofMinutes(5)));
         cacheConfigMap.put("admin:dashboardOverview", defaultConfig.entryTtl(Duration.ofMinutes(5)));
         cacheConfigMap.put("admin:dashboardDistribution", defaultConfig.entryTtl(Duration.ofMinutes(5)));

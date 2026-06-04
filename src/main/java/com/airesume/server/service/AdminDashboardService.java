@@ -1,6 +1,7 @@
 package com.airesume.server.service;
 
 import com.airesume.server.dto.admin.DashboardOverviewResponse;
+import com.airesume.server.dto.admin.DashboardSummaryResponse;
 import com.airesume.server.dto.admin.DashboardTrendResponse;
 import com.airesume.server.dto.admin.BusinessDistributionResponse;
 import com.airesume.server.dto.admin.HotJobRoleResponse;
@@ -20,6 +21,13 @@ public interface AdminDashboardService {
      * @return 总览统计结果
      */
     DashboardOverviewResponse getDashboardOverview(LocalDate startDate, LocalDate endDate);
+
+    /**
+     * 查询看板首屏聚合数据。
+     *
+     * @return 总览、趋势、热门岗位和业务分布四块数据
+     */
+    DashboardSummaryResponse getDashboardSummary(LocalDate startDate, LocalDate endDate, Integer hotRoleLimit);
 
     /**
      * 查询趋势统计。

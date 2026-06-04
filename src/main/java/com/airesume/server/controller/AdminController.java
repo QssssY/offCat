@@ -562,6 +562,24 @@ public class AdminController {
     }
 
     /**
+     * 管理端看板聚合接口。
+     *
+     * 一次返回 overview/trends/hotJobRoles/businessDistribution，减少首屏并发请求数量。
+     */
+    @GetMapping("/dashboard/summary")
+    public Result<DashboardSummaryResponse> getDashboardSummary(
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate endDate,
+            @RequestParam(name = "limit", required = false) Integer hotRoleLimit,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin get dashboard summary, startDate: {}, endDate: {}, hotRoleLimit: {}",
+                startDate, endDate, hotRoleLimit);
+        return Result.success(adminDashboardService.getDashboardSummary(startDate, endDate, hotRoleLimit));
+    }
+
+    /**
      * 管理端看板趋势统计接口。
      *
      * 支持参数化日期范围，且不依赖中间件监控指标。

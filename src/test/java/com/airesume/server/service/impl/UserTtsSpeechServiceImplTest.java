@@ -3,7 +3,6 @@ package com.airesume.server.service.impl;
 import com.airesume.server.common.constants.UserAiConstants;
 import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.dto.user.ResolvedTtsConfig;
-import com.airesume.server.entity.SysTtsConfig;
 import com.airesume.server.entity.UserAiConfig;
 import com.airesume.server.service.AiCredentialCrypto;
 import com.airesume.server.service.SysTtsConfigService;
@@ -80,9 +79,17 @@ class UserTtsSpeechServiceImplTest {
         AiCredentialCrypto crypto = mock(AiCredentialCrypto.class);
         UserTtsSpeechServiceImpl service = new UserTtsSpeechServiceImpl(
                 configService, sysTtsConfigService, crypto, RestClient.builder(), new ObjectMapper());
-        SysTtsConfig systemConfig = buildSystemTtsConfig();
-        when(sysTtsConfigService.getEnabledConfigEntity()).thenReturn(systemConfig);
-        when(crypto.decrypt("enc-system-tts")).thenReturn("system-real-key");
+        ResolvedTtsConfig systemConfig = ResolvedTtsConfig.builder()
+                .source("system")
+                .configType("system")
+                .baseUrl("https://8.8.8.8/v1")
+                .apiKey("system-real-key")
+                .model("tts-1")
+                .voiceId("alloy")
+                .endpointPath("/audio/speech")
+                .ttsProvider("openai")
+                .build();
+        when(sysTtsConfigService.resolveEnabledConfig()).thenReturn(systemConfig);
 
         ResolvedTtsConfig resolved = service.resolveInterviewTtsConfig(13L);
 
@@ -177,18 +184,6 @@ class UserTtsSpeechServiceImplTest {
         config.setTtsApiKey(apiKey);
         config.setTtsModel(model);
         config.setTtsVoiceId(voiceId);
-        return config;
-    }
-
-    private SysTtsConfig buildSystemTtsConfig() {
-        SysTtsConfig config = new SysTtsConfig();
-        config.setEnabled(1);
-        config.setBaseUrl("https://8.8.8.8/v1");
-        config.setApiKey("enc-system-tts");
-        config.setModel("tts-1");
-        config.setVoiceId("alloy");
-        config.setEndpointPath("/audio/speech");
-        config.setTtsProvider("openai");
         return config;
     }
 

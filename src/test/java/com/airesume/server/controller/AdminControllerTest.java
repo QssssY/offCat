@@ -7,6 +7,7 @@ import com.airesume.server.dto.admin.AdminUserBanRequest;
 import com.airesume.server.dto.admin.AdminUserUnbanRequest;
 import com.airesume.server.dto.admin.BatchActiveRequest;
 import com.airesume.server.dto.admin.BatchUserBanRequest;
+import com.airesume.server.dto.admin.DashboardSummaryResponse;
 import com.airesume.server.dto.admin.UserQuotaResponse;
 import com.airesume.server.dto.admin.UserQuotaUpdateRequest;
 import com.airesume.server.dto.admin.UserRightsUpdateRequest;
@@ -42,6 +43,7 @@ import org.springframework.cache.annotation.Caching;
 import org.springframework.security.core.Authentication;
 
 import java.lang.reflect.Method;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
@@ -176,6 +178,24 @@ class AdminControllerTest {
         assertNotNull(cacheable);
         assertEquals("admin:userStats", cacheable.value()[0]);
         assertEquals("'overview'", cacheable.key());
+    }
+
+    @Test
+    void getDashboardSummaryShouldUseSingleDashboardServiceCall() {
+        LocalDate startDate = LocalDate.of(2026, 6, 1);
+        LocalDate endDate = LocalDate.of(2026, 6, 7);
+        DashboardSummaryResponse summary = DashboardSummaryResponse.builder().build();
+        when(adminDashboardService.getDashboardSummary(startDate, endDate, 8)).thenReturn(summary);
+
+        Result<DashboardSummaryResponse> result = controller.getDashboardSummary(
+                startDate, endDate, 8, authentication);
+
+        assertEquals(summary, result.getData());
+        verify(adminDashboardService).getDashboardSummary(startDate, endDate, 8);
+        verify(adminDashboardService, never()).getDashboardOverview(any(), any());
+        verify(adminDashboardService, never()).getDashboardTrends(any(), any());
+        verify(adminDashboardService, never()).getHotJobRoles(any(), any(), any());
+        verify(adminDashboardService, never()).getBusinessDistribution(any(), any());
     }
 
     @Test

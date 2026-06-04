@@ -1,7 +1,12 @@
 package com.airesume.server.service.impl;
 
+import com.airesume.server.dto.admin.BusinessDistributionResponse;
+import com.airesume.server.dto.admin.DashboardOverviewResponse;
+import com.airesume.server.dto.admin.DashboardSummaryResponse;
 import com.airesume.server.dto.admin.DashboardTrendResponse;
+import com.airesume.server.dto.admin.HotJobRoleResponse;
 import com.airesume.server.dto.admin.MonitorOverviewResponse;
+import com.airesume.server.entity.InterviewSession;
 import com.airesume.server.entity.ResumePolishRecord;
 import com.airesume.server.mapper.CommunityCommentMapper;
 import com.airesume.server.mapper.CommunityPostMapper;
@@ -19,6 +24,7 @@ import com.airesume.server.service.SysPromptService;
 import com.airesume.server.service.SysUserService;
 import com.airesume.server.service.UserFeedbackService;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,6 +51,73 @@ class AdminDashboardServiceImplTest {
         TableInfoHelper.initTableInfo(
                 new MapperBuilderAssistant(new MybatisConfiguration(), ""),
                 ResumePolishRecord.class);
+    }
+
+    @Test
+    void shouldBuildDashboardSummaryFromExistingSections() {
+        SysUserService sysUserService = mock(SysUserService.class);
+        SysPromptService sysPromptService = mock(SysPromptService.class);
+        SysJobRoleService sysJobRoleService = mock(SysJobRoleService.class);
+        SysAiEngineConfigService sysAiEngineConfigService = mock(SysAiEngineConfigService.class);
+        InterviewSessionService interviewSessionService = mock(InterviewSessionService.class);
+        ResumeDiagnosisTaskService resumeDiagnosisTaskService = mock(ResumeDiagnosisTaskService.class);
+        InterviewSessionMapper interviewSessionMapper = mock(InterviewSessionMapper.class);
+        ResumeDiagnosisTaskMapper resumeDiagnosisTaskMapper = mock(ResumeDiagnosisTaskMapper.class);
+        UserFeedbackService userFeedbackService = mock(UserFeedbackService.class);
+        CommunityPostMapper communityPostMapper = mock(CommunityPostMapper.class);
+        ResumePolishService resumePolishService = mock(ResumePolishService.class);
+        ResumeJobMatchService resumeJobMatchService = mock(ResumeJobMatchService.class);
+        MembershipOrderService membershipOrderService = mock(MembershipOrderService.class);
+        MembershipOrderMapper membershipOrderMapper = mock(MembershipOrderMapper.class);
+        AdminDashboardServiceImpl service = new AdminDashboardServiceImpl(
+                sysUserService,
+                sysPromptService,
+                sysJobRoleService,
+                sysAiEngineConfigService,
+                interviewSessionService,
+                resumeDiagnosisTaskService,
+                interviewSessionMapper,
+                resumeDiagnosisTaskMapper,
+                userFeedbackService,
+                communityPostMapper,
+                mock(CommunityCommentMapper.class),
+                resumePolishService,
+                resumeJobMatchService,
+                membershipOrderService,
+                membershipOrderMapper,
+                Runnable::run
+        );
+
+        LocalDate startDate = LocalDate.of(2026, 6, 1);
+        LocalDate endDate = LocalDate.of(2026, 6, 7);
+        when(sysUserService.count()).thenReturn(100L);
+        when(sysUserService.count(any())).thenReturn(10L);
+        when(sysPromptService.count(any())).thenReturn(8L);
+        when(sysJobRoleService.count(any())).thenReturn(6L);
+        when(sysAiEngineConfigService.count(any())).thenReturn(3L);
+        when(interviewSessionService.count(any())).thenReturn(11L, 11L);
+        when(resumeDiagnosisTaskService.count(any())).thenReturn(12L, 12L);
+        when(userFeedbackService.count(any())).thenReturn(2L);
+        when(communityPostMapper.selectCount(any())).thenReturn(5L, 5L);
+        when(resumePolishService.count(any())).thenReturn(7L, 7L);
+        when(resumeJobMatchService.count(any())).thenReturn(9L, 9L);
+        when(membershipOrderService.count(any())).thenReturn(4L, 4L);
+        when(interviewSessionService.listMaps(any(Wrapper.class))).thenReturn(List.of(
+                Map.of("jobRole", "Java 后端", "sessionCount", 5L)
+        ));
+        when(interviewSessionMapper.countByCreateDate(startDate.atStartOfDay(), endDate.plusDays(1).atStartOfDay()))
+                .thenReturn(List.of(Map.of("statDate", startDate, "totalCount", 11L)));
+        when(resumeDiagnosisTaskMapper.countByCreateDate(startDate.atStartOfDay(), endDate.plusDays(1).atStartOfDay()))
+                .thenReturn(List.of(Map.of("statDate", startDate, "totalCount", 12L)));
+        when(membershipOrderMapper.countByCreateDate(startDate.atStartOfDay(), endDate.plusDays(1).atStartOfDay()))
+                .thenReturn(List.of());
+
+        DashboardSummaryResponse summary = service.getDashboardSummary(startDate, endDate, 5);
+
+        assertEquals(100L, summary.getOverview().getTotalUserCount());
+        assertEquals(7, summary.getTrends().size());
+        assertEquals("Java 后端", summary.getHotJobRoles().get(0).getJobRole());
+        assertEquals(48L, summary.getBusinessDistribution().getTotalCount());
     }
 
     @Test
@@ -113,6 +186,7 @@ class AdminDashboardServiceImplTest {
         assertDashboardMethodUsesSyncCache("getDashboardTrends", LocalDate.class, LocalDate.class);
         assertDashboardMethodUsesSyncCache("getHotJobRoles", LocalDate.class, LocalDate.class, Integer.class);
         assertDashboardMethodUsesSyncCache("getBusinessDistribution", LocalDate.class, LocalDate.class);
+        assertDashboardMethodUsesSyncCache("getDashboardSummary", LocalDate.class, LocalDate.class, Integer.class);
         assertDashboardMethodUsesSyncCache("getMonitorOverview");
     }
 

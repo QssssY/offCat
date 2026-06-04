@@ -8,8 +8,8 @@ import com.airesume.server.dto.user.UserTtsDiscoveryResponse;
 import com.airesume.server.service.TtsDiscoveryService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -19,11 +19,15 @@ import org.springframework.web.client.RestClientResponseException;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.function.BiFunction;
 
 /**
  * TTS 模型/音色发现服务实现。
@@ -33,7 +37,6 @@ import java.util.Set;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class TtsDiscoveryServiceImpl implements TtsDiscoveryService {
 
     /** 模型列表获取超时 */
@@ -52,6 +55,10 @@ public class TtsDiscoveryServiceImpl implements TtsDiscoveryService {
     private static final String[] TTS_SYNTHESIS_PATHS = {"/audio/speech", "/v1/audio/speech", "/v1/tts", "/tts"};
     /** TTS 模型 ID 过滤关键字 */
     private static final String TTS_MODEL_KEYWORD = "tts";
+    /** 音色端点不可用的短 TTL，避免同一 Provider/baseUrl 反复探测 404。 */
+    private static final long VOICE_ENDPOINT_UNAVAILABLE_TTL_MS = Duration.ofMinutes(5).toMillis();
+    /** 音色负向缓存上限，避免用户输入大量不同 baseUrl 时进程内缓存无界增长。 */
+    private static final int MAX_VOICE_ENDPOINT_UNAVAILABLE_CACHE_SIZE = 128;
 
     /** OpenAI 标准预设音色 */
     private static final List<TtsVoiceOption> PRESET_VOICES = List.of(
@@ -65,6 +72,22 @@ public class TtsDiscoveryServiceImpl implements TtsDiscoveryService {
 
     private final RestClient.Builder restClientBuilder;
     private final ObjectMapper objectMapper;
+    private final BiFunction<String, Integer, RestClient> restClientFactory;
+    /** 仅缓存“音色发现端点均为 404”的负向结果，key 不包含 API Key。 */
+    private final ConcurrentMap<String, VoiceEndpointUnavailableCacheEntry> voiceEndpointUnavailableCache =
+            new ConcurrentHashMap<>();
+
+    @Autowired
+    public TtsDiscoveryServiceImpl(RestClient.Builder restClientBuilder, ObjectMapper objectMapper) {
+        this(restClientBuilder, objectMapper, null);
+    }
+
+    TtsDiscoveryServiceImpl(RestClient.Builder restClientBuilder, ObjectMapper objectMapper,
+                            BiFunction<String, Integer, RestClient> restClientFactory) {
+        this.restClientBuilder = restClientBuilder;
+        this.objectMapper = objectMapper;
+        this.restClientFactory = restClientFactory;
+    }
 
     @Override
     public UserTtsDiscoveryResponse discover(String baseUrl, String apiKey, String provider) {
@@ -125,21 +148,36 @@ public class TtsDiscoveryServiceImpl implements TtsDiscoveryService {
         // 4. 音色发现
         List<TtsVoiceOption> voices = null;
         boolean voiceDiscoverySupported = false;
-        for (String endpoint : VOICE_ENDPOINTS) {
-            try {
-                voices = probeVoiceEndpoint(normalizedBaseUrl, apiKey, endpoint, preset);
-                if (voices != null && !voices.isEmpty()) {
-                    voiceDiscoverySupported = true;
-                    log.info("TTS 音色发现成功, provider: {}, endpoint: {}, 发现 {} 个音色",
-                            preset.getProviderId(), endpoint, voices.size());
-                    break;
+        String voiceEndpointCacheKey = buildVoiceEndpointCacheKey(preset, normalizedBaseUrl);
+        if (isVoiceEndpointUnavailableCached(voiceEndpointCacheKey)) {
+            log.debug("TTS 音色端点不可用缓存命中, provider: {}, baseUrl: {}",
+                    preset.getProviderId(), trimText(normalizedBaseUrl, 80));
+        } else {
+            // 只有两个候选端点全部明确返回 404 时才写入短 TTL 负向缓存。
+            boolean allVoiceEndpointsNotFound = true;
+            for (String endpoint : VOICE_ENDPOINTS) {
+                try {
+                    voices = probeVoiceEndpoint(normalizedBaseUrl, apiKey, endpoint, preset);
+                    if (voices != null && !voices.isEmpty()) {
+                        voiceDiscoverySupported = true;
+                        log.info("TTS 音色发现成功, provider: {}, endpoint: {}, 发现 {} 个音色",
+                                preset.getProviderId(), endpoint, voices.size());
+                        break;
+                    }
+                    allVoiceEndpointsNotFound = false;
+                } catch (Exception e) {
+                    if (isAuthError(e)) {
+                        return buildFailure("API Key 无效或已过期，请检查后重试", start);
+                    }
+                    if (!isNotFoundError(e)) {
+                        allVoiceEndpointsNotFound = false;
+                    }
+                    log.debug("TTS 音色端点探测失败, provider: {}, endpoint: {}, error: {}",
+                            preset.getProviderId(), endpoint, e.getMessage());
                 }
-            } catch (Exception e) {
-                if (isAuthError(e)) {
-                    return buildFailure("API Key 无效或已过期，请检查后重试", start);
-                }
-                log.debug("TTS 音色端点探测失败, provider: {}, endpoint: {}, error: {}",
-                        preset.getProviderId(), endpoint, e.getMessage());
+            }
+            if (!voiceDiscoverySupported && (voices == null || voices.isEmpty()) && allVoiceEndpointsNotFound) {
+                cacheVoiceEndpointUnavailable(voiceEndpointCacheKey);
             }
         }
         // 音色预设回落：非 OpenAI Provider 用 Provider 自带预设，其余用 OpenAI 预设
@@ -350,6 +388,9 @@ public class TtsDiscoveryServiceImpl implements TtsDiscoveryService {
      * 创建带超时和 JSON 头的 RestClient。
      */
     private RestClient createRestClient(String baseUrl, int timeoutMs) {
+        if (restClientFactory != null) {
+            return restClientFactory.apply(baseUrl, timeoutMs);
+        }
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(Duration.ofMillis(timeoutMs));
         requestFactory.setReadTimeout(Duration.ofMillis(timeoutMs));
@@ -416,10 +457,66 @@ public class TtsDiscoveryServiceImpl implements TtsDiscoveryService {
         return false;
     }
 
+    /**
+     * 判断异常是否为 404。只有明确端点不存在才允许缓存，避免网络抖动被误缓存。
+     */
+    private boolean isNotFoundError(Exception e) {
+        return e instanceof RestClientResponseException restEx
+                && restEx.getStatusCode().value() == 404;
+    }
+
+    private String buildVoiceEndpointCacheKey(TtsProviderConstants.ProviderPreset preset, String normalizedBaseUrl) {
+        return preset.getProviderId() + "::" + normalizedBaseUrl;
+    }
+
+    private boolean isVoiceEndpointUnavailableCached(String cacheKey) {
+        VoiceEndpointUnavailableCacheEntry cacheEntry = voiceEndpointUnavailableCache.get(cacheKey);
+        if (cacheEntry == null) {
+            return false;
+        }
+        long now = System.currentTimeMillis();
+        if (cacheEntry.isExpired(now)) {
+            voiceEndpointUnavailableCache.remove(cacheKey, cacheEntry);
+            return false;
+        }
+        return true;
+    }
+
+    private void cacheVoiceEndpointUnavailable(String cacheKey) {
+        long now = System.currentTimeMillis();
+        voiceEndpointUnavailableCache.put(cacheKey,
+                new VoiceEndpointUnavailableCacheEntry(now + VOICE_ENDPOINT_UNAVAILABLE_TTL_MS));
+        pruneVoiceEndpointUnavailableCache(now);
+    }
+
+    private void pruneVoiceEndpointUnavailableCache(long now) {
+        voiceEndpointUnavailableCache.entrySet().removeIf(entry -> entry.getValue().isExpired(now));
+
+        int overflow = voiceEndpointUnavailableCache.size() - MAX_VOICE_ENDPOINT_UNAVAILABLE_CACHE_SIZE;
+        if (overflow <= 0) {
+            return;
+        }
+
+        List<Map.Entry<String, VoiceEndpointUnavailableCacheEntry>> expiredSoonestEntries =
+                voiceEndpointUnavailableCache.entrySet().stream()
+                        .sorted(Comparator.comparingLong(entry -> entry.getValue().expireAt()))
+                        .limit(overflow)
+                        .toList();
+        for (Map.Entry<String, VoiceEndpointUnavailableCacheEntry> entry : expiredSoonestEntries) {
+            voiceEndpointUnavailableCache.remove(entry.getKey(), entry.getValue());
+        }
+    }
+
     private String trimText(String value, int maxLength) {
         if (value == null || value.length() <= maxLength) {
             return value;
         }
         return value.substring(0, maxLength) + "...";
+    }
+
+    private record VoiceEndpointUnavailableCacheEntry(long expireAt) {
+        boolean isExpired(long now) {
+            return now >= expireAt;
+        }
     }
 }

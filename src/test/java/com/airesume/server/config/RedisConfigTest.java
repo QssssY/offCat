@@ -42,6 +42,7 @@ class RedisConfigTest {
 
         // 看板趋势查询显式注册缓存区 TTL，避免依赖默认策略时被后续调整误伤。
         assertEquals(Duration.ofMinutes(5), cacheConfigurations.get("admin:dashboardTrends").getTtl());
+        assertEquals(Duration.ofMinutes(5), cacheConfigurations.get("admin:dashboardSummary").getTtl());
     }
     @Test
     void shouldConfigureUserStatsCacheTtlForFiveMinutes() {

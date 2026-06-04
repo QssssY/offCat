@@ -6,6 +6,7 @@ import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.validation.BindException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -83,6 +84,16 @@ public class GlobalExceptionHandler {
     public Result<Void> handleNoResourceFoundException(NoResourceFoundException e) {
         log.warn("静态资源不存在: {}", e.getResourcePath());
         return Result.error(ResultCode.NOT_FOUND);
+    }
+
+    /**
+     * 请求方法不支持属于客户端请求方式错误，返回 405，避免误记为系统异常。
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    @ResponseStatus(HttpStatus.METHOD_NOT_ALLOWED)
+    public Result<Void> handleHttpRequestMethodNotSupportedException(HttpRequestMethodNotSupportedException e) {
+        log.warn("请求方法不支持: method={}, supported={}", e.getMethod(), e.getSupportedHttpMethods());
+        return Result.error(ResultCode.PARAM_ERROR.getCode(), "请求方法不支持");
     }
 
     @ExceptionHandler(Exception.class)
