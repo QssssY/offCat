@@ -27,10 +27,11 @@ class SecurityConfigTest {
 
     @Test
     void shouldOnlyExposeCommunityUploadsAsPublicStaticResources() {
-        assertTrue(SecurityConfig.supportsPublicUploadPath("/uploads/community/image.png"));
-        assertTrue(SecurityConfig.supportsPublicUploadPath("/uploads/community/nested/image.webp"));
+        assertTrue(SecurityConfig.supportsPublicUploadPath("/api/community/images/community/1/20260605/image.png"));
+        assertTrue(SecurityConfig.supportsPublicUploadPath("/api/community/images/community/1/20260605/nested.webp"));
         assertFalse(SecurityConfig.supportsPublicUploadPath("/uploads/resumes/resume.pdf"));
-        assertFalse(SecurityConfig.supportsPublicUploadPath("/uploads/other/file.png"));
+        assertFalse(SecurityConfig.supportsPublicUploadPath("/uploads/community/image.png"));
+        assertFalse(SecurityConfig.supportsPublicUploadPath("/api/community/posts"));
     }
 
     @Test

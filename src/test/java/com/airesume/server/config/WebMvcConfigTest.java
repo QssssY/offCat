@@ -2,15 +2,17 @@ package com.airesume.server.config;
 
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import java.util.Arrays;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 class WebMvcConfigTest {
 
     @Test
-    void shouldConfigureCommunityUploadCacheControlForOneDay() {
-        String headerValue = new WebMvcConfig().communityUploadCacheControl().getHeaderValue();
+    void shouldNotExposeLegacyLocalCommunityUploadCacheControl() {
+        boolean hasLegacyCacheControlMethod = Arrays.stream(WebMvcConfig.class.getDeclaredMethods())
+                .anyMatch(method -> "communityUploadCacheControl".equals(method.getName()));
 
-        assertTrue(headerValue.contains("max-age=86400"));
-        assertTrue(headerValue.contains("public"));
+        assertFalse(hasLegacyCacheControlMethod);
     }
 }

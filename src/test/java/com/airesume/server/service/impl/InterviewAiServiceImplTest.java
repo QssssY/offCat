@@ -781,7 +781,7 @@ class InterviewAiServiceImplTest {
         ListAppender<ILoggingEvent> appender = new ListAppender<>();
         appender.start();
         logger.addAppender(appender);
-        logger.setLevel(Level.WARN);
+        logger.setLevel(Level.DEBUG);
 
         try {
             method.invoke(service, "gpt-5.5", "enabled", "USER_CUSTOM/openai-compatible");

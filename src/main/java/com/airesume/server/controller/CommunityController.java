@@ -5,6 +5,8 @@ import com.airesume.server.common.result.PageResult;
 import com.airesume.server.common.result.Result;
 import com.airesume.server.dto.community.*;
 import com.airesume.server.service.CommunityService;
+import com.airesume.server.service.OssService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -12,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
@@ -31,6 +34,7 @@ import java.time.LocalDateTime;
 public class CommunityController {
 
     private final CommunityService communityService;
+    private final OssService ossService;
 
     /**
      * 获取帖子列表（分页+筛选+排序）
@@ -330,5 +334,105 @@ public class CommunityController {
                 userId, file.getOriginalFilename(), file.getSize());
         String url = communityService.uploadImage(file, userId);
         return Result.success(ImageUploadResponse.builder().url(url).build());
+    }
+
+    /**
+     * 社区图片签名访问
+     * 浏览器通过此端点获取 OSS 签名 URL 并 302 重定向到实际图片。
+     * 路径格式：/api/community/images/community/{userId}/{date}/{uuid}.jpg
+     * <p>
+     * 该接口无需认证（img 标签不会携带 JWT），在 SecurityConfig 中放行。
+     * 包含 Referer 盗链防护：只允许来自本站域名的请求访问图片。
+     *
+     * @param objectKey OSS 对象键路径（如 community/12345/20260604/uuid.jpg）
+     * @param request   HTTP 请求（用于获取 Referer 头）
+     * @return 302 重定向到 OSS 签名 URL
+     */
+    @GetMapping("/images/{*objectKey}")
+    public ResponseEntity<Void> getImage(@PathVariable String objectKey,
+                                         HttpServletRequest request) {
+        // Spring 6 的 {*var} 语法可能包含前导 "/"，统一去除
+        if (objectKey != null && objectKey.startsWith("/")) {
+            objectKey = objectKey.substring(1);
+        }
+        // 安全校验：只允许 community/ 前缀的 object key，防止访问非社区资源
+        if (objectKey == null || !objectKey.startsWith("community/")) {
+            return ResponseEntity.notFound().build();
+        }
+        // 防御路径遍历尝试（OSS key 是扁平的，但做纵深防御）
+        if (objectKey.contains("..") || objectKey.contains("//")) {
+            return ResponseEntity.notFound().build();
+        }
+        // 校验 key 格式匹配上传模式：community/{userId}/{date}/{uuid}.{ext}
+        if (!objectKey.matches("community/\\d+/\\d{8}/[0-9a-f]+\\.(jpg|jpeg|png|gif|webp)")) {
+            return ResponseEntity.notFound().build();
+        }
+
+        // Referer 盗链防护：只允许来自本站域名的请求
+        if (!isRefererAllowed(request)) {
+            log.warn("图片盗链请求被拒绝, objectKey: {}, referer: {}, remoteAddr: {}",
+                    objectKey, request.getHeader("Referer"), request.getRemoteAddr());
+            return ResponseEntity.status(403).build();
+        }
+
+        if (!ossService.isEnabled()) {
+            log.warn("OSS未启用, 无法访问图片: {}", objectKey);
+            return ResponseEntity.notFound().build();
+        }
+
+        String signedUrl = ossService.generateSignedUrl(objectKey);
+        log.info("社区图片签名访问, objectKey: {}, referer: {}",
+                objectKey,
+                request.getHeader("Referer"));
+        return ResponseEntity.status(302)
+                .header("Location", signedUrl)
+                // 浏览器缓存重定向 1 小时，过期后重新请求获取新的签名 URL
+                .header("Cache-Control", "private, max-age=3600")
+                .build();
+    }
+
+    /**
+     * 校验请求 Referer 是否来自允许的域名。
+     * 允许规则：
+     * 1. 无 Referer（直接访问/浏览器地址栏/部分隐私模式）→ 放行
+     * 2. Referer 域名在 CORS_ALLOWED_ORIGINS 环境变量中 → 放行
+     * 3. Referer 域名为 localhost（开发环境）→ 放行
+     * 其他来源一律拒绝，防止外站将本站当作免费图床嵌入。
+     */
+    private boolean isRefererAllowed(HttpServletRequest request) {
+        String referer = request.getHeader("Referer");
+        // 无 Referer 放行（浏览器直接访问、部分隐私模式、部分移动浏览器）
+        if (referer == null || referer.isBlank()) {
+            return true;
+        }
+        try {
+            String host = new java.net.URI(referer).getHost();
+            if (host == null) {
+                return true;
+            }
+            // 开发环境始终允许 localhost
+            if ("localhost".equals(host) || host.startsWith("127.0.0.1")) {
+                return true;
+            }
+            // 检查 CORS 允许的域名列表（复用 CORS_ALLOWED_ORIGINS 环境变量）
+            String allowedOrigins = System.getenv("CORS_ALLOWED_ORIGINS");
+            if (allowedOrigins != null && !allowedOrigins.isBlank()) {
+                for (String origin : allowedOrigins.split(",")) {
+                    try {
+                        String allowedHost = new java.net.URI(origin.trim()).getHost();
+                        if (host.equals(allowedHost)) {
+                            return true;
+                        }
+                    } catch (Exception ignored) {
+                        // 跳过无效的 origin 配置
+                    }
+                }
+            }
+            return false;
+        } catch (Exception e) {
+            // Referer 解析失败时放行，避免影响正常用户
+            log.warn("Referer解析失败, 放行: {}", referer);
+            return true;
+        }
     }
 }

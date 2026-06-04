@@ -17,7 +17,9 @@ import com.airesume.server.mapper.CommunityPostLikeMapper;
 import com.airesume.server.mapper.CommunityPostMapper;
 import com.airesume.server.mapper.InterviewSessionMapper;
 import com.airesume.server.util.ImageValidator;
+import com.airesume.server.service.impl.OssServiceImpl;
 import com.airesume.server.mapper.SysUserMapper;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
@@ -56,6 +58,23 @@ public class CommunityService {
     private final ObjectMapper objectMapper;
     private final CommunityTextModerationService moderationService;
     private final NotificationService notificationService;
+    private final OssService ossService;
+
+    /**
+     * 兼容既有单元测试的构造路径；生产环境使用包含 OSS 服务的完整构造器。
+     */
+    public CommunityService(CommunityPostMapper postMapper,
+                            CommunityCommentMapper commentMapper,
+                            CommunityPostLikeMapper likeMapper,
+                            CommunityPostFavoriteMapper favoriteMapper,
+                            SysUserMapper userMapper,
+                            InterviewSessionMapper interviewSessionMapper,
+                            ObjectMapper objectMapper,
+                            CommunityTextModerationService moderationService,
+                            NotificationService notificationService) {
+        this(postMapper, commentMapper, likeMapper, favoriteMapper, userMapper,
+                interviewSessionMapper, objectMapper, moderationService, notificationService, new OssServiceImpl(null));
+    }
 
     /**
      * 生产环境完整依赖注入构造器。
@@ -70,7 +89,8 @@ public class CommunityService {
                             InterviewSessionMapper interviewSessionMapper,
                             ObjectMapper objectMapper,
                             CommunityTextModerationService moderationService,
-                            NotificationService notificationService) {
+                            NotificationService notificationService,
+                            OssService ossService) {
         this.postMapper = postMapper;
         this.commentMapper = commentMapper;
         this.likeMapper = likeMapper;
@@ -80,6 +100,7 @@ public class CommunityService {
         this.objectMapper = objectMapper;
         this.moderationService = moderationService;
         this.notificationService = notificationService;
+        this.ossService = ossService;
     }
 
     /**
@@ -94,7 +115,7 @@ public class CommunityService {
                             ObjectMapper objectMapper,
                             CommunityTextModerationService moderationService) {
         this(postMapper, commentMapper, likeMapper, favoriteMapper, userMapper,
-                interviewSessionMapper, objectMapper, moderationService, null);
+                interviewSessionMapper, objectMapper, moderationService, null, new OssServiceImpl(null));
     }
 
     /**
@@ -108,7 +129,7 @@ public class CommunityService {
                             InterviewSessionMapper interviewSessionMapper,
                             ObjectMapper objectMapper) {
         this(postMapper, commentMapper, likeMapper, favoriteMapper, userMapper,
-                interviewSessionMapper, objectMapper, new CommunityTextModerationService(), null);
+                interviewSessionMapper, objectMapper, new CommunityTextModerationService(), null, new OssServiceImpl(null));
     }
 
     /**
@@ -121,6 +142,14 @@ public class CommunityService {
     /** 最大文件大小（字节），默认5MB */
     @Value("${app.upload.community-max-size:5242880}")
     private long maxFileSize;
+
+    /** 每用户每日上传图片上限，默认30张 */
+    @Value("${app.upload.community-daily-upload-limit:30}")
+    private int dailyUploadLimit;
+
+    /** Redis 模板（可选依赖，测试环境可能不可用） */
+    @Autowired(required = false)
+    private StringRedisTemplate stringRedisTemplate;
 
     // ==================== 帖子相关 ====================
 
@@ -1077,8 +1106,19 @@ public class CommunityService {
             throw new BusinessException("文件校验失败，请重新上传");
         }
 
-        // 当前尚未接入阿里云对象存储凭证，保留上传校验但不落本地静态目录，避免返回本机路径造成跨用户访问失败。
-        log.info("社区图片上传校验通过，暂用公网占位图返回, userId: {}, fileName: {}, fileSize: {}",
+        // 校验每用户每日上传限额（防止图床滥用）
+        checkDailyUploadLimit(userId);
+
+        // OSS 已配置：上传到阿里云，返回稳定的代理 URL 供前端存入帖子/评论数据
+        if (ossService.isEnabled()) {
+            String objectKey = ossService.upload(file, userId, extWithoutDot);
+            String proxyUrl = "/api/community/images/" + objectKey;
+            log.info("社区图片上传至OSS成功, userId: {}, objectKey: {}", userId, objectKey);
+            return proxyUrl;
+        }
+
+        // OSS 未配置：保留占位图逻辑，兼容开发环境
+        log.info("社区图片上传校验通过(OSS未启用), 暂用占位图, userId: {}, fileName: {}, fileSize: {}",
                 userId, originalFilename, file.getSize());
         return communityPlaceholderImageUrl;
     }
@@ -1623,6 +1663,36 @@ public class CommunityService {
                 .eq(InterviewSession::getIsDeleted, 0));
         if (count == null || count == 0) {
             throw new BusinessException("只能分享自己的面试报告");
+        }
+    }
+
+    /**
+     * 校验每用户每日上传图片限额，防止 OSS 被当作免费图床滥用。
+     * 使用 Redis INCR + TTL 实现滚动窗口计数，key 格式：community:upload:count:{userId}:{yyyyMMdd}
+     * Redis 不可用时跳过计数（降级策略，不阻塞正常上传）
+     */
+    private void checkDailyUploadLimit(Long userId) {
+        if (stringRedisTemplate == null || dailyUploadLimit <= 0) {
+            return;
+        }
+        String today = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE);
+        String redisKey = "community:upload:count:" + userId + ":" + today;
+        try {
+            Long count = stringRedisTemplate.opsForValue().increment(redisKey);
+            // 首次写入时设置过期时间为第二天凌晨（确保 key 自动清理）
+            if (count != null && count == 1) {
+                stringRedisTemplate.expire(redisKey, java.time.Duration.ofDays(2));
+            }
+            if (count != null && count > dailyUploadLimit) {
+                log.warn("用户每日上传图片超过限额, userId: {}, count: {}, limit: {}",
+                        userId, count, dailyUploadLimit);
+                throw new BusinessException("今日图片上传次数已达上限（" + dailyUploadLimit + "张）");
+            }
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            // Redis 异常时降级：记录警告但不阻塞上传
+            log.warn("Redis每日上传计数异常, 降级放行, userId: {}", userId, e);
         }
     }
 }

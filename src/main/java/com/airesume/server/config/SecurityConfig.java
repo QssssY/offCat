@@ -37,7 +37,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class SecurityConfig {
 
-    private static final String PUBLIC_UPLOAD_PATTERN = "/uploads/community/**";
+    private static final String PUBLIC_UPLOAD_PATTERN = "/api/community/images/**";
     private static final String AUTH_REGISTER_PATH = "/api/auth/register";
     private static final String AUTH_LOGIN_PATH = "/api/auth/login";
     private static final String AUTH_RESET_PASSWORD_PATH = "/api/auth/reset-password";

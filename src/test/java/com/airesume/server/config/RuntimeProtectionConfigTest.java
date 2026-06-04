@@ -8,6 +8,7 @@ import java.io.InputStream;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 class RuntimeProtectionConfigTest {
@@ -31,6 +32,18 @@ class RuntimeProtectionConfigTest {
         assertEquals(604800000, jwtExpiration("application.yml"));
         assertEquals(604800000, jwtExpiration("application-dev.yml"));
         assertEquals(604800000, jwtExpiration("application-prod.yml"));
+    }
+
+    @Test
+    void shouldKeepRabbitMqConfigurationUnderSpringNamespace() throws IOException {
+        Map<String, Object> root = loadYaml("application.yml");
+        Map<String, Object> spring = getMap(root, "spring");
+        Map<String, Object> rabbitmq = getMap(spring, "rabbitmq");
+        assertEquals("localhost", rabbitmq.get("host"));
+        assertEquals(5672, rabbitmq.get("port"));
+
+        Map<String, Object> server = getMap(root, "server");
+        assertFalse(server.containsKey("rabbitmq"), "RabbitMQ must stay under spring.rabbitmq");
     }
 
     @Test

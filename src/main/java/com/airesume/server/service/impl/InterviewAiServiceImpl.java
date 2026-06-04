@@ -197,7 +197,7 @@ public class InterviewAiServiceImpl implements InterviewAiService {
             return null;
         }
         if (!modelSupportsThinking) {
-            log.warn("[{}] 当前模型 {} 不支持 thinking 参数，已忽略配置: {}",
+            log.debug("[{}] 当前模型 {} 不支持 thinking 参数，已忽略配置: {}",
                     tag, modelName, thinkingModeConfig);
             return null;
         }
