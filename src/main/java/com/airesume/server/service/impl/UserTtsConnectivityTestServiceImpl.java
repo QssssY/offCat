@@ -6,10 +6,14 @@ import com.airesume.server.common.result.ResultCode;
 import com.airesume.server.common.util.PublicHttpsUrlValidator;
 import com.airesume.server.dto.user.UserTtsConnectivityTestRequest;
 import com.airesume.server.dto.user.UserTtsConnectivityTestResponse;
+import com.airesume.server.dto.user.TtsAudioResult;
+import com.airesume.server.service.EdgeTtsClient;
 import com.airesume.server.service.UserTtsConnectivityTestService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.ByteArrayOutputStream;
+import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -20,6 +24,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
@@ -39,15 +44,182 @@ public class UserTtsConnectivityTestServiceImpl implements UserTtsConnectivityTe
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private final RestClient.Builder restClientBuilder;
+    private final EdgeTtsClient edgeTtsClient;
 
     @Override
     public UserTtsConnectivityTestResponse testConnectivity(UserTtsConnectivityTestRequest request) {
+        String provider = normalizeProvider(request.getTtsProvider());
+        if ("gemini".equals(provider)) {
+            return testViaGemini(request);
+        }
+        if ("minimax".equals(provider)) {
+            return testViaMiniMax(request);
+        }
+        if ("qwen".equals(provider)) {
+            return testViaQwen(request);
+        }
+        if ("xai".equals(provider)) {
+            return testViaXai(request);
+        }
         TtsProviderConstants.TtsApiFormat apiFormat = TtsProviderConstants.resolveApiFormat(request.getTtsProvider());
+        if (apiFormat == TtsProviderConstants.TtsApiFormat.EDGE_READALOUD) {
+            return testViaEdgeReadAloud(request);
+        }
         // MiMo 等 Chat Completions 格式的 Provider 走独立测试路径
         if (apiFormat == TtsProviderConstants.TtsApiFormat.CHAT_COMPLETIONS_TTS) {
             return testViaChatCompletions(request);
         }
         return testViaAudioSpeech(request);
+    }
+
+    /**
+     * Gemini TTS 连通测试：真实合成最短音频，并确认可解析为 WAV。
+     */
+    private UserTtsConnectivityTestResponse testViaGemini(UserTtsConnectivityTestRequest request) {
+        String model = normalizeRequired(request.getModel(), "TTS 模型不能为空");
+        String endpointPath = resolveModelEndpointPath(request.getEndpointPath(), model);
+        long start = System.currentTimeMillis();
+        try {
+            TtsAudioResult audio = synthesizePreviewViaGemini(request);
+            if (audio.getAudioBytes().length == 0) {
+                throw new BusinessException(ResultCode.CUSTOM_AI_CONNECTIVITY_FAILED, "TTS 返回音频为空");
+            }
+            return UserTtsConnectivityTestResponse.builder()
+                    .success(true)
+                    .message("TTS 连通测试成功")
+                    .endpointPath(endpointPath)
+                    .latencyMs(System.currentTimeMillis() - start)
+                    .build();
+        } catch (BusinessException ex) {
+            return buildFailure(start, "API_ERROR", ex.getMessage(), endpointPath);
+        } catch (Exception ex) {
+            return buildFailure(start, "NETWORK_ERROR", ex.getMessage(), endpointPath);
+        }
+    }
+
+    /**
+     * MiniMax TTS 连通测试：真实合成最短音频，并确认十六进制音频可解码。
+     */
+    private UserTtsConnectivityTestResponse testViaMiniMax(UserTtsConnectivityTestRequest request) {
+        String endpointPath = resolveEndpointPath(request.getEndpointPath());
+        long start = System.currentTimeMillis();
+        try {
+            TtsAudioResult audio = synthesizePreviewViaMiniMax(request);
+            if (audio.getAudioBytes().length == 0) {
+                throw new BusinessException(ResultCode.CUSTOM_AI_CONNECTIVITY_FAILED, "TTS 返回音频为空");
+            }
+            return UserTtsConnectivityTestResponse.builder()
+                    .success(true)
+                    .message("TTS 连通测试成功")
+                    .endpointPath(endpointPath)
+                    .latencyMs(System.currentTimeMillis() - start)
+                    .build();
+        } catch (BusinessException ex) {
+            return buildFailure(start, "API_ERROR", ex.getMessage(), endpointPath);
+        } catch (Exception ex) {
+            return buildFailure(start, "NETWORK_ERROR", ex.getMessage(), endpointPath);
+        }
+    }
+
+    /**
+     * Qwen TTS 连通测试。
+     * <p>
+     * DashScope 返回音频 URL，本服务只接受阿里云官方域名，避免后端后续下载任意外部地址。
+     */
+    private UserTtsConnectivityTestResponse testViaQwen(UserTtsConnectivityTestRequest request) {
+        String baseUrl = validateBaseUrl(request.getBaseUrl());
+        String apiKey = normalizeRequired(request.getApiKey(), "TTS API Key 不能为空");
+        String model = normalizeRequired(request.getModel(), "TTS 模型不能为空");
+        String voiceId = normalizeRequired(request.getVoiceId(), "TTS 音色不能为空");
+        String endpointPath = resolveEndpointPath(request.getEndpointPath());
+        long start = System.currentTimeMillis();
+        try {
+            String responseJson = createRestClient(baseUrl)
+                    .post()
+                    .uri(endpointPath)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .body(buildQwenRequestBody(model, voiceId, "你好"))
+                    .retrieve()
+                    .body(String.class);
+            String audioUrl = extractQwenAudioUrl(responseJson);
+            if (!isTrustedQwenAudioUrl(audioUrl)) {
+                throw new BusinessException(ResultCode.CUSTOM_AI_CONNECTIVITY_FAILED, "Qwen TTS 返回了不可信的音频地址");
+            }
+            return UserTtsConnectivityTestResponse.builder()
+                    .success(true)
+                    .message("TTS 连通测试成功")
+                    .endpointPath(endpointPath)
+                    .latencyMs(System.currentTimeMillis() - start)
+                    .build();
+        } catch (BusinessException ex) {
+            return buildFailure(start, "API_ERROR", ex.getMessage(), endpointPath);
+        } catch (Exception ex) {
+            return buildFailure(start, "NETWORK_ERROR", ex.getMessage(), endpointPath);
+        }
+    }
+
+    /**
+     * xAI TTS 使用 /v1/tts，测试请求体不能发送 model 字段。
+     */
+    private UserTtsConnectivityTestResponse testViaXai(UserTtsConnectivityTestRequest request) {
+        String baseUrl = validateBaseUrl(request.getBaseUrl());
+        String apiKey = normalizeRequired(request.getApiKey(), "TTS API Key 不能为空");
+        String voiceId = normalizeRequired(request.getVoiceId(), "TTS 音色不能为空");
+        String endpointPath = resolveEndpointPath(request.getEndpointPath());
+        long start = System.currentTimeMillis();
+        try {
+            byte[] audioBytes = createRestClient(baseUrl)
+                    .post()
+                    .uri(endpointPath)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                    .accept(MediaType.APPLICATION_OCTET_STREAM, MediaType.valueOf("audio/mpeg"))
+                    .body(buildXaiRequestBody(voiceId, "你好"))
+                    .retrieve()
+                    .body(byte[].class);
+            if (audioBytes == null || audioBytes.length == 0) {
+                throw new BusinessException(ResultCode.CUSTOM_AI_CONNECTIVITY_FAILED, "TTS 返回音频为空");
+            }
+            return UserTtsConnectivityTestResponse.builder()
+                    .success(true)
+                    .message("TTS 连通测试成功")
+                    .endpointPath(endpointPath)
+                    .latencyMs(System.currentTimeMillis() - start)
+                    .build();
+        } catch (BusinessException ex) {
+            return buildFailure(start, "API_ERROR", ex.getMessage(), endpointPath);
+        } catch (Exception ex) {
+            return buildFailure(start, "NETWORK_ERROR", ex.getMessage(), endpointPath);
+        }
+    }
+
+    /**
+     * EdgeTTS 连通测试。
+     * <p>
+     * Edge Read Aloud 不需要用户 API Key，连通性以能否合成最短 mp3 音频为准。
+     */
+    private UserTtsConnectivityTestResponse testViaEdgeReadAloud(UserTtsConnectivityTestRequest request) {
+        validateBaseUrl(request.getBaseUrl());
+        normalizeRequired(request.getModel(), "TTS 模型不能为空");
+        String voiceId = normalizeRequired(request.getVoiceId(), "TTS 音色不能为空");
+        String endpointPath = TtsProviderConstants.EDGE_PRESET.getDefaultEndpointPath();
+        long start = System.currentTimeMillis();
+        try {
+            byte[] audioBytes = edgeTtsClient.synthesize("你好", voiceId, Duration.ofMillis(TEST_TIMEOUT_MS));
+            if (audioBytes == null || audioBytes.length == 0) {
+                throw new BusinessException(ResultCode.CUSTOM_AI_CONNECTIVITY_FAILED, "EdgeTTS 返回音频为空");
+            }
+            return UserTtsConnectivityTestResponse.builder()
+                    .success(true)
+                    .message("TTS 连通测试成功")
+                    .endpointPath(endpointPath)
+                    .latencyMs(System.currentTimeMillis() - start)
+                    .build();
+        } catch (BusinessException ex) {
+            return buildFailure(start, "API_ERROR", ex.getMessage(), endpointPath);
+        } catch (Exception ex) {
+            return buildFailure(start, "NETWORK_ERROR", ex.getMessage(), endpointPath);
+        }
     }
 
     /**
@@ -170,6 +342,53 @@ public class UserTtsConnectivityTestServiceImpl implements UserTtsConnectivityTe
         return body;
     }
 
+    private Map<String, Object> buildGeminiRequestBody(String voiceId, String text) {
+        Map<String, Object> prebuiltVoiceConfig = new LinkedHashMap<>();
+        prebuiltVoiceConfig.put("voiceName", voiceId);
+        Map<String, Object> voiceConfig = new LinkedHashMap<>();
+        voiceConfig.put("prebuiltVoiceConfig", prebuiltVoiceConfig);
+        Map<String, Object> speechConfig = new LinkedHashMap<>();
+        speechConfig.put("voiceConfig", voiceConfig);
+        Map<String, Object> generationConfig = new LinkedHashMap<>();
+        generationConfig.put("responseModalities", List.of("AUDIO"));
+        generationConfig.put("speechConfig", speechConfig);
+        Map<String, Object> part = new LinkedHashMap<>();
+        part.put("text", text);
+        Map<String, Object> content = new LinkedHashMap<>();
+        content.put("parts", List.of(part));
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("contents", List.of(content));
+        body.put("generationConfig", generationConfig);
+        return body;
+    }
+
+    private Map<String, Object> buildMiniMaxRequestBody(String model, String voiceId, String text) {
+        Map<String, Object> voiceSetting = new LinkedHashMap<>();
+        voiceSetting.put("voice_id", voiceId);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", model);
+        body.put("text", text);
+        body.put("voice_setting", voiceSetting);
+        return body;
+    }
+
+    private Map<String, Object> buildXaiRequestBody(String voiceId, String text) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("input", text);
+        body.put("voice", voiceId);
+        return body;
+    }
+
+    private Map<String, Object> buildQwenRequestBody(String model, String voiceId, String text) {
+        Map<String, Object> input = new LinkedHashMap<>();
+        input.put("text", text);
+        input.put("voice", voiceId);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", model);
+        body.put("input", input);
+        return body;
+    }
+
     /**
      * 解析 Chat Completions TTS 返回的 base64 音频，缺失、非法或空音频都视为上游协议不符合预期。
      */
@@ -191,6 +410,108 @@ public class UserTtsConnectivityTestServiceImpl implements UserTtsConnectivityTe
         }
     }
 
+    private TtsAudioResult decodeGeminiAudioResult(String responseJson) {
+        try {
+            JsonNode inlineData = objectMapper.readTree(responseJson).path("candidates").path(0)
+                    .path("content").path("parts").path(0).path("inlineData");
+            String mimeType = inlineData.path("mimeType").asText("");
+            String audioData = trimToNull(inlineData.path("data").asText(null));
+            if (audioData == null) {
+                throw new BusinessException(ResultCode.CUSTOM_AI_CALL_FAILED, "TTS 响应中未找到音频数据");
+            }
+            byte[] audioBytes = Base64.getDecoder().decode(audioData);
+            if (audioBytes.length == 0) {
+                throw new BusinessException(ResultCode.CUSTOM_AI_CALL_FAILED, "TTS 返回音频为空");
+            }
+            if (mimeType.toLowerCase().startsWith("audio/l16")) {
+                return TtsAudioResult.of(wrapPcmAsWav(audioBytes, 24000, 1, 16), "audio/wav");
+            }
+            return TtsAudioResult.of(audioBytes, mimeType.isBlank() ? "audio/mpeg" : mimeType);
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BusinessException(ResultCode.CUSTOM_AI_CALL_FAILED, "TTS 响应中未找到有效音频数据");
+        }
+    }
+
+    private byte[] decodeMiniMaxAudio(String responseJson) {
+        try {
+            String hexAudio = trimToNull(objectMapper.readTree(responseJson).path("data").path("audio").asText(null));
+            if (hexAudio == null || hexAudio.length() % 2 != 0) {
+                throw new BusinessException(ResultCode.CUSTOM_AI_CALL_FAILED, "TTS 响应中未找到音频数据");
+            }
+            byte[] audioBytes = new byte[hexAudio.length() / 2];
+            for (int i = 0; i < audioBytes.length; i++) {
+                int index = i * 2;
+                audioBytes[i] = (byte) Integer.parseInt(hexAudio.substring(index, index + 2), 16);
+            }
+            if (audioBytes.length == 0) {
+                throw new BusinessException(ResultCode.CUSTOM_AI_CALL_FAILED, "TTS 返回音频为空");
+            }
+            return audioBytes;
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BusinessException(ResultCode.CUSTOM_AI_CALL_FAILED, "TTS 响应中未找到有效音频数据");
+        }
+    }
+
+    private String extractQwenAudioUrl(String responseJson) {
+        try {
+            String audioUrl = trimToNull(objectMapper.readTree(responseJson)
+                    .path("output").path("audio").path("url").asText(null));
+            if (audioUrl == null) {
+                throw new BusinessException(ResultCode.CUSTOM_AI_CALL_FAILED, "TTS 响应中未找到音频地址");
+            }
+            return audioUrl;
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BusinessException(ResultCode.CUSTOM_AI_CALL_FAILED, "TTS 响应中未找到有效音频地址");
+        }
+    }
+
+    private byte[] wrapPcmAsWav(byte[] pcmBytes, int sampleRate, int channels, int bitsPerSample) {
+        int byteRate = sampleRate * channels * bitsPerSample / 8;
+        int blockAlign = channels * bitsPerSample / 8;
+        try {
+            ByteArrayOutputStream out = new ByteArrayOutputStream(44 + pcmBytes.length);
+            writeAscii(out, "RIFF");
+            writeLittleEndianInt(out, 36 + pcmBytes.length);
+            writeAscii(out, "WAVE");
+            writeAscii(out, "fmt ");
+            writeLittleEndianInt(out, 16);
+            writeLittleEndianShort(out, 1);
+            writeLittleEndianShort(out, channels);
+            writeLittleEndianInt(out, sampleRate);
+            writeLittleEndianInt(out, byteRate);
+            writeLittleEndianShort(out, blockAlign);
+            writeLittleEndianShort(out, bitsPerSample);
+            writeAscii(out, "data");
+            writeLittleEndianInt(out, pcmBytes.length);
+            out.writeBytes(pcmBytes);
+            return out.toByteArray();
+        } catch (Exception ex) {
+            throw new BusinessException(ResultCode.CUSTOM_AI_CALL_FAILED, "TTS 音频封装失败");
+        }
+    }
+
+    private void writeAscii(ByteArrayOutputStream out, String value) {
+        out.writeBytes(value.getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+    }
+
+    private void writeLittleEndianInt(ByteArrayOutputStream out, int value) {
+        out.write(value & 0xff);
+        out.write((value >> 8) & 0xff);
+        out.write((value >> 16) & 0xff);
+        out.write((value >> 24) & 0xff);
+    }
+
+    private void writeLittleEndianShort(ByteArrayOutputStream out, int value) {
+        out.write(value & 0xff);
+        out.write((value >> 8) & 0xff);
+    }
+
     private RestClient createRestClient(String baseUrl) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(Duration.ofMillis(TEST_TIMEOUT_MS));
@@ -202,13 +523,27 @@ public class UserTtsConnectivityTestServiceImpl implements UserTtsConnectivityTe
                 .build();
     }
 
+    private RestClient createStandaloneRestClient() {
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(Duration.ofMillis(TEST_TIMEOUT_MS));
+        requestFactory.setReadTimeout(Duration.ofMillis(TEST_TIMEOUT_MS));
+        return restClientBuilder.clone()
+                .requestFactory(requestFactory)
+                .build();
+    }
+
     private UserTtsConnectivityTestResponse buildFailure(long start, String errorType, String errorMessage) {
+        return buildFailure(start, errorType, errorMessage, DEFAULT_TTS_ENDPOINT);
+    }
+
+    private UserTtsConnectivityTestResponse buildFailure(long start, String errorType, String errorMessage,
+                                                         String endpointPath) {
         String safeMessage = errorMessage == null || errorMessage.isBlank() ? "未知错误" : errorMessage;
         log.warn("用户自定义 TTS 连通测试失败, errorType: {}, error: {}", errorType, trimText(safeMessage, 180));
         return UserTtsConnectivityTestResponse.builder()
                 .success(false)
                 .message(safeMessage)
-                .endpointPath(DEFAULT_TTS_ENDPOINT)
+                .endpointPath(endpointPath)
                 .latencyMs(System.currentTimeMillis() - start)
                 .errorType(errorType)
                 .build();
@@ -226,6 +561,36 @@ public class UserTtsConnectivityTestServiceImpl implements UserTtsConnectivityTe
             return DEFAULT_TTS_ENDPOINT;
         }
         return trimmed;
+    }
+
+    private String resolveModelEndpointPath(String endpointPath, String model) {
+        String resolved = resolveEndpointPath(endpointPath);
+        return resolved.replace("{model}", model);
+    }
+
+    private boolean isTrustedQwenAudioUrl(String audioUrl) {
+        try {
+            URI uri = URI.create(audioUrl);
+            String host = uri.getHost();
+            String scheme = uri.getScheme();
+            String normalizedHost = host == null ? "" : host.toLowerCase(java.util.Locale.ROOT);
+            return ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))
+                    && normalizedHost.matches(".+\\.oss-[a-z0-9-]+\\.aliyuncs\\.com");
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    private String resolveDownloadedAudioContentType(MediaType responseContentType, String audioUrl) {
+        if (responseContentType != null) {
+            return responseContentType.toString();
+        }
+        String path = URI.create(audioUrl).getPath();
+        String lowerPath = path == null ? "" : path.toLowerCase(java.util.Locale.ROOT);
+        if (lowerPath.endsWith(".wav")) {
+            return "audio/wav";
+        }
+        return "audio/mpeg";
     }
 
     private String validateBaseUrl(String baseUrl) {
@@ -252,6 +617,11 @@ public class UserTtsConnectivityTestServiceImpl implements UserTtsConnectivityTe
         return trimmed.isEmpty() ? null : trimmed;
     }
 
+    private String normalizeProvider(String provider) {
+        String normalized = trimToNull(provider);
+        return normalized == null ? TtsProviderConstants.PROVIDER_OPENAI : normalized.toLowerCase(java.util.Locale.ROOT);
+    }
+
     /**
      * 使用当前表单参数合成最短试听音频，返回原始音频字节。
      * <p>
@@ -259,12 +629,166 @@ public class UserTtsConnectivityTestServiceImpl implements UserTtsConnectivityTe
      * 但直接返回音频 byte[] 而非仅返回连通元数据。
      */
     @Override
-    public byte[] previewVoice(UserTtsConnectivityTestRequest request) {
-        TtsProviderConstants.TtsApiFormat apiFormat = TtsProviderConstants.resolveApiFormat(request.getTtsProvider());
-        if (apiFormat == TtsProviderConstants.TtsApiFormat.CHAT_COMPLETIONS_TTS) {
-            return synthesizePreviewViaChatCompletions(request);
+    public TtsAudioResult previewVoiceAudio(UserTtsConnectivityTestRequest request) {
+        String provider = normalizeProvider(request.getTtsProvider());
+        if ("gemini".equals(provider)) {
+            return synthesizePreviewViaGemini(request);
         }
-        return synthesizePreviewViaAudioSpeech(request);
+        if ("minimax".equals(provider)) {
+            return synthesizePreviewViaMiniMax(request);
+        }
+        if ("xai".equals(provider)) {
+            return TtsAudioResult.of(synthesizePreviewViaXai(request), "audio/mpeg");
+        }
+        if ("qwen".equals(provider)) {
+            return synthesizePreviewViaQwen(request);
+        }
+        TtsProviderConstants.TtsApiFormat apiFormat = TtsProviderConstants.resolveApiFormat(request.getTtsProvider());
+        if (apiFormat == TtsProviderConstants.TtsApiFormat.EDGE_READALOUD) {
+            return TtsAudioResult.of(synthesizePreviewViaEdgeReadAloud(request), "audio/mpeg");
+        }
+        if (apiFormat == TtsProviderConstants.TtsApiFormat.CHAT_COMPLETIONS_TTS) {
+            return TtsAudioResult.of(synthesizePreviewViaChatCompletions(request), "audio/mpeg");
+        }
+        return TtsAudioResult.of(synthesizePreviewViaAudioSpeech(request), "audio/mpeg");
+    }
+
+    /**
+     * Gemini TTS 返回 L16 PCM，需要转换为 wav 后给浏览器播放。
+     */
+    private TtsAudioResult synthesizePreviewViaGemini(UserTtsConnectivityTestRequest request) {
+        String baseUrl = validateBaseUrl(request.getBaseUrl());
+        String apiKey = normalizeRequired(request.getApiKey(), "TTS API Key 不能为空");
+        String model = normalizeRequired(request.getModel(), "TTS 模型不能为空");
+        String voiceId = normalizeRequired(request.getVoiceId(), "TTS 音色不能为空");
+        String endpointPath = resolveModelEndpointPath(request.getEndpointPath(), model);
+        try {
+            String responseJson = createRestClient(baseUrl)
+                    .post()
+                    .uri(endpointPath)
+                    .header("x-goog-api-key", apiKey)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .body(buildGeminiRequestBody(voiceId, "你好"))
+                    .retrieve()
+                    .body(String.class);
+            return decodeGeminiAudioResult(responseJson);
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            log.warn("TTS 试听合成异常 (Gemini), error: {}", ex.getMessage());
+            throw new BusinessException(ResultCode.CUSTOM_AI_CALL_FAILED, "TTS 试听失败，请稍后重试");
+        }
+    }
+
+    /**
+     * MiniMax TTS 返回十六进制字符串音频，需要解码为 mp3 字节。
+     */
+    private TtsAudioResult synthesizePreviewViaMiniMax(UserTtsConnectivityTestRequest request) {
+        String baseUrl = validateBaseUrl(request.getBaseUrl());
+        String apiKey = normalizeRequired(request.getApiKey(), "TTS API Key 不能为空");
+        String model = normalizeRequired(request.getModel(), "TTS 模型不能为空");
+        String voiceId = normalizeRequired(request.getVoiceId(), "TTS 音色不能为空");
+        String endpointPath = resolveEndpointPath(request.getEndpointPath());
+        try {
+            String responseJson = createRestClient(baseUrl)
+                    .post()
+                    .uri(endpointPath)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .body(buildMiniMaxRequestBody(model, voiceId, "你好"))
+                    .retrieve()
+                    .body(String.class);
+            return TtsAudioResult.of(decodeMiniMaxAudio(responseJson), "audio/mpeg");
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            log.warn("TTS 试听合成异常 (MiniMax), error: {}", ex.getMessage());
+            throw new BusinessException(ResultCode.CUSTOM_AI_CALL_FAILED, "TTS 试听失败，请稍后重试");
+        }
+    }
+
+    private byte[] synthesizePreviewViaXai(UserTtsConnectivityTestRequest request) {
+        String baseUrl = validateBaseUrl(request.getBaseUrl());
+        String apiKey = normalizeRequired(request.getApiKey(), "TTS API Key 不能为空");
+        String voiceId = normalizeRequired(request.getVoiceId(), "TTS 音色不能为空");
+        String endpointPath = resolveEndpointPath(request.getEndpointPath());
+        byte[] audioBytes = createRestClient(baseUrl)
+                .post()
+                .uri(endpointPath)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                .accept(MediaType.APPLICATION_OCTET_STREAM, MediaType.valueOf("audio/mpeg"))
+                .body(buildXaiRequestBody(voiceId, "你好"))
+                .retrieve()
+                .body(byte[].class);
+        if (audioBytes == null || audioBytes.length == 0) {
+            throw new BusinessException(ResultCode.CUSTOM_AI_CONNECTIVITY_FAILED, "TTS 返回音频为空");
+        }
+        return audioBytes;
+    }
+
+    /**
+     * Qwen 试听：先获取阿里云临时音频 URL，再校验域名并下载音频字节。
+     */
+    private TtsAudioResult synthesizePreviewViaQwen(UserTtsConnectivityTestRequest request) {
+        String baseUrl = validateBaseUrl(request.getBaseUrl());
+        String apiKey = normalizeRequired(request.getApiKey(), "TTS API Key 不能为空");
+        String model = normalizeRequired(request.getModel(), "TTS 模型不能为空");
+        String voiceId = normalizeRequired(request.getVoiceId(), "TTS 音色不能为空");
+        String endpointPath = resolveEndpointPath(request.getEndpointPath());
+        try {
+            String responseJson = createRestClient(baseUrl)
+                    .post()
+                    .uri(endpointPath)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .body(buildQwenRequestBody(model, voiceId, "你好"))
+                    .retrieve()
+                    .body(String.class);
+            String audioUrl = extractQwenAudioUrl(responseJson);
+            if (!isTrustedQwenAudioUrl(audioUrl)) {
+                throw new BusinessException(ResultCode.CUSTOM_AI_CONNECTIVITY_FAILED, "Qwen TTS 返回了不可信的音频地址");
+            }
+            ResponseEntity<byte[]> audioResponse = createStandaloneRestClient()
+                    .get()
+                    .uri(URI.create(audioUrl))
+                    .accept(MediaType.APPLICATION_OCTET_STREAM,
+                            MediaType.valueOf("audio/mpeg"),
+                            MediaType.valueOf("audio/wav"))
+                    .retrieve()
+                    .toEntity(byte[].class);
+            byte[] audioBytes = audioResponse.getBody();
+            if (audioBytes == null || audioBytes.length == 0) {
+                throw new BusinessException(ResultCode.CUSTOM_AI_CONNECTIVITY_FAILED, "TTS 返回音频为空");
+            }
+            return TtsAudioResult.of(audioBytes,
+                    resolveDownloadedAudioContentType(audioResponse.getHeaders().getContentType(), audioUrl));
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            log.warn("TTS 试听合成异常 (Qwen), error: {}", ex.getMessage());
+            throw new BusinessException(ResultCode.CUSTOM_AI_CALL_FAILED, "TTS 试听失败，请稍后重试");
+        }
+    }
+
+    /**
+     * EdgeTTS 试听合成，返回真实 mp3 字节供前端播放。
+     */
+    private byte[] synthesizePreviewViaEdgeReadAloud(UserTtsConnectivityTestRequest request) {
+        validateBaseUrl(request.getBaseUrl());
+        normalizeRequired(request.getModel(), "TTS 模型不能为空");
+        String voiceId = normalizeRequired(request.getVoiceId(), "TTS 音色不能为空");
+        try {
+            byte[] audioBytes = edgeTtsClient.synthesize("你好", voiceId, Duration.ofMillis(TEST_TIMEOUT_MS));
+            if (audioBytes == null || audioBytes.length == 0) {
+                throw new BusinessException(ResultCode.CUSTOM_AI_CONNECTIVITY_FAILED, "EdgeTTS 返回音频为空");
+            }
+            return audioBytes;
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            log.warn("TTS 试听合成异常 (EdgeTTS), error: {}", ex.getMessage());
+            throw new BusinessException(ResultCode.CUSTOM_AI_CALL_FAILED, "TTS 试听失败，请稍后重试");
+        }
     }
 
     /**

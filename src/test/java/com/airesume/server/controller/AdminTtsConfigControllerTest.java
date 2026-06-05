@@ -3,6 +3,7 @@ package com.airesume.server.controller;
 import com.airesume.server.common.result.Result;
 import com.airesume.server.dto.admin.AdminTtsConfigRequest;
 import com.airesume.server.dto.admin.AdminTtsConfigResponse;
+import com.airesume.server.dto.user.TtsAudioResult;
 import com.airesume.server.dto.user.UserTtsConnectivityTestResponse;
 import com.airesume.server.dto.user.UserTtsDiscoveryResponse;
 import com.airesume.server.service.SysTtsConfigService;
@@ -87,14 +88,14 @@ class AdminTtsConfigControllerTest {
         AdminTtsConfigController controller = new AdminTtsConfigController(service);
         AdminTtsConfigRequest request = buildRequest();
         byte[] audio = new byte[]{1, 2, 3};
-        when(service.previewVoice(request)).thenReturn(audio);
+        when(service.previewVoiceAudio(request)).thenReturn(TtsAudioResult.of(audio, "audio/wav"));
 
         ResponseEntity<byte[]> response = controller.previewVoice(request);
 
         assertEquals(200, response.getStatusCode().value());
-        assertEquals("audio/mpeg", response.getHeaders().getContentType().toString());
+        assertEquals("audio/wav", response.getHeaders().getContentType().toString());
         assertArrayEquals(audio, response.getBody());
-        verify(service).previewVoice(request);
+        verify(service).previewVoiceAudio(request);
     }
 
     @Test

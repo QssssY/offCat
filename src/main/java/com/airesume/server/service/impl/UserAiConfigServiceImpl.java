@@ -1,5 +1,6 @@
 package com.airesume.server.service.impl;
 
+import com.airesume.server.common.constants.TtsProviderConstants;
 import com.airesume.server.common.constants.UserAiConstants;
 import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.ResultCode;
@@ -10,6 +11,7 @@ import com.airesume.server.dto.user.UserAiConfigRequest;
 import com.airesume.server.dto.user.UserAiConfigResponse;
 import com.airesume.server.dto.user.UserAiConnectivityTestRequest;
 import com.airesume.server.dto.user.UserAiConnectivityTestResponse;
+import com.airesume.server.dto.user.TtsAudioResult;
 import com.airesume.server.dto.user.UserTtsConnectivityTestRequest;
 import com.airesume.server.dto.user.UserTtsConnectivityTestResponse;
 import com.airesume.server.dto.user.UserTtsDiscoveryRequest;
@@ -155,16 +157,19 @@ public class UserAiConfigServiceImpl extends ServiceImpl<UserAiConfigMapper, Use
     }
 
     @Override
-    public byte[] previewTtsVoice(UserTtsConnectivityTestRequest request) {
+    public TtsAudioResult previewTtsVoiceAudio(UserTtsConnectivityTestRequest request) {
         UserTtsConnectivityTestRequest normalized = normalizeTtsRequest(request);
-        return userTtsConnectivityTestService.previewVoice(normalized);
+        return userTtsConnectivityTestService.previewVoiceAudio(normalized);
     }
 
     @Override
     public UserTtsDiscoveryResponse discoverTtsModelsAndVoices(UserTtsDiscoveryRequest request) {
         String baseUrl = normalizeRequired(request.getBaseUrl(), "TTS 地址不能为空");
-        String apiKey = normalizeRequired(request.getApiKey(), "TTS API Key 不能为空");
-        return ttsDiscoveryService.discover(baseUrl, apiKey, request.getProvider());
+        String provider = trimToNull(request.getProvider());
+        String apiKey = isEdgeProvider(provider)
+                ? ""
+                : normalizeRequired(request.getApiKey(), "TTS API Key 不能为空");
+        return ttsDiscoveryService.discover(baseUrl, apiKey, provider);
     }
 
     @Override
@@ -242,7 +247,10 @@ public class UserAiConfigServiceImpl extends ServiceImpl<UserAiConfigMapper, Use
             throw new BusinessException(ResultCode.CUSTOM_AI_CONNECTIVITY_FAILED, response.getMessage());
         }
         config.setTtsBaseUrl(normalized.getBaseUrl());
-        config.setTtsApiKey(aiCredentialCrypto.encrypt(normalized.getApiKey()));
+        // EdgeTTS 不需要用户密钥，数据库保留空值即可，避免保存无意义的占位密文。
+        config.setTtsApiKey(isEdgeProvider(normalized.getTtsProvider())
+                ? null
+                : aiCredentialCrypto.encrypt(normalized.getApiKey()));
         config.setTtsModel(normalized.getModel());
         config.setTtsVoiceId(normalized.getVoiceId());
         config.setTtsEndpointPath(normalized.getEndpointPath());
@@ -252,16 +260,20 @@ public class UserAiConfigServiceImpl extends ServiceImpl<UserAiConfigMapper, Use
     private UserTtsConnectivityTestRequest normalizeTtsRequest(UserTtsConnectivityTestRequest request) {
         UserTtsConnectivityTestRequest normalized = new UserTtsConnectivityTestRequest();
         normalized.setBaseUrl(validateBaseUrl(normalizeRequired(request.getBaseUrl(), "TTS 地址不能为空")));
-        String apiKey = normalizeRequired(request.getApiKey(), "TTS API Key 不能为空");
-        if (isMaskedApiKey(apiKey)) {
-            throw new BusinessException(ResultCode.CUSTOM_AI_CONFIG_INVALID, "TTS API Key 不能使用脱敏值保存或测试");
+        String provider = trimToNull(request.getTtsProvider());
+        String apiKey = "";
+        if (!isEdgeProvider(provider)) {
+            apiKey = normalizeRequired(request.getApiKey(), "TTS API Key 不能为空");
+            if (isMaskedApiKey(apiKey)) {
+                throw new BusinessException(ResultCode.CUSTOM_AI_CONFIG_INVALID, "TTS API Key 不能使用脱敏值保存或测试");
+            }
         }
         normalized.setApiKey(apiKey);
         normalized.setModel(normalizeRequired(request.getModel(), "TTS 模型不能为空"));
         normalized.setVoiceId(normalizeRequired(request.getVoiceId(), "TTS 音色不能为空"));
         // TTS 端点和 Provider 是下游合成协议选择的关键参数，测试、试听、保存前验证必须一起透传。
         normalized.setEndpointPath(trimToNull(request.getEndpointPath()));
-        normalized.setTtsProvider(trimToNull(request.getTtsProvider()));
+        normalized.setTtsProvider(provider);
         return normalized;
     }
 
@@ -269,18 +281,28 @@ public class UserAiConfigServiceImpl extends ServiceImpl<UserAiConfigMapper, Use
         return trimToNull(request.getTtsBaseUrl()) != null
                 || trimToNull(request.getTtsApiKey()) != null
                 || trimToNull(request.getTtsModel()) != null
-                || trimToNull(request.getTtsVoiceId()) != null;
+                || trimToNull(request.getTtsVoiceId()) != null
+                || trimToNull(request.getTtsEndpointPath()) != null
+                || trimToNull(request.getTtsProvider()) != null;
     }
 
     private boolean isTtsConfigured(UserAiConfig config) {
-        return trimToNull(config.getTtsBaseUrl()) != null
-                && trimToNull(config.getTtsApiKey()) != null
+        boolean hasCommonFields = trimToNull(config.getTtsBaseUrl()) != null
                 && trimToNull(config.getTtsModel()) != null
                 && trimToNull(config.getTtsVoiceId()) != null;
+        if (isEdgeProvider(config.getTtsProvider())) {
+            return hasCommonFields;
+        }
+        return hasCommonFields && trimToNull(config.getTtsApiKey()) != null;
     }
 
     private boolean supportsTtsConfigType(String configType) {
         return CONFIG_TYPE_DEFAULT.equals(configType) || CONFIG_TYPE_INTERVIEW.equals(configType);
+    }
+
+    private boolean isEdgeProvider(String provider) {
+        String normalized = trimToNull(provider);
+        return normalized != null && TtsProviderConstants.PROVIDER_EDGE.equals(normalized.toLowerCase(Locale.ROOT));
     }
 
     private String decryptNullable(String encryptedValue) {

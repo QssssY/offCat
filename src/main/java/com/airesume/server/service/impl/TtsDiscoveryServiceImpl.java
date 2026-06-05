@@ -106,6 +106,10 @@ public class TtsDiscoveryServiceImpl implements TtsDiscoveryService {
             return buildFailure("基础地址不合法：" + e.getMessage(), start);
         }
 
+        if (shouldUsePresetDiscoveryOnly(preset)) {
+            return buildPresetDiscoveryResponse(preset, start);
+        }
+
         // 2. API Key 验证 — 部分 Provider 的 /models 端点无需认证，错误 Key 也能拿到模型列表，
         //    必须先用需要认证的端点验证 Key 有效性，避免返回误导性的"发现成功"。
         try {
@@ -411,6 +415,41 @@ public class TtsDiscoveryServiceImpl implements TtsDiscoveryService {
                 .voices(PRESET_VOICES)
                 .voiceDiscoverySupported(false)
                 .errorMessage(safeMessage)
+                .build();
+    }
+
+    /**
+     * EdgeTTS 等无模型发现接口的 Provider 直接返回项目预设，避免把无 Key 协议误走 OpenAI 探测。
+     */
+    private boolean shouldUsePresetDiscoveryOnly(TtsProviderConstants.ProviderPreset preset) {
+        return switch (preset.getApiFormat()) {
+            case GEMINI_SPEECH, MINIMAX_T2A, QWEN_TTS, XAI_TTS, EDGE_READALOUD -> true;
+            default -> false;
+        };
+    }
+
+    /**
+     * 直接返回项目内置模型和音色，避免没有发现接口的 Provider 产生无意义外部请求。
+     */
+    private UserTtsDiscoveryResponse buildPresetDiscoveryResponse(TtsProviderConstants.ProviderPreset preset,
+                                                                  long start) {
+        List<TtsModelOption> models = List.of(TtsModelOption.builder()
+                .id(preset.getDefaultModel())
+                .name(preset.getDefaultModel())
+                .build());
+        List<TtsVoiceOption> voices = preset.getPresetVoices().stream()
+                .map(voice -> TtsVoiceOption.builder().id(voice.getId()).name(voice.getName()).build())
+                .toList();
+        long latencyMs = System.currentTimeMillis() - start;
+        log.info("TTS 发现使用 {} 预设，模型: {} 个, 音色: {} 个, 耗时: {}ms",
+                preset.getDisplayName(), models.size(), voices.size(), latencyMs);
+        return UserTtsDiscoveryResponse.builder()
+                .success(true)
+                .message(String.format("发现 %d 个模型、%d 个音色", models.size(), voices.size()))
+                .models(models)
+                .voices(voices)
+                .voiceDiscoverySupported(true)
+                .ttsEndpointPath(preset.getDefaultEndpointPath())
                 .build();
     }
 

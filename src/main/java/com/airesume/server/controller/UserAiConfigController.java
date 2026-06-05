@@ -3,6 +3,7 @@ package com.airesume.server.controller;
 import com.airesume.server.common.result.Result;
 import com.airesume.server.dto.ai.AiModelDiscoveryResponse;
 import com.airesume.server.dto.user.SystemTtsStatusResponse;
+import com.airesume.server.dto.user.TtsAudioResult;
 import com.airesume.server.dto.user.UserAiConfigRequest;
 import com.airesume.server.dto.user.UserAiConfigResponse;
 import com.airesume.server.dto.user.UserAiConfigToggleRequest;
@@ -143,20 +144,20 @@ public class UserAiConfigController {
     }
 
     /**
-     * TTS 音色试听：用当前表单参数合成最短音频，返回 audio/mpeg 二进制流。
+     * TTS 音色试听：用当前表单参数合成最短音频，按 Provider 返回真实音频媒体类型。
      */
-    @PostMapping(value = "/tts-preview", produces = "audio/mpeg")
+    @PostMapping(value = "/tts-preview")
     public ResponseEntity<byte[]> previewTtsVoice(
             @Valid @RequestBody UserTtsConnectivityTestRequest request,
             Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         log.info("用户 TTS 音色试听, userId: {}, model: {}, voiceId: {}",
                 userId, request.getModel(), request.getVoiceId());
-        byte[] audioBytes = userAiConfigService.previewTtsVoice(request);
+        TtsAudioResult audio = userAiConfigService.previewTtsVoiceAudio(request);
         return ResponseEntity.ok()
-                .contentType(MediaType.valueOf("audio/mpeg"))
+                .contentType(MediaType.valueOf(audio.getContentType()))
                 .cacheControl(CacheControl.noStore())
-                .body(audioBytes);
+                .body(audio.getAudioBytes());
     }
 
     /**

@@ -4,6 +4,7 @@ import com.airesume.server.dto.user.UserAiConfigRequest;
 import com.airesume.server.dto.user.UserAiConfigResponse;
 import com.airesume.server.dto.user.UserAiConnectivityTestRequest;
 import com.airesume.server.dto.user.UserAiConnectivityTestResponse;
+import com.airesume.server.dto.user.TtsAudioResult;
 import com.airesume.server.dto.user.UserTtsConnectivityTestRequest;
 import com.airesume.server.dto.user.UserTtsConnectivityTestResponse;
 import com.airesume.server.dto.user.UserTtsDiscoveryRequest;
@@ -48,9 +49,16 @@ public interface UserAiConfigService extends IService<UserAiConfig> {
     UserTtsConnectivityTestResponse testTtsConnectivity(UserTtsConnectivityTestRequest request);
 
     /**
-     * TTS 音色试听：使用表单参数合成最短音频并返回字节。
+     * TTS 音色试听：使用表单参数合成最短音频并返回字节和媒体类型。
      */
-    byte[] previewTtsVoice(UserTtsConnectivityTestRequest request);
+    TtsAudioResult previewTtsVoiceAudio(UserTtsConnectivityTestRequest request);
+
+    /**
+     * 兼容旧调用方：只需要音频字节时从完整结果中取出 byte[]。
+     */
+    default byte[] previewTtsVoice(UserTtsConnectivityTestRequest request) {
+        return previewTtsVoiceAudio(request).getAudioBytes();
+    }
 
     /**
      * TTS 模型/音色发现，不保存配置。

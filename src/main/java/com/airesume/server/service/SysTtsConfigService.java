@@ -3,6 +3,7 @@ package com.airesume.server.service;
 import com.airesume.server.dto.admin.AdminTtsConfigRequest;
 import com.airesume.server.dto.admin.AdminTtsConfigResponse;
 import com.airesume.server.dto.user.ResolvedTtsConfig;
+import com.airesume.server.dto.user.TtsAudioResult;
 import com.airesume.server.dto.user.UserTtsConnectivityTestResponse;
 import com.airesume.server.dto.user.UserTtsDiscoveryResponse;
 import com.airesume.server.entity.SysTtsConfig;
@@ -28,9 +29,16 @@ public interface SysTtsConfigService {
     UserTtsConnectivityTestResponse testConnectivity(AdminTtsConfigRequest request);
 
     /**
-     * 使用表单参数试听音色，不保存配置。
+     * 使用表单参数试听音色，不保存配置，返回真实媒体类型。
      */
-    byte[] previewVoice(AdminTtsConfigRequest request);
+    TtsAudioResult previewVoiceAudio(AdminTtsConfigRequest request);
+
+    /**
+     * 兼容旧调用方：只需要音频字节时从完整结果中取出 byte[]。
+     */
+    default byte[] previewVoice(AdminTtsConfigRequest request) {
+        return previewVoiceAudio(request).getAudioBytes();
+    }
 
     /**
      * 使用表单参数发现可用模型和音色，不保存配置。

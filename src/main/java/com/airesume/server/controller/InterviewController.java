@@ -17,6 +17,7 @@ import com.airesume.server.dto.interview.TtsCapabilityResponse;
 import com.airesume.server.dto.interview.TtsSpeechRequest;
 import com.airesume.server.dto.user.DataCleanupResponse;
 import com.airesume.server.dto.user.ResolvedTtsConfig;
+import com.airesume.server.dto.user.TtsAudioResult;
 import com.airesume.server.entity.InterviewChatLog;
 import com.airesume.server.entity.InterviewSession;
 import com.airesume.server.entity.SysJobRole;
@@ -300,9 +301,9 @@ public class InterviewController {
     }
 
     /**
-     * 使用用户自定义云端 TTS 合成语音面试播报音频。
+     * 使用云端 TTS 合成语音面试播报音频，按 Provider 返回真实音频媒体类型。
      */
-    @PostMapping(value = "/session/{sessionId}/tts", produces = "audio/mpeg")
+    @PostMapping(value = "/session/{sessionId}/tts")
     public ResponseEntity<byte[]> synthesizeTts(
             @PathVariable String sessionId,
             @Valid @RequestBody TtsSpeechRequest request,
@@ -313,11 +314,11 @@ public class InterviewController {
         if (!isVoiceSession(session)) {
             throw new com.airesume.server.common.exception.BusinessException("文字面试不支持云端 TTS 播报");
         }
-        byte[] audioBytes = userTtsSpeechService.synthesizeInterviewSpeech(userId, request.getText());
+        TtsAudioResult audio = userTtsSpeechService.synthesizeInterviewSpeechAudio(userId, request.getText());
         return ResponseEntity.ok()
-                .contentType(MediaType.valueOf("audio/mpeg"))
+                .contentType(MediaType.valueOf(audio.getContentType()))
                 .cacheControl(CacheControl.noStore())
-                .body(audioBytes);
+                .body(audio.getAudioBytes());
     }
 
     /**

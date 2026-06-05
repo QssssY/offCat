@@ -13,6 +13,7 @@ import org.springframework.web.client.RestClient;
 
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import java.util.concurrent.ConcurrentMap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -26,6 +27,52 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class TtsDiscoveryServiceImplTest {
+
+    @Test
+    void shouldReturnEdgePresetVoicesWithoutCallingProviderEndpoints() {
+        TtsDiscoveryServiceImpl service = new TtsDiscoveryServiceImpl(
+                RestClient.builder(),
+                new ObjectMapper(),
+                (baseUrl, timeoutMs) -> {
+                    throw new AssertionError("EdgeTTS 预设发现不应访问上游模型或音色端点");
+                });
+
+        UserTtsDiscoveryResponse response = service.discover(
+                "https://speech.platform.bing.com", "", "edge");
+
+        assertTrue(Boolean.TRUE.equals(response.getSuccess()));
+        assertEquals("edge-tts", response.getModels().get(0).getId());
+        assertTrue(response.getVoices().stream()
+                .anyMatch(voice -> "zh-CN-XiaoxiaoNeural".equals(voice.getId())));
+        assertTrue(response.getVoices().stream()
+                .anyMatch(voice -> "zh-CN-YunxiNeural".equals(voice.getId())));
+        assertEquals("/consumer/speech/synthesize/readaloud/edge/v1", response.getTtsEndpointPath());
+    }
+
+    @Test
+    void shouldReturnPresetDiscoveryForRemainingTtsProvidersWithoutCallingProviderEndpoints() {
+        TtsDiscoveryServiceImpl service = new TtsDiscoveryServiceImpl(
+                RestClient.builder(),
+                new ObjectMapper(),
+                (baseUrl, timeoutMs) -> {
+                    throw new AssertionError("预设型 TTS Provider 不应访问上游发现端点");
+                });
+        Map<String, String> expectedEndpoints = Map.of(
+                "gemini", "/v1beta/models/{model}:generateContent",
+                "minimax", "/v1/t2a_v2",
+                "qwen", "/api/v1/services/aigc/multimodal-generation/generation",
+                "xai", "/v1/tts"
+        );
+
+        expectedEndpoints.forEach((provider, endpoint) -> {
+            UserTtsDiscoveryResponse response = service.discover("https://8.8.8.8", "tts-key", provider);
+
+            assertTrue(Boolean.TRUE.equals(response.getSuccess()));
+            assertFalse(response.getModels().isEmpty());
+            assertFalse(response.getVoices().isEmpty());
+            assertEquals(endpoint, response.getTtsEndpointPath());
+        });
+    }
 
     @Test
     void shouldBoundMimoVoiceEndpointUnavailableCacheForDifferentBaseUrls() throws Exception {

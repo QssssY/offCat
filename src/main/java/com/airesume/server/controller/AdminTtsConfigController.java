@@ -3,6 +3,7 @@ package com.airesume.server.controller;
 import com.airesume.server.common.result.Result;
 import com.airesume.server.dto.admin.AdminTtsConfigRequest;
 import com.airesume.server.dto.admin.AdminTtsConfigResponse;
+import com.airesume.server.dto.user.TtsAudioResult;
 import com.airesume.server.dto.user.UserTtsConnectivityTestResponse;
 import com.airesume.server.dto.user.UserTtsDiscoveryResponse;
 import com.airesume.server.service.SysTtsConfigService;
@@ -69,14 +70,14 @@ public class AdminTtsConfigController {
     }
 
     /**
-     * 使用当前表单参数试听音色，返回 audio/mpeg。
+     * 使用当前表单参数试听音色，按 Provider 返回真实音频媒体类型。
      */
-    @PostMapping(value = "/preview", produces = "audio/mpeg")
+    @PostMapping(value = "/preview")
     public ResponseEntity<byte[]> previewVoice(@Valid @RequestBody AdminTtsConfigRequest request) {
-        byte[] audioBytes = sysTtsConfigService.previewVoice(request);
+        TtsAudioResult audio = sysTtsConfigService.previewVoiceAudio(request);
         return ResponseEntity.ok()
-                .contentType(MediaType.valueOf("audio/mpeg"))
+                .contentType(MediaType.valueOf(audio.getContentType()))
                 .cacheControl(CacheControl.noStore())
-                .body(audioBytes);
+                .body(audio.getAudioBytes());
     }
 }

@@ -12,6 +12,7 @@ import com.airesume.server.dto.interview.SendMessageRequest;
 import com.airesume.server.dto.interview.SendMessageResponse;
 import com.airesume.server.dto.interview.TtsCapabilityResponse;
 import com.airesume.server.dto.interview.TtsSpeechRequest;
+import com.airesume.server.dto.user.TtsAudioResult;
 import com.airesume.server.entity.InterviewSession;
 import com.airesume.server.entity.SysJobRole;
 import com.airesume.server.service.InterviewAiService;
@@ -411,13 +412,14 @@ class InterviewControllerTest {
         when(interviewService.getSessionByOwnerOrThrow(sessionId, 1L)).thenReturn(session);
         when(interviewService.resolveInteractionType(InterviewConstants.INTERACTION_TYPE_VOICE))
                 .thenReturn(InterviewConstants.INTERACTION_TYPE_VOICE);
-        when(userTtsSpeechService.synthesizeInterviewSpeech(1L, "你好，请介绍一下自己。")).thenReturn(audio);
+        when(userTtsSpeechService.synthesizeInterviewSpeechAudio(1L, "你好，请介绍一下自己。"))
+                .thenReturn(TtsAudioResult.of(audio, "audio/wav"));
 
         ResponseEntity<byte[]> response = controller.synthesizeTts(sessionId, request, authentication);
 
         assertEquals(200, response.getStatusCode().value());
         assertArrayEquals(audio, response.getBody());
-        assertEquals("audio/mpeg", response.getHeaders().getContentType().toString());
+        assertEquals("audio/wav", response.getHeaders().getContentType().toString());
         verify(interviewService).assertSessionInProgress(session);
     }
 

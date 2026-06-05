@@ -15,8 +15,7 @@ public class UserTtsConnectivityTestRequest {
     @Size(max = 512, message = "TTS 地址不能超过 512 个字符")
     private String baseUrl;
 
-    /** TTS API Key 明文，仅用于连通测试或保存前验证。 */
-    @NotBlank(message = "TTS API Key 不能为空")
+    /** TTS API Key 明文，仅用于连通测试或保存前验证；EdgeTTS provider 不需要填写。 */
     @Size(max = 1024, message = "TTS API Key 不能超过 1024 个字符")
     private String apiKey;
 
@@ -34,7 +33,7 @@ public class UserTtsConnectivityTestRequest {
     @Size(max = 128, message = "TTS 端点路径不能超过 128 个字符")
     private String endpointPath;
 
-    /** TTS 提供商标识：openai/mimo，为空按 OpenAI 兜底。 */
+    /** TTS 提供商标识：openai/mimo/edge，为空按 OpenAI 兜底。 */
     @Size(max = 32, message = "TTS Provider 标识不能超过 32 个字符")
     private String ttsProvider;
 

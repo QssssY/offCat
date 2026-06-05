@@ -1,6 +1,7 @@
 package com.airesume.server.service;
 
 import com.airesume.server.dto.user.ResolvedTtsConfig;
+import com.airesume.server.dto.user.TtsAudioResult;
 
 /**
  * 语音面试 TTS 运行时合成服务。
@@ -23,7 +24,14 @@ public interface UserTtsSpeechService {
     boolean hasSystemTtsConfig();
 
     /**
-     * 使用解析后的 TTS 配置合成面试官播报音频。
+     * 使用解析后的 TTS 配置合成面试官播报音频，返回音频字节与真实媒体类型。
      */
-    byte[] synthesizeInterviewSpeech(Long userId, String text);
+    TtsAudioResult synthesizeInterviewSpeechAudio(Long userId, String text);
+
+    /**
+     * 兼容旧调用方：只需要音频字节时从完整结果中取出 byte[]。
+     */
+    default byte[] synthesizeInterviewSpeech(Long userId, String text) {
+        return synthesizeInterviewSpeechAudio(userId, text).getAudioBytes();
+    }
 }
