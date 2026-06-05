@@ -2,14 +2,21 @@ package com.airesume.server.service.impl;
 
 import com.airesume.server.common.constants.QuotaConstants;
 import com.airesume.server.entity.UserQuota;
+import com.airesume.server.entity.SysUser;
+import com.airesume.server.mapper.ResumePolishRecordMapper;
+import com.airesume.server.service.QuotaConsumptionLogService;
 import com.airesume.server.service.SysUserService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.LocalDateTime;
 import java.time.LocalDate;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * UserQuotaService 配额服务测试
@@ -342,6 +349,53 @@ class UserQuotaServiceImplTest {
             assertEquals(6, quota.getTotalResumeUsed());
             assertEquals(5, quota.getDailyResumeUsed());
             assertEquals(1, quota.getResumeQuota()); // 超过每日配额时应该退还总配额
+        }
+    }
+
+    @Nested
+    @DisplayName("新用户 AI 额度冷却测试")
+    class NewUserAiCooldownTests {
+
+        @Test
+        @DisplayName("新注册用户在冷却期内应该禁止消耗平台免费 AI 额度")
+        void shouldBlockFreeAiQuotaDuringNewUserCooldown() {
+            SysUserService sysUserService = mock(SysUserService.class);
+            UserQuotaServiceImpl service = new UserQuotaServiceImpl(
+                    sysUserService,
+                    mock(ResumePolishRecordMapper.class),
+                    mock(QuotaConsumptionLogService.class));
+            ReflectionTestUtils.setField(service, "newUserAiCooldownMinutes", 30);
+            SysUser user = new SysUser();
+            user.setId(TEST_USER_ID);
+            user.setCreateTime(LocalDateTime.of(2026, 6, 5, 10, 0));
+            when(sysUserService.getById(TEST_USER_ID)).thenReturn(user);
+
+            boolean blocked = service.isInNewUserAiCooldown(
+                    TEST_USER_ID,
+                    LocalDateTime.of(2026, 6, 5, 10, 10));
+
+            assertTrue(blocked);
+        }
+
+        @Test
+        @DisplayName("超过冷却期后应该允许消耗平台免费 AI 额度")
+        void shouldAllowFreeAiQuotaAfterNewUserCooldown() {
+            SysUserService sysUserService = mock(SysUserService.class);
+            UserQuotaServiceImpl service = new UserQuotaServiceImpl(
+                    sysUserService,
+                    mock(ResumePolishRecordMapper.class),
+                    mock(QuotaConsumptionLogService.class));
+            ReflectionTestUtils.setField(service, "newUserAiCooldownMinutes", 30);
+            SysUser user = new SysUser();
+            user.setId(TEST_USER_ID);
+            user.setCreateTime(LocalDateTime.of(2026, 6, 5, 10, 0));
+            when(sysUserService.getById(TEST_USER_ID)).thenReturn(user);
+
+            boolean blocked = service.isInNewUserAiCooldown(
+                    TEST_USER_ID,
+                    LocalDateTime.of(2026, 6, 5, 10, 31));
+
+            assertFalse(blocked);
         }
     }
 

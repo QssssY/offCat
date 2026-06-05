@@ -7,6 +7,7 @@ import java.io.ByteArrayOutputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.WebSocket;
+import java.net.http.WebSocketHandshakeException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -14,11 +15,17 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -34,13 +41,13 @@ import org.springframework.stereotype.Service;
 public class EdgeTtsClientImpl implements EdgeTtsClient {
 
     private static final String TRUSTED_CLIENT_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
-    private static final String SEC_MS_GEC_VERSION = "1-130.0.2849.68";
+    private static final String SEC_MS_GEC_VERSION = "1-143.0.3650.75";
     private static final String EDGE_WSS_ENDPOINT =
             "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1";
     private static final String EDGE_ORIGIN = "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold";
     private static final String EDGE_USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                    + "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0";
+                    + "(KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0";
     private static final String OUTPUT_FORMAT = "audio-24khz-48kbitrate-mono-mp3";
     private static final long WINDOWS_EPOCH_OFFSET_SECONDS = 11_644_473_600L;
     private static final long GEC_ROUND_SECONDS = 300L;
@@ -69,11 +76,7 @@ public class EdgeTtsClientImpl implements EdgeTtsClient {
             HttpClient client = HttpClient.newBuilder()
                     .connectTimeout(effectiveTimeout)
                     .build();
-            webSocket = client.newWebSocketBuilder()
-                    .header("Origin", EDGE_ORIGIN)
-                    .header("User-Agent", EDGE_USER_AGENT)
-                    .buildAsync(buildWebSocketUri(Instant.now()), listener)
-                    .get(effectiveTimeout.toMillis(), TimeUnit.MILLISECONDS);
+            webSocket = openWebSocket(client, listener, effectiveTimeout, Instant.now());
 
             String requestId = UUID.randomUUID().toString().replace("-", "");
             webSocket.sendText(buildSpeechConfigMessage(), true).join();
@@ -86,13 +89,55 @@ public class EdgeTtsClientImpl implements EdgeTtsClient {
         } catch (BusinessException ex) {
             throw ex;
         } catch (Exception ex) {
-            log.warn("EdgeTTS 合成失败, voice: {}, errorType: {}", normalizedVoice, ex.getClass().getSimpleName());
-            throw new BusinessException(ResultCode.CUSTOM_AI_CALL_FAILED, "EdgeTTS 合成失败，请稍后重试");
+            Throwable rootCause = unwrapAsyncFailure(ex);
+            log.warn("EdgeTTS 合成失败, voice: {}, errorType: {}, rootCauseType: {}, rootCause: {}",
+                    normalizedVoice,
+                    ex.getClass().getSimpleName(),
+                    rootCause.getClass().getSimpleName(),
+                    rootCause.getMessage());
+            throw new BusinessException(ResultCode.CUSTOM_AI_CALL_FAILED, resolveFailureMessage(rootCause));
         } finally {
             if (webSocket != null) {
                 webSocket.sendClose(WebSocket.NORMAL_CLOSURE, "done");
             }
         }
+    }
+
+    private WebSocket openWebSocket(HttpClient client, EdgeWebSocketListener listener,
+                                    Duration effectiveTimeout, Instant requestInstant) throws Exception {
+        try {
+            return buildWebSocket(client, listener, effectiveTimeout, requestInstant);
+        } catch (ExecutionException ex) {
+            Throwable rootCause = unwrapAsyncFailure(ex);
+            Optional<Instant> retryInstant = resolveForbiddenHandshakeServerDate(rootCause);
+            if (retryInstant.isPresent()) {
+                log.warn("EdgeTTS 首次握手 403，按上游 Date 重算 Sec-MS-GEC 后重试一次, serverDate: {}",
+                        retryInstant.get());
+                return buildWebSocket(client, listener, effectiveTimeout, retryInstant.get());
+            }
+            throw ex;
+        }
+    }
+
+    private WebSocket buildWebSocket(HttpClient client, EdgeWebSocketListener listener,
+                                     Duration effectiveTimeout, Instant requestInstant) throws Exception {
+        WebSocket.Builder webSocketBuilder = client.newWebSocketBuilder();
+        buildWebSocketHeaders().forEach(webSocketBuilder::header);
+        return webSocketBuilder.buildAsync(buildWebSocketUri(requestInstant), listener)
+                .get(effectiveTimeout.toMillis(), TimeUnit.MILLISECONDS);
+    }
+
+    Map<String, String> buildWebSocketHeaders() {
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.put("Pragma", "no-cache");
+        headers.put("Cache-Control", "no-cache");
+        headers.put("Origin", EDGE_ORIGIN);
+        headers.put("Accept-Encoding", "gzip, deflate, br, zstd");
+        headers.put("Accept-Language", "en-US,en;q=0.9");
+        headers.put("User-Agent", EDGE_USER_AGENT);
+        // Edge Read Aloud 上游会把 MUID 作为浏览器会话标识之一；每次请求生成新值，避免复用固定指纹。
+        headers.put("Cookie", "muid=" + UUID.randomUUID().toString().replace("-", "").toUpperCase(Locale.ROOT) + ";");
+        return headers;
     }
 
     URI buildWebSocketUri(Instant now) {
@@ -149,6 +194,37 @@ public class EdgeTtsClientImpl implements EdgeTtsClient {
                 * GEC_ROUND_SECONDS
                 * WINDOWS_TICKS_PER_SECOND;
         return sha256Hex(roundedWindowsTicks + TRUSTED_CLIENT_TOKEN);
+    }
+
+    static Throwable unwrapAsyncFailure(Throwable error) {
+        Throwable current = error;
+        while ((current instanceof ExecutionException || current instanceof CompletionException)
+                && current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current == null ? error : current;
+    }
+
+    static Optional<Instant> resolveForbiddenHandshakeServerDate(Throwable rootCause) {
+        if (!(rootCause instanceof WebSocketHandshakeException handshakeException)
+                || handshakeException.getResponse().statusCode() != 403) {
+            return Optional.empty();
+        }
+        return handshakeException.getResponse().headers().firstValue("Date").flatMap(date -> {
+            try {
+                return Optional.of(DateTimeFormatter.RFC_1123_DATE_TIME.parse(date, Instant::from));
+            } catch (DateTimeParseException ex) {
+                return Optional.empty();
+            }
+        });
+    }
+
+    private String resolveFailureMessage(Throwable rootCause) {
+        String message = rootCause == null ? "" : String.valueOf(rootCause.getMessage()).toLowerCase(Locale.ROOT);
+        if (message.contains("403") || message.contains("forbidden") || message.contains("invalid response status")) {
+            return "EdgeTTS 上游拒绝连接，可能被限流或协议已变更，请稍后重试或切换其它 TTS";
+        }
+        return "EdgeTTS 合成失败，请稍后重试";
     }
 
     private static String sha256Hex(String value) {

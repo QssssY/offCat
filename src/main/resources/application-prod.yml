@@ -61,6 +61,11 @@ mybatis-plus:
 
 # AI 配置 - 通过环境变量注入
 app:
+  security:
+    new-user-ai-cooldown-minutes: ${NEW_USER_AI_COOLDOWN_MINUTES:30}
+  community:
+    image-access:
+      allow-missing-referer: false
   ai:
     mode: ${AI_MODE:real}
     provider: ${AI_PROVIDER:deepseek}

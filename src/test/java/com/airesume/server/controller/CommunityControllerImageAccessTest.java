@@ -13,9 +13,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -40,6 +43,7 @@ class CommunityControllerImageAccessTest {
         logger.addAppender(appender);
         try {
             CommunityController controller = new CommunityController(communityService, ossService);
+            ReflectionTestUtils.setField(controller, "allowMissingReferer", true);
             MockHttpServletRequest request = new MockHttpServletRequest();
             request.addHeader("Referer", "http://localhost:3000/community");
 
@@ -56,5 +60,43 @@ class CommunityControllerImageAccessTest {
         } finally {
             logger.detachAppender(appender);
         }
+    }
+
+    @Test
+    void shouldRejectMissingRefererByDefault() {
+        CommunityController controller = new CommunityController(communityService, ossService);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+
+        ResponseEntity<Void> response = controller.getImage(
+                "/community/1/20260605/abcdef.jpg", request);
+
+        assertEquals(HttpStatus.FORBIDDEN, response.getStatusCode());
+        verify(ossService, never()).generateSignedUrl("community/1/20260605/abcdef.jpg");
+    }
+
+    @Test
+    void shouldRejectMalformedRefererByDefault() {
+        CommunityController controller = new CommunityController(communityService, ossService);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("Referer", "%%%");
+
+        ResponseEntity<Void> response = controller.getImage(
+                "/community/1/20260605/abcdef.jpg", request);
+
+        assertEquals(HttpStatus.FORBIDDEN, response.getStatusCode());
+        verify(ossService, never()).generateSignedUrl("community/1/20260605/abcdef.jpg");
+    }
+
+    @Test
+    void shouldRejectForeignReferer() {
+        CommunityController controller = new CommunityController(communityService, ossService);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("Referer", "https://evil.example/images");
+
+        ResponseEntity<Void> response = controller.getImage(
+                "/community/1/20260605/abcdef.jpg", request);
+
+        assertEquals(HttpStatus.FORBIDDEN, response.getStatusCode());
+        verify(ossService, never()).generateSignedUrl("community/1/20260605/abcdef.jpg");
     }
 }

@@ -95,6 +95,18 @@ public class OssServiceImpl implements OssService {
     }
 
     @Override
+    public void deleteObject(String objectKey) {
+        ensureClient();
+        try {
+            ossClient.deleteObject(ossConfig.getBucketName(), objectKey);
+            log.info("OSS对象删除成功, bucket: {}, objectKey: {}", ossConfig.getBucketName(), objectKey);
+        } catch (Exception e) {
+            log.error("OSS对象删除失败, objectKey: {}", objectKey, e);
+            throw new BusinessException("图片清理失败");
+        }
+    }
+
+    @Override
     public boolean isEnabled() {
         return ossConfig != null
                 && ossConfig.isEnabled()

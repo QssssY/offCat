@@ -110,7 +110,7 @@ class CommunityServiceModerationTest {
     }
 
     @Test
-    void shouldApproveSuspiciousTextOnlyPost() {
+    void shouldKeepSuspiciousTextOnlyPostPendingReview() {
         CreatePostRequest request = new CreatePostRequest();
         request.setCategory("referral");
         request.setTitle("内推沟通");
@@ -120,8 +120,26 @@ class CommunityServiceModerationTest {
 
         ArgumentCaptor<CommunityPost> captor = ArgumentCaptor.forClass(CommunityPost.class);
         verify(postMapper).insert(captor.capture());
-        assertEquals("approved", ReflectionTestUtils.getField(captor.getValue(), "reviewStatus"));
-        assertEquals("疑似风险词命中，已自动放行", ReflectionTestUtils.getField(captor.getValue(), "reviewReason"));
+        assertEquals("pending", ReflectionTestUtils.getField(captor.getValue(), "reviewStatus"));
+        assertEquals("疑似风险词命中，需人工复核", ReflectionTestUtils.getField(captor.getValue(), "reviewReason"));
+    }
+
+    @Test
+    void shouldKeepSuspiciousTextOnlyCommentPendingAndNotIncreaseCount() {
+        CommunityPost approvedPost = buildPost(2001L, 1002L, "approved");
+        when(postMapper.selectById(2001L)).thenReturn(approvedPost);
+
+        CreateCommentRequest request = new CreateCommentRequest();
+        request.setContent("可以私聊联系方式，或者加微信继续沟通。");
+
+        CreateCommunityContentResponse response = communityService.createComment(1001L, 2001L, request);
+
+        ArgumentCaptor<CommunityComment> captor = ArgumentCaptor.forClass(CommunityComment.class);
+        verify(commentMapper).insert(captor.capture());
+        assertEquals("pending", ReflectionTestUtils.getField(captor.getValue(), "reviewStatus"));
+        assertEquals("疑似风险词命中，需人工复核", ReflectionTestUtils.getField(captor.getValue(), "reviewReason"));
+        assertEquals("pending", response.getReviewStatus());
+        verify(postMapper, never()).update(any(), any());
     }
 
     @Test

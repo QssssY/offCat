@@ -59,6 +59,7 @@ public class CommunityService {
     private final CommunityTextModerationService moderationService;
     private final NotificationService notificationService;
     private final OssService ossService;
+    private final CommunityImageRegistryService imageRegistryService;
 
     /**
      * 兼容既有单元测试的构造路径；生产环境使用包含 OSS 服务的完整构造器。
@@ -73,7 +74,7 @@ public class CommunityService {
                             CommunityTextModerationService moderationService,
                             NotificationService notificationService) {
         this(postMapper, commentMapper, likeMapper, favoriteMapper, userMapper,
-                interviewSessionMapper, objectMapper, moderationService, notificationService, new OssServiceImpl(null));
+                interviewSessionMapper, objectMapper, moderationService, notificationService, new OssServiceImpl(null), null);
     }
 
     /**
@@ -90,7 +91,8 @@ public class CommunityService {
                             ObjectMapper objectMapper,
                             CommunityTextModerationService moderationService,
                             NotificationService notificationService,
-                            OssService ossService) {
+                            OssService ossService,
+                            CommunityImageRegistryService imageRegistryService) {
         this.postMapper = postMapper;
         this.commentMapper = commentMapper;
         this.likeMapper = likeMapper;
@@ -101,6 +103,21 @@ public class CommunityService {
         this.moderationService = moderationService;
         this.notificationService = notificationService;
         this.ossService = ossService;
+        this.imageRegistryService = imageRegistryService;
+    }
+
+    public CommunityService(CommunityPostMapper postMapper,
+                            CommunityCommentMapper commentMapper,
+                            CommunityPostLikeMapper likeMapper,
+                            CommunityPostFavoriteMapper favoriteMapper,
+                            SysUserMapper userMapper,
+                            InterviewSessionMapper interviewSessionMapper,
+                            ObjectMapper objectMapper,
+                            CommunityTextModerationService moderationService,
+                            NotificationService notificationService,
+                            OssService ossService) {
+        this(postMapper, commentMapper, likeMapper, favoriteMapper, userMapper,
+                interviewSessionMapper, objectMapper, moderationService, notificationService, ossService, null);
     }
 
     /**
@@ -115,7 +132,7 @@ public class CommunityService {
                             ObjectMapper objectMapper,
                             CommunityTextModerationService moderationService) {
         this(postMapper, commentMapper, likeMapper, favoriteMapper, userMapper,
-                interviewSessionMapper, objectMapper, moderationService, null, new OssServiceImpl(null));
+                interviewSessionMapper, objectMapper, moderationService, null, new OssServiceImpl(null), null);
     }
 
     /**
@@ -129,7 +146,7 @@ public class CommunityService {
                             InterviewSessionMapper interviewSessionMapper,
                             ObjectMapper objectMapper) {
         this(postMapper, commentMapper, likeMapper, favoriteMapper, userMapper,
-                interviewSessionMapper, objectMapper, new CommunityTextModerationService(), null, new OssServiceImpl(null));
+                interviewSessionMapper, objectMapper, new CommunityTextModerationService(), null, new OssServiceImpl(null), null);
     }
 
     /**
@@ -307,6 +324,7 @@ public class CommunityService {
         }
 
         postMapper.insert(post);
+        bindCommunityImages(userId, request.getImages(), "post", post.getId());
         log.info("帖子创建成功, postId: {}, userId: {}, category: {}", post.getId(), userId, request.getCategory());
         return CreateCommunityContentResponse.builder()
                 .id(post.getId())
@@ -1006,6 +1024,7 @@ public class CommunityService {
         }
 
         commentMapper.insert(comment);
+        bindCommunityImages(userId, request.getImages(), "comment", comment.getId());
 
         if (CommunityConstants.REVIEW_STATUS_APPROVED.equals(moderationDecision.getReviewStatus())) {
             incrementCommentCount(postId);
@@ -1113,6 +1132,9 @@ public class CommunityService {
         if (ossService.isEnabled()) {
             String objectKey = ossService.upload(file, userId, extWithoutDot);
             String proxyUrl = "/api/community/images/" + objectKey;
+            if (imageRegistryService != null) {
+                imageRegistryService.recordUpload(userId, objectKey, proxyUrl);
+            }
             log.info("社区图片上传至OSS成功, userId: {}, objectKey: {}", userId, objectKey);
             return proxyUrl;
         }
@@ -1643,6 +1665,30 @@ public class CommunityService {
     /**
      * 报告分享帖只保存会话ID本身，前端根据该ID生成站内跳转链接。
      */
+    /**
+     * 绑定社区图片登记记录。
+     * 生产环境会校验图片必须属于当前用户且未被绑定；旧单元测试构造器未注入时保持兼容。
+     */
+    private void bindCommunityImages(Long userId, List<String> imageUrls, String boundType, Long boundId) {
+        if (imageRegistryService == null || imageUrls == null || imageUrls.isEmpty()) {
+            return;
+        }
+        // OSS 未启用时 uploadImage 会返回固定占位图；占位图不是用户上传对象，不进入登记绑定校验。
+        List<String> registryImageUrls = imageUrls.stream()
+                .filter(imageUrl -> !isCommunityPlaceholderImageUrl(imageUrl))
+                .collect(Collectors.toList());
+        if (registryImageUrls.isEmpty()) {
+            return;
+        }
+        imageRegistryService.bindUploadedImages(userId, registryImageUrls, boundType, boundId);
+    }
+
+    private boolean isCommunityPlaceholderImageUrl(String imageUrl) {
+        return imageUrl != null
+                && communityPlaceholderImageUrl != null
+                && imageUrl.equals(communityPlaceholderImageUrl);
+    }
+
     private String normalizeSharedInterviewSessionId(String sessionId) {
         if (sessionId == null || sessionId.isBlank()) {
             return null;

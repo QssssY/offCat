@@ -27,6 +27,13 @@ public interface OssService {
     String generateSignedUrl(String objectKey);
 
     /**
+     * 删除 OSS 对象，用于清理上传后长期未绑定的社区图片。
+     *
+     * @param objectKey OSS 对象键
+     */
+    void deleteObject(String objectKey);
+
+    /**
      * 判断 OSS 是否已正确配置并可用
      *
      * @return true 表示可用，false 表示未配置

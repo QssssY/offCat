@@ -29,9 +29,23 @@ class SecurityConfigTest {
     void shouldOnlyExposeCommunityUploadsAsPublicStaticResources() {
         assertTrue(SecurityConfig.supportsPublicUploadPath("/api/community/images/community/1/20260605/image.png"));
         assertTrue(SecurityConfig.supportsPublicUploadPath("/api/community/images/community/1/20260605/nested.webp"));
+        assertFalse(SecurityConfig.supportsPublicUploadPath("/api/community/images/upload"));
         assertFalse(SecurityConfig.supportsPublicUploadPath("/uploads/resumes/resume.pdf"));
         assertFalse(SecurityConfig.supportsPublicUploadPath("/uploads/community/image.png"));
         assertFalse(SecurityConfig.supportsPublicUploadPath("/api/community/posts"));
+    }
+
+    @Test
+    void shouldOnlyExposeCommunityImageGetEndpointWithoutAuthentication() {
+        assertTrue(SecurityConfig.supportsPublicCommunityImageEndpoint(
+                HttpMethod.GET, "/api/community/images/community/1/20260605/image.png"));
+
+        assertFalse(SecurityConfig.supportsPublicCommunityImageEndpoint(
+                HttpMethod.POST, "/api/community/images/upload"));
+        assertFalse(SecurityConfig.supportsPublicCommunityImageEndpoint(
+                HttpMethod.POST, "/api/community/images/community/1/20260605/image.png"));
+        assertFalse(SecurityConfig.supportsPublicCommunityImageEndpoint(
+                HttpMethod.GET, "/api/community/images/upload"));
     }
 
     @Test

@@ -153,6 +153,17 @@ class SchemaConsistencyTest {
     }
 
     @Test
+    void shouldKeepSecurityAbuseHardeningMigrationInSyncAndRepeatable() throws Exception {
+        String rootMigration = readSql("../db/migrations/TASK_86_SECURITY_ABUSE_HARDENING.sql");
+        String serverMigration = readSql("db/migrations/TASK_86_SECURITY_ABUSE_HARDENING.sql");
+
+        assertEquals(rootMigration, serverMigration, "TASK_86 security abuse hardening migration must stay in sync");
+        assertTrue(serverMigration.contains("SET NAMES utf8mb4;"));
+        assertTrue(serverMigration.contains("CREATE TABLE IF NOT EXISTS `community_image`"));
+        assertTrue(serverMigration.contains("idx_community_image_cleanup"));
+    }
+
+    @Test
     void shouldKeepTtsProviderMigrationsInSync() throws Exception {
         String rootEndpointMigration = readSql("../db/migrations/alter_tts_endpoint_path.sql");
         String serverEndpointMigration = readSql("db/migrations/alter_tts_endpoint_path.sql");
@@ -198,6 +209,8 @@ class SchemaConsistencyTest {
         assertTrue(schema.contains("CREATE TABLE `sys_tts_config`"));
         assertTrue(schema.contains("uk_sys_tts_config_singleton"));
         assertTrue(schema.contains("idx_sys_tts_config_enabled"));
+        assertTrue(schema.contains("CREATE TABLE `community_image`"));
+        assertTrue(schema.contains("idx_community_image_cleanup"));
     }
 
     private String readSql(String path) throws Exception {

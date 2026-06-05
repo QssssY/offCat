@@ -4,6 +4,7 @@ import com.airesume.server.common.constants.QuotaConstants;
 import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.ResultCode;
 import com.airesume.server.entity.MembershipPlan;
+import com.airesume.server.entity.SysUser;
 import com.airesume.server.entity.UserQuota;
 import com.airesume.server.mapper.ResumePolishRecordMapper;
 import com.airesume.server.mapper.UserQuotaMapper;
@@ -17,6 +18,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Lazy;
@@ -25,6 +27,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 @Slf4j
 @Service
@@ -34,6 +37,9 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
     private final SysUserService sysUserService;
     private final ResumePolishRecordMapper polishRecordMapper;
     private final QuotaConsumptionLogService consumptionLogService;
+
+    @Value("${app.security.new-user-ai-cooldown-minutes:0}")
+    private int newUserAiCooldownMinutes;
 
     /** 自注入：通过 Spring 代理调用自身方法，使 @Cacheable 在自调用时生效 */
     @Lazy
@@ -150,6 +156,7 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
             }
         }
 
+        assertFreeAiQuotaNotInCooldown(userId);
         int affected = getBaseMapper().deductInterviewQuotaAtomic(userId);
         if (affected == 0) {
             throw new BusinessException(ResultCode.INTERVIEW_QUOTA_EXHAUSTED);
@@ -198,6 +205,7 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
             }
         }
 
+        assertFreeAiQuotaNotInCooldown(userId);
         int affected = getBaseMapper().deductResumeQuotaAtomic(userId);
         if (affected == 0) {
             throw new BusinessException(ResultCode.RESUME_QUOTA_EXHAUSTED);
@@ -280,6 +288,27 @@ public class UserQuotaServiceImpl extends ServiceImpl<UserQuotaMapper, UserQuota
     }
 
     // ==================== 新功能配额：AI润色 / JD匹配 / 模板 / Offer ====================
+
+    /**
+     * 判断用户是否仍处于新注册高成本 AI 免费额度冷却期。
+     * 只约束平台免费额度消耗，VIP 配额不受影响。
+     */
+    public boolean isInNewUserAiCooldown(Long userId, LocalDateTime now) {
+        if (newUserAiCooldownMinutes <= 0 || userId == null || now == null) {
+            return false;
+        }
+        SysUser user = sysUserService.getById(userId);
+        if (user == null || user.getCreateTime() == null) {
+            return false;
+        }
+        return user.getCreateTime().plusMinutes(newUserAiCooldownMinutes).isAfter(now);
+    }
+
+    private void assertFreeAiQuotaNotInCooldown(Long userId) {
+        if (isInNewUserAiCooldown(userId, LocalDateTime.now())) {
+            throw new BusinessException("新注册账号需等待 " + newUserAiCooldownMinutes + " 分钟后使用平台 AI 免费额度");
+        }
+    }
 
     @Override
     @Transactional(rollbackFor = Exception.class)

@@ -29,7 +29,7 @@ class CommunityTextModerationServiceTest {
     }
 
     @Test
-    void shouldApproveSuspiciousTextOnlyPost() {
+    void shouldRouteSuspiciousTextOnlyPostToPendingReview() {
         CommunityModerationDecision decision = moderationService.reviewPost(
                 "兼职内推",
                 "想了解更多可以加薇详聊。",
@@ -37,8 +37,44 @@ class CommunityTextModerationServiceTest {
         );
 
         assertFalse(decision.isRejected());
-        assertEquals(CommunityConstants.REVIEW_STATUS_APPROVED, decision.getReviewStatus());
-        assertEquals("疑似风险词命中，已自动放行", decision.getReviewReason());
+        assertEquals(CommunityConstants.REVIEW_STATUS_PENDING, decision.getReviewStatus());
+        assertEquals("疑似风险词命中，需人工复核", decision.getReviewReason());
+    }
+
+    @Test
+    void shouldRouteUrlAndPhoneCommentToPendingReview() {
+        CommunityModerationDecision decision = moderationService.reviewComment(
+                "资料在 https://spam.example.com，电话 13812345678。",
+                false
+        );
+
+        assertFalse(decision.isRejected());
+        assertEquals(CommunityConstants.REVIEW_STATUS_PENDING, decision.getReviewStatus());
+        assertEquals("疑似风险词命中，需人工复核", decision.getReviewReason());
+    }
+
+    @Test
+    void shouldRouteWechatLikeCommentToPendingReview() {
+        CommunityModerationDecision decision = moderationService.reviewComment(
+                "可以加 vx: resume888 私聊。",
+                false
+        );
+
+        assertFalse(decision.isRejected());
+        assertEquals(CommunityConstants.REVIEW_STATUS_PENDING, decision.getReviewStatus());
+        assertEquals("疑似风险词命中，需人工复核", decision.getReviewReason());
+    }
+
+    @Test
+    void shouldRouteSpacedWechatIdWithoutOtherSuspiciousWordsToPendingReview() {
+        CommunityModerationDecision decision = moderationService.reviewComment(
+                "账号 vx: resume888",
+                false
+        );
+
+        assertFalse(decision.isRejected());
+        assertEquals(CommunityConstants.REVIEW_STATUS_PENDING, decision.getReviewStatus());
+        assertEquals("疑似风险词命中，需人工复核", decision.getReviewReason());
     }
 
     @Test

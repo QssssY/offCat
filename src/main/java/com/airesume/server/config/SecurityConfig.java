@@ -37,7 +37,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class SecurityConfig {
 
-    private static final String PUBLIC_UPLOAD_PATTERN = "/api/community/images/**";
+    private static final String PUBLIC_COMMUNITY_IMAGE_PATTERN = "/api/community/images/community/**";
     private static final String AUTH_REGISTER_PATH = "/api/auth/register";
     private static final String AUTH_LOGIN_PATH = "/api/auth/login";
     private static final String AUTH_RESET_PASSWORD_PATH = "/api/auth/reset-password";
@@ -95,7 +95,7 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/health", "/actuator/info").permitAll()
                         .requestMatchers("/actuator/**").hasRole("ADMIN")
                         // 静态资源（上传的图片等）放行 - img标签不会携带JWT token
-                        .requestMatchers(PUBLIC_UPLOAD_PATTERN).permitAll()
+                        .requestMatchers(HttpMethod.GET, PUBLIC_COMMUNITY_IMAGE_PATTERN).permitAll()
                         // 网络诊断会暴露代理、DNS、端口等运行环境信息，只允许管理员排查。
                         .requestMatchers("/api/diagnostic/**").hasRole("ADMIN")
                         // 用户端岗位选项需要由后台配置提供，前端不能再写死，所以这里开放只读岗位列表。
@@ -147,7 +147,14 @@ public class SecurityConfig {
      * 判断上传路径是否属于可公开访问的社区图片目录。
      */
     static boolean supportsPublicUploadPath(String path) {
-        return path != null && PATH_MATCHER.match(PUBLIC_UPLOAD_PATTERN, path);
+        return path != null && PATH_MATCHER.match(PUBLIC_COMMUNITY_IMAGE_PATTERN, path);
+    }
+
+    /**
+     * 判断社区图片公开访问端点是否允许匿名访问；上传和非 GET 请求必须认证。
+     */
+    static boolean supportsPublicCommunityImageEndpoint(HttpMethod method, String path) {
+        return method == HttpMethod.GET && supportsPublicUploadPath(path);
     }
 
     /**

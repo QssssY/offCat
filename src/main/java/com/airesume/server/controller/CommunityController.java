@@ -12,6 +12,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -20,6 +21,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.net.URI;
 import java.time.LocalDateTime;
 
 /**
@@ -35,6 +37,10 @@ public class CommunityController {
 
     private final CommunityService communityService;
     private final OssService ossService;
+
+    /** 生产默认拒绝缺失 Referer；开发环境可开启，方便本地直接调试图片。 */
+    @Value("${app.community.image-access.allow-missing-referer:false}")
+    private boolean allowMissingReferer;
 
     /**
      * 获取帖子列表（分页+筛选+排序）
@@ -403,15 +409,15 @@ public class CommunityController {
         String referer = request.getHeader("Referer");
         // 无 Referer 放行（浏览器直接访问、部分隐私模式、部分移动浏览器）
         if (referer == null || referer.isBlank()) {
-            return true;
+            return allowMissingReferer;
         }
         try {
-            String host = new java.net.URI(referer).getHost();
+            String host = new URI(referer).getHost();
             if (host == null) {
-                return true;
+                return false;
             }
             // 开发环境始终允许 localhost
-            if ("localhost".equals(host) || host.startsWith("127.0.0.1")) {
+            if (allowMissingReferer && ("localhost".equals(host) || host.startsWith("127.0.0.1"))) {
                 return true;
             }
             // 检查 CORS 允许的域名列表（复用 CORS_ALLOWED_ORIGINS 环境变量）
@@ -419,7 +425,7 @@ public class CommunityController {
             if (allowedOrigins != null && !allowedOrigins.isBlank()) {
                 for (String origin : allowedOrigins.split(",")) {
                     try {
-                        String allowedHost = new java.net.URI(origin.trim()).getHost();
+                        String allowedHost = new URI(origin.trim()).getHost();
                         if (host.equals(allowedHost)) {
                             return true;
                         }
@@ -432,7 +438,7 @@ public class CommunityController {
         } catch (Exception e) {
             // Referer 解析失败时放行，避免影响正常用户
             log.warn("Referer解析失败, 放行: {}", referer);
-            return true;
+            return false;
         }
     }
 }

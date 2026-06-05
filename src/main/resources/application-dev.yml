@@ -111,6 +111,13 @@ jwt:
 #   在 Environment variables 中添加：API_KEY=your-key
 # ==========================================
 app:
+  security:
+    new-user-ai-cooldown-minutes: 0
+
+  community:
+    image-access:
+      allow-missing-referer: true
+
   ai-circuit-breaker:
     enabled: true
     failure-threshold: 3
