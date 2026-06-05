@@ -604,7 +604,8 @@ describe('SettingsView', () => {
     expect(source).toContain("value: 'edge'")
     expect(source).toContain('EdgeTTS')
     expect(source).toContain('zh-CN-XiaoxiaoNeural')
-    expect(source).toContain('zh-CN-YunxiNeural')
+    expect(source).toContain('EDGE_CLOUD_TTS_VOICES')
+    expect(source).toContain('voices: EDGE_CLOUD_TTS_VOICES')
   })
 
   it('uses readable local feature icon sizes inside the personal settings center', () => {
@@ -1004,7 +1005,7 @@ describe('SettingsView', () => {
     const livelyFemaleOption = femaleGroup.children.find((option) => option.value === 'lively_female')
     const edgeCloudOption = cloudGroup.children.find((option) => option.value === 'edge_cloud')
 
-    expect(optionGroups.map((group) => group.label)).toEqual(expect.arrayContaining(['女声系列', '男声系列', '通用', '自定义']))
+    expect(optionGroups.map((group) => group.label)).toEqual(expect.arrayContaining(['女声系列', '男声系列', '通用', '云端语音', '自定义']))
     expect(femaleGroup.children.map((option) => option.value)).toEqual(expect.arrayContaining([
       'gentle_female',
       'pro_female',
@@ -1016,6 +1017,14 @@ describe('SettingsView', () => {
       'pro_male',
       'calm_male',
       'energetic_male'
+    ]))
+    expect(cloudGroup.children.length).toBeGreaterThan(6)
+    expect(cloudGroup.children.map((option) => option.value)).toEqual(expect.arrayContaining([
+      'edge_cloud',
+      'edge_cloud:zh-CN-XiaoxiaoNeural',
+      'edge_cloud:zh-CN-YunxiNeural',
+      'edge_cloud:zh-HK-HiuMaanNeural',
+      'edge_cloud:zh-TW-HsiaoYuNeural'
     ]))
     expect(edgeCloudOption.disabled).toBe(false)
     expect(livelyFemaleOption.disabled).toBe(true)
@@ -1052,6 +1061,31 @@ describe('SettingsView', () => {
       ttsEndpointPath: '/consumer/speech/synthesize/readaloud/edge/v1',
       ttsProvider: 'edge'
     })
+    expect(window.speechSynthesis.speak).not.toHaveBeenCalled()
+  }, 15000)
+
+  it('selects a specific EdgeTTS cloud voice from AI broadcast voice list', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    const previousPreference = getSettingsPreferences().voicePreferredType
+    wrapper.vm.interviewPreferenceForm.voicePreferredType = 'edge_cloud:zh-CN-YunxiNeural'
+    wrapper.vm.handleVoicePreferredTypeChange()
+    await flushPromises()
+
+    expect(wrapper.vm.userAiConfigForm.ttsProvider).toBe('edge')
+    expect(wrapper.vm.userAiConfigForm.ttsVoiceId).toBe('zh-CN-YunxiNeural')
+    expect(wrapper.vm.userTtsConfigExpanded).toBe(true)
+    expect(getSettingsPreferences().voicePreferredType).toBe(previousPreference)
+
+    await wrapper.vm.handleVoicePreview()
+    await flushPromises()
+
+    expect(previewTtsVoice).toHaveBeenCalledWith(expect.objectContaining({
+      ttsProvider: 'edge',
+      ttsModel: 'edge-tts',
+      ttsVoiceId: 'zh-CN-YunxiNeural'
+    }))
     expect(window.speechSynthesis.speak).not.toHaveBeenCalled()
   }, 15000)
 

@@ -5,6 +5,32 @@ export const INTERVIEW_RETENTION_DAY_OPTIONS = Object.freeze([0, 30, 90, 180, 36
 export const RESUME_RETENTION_DAY_OPTIONS = Object.freeze([0, 30, 90, 180, 365])
 export const VOICE_AUTO_SUBMIT_DELAY_OPTIONS = Object.freeze([0, 2000, 3000, 5000])
 export const EDGE_CLOUD_TTS_VOICE_PREFERENCE = 'edge_cloud'
+export const EDGE_CLOUD_TTS_VOICE_VALUE_PREFIX = `${EDGE_CLOUD_TTS_VOICE_PREFERENCE}:`
+export const EDGE_CLOUD_TTS_VOICES = Object.freeze([
+  Object.freeze({ id: 'zh-CN-XiaoxiaoNeural', name: '晓晓（女声，普通话）' }),
+  Object.freeze({ id: 'zh-CN-XiaoyiNeural', name: '晓伊（女声，普通话）' }),
+  Object.freeze({ id: 'zh-CN-YunjianNeural', name: '云健（男声，普通话）' }),
+  Object.freeze({ id: 'zh-CN-YunxiNeural', name: '云希（男声，普通话）' }),
+  Object.freeze({ id: 'zh-CN-YunxiaNeural', name: '云夏（男声，普通话）' }),
+  Object.freeze({ id: 'zh-CN-YunyangNeural', name: '云扬（男声，普通话）' }),
+  Object.freeze({ id: 'zh-HK-HiuGaaiNeural', name: '晓佳（女声，粤语）' }),
+  Object.freeze({ id: 'zh-HK-HiuMaanNeural', name: '晓曼（女声，粤语）' }),
+  Object.freeze({ id: 'zh-HK-WanLungNeural', name: '云龙（男声，粤语）' }),
+  Object.freeze({ id: 'zh-TW-HsiaoChenNeural', name: '晓臻（女声，台湾普通话）' }),
+  Object.freeze({ id: 'zh-TW-HsiaoYuNeural', name: '晓雨（女声，台湾普通话）' }),
+  Object.freeze({ id: 'zh-TW-YunJheNeural', name: '云哲（男声，台湾普通话）' })
+])
+export const DEFAULT_EDGE_CLOUD_TTS_VOICE_ID = EDGE_CLOUD_TTS_VOICES[0].id
+export const EDGE_CLOUD_TTS_VOICE_OPTIONS = Object.freeze([
+  Object.freeze({
+    label: `EdgeTTS 默认（${EDGE_CLOUD_TTS_VOICES[0].name}）`,
+    value: EDGE_CLOUD_TTS_VOICE_PREFERENCE
+  }),
+  ...EDGE_CLOUD_TTS_VOICES.map((voice) => Object.freeze({
+    label: `EdgeTTS ${voice.name}`,
+    value: `${EDGE_CLOUD_TTS_VOICE_VALUE_PREFIX}${voice.id}`
+  }))
+])
 
 const freezePresetGroup = (group) => Object.freeze({
   ...group,
@@ -43,9 +69,7 @@ export const BROWSER_TTS_VOICE_PRESET_GROUPS = Object.freeze([
   }),
   freezePresetGroup({
     label: '云端语音',
-    options: [
-      { label: 'EdgeTTS 免费云端音色', value: EDGE_CLOUD_TTS_VOICE_PREFERENCE }
-    ]
+    options: EDGE_CLOUD_TTS_VOICE_OPTIONS
   }),
   freezePresetGroup({
     label: '自定义',
@@ -78,6 +102,38 @@ export const BROWSER_TTS_PRESET_PARAMETERS = Object.freeze({
 export function getBrowserTtsPresetParameters(presetKey) {
   const parameters = BROWSER_TTS_PRESET_PARAMETERS[presetKey]
   return parameters ? { ...parameters } : null
+}
+
+export function isEdgeCloudTtsVoicePreference(value) {
+  return value === EDGE_CLOUD_TTS_VOICE_PREFERENCE ||
+    (typeof value === 'string' && value.startsWith(EDGE_CLOUD_TTS_VOICE_VALUE_PREFIX))
+}
+
+/**
+ * 从本地偏好值解析 EdgeTTS voice id。
+ * 旧版 edge_cloud 没有携带具体 voice，继续回退默认晓晓，避免历史缓存失效。
+ */
+export function getEdgeCloudTtsVoiceId(preferenceValue) {
+  if (typeof preferenceValue !== 'string' || preferenceValue === EDGE_CLOUD_TTS_VOICE_PREFERENCE) {
+    return DEFAULT_EDGE_CLOUD_TTS_VOICE_ID
+  }
+  if (!preferenceValue.startsWith(EDGE_CLOUD_TTS_VOICE_VALUE_PREFIX)) {
+    return DEFAULT_EDGE_CLOUD_TTS_VOICE_ID
+  }
+
+  const voiceId = preferenceValue.slice(EDGE_CLOUD_TTS_VOICE_VALUE_PREFIX.length)
+  return EDGE_CLOUD_TTS_VOICES.some((voice) => voice.id === voiceId)
+    ? voiceId
+    : DEFAULT_EDGE_CLOUD_TTS_VOICE_ID
+}
+
+export function getEdgeCloudTtsPreferenceValue(voiceId) {
+  if (voiceId === DEFAULT_EDGE_CLOUD_TTS_VOICE_ID) {
+    return EDGE_CLOUD_TTS_VOICE_PREFERENCE
+  }
+  return EDGE_CLOUD_TTS_VOICES.some((voice) => voice.id === voiceId)
+    ? `${EDGE_CLOUD_TTS_VOICE_VALUE_PREFIX}${voiceId}`
+    : EDGE_CLOUD_TTS_VOICE_PREFERENCE
 }
 
 export const DEFAULT_SETTINGS_PREFERENCES = Object.freeze({

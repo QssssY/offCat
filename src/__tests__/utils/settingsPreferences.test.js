@@ -3,6 +3,7 @@ import {
   BROWSER_TTS_VOICE_PRESET_GROUPS,
   clearLocalSettingsCache,
   DEFAULT_SETTINGS_PREFERENCES,
+  EDGE_CLOUD_TTS_VOICE_PREFERENCE,
   getBrowserTtsPresetParameters,
   getSettingsPreferences,
   normalizeSettingsPreferences,
@@ -114,8 +115,22 @@ describe('settingsPreferences', () => {
       'custom',
       'edge_cloud'
     ]))
+    const cloudPresetValues = BROWSER_TTS_VOICE_PRESET_GROUPS
+      .find((group) => group.label === '云端语音')
+      .options
+      .map((option) => option.value)
+
+    expect(cloudPresetValues.length).toBeGreaterThan(6)
+    expect(cloudPresetValues).toEqual(expect.arrayContaining([
+      EDGE_CLOUD_TTS_VOICE_PREFERENCE,
+      'edge_cloud:zh-CN-XiaoxiaoNeural',
+      'edge_cloud:zh-CN-YunxiNeural',
+      'edge_cloud:zh-HK-HiuMaanNeural',
+      'edge_cloud:zh-TW-HsiaoYuNeural'
+    ]))
     expect(normalized.voicePreferredType).toBe('slow_clear')
     expect(normalizeSettingsPreferences({ voicePreferredType: 'edge_cloud' }).voicePreferredType).toBe('edge_cloud')
+    expect(normalizeSettingsPreferences({ voicePreferredType: 'edge_cloud:zh-CN-YunxiNeural' }).voicePreferredType).toBe('edge_cloud:zh-CN-YunxiNeural')
     expect(getBrowserTtsPresetParameters('slow_clear')).toEqual({ rate: 0.75, pitch: 1.02 })
     expect(getBrowserTtsPresetParameters('system')).toBeNull()
     expect(getBrowserTtsPresetParameters('custom')).toBeNull()

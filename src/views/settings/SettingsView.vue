@@ -1262,9 +1262,12 @@ import {
   BROWSER_TTS_VOICE_PRESET_GROUPS,
   clearLocalSettingsCache,
   DEFAULT_SETTINGS_PREFERENCES,
-  EDGE_CLOUD_TTS_VOICE_PREFERENCE,
+  EDGE_CLOUD_TTS_VOICES,
+  getEdgeCloudTtsPreferenceValue,
+  getEdgeCloudTtsVoiceId,
   getBrowserTtsPresetParameters,
   getSettingsPreferences,
+  isEdgeCloudTtsVoicePreference,
   saveSettingsPreferences
 } from '@/utils/settingsPreferences'
 
@@ -1447,20 +1450,7 @@ const TTS_PROVIDER_PRESETS = [
     defaultModel: 'edge-tts',
     defaultVoiceId: 'zh-CN-XiaoxiaoNeural',
     endpointPath: '/consumer/speech/synthesize/readaloud/edge/v1',
-    voices: [
-      { id: 'zh-CN-XiaoxiaoNeural', name: '晓晓（女声，普通话）' },
-      { id: 'zh-CN-XiaoyiNeural', name: '晓伊（女声，普通话）' },
-      { id: 'zh-CN-YunjianNeural', name: '云健（男声，普通话）' },
-      { id: 'zh-CN-YunxiNeural', name: '云希（男声，普通话）' },
-      { id: 'zh-CN-YunxiaNeural', name: '云夏（男声，普通话）' },
-      { id: 'zh-CN-YunyangNeural', name: '云扬（男声，普通话）' },
-      { id: 'zh-HK-HiuGaaiNeural', name: '晓佳（女声，粤语）' },
-      { id: 'zh-HK-HiuMaanNeural', name: '晓曼（女声，粤语）' },
-      { id: 'zh-HK-WanLungNeural', name: '云龙（男声，粤语）' },
-      { id: 'zh-TW-HsiaoChenNeural', name: '晓臻（女声，台湾普通话）' },
-      { id: 'zh-TW-HsiaoYuNeural', name: '晓雨（女声，台湾普通话）' },
-      { id: 'zh-TW-YunJheNeural', name: '云哲（男声，台湾普通话）' }
-    ]
+    voices: EDGE_CLOUD_TTS_VOICES
   },
   {
     value: 'gemini',
@@ -1553,7 +1543,7 @@ const ttsDiscoveryResult = ref(null)
 const isUserEdgeTtsProvider = computed(() => userAiConfigForm.value.ttsProvider === 'edge')
 
 /** 选择 TTS Provider 时自动填入预设默认值 */
-const handleTtsProviderChange = (providerId) => {
+const handleTtsProviderChange = (providerId, options = {}) => {
   const preset = TTS_PROVIDER_PRESETS.find(p => p.value === providerId)
   if (!preset || preset.disabled) return
   userAiConfigForm.value.ttsProvider = providerId
@@ -1562,7 +1552,7 @@ const handleTtsProviderChange = (providerId) => {
     userAiConfigForm.value.ttsApiKey = ''
   }
   userAiConfigForm.value.ttsModel = preset.defaultModel
-  userAiConfigForm.value.ttsVoiceId = preset.defaultVoiceId
+  userAiConfigForm.value.ttsVoiceId = options.voiceId || preset.defaultVoiceId
   userAiConfigForm.value.ttsEndpointPath = preset.endpointPath
   // 用预设音色填充发现结果（跳过网络请求）
   ttsDiscoveryResult.value = {
@@ -1602,7 +1592,7 @@ const browserTtsChineseVoiceCount = computed(() => {
 const isChromeBrowserVoiceLimited = computed(() => (
   isChromeBrowser.value && browserTtsChineseVoiceCount.value > 0 && browserTtsChineseVoiceCount.value <= 2
 ))
-const isCloudTtsVoiceOption = (value) => value === EDGE_CLOUD_TTS_VOICE_PREFERENCE
+const isCloudTtsVoiceOption = (value) => isEdgeCloudTtsVoicePreference(value)
 const isCloudTtsVoiceSelected = computed(() => isCloudTtsVoiceOption(interviewPreferenceForm.value.voicePreferredType))
 const getVoicePresetOptionLabel = (option, available) => {
   if (isCloudTtsVoiceOption(option.value)) return option.label
@@ -1929,7 +1919,9 @@ const securityQuestionOptions = [
 
 const syncCloudTtsVoicePreference = () => {
   if (!isCloudTtsVoiceSelected.value) return
-  handleTtsProviderChange('edge')
+  handleTtsProviderChange('edge', {
+    voiceId: getEdgeCloudTtsVoiceId(interviewPreferenceForm.value.voicePreferredType)
+  })
   userTtsConfigExpanded.value = true
 }
 
@@ -2286,7 +2278,7 @@ const handleUserAiConfigSave = async () => {
     if (shouldPersistEdgeCloudTtsPreference(payload)) {
       syncPreferenceForms(saveSettingsPreferences({
         ...interviewPreferenceForm.value,
-        voicePreferredType: EDGE_CLOUD_TTS_VOICE_PREFERENCE,
+        voicePreferredType: getEdgeCloudTtsPreferenceValue(payload.ttsVoiceId),
         voiceName: '',
         voiceURI: '',
         voiceLang: ''
@@ -2596,7 +2588,9 @@ const handleVoicePreferredTypeChange = () => {
     interviewPreferenceForm.value.voiceName = ''
     interviewPreferenceForm.value.voiceURI = ''
     interviewPreferenceForm.value.voiceLang = ''
-    handleTtsProviderChange('edge')
+    handleTtsProviderChange('edge', {
+      voiceId: getEdgeCloudTtsVoiceId(interviewPreferenceForm.value.voicePreferredType)
+    })
     userTtsConfigExpanded.value = true
     previewTextToSpeech.setVoicePreference(buildVoicePreferenceFromForm())
     return
