@@ -10,15 +10,17 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.lang.reflect.Method;
 import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -68,5 +70,16 @@ class SysVersionLogServiceImplTest {
 
         List<SysVersionLog> result = service.getLatestPublished(5);
         assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void shouldCacheLatestPublishedVersionLogsBySafeLimit() throws Exception {
+        Method method = SysVersionLogServiceImpl.class.getMethod("getLatestPublished", int.class);
+        Cacheable cacheable = method.getAnnotation(Cacheable.class);
+
+        assertNotNull(cacheable);
+        assertEquals("config:versionLogs", cacheable.value()[0]);
+        assertEquals("#limit", cacheable.key());
+        assertTrue(cacheable.sync());
     }
 }

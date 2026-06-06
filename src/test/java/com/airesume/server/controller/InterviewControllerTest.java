@@ -1,5 +1,9 @@
 package com.airesume.server.controller;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.airesume.server.common.constants.InterviewConstants;
 import com.airesume.server.common.constants.UserAiConstants;
 import com.airesume.server.common.result.PageResult;
@@ -27,6 +31,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
@@ -201,6 +206,39 @@ class InterviewControllerTest {
         assertEquals(sessionId, result.getData().getSessionId());
         assertTrue(result.getData().getReportReady());
         verify(interviewService).getSessionStatus(1L, sessionId);
+    }
+
+    @Test
+    void shouldLogSessionStatusPollingRequestAtDebugLevel() {
+        String sessionId = "session-status-log";
+        var mockResponse = com.airesume.server.dto.interview.InterviewSessionStatusResponse.builder()
+                .sessionId(sessionId)
+                .status(InterviewConstants.STATUS_IN_PROGRESS)
+                .openingPending(true)
+                .reportReady(false)
+                .build();
+        when(interviewService.getSessionStatus(1L, sessionId)).thenReturn(mockResponse);
+
+        Logger logger = (Logger) LoggerFactory.getLogger(InterviewController.class);
+        Level originalLevel = logger.getLevel();
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        logger.setLevel(Level.DEBUG);
+
+        try {
+            controller.getSessionStatus(sessionId, authentication);
+        } finally {
+            logger.detachAppender(appender);
+            logger.setLevel(originalLevel);
+            appender.stop();
+        }
+
+        List<ILoggingEvent> statusEvents = appender.list.stream()
+                .filter(event -> event.getFormattedMessage().contains(sessionId))
+                .toList();
+        assertTrue(statusEvents.stream().anyMatch(event -> event.getLevel() == Level.DEBUG));
+        assertFalse(statusEvents.stream().anyMatch(event -> event.getLevel() == Level.INFO));
     }
 
     @Test

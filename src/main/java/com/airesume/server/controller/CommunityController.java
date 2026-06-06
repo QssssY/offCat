@@ -1,6 +1,7 @@
 package com.airesume.server.controller;
 
 import com.airesume.server.common.constants.CommunityConstants;
+import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.common.result.PageResult;
 import com.airesume.server.common.result.Result;
 import com.airesume.server.dto.community.*;
@@ -14,6 +15,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -386,7 +388,15 @@ public class CommunityController {
             return ResponseEntity.notFound().build();
         }
 
-        String signedUrl = ossService.generateSignedUrl(objectKey);
+        String signedUrl;
+        try {
+            signedUrl = ossService.generateSignedUrl(objectKey);
+        } catch (BusinessException e) {
+            // 上游 OSS 错误可能包含签名 URL 或凭据细节，控制器只记录对象键和错误类型。
+            log.warn("社区图片签名访问失败, objectKey: {}, errorType: {}",
+                    objectKey, e.getClass().getSimpleName());
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY).build();
+        }
         log.info("社区图片签名访问, objectKey: {}, referer: {}",
                 objectKey,
                 request.getHeader("Referer"));

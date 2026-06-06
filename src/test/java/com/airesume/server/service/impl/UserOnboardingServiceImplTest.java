@@ -12,9 +12,13 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.io.Serializable;
+import java.lang.reflect.Method;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -192,6 +196,39 @@ class UserOnboardingServiceImplTest {
         verify(taskMapper).updateById(captor.capture());
         assertEquals(1, captor.getValue().getCompleted());
         assertNotNull(captor.getValue().getCompletedTime());
+    }
+
+    @Test
+    void shouldCacheOnboardingStatusByUserAndGuideKey() throws Exception {
+        Method method = UserOnboardingServiceImpl.class.getMethod("getStatus", Long.class, String.class);
+        Cacheable cacheable = method.getAnnotation(Cacheable.class);
+
+        assertNotNull(cacheable);
+        assertEquals("user:onboardingStatus", cacheable.value()[0]);
+        assertEquals("#userId + '::' + #guideKey", cacheable.key());
+        assertTrue(cacheable.sync());
+    }
+
+    @Test
+    void shouldEvictOnboardingStatusAfterStateOrTaskUpdates() throws Exception {
+        Method updateStatus = UserOnboardingServiceImpl.class.getMethod(
+                "updateStatus", Long.class, com.airesume.server.dto.onboarding.OnboardingUpdateRequest.class);
+        CacheEvict updateEvict = updateStatus.getAnnotation(CacheEvict.class);
+        assertNotNull(updateEvict);
+        assertEquals("user:onboardingStatus", updateEvict.value()[0]);
+        assertEquals("#userId + '::' + #request.guideKey", updateEvict.key());
+
+        Method completeTask = UserOnboardingServiceImpl.class.getMethod("completeTask", Long.class, String.class);
+        CacheEvict completeEvict = completeTask.getAnnotation(CacheEvict.class);
+        assertNotNull(completeEvict);
+        assertEquals("user:onboardingStatus", completeEvict.value()[0]);
+        assertEquals("#userId + '::' + 'v1_3_main_onboarding'", completeEvict.key());
+    }
+
+    @Test
+    void shouldReturnSerializableOnboardingStatusForRedisCache() {
+        assertTrue(Serializable.class.isAssignableFrom(
+                com.airesume.server.dto.onboarding.OnboardingStatusResponse.class));
     }
 
     private UserOnboardingTask createTask(String key, int completed) {

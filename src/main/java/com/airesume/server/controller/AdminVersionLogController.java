@@ -13,6 +13,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -85,6 +86,8 @@ public class AdminVersionLogController {
     }
 
     @PostMapping
+    // 管理端写版本日志会影响公开 latest 缓存，写成功后统一清空该缓存区。
+    @CacheEvict(value = "config:versionLogs", allEntries = true)
     public Result<Long> createVersionLog(@Valid @RequestBody VersionLogCreateRequest request,
                                           Authentication authentication) {
         log.info("Admin create version log, version: {}, title: {}", request.getVersion(), request.getTitle());
@@ -113,6 +116,7 @@ public class AdminVersionLogController {
     }
 
     @PutMapping
+    @CacheEvict(value = "config:versionLogs", allEntries = true)
     public Result<Void> updateVersionLog(@Valid @RequestBody VersionLogUpdateRequest request,
                                           Authentication authentication) {
         log.info("Admin update version log, id: {}", request.getId());
@@ -148,6 +152,7 @@ public class AdminVersionLogController {
     }
 
     @PutMapping("/{id}/publish")
+    @CacheEvict(value = "config:versionLogs", allEntries = true)
     public Result<Void> publishVersionLog(@PathVariable Long id, Authentication authentication) {
         SysVersionLog versionLog = sysVersionLogService.getById(id);
         if (versionLog == null) {
@@ -163,6 +168,7 @@ public class AdminVersionLogController {
     }
 
     @PutMapping("/batch/publish")
+    @CacheEvict(value = "config:versionLogs", allEntries = true)
     public Result<Void> publishVersionLogsBatch(@RequestBody List<Long> ids, Authentication authentication) {
         List<Long> safeIds = BatchValidator.validate(ids);
         log.info("Admin batch publish version logs, ids: {}", safeIds);
@@ -180,6 +186,7 @@ public class AdminVersionLogController {
     }
 
     @DeleteMapping("/{id}")
+    @CacheEvict(value = "config:versionLogs", allEntries = true)
     public Result<Void> deleteVersionLog(@PathVariable Long id, Authentication authentication) {
         log.info("Admin delete version log, id: {}", id);
         sysVersionLogService.removeById(id);
@@ -187,6 +194,7 @@ public class AdminVersionLogController {
     }
 
     @PostMapping("/batch-delete")
+    @CacheEvict(value = "config:versionLogs", allEntries = true)
     public Result<Void> deleteVersionLogsBatch(@RequestBody List<Long> ids, Authentication authentication) {
         List<Long> safeIds = BatchValidator.validate(ids);
         log.info("Admin batch delete version logs, ids: {}", safeIds);

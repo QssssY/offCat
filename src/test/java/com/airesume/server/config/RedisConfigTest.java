@@ -71,8 +71,22 @@ class RedisConfigTest {
                 .entryTtl(Duration.ofMinutes(5));
         Map<String, RedisCacheConfiguration> cacheConfigurations = redisConfig.initialCacheConfigurations(defaultConfig);
 
+        assertEquals(Duration.ofMinutes(5), cacheConfigurations.get("sys_user").getTtl());
+        assertEquals(Duration.ofMinutes(10), cacheConfigurations.get("auth:userInfo").getTtl());
+        assertEquals(Duration.ofMinutes(5), cacheConfigurations.get("user:quota").getTtl());
         assertEquals(Duration.ofMinutes(5), cacheConfigurations.get("user:interviewRadar").getTtl());
         assertEquals(Duration.ofMinutes(30), cacheConfigurations.get("config:membershipPlan").getTtl());
         assertEquals(Duration.ofMinutes(10), cacheConfigurations.get("interview:jobTarget").getTtl());
+    }
+
+    @Test
+    void shouldConfigureVersionLogAndOnboardingStatusCacheTtls() {
+        RedisConfig redisConfig = new RedisConfig();
+        RedisCacheConfiguration defaultConfig = RedisCacheConfiguration.defaultCacheConfig()
+                .entryTtl(Duration.ofMinutes(5));
+        Map<String, RedisCacheConfiguration> cacheConfigurations = redisConfig.initialCacheConfigurations(defaultConfig);
+
+        assertEquals(Duration.ofMinutes(5), cacheConfigurations.get("config:versionLogs").getTtl());
+        assertEquals(Duration.ofSeconds(60), cacheConfigurations.get("user:onboardingStatus").getTtl());
     }
 }

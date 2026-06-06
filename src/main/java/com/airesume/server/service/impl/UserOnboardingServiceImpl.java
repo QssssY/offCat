@@ -13,6 +13,8 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -64,6 +66,8 @@ public class UserOnboardingServiceImpl extends ServiceImpl<UserOnboardingStateMa
     private record TaskDefinition(String label, String desc, String actionUrl) {}
 
     @Override
+    // 引导状态只依赖 userId + guideKey，短 TTL 可吸收主布局重复挂载读请求。
+    @Cacheable(value = "user:onboardingStatus", key = "#userId + '::' + #guideKey", sync = true)
     public OnboardingStatusResponse getStatus(Long userId, String guideKey) {
         log.debug("查询引导状态，userId: {}, guideKey: {}", userId, guideKey);
 
@@ -98,6 +102,8 @@ public class UserOnboardingServiceImpl extends ServiceImpl<UserOnboardingStateMa
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    // 状态写入后必须驱逐对应 guideKey，避免下一次读取继续看到旧进度。
+    @CacheEvict(value = "user:onboardingStatus", key = "#userId + '::' + #request.guideKey")
     public void updateStatus(Long userId, OnboardingUpdateRequest request) {
         String guideKey = request.getGuideKey();
         String newStatus = request.getStatus();
@@ -251,6 +257,8 @@ public class UserOnboardingServiceImpl extends ServiceImpl<UserOnboardingStateMa
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    // 任务上报可能影响默认引导卡片展示，保守驱逐默认 guideKey 的状态缓存。
+    @CacheEvict(value = "user:onboardingStatus", key = "#userId + '::' + 'v1_3_main_onboarding'")
     public void completeTask(Long userId, String taskKey) {
         // 校验 taskKey 合法性
         if (!VALID_TASK_KEYS.contains(taskKey)) {

@@ -20,13 +20,16 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.security.core.Authentication;
 
+import java.lang.reflect.Method;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
@@ -250,10 +253,29 @@ class AdminVersionLogControllerTest {
         verify(sysVersionLogService).removeByIds(List.of(100L, 200L));
     }
 
+    @Test
+    void shouldEvictLatestVersionLogCacheAfterWriteOperations() throws Exception {
+        assertEvictsVersionLogs("createVersionLog", VersionLogCreateRequest.class, Authentication.class);
+        assertEvictsVersionLogs("updateVersionLog", VersionLogUpdateRequest.class, Authentication.class);
+        assertEvictsVersionLogs("publishVersionLog", Long.class, Authentication.class);
+        assertEvictsVersionLogs("publishVersionLogsBatch", List.class, Authentication.class);
+        assertEvictsVersionLogs("deleteVersionLog", Long.class, Authentication.class);
+        assertEvictsVersionLogs("deleteVersionLogsBatch", List.class, Authentication.class);
+    }
+
     @SuppressWarnings("unchecked")
     private LambdaQueryChainWrapper<SysVersionLog> mockVersionLogQuery() {
         LambdaQueryChainWrapper<SysVersionLog> wrapper = mock(LambdaQueryChainWrapper.class);
         when(sysVersionLogService.lambdaQuery()).thenReturn(wrapper);
         return wrapper;
+    }
+
+    private void assertEvictsVersionLogs(String methodName, Class<?>... parameterTypes) throws Exception {
+        Method method = AdminVersionLogController.class.getMethod(methodName, parameterTypes);
+        CacheEvict cacheEvict = method.getAnnotation(CacheEvict.class);
+
+        assertNotNull(cacheEvict);
+        assertEquals("config:versionLogs", cacheEvict.value()[0]);
+        assertEquals(true, cacheEvict.allEntries());
     }
 }

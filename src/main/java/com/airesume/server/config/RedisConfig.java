@@ -88,6 +88,8 @@ public class RedisConfig {
 
     Map<String, RedisCacheConfiguration> initialCacheConfigurations(RedisCacheConfiguration defaultConfig) {
         Map<String, RedisCacheConfiguration> cacheConfigMap = new HashMap<>();
+        // 用户实体缓存是鉴权链路热点读，显式 TTL 便于 Redis 故障和历史脏缓存问题排查。
+        cacheConfigMap.put("sys_user", defaultConfig.entryTtl(Duration.ofMinutes(5)));
         cacheConfigMap.put("auth:userInfo", defaultConfig.entryTtl(Duration.ofMinutes(10)));
         cacheConfigMap.put("notification:unreadCount", defaultConfig.entryTtl(Duration.ofMinutes(2)));
         cacheConfigMap.put("config:jobRoles", defaultConfig.entryTtl(Duration.ofMinutes(30)));
@@ -120,6 +122,9 @@ public class RedisConfig {
         cacheConfigMap.put("admin:hotJobRoles", defaultConfig.entryTtl(Duration.ofMinutes(5)));
         // 用户统计卡片：全表聚合，5 分钟 TTL。
         cacheConfigMap.put("admin:userStats", defaultConfig.entryTtl(Duration.ofMinutes(5)));
+        // 最新版本日志与用户引导状态都是稳定 GET 数据，短 TTL 用于吸收重复挂载和短时间重复进入页面。
+        cacheConfigMap.put("config:versionLogs", defaultConfig.entryTtl(Duration.ofMinutes(5)));
+        cacheConfigMap.put("user:onboardingStatus", defaultConfig.entryTtl(Duration.ofSeconds(60)));
         return cacheConfigMap;
     }
 

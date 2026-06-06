@@ -269,7 +269,7 @@ public class InterviewController {
             @PathVariable String sessionId,
             Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
-        log.info("获取会话轻量状态, userId: {}, sessionId: {}", userId, sessionId);
+        log.debug("获取会话轻量状态, userId: {}, sessionId: {}", userId, sessionId);
         InterviewSessionStatusResponse response = interviewService.getSessionStatus(userId, sessionId);
         return Result.success(response);
     }

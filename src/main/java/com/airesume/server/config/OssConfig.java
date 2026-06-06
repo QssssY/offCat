@@ -3,6 +3,9 @@ package com.airesume.server.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * 阿里云 OSS 配置
  * 通过 application.yml 中的 app.oss 前缀读取配置
@@ -76,5 +79,37 @@ public class OssConfig {
 
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
+    }
+
+    /**
+     * 返回启用 OSS 时缺失的必填配置项。
+     * 仅列出字段名，不包含任何配置值，避免校验错误被记录时泄露凭据。
+     */
+    public List<String> missingRequiredFieldsWhenEnabled() {
+        List<String> missingFields = new ArrayList<>();
+        if (isBlank(endpoint)) {
+            missingFields.add("endpoint");
+        }
+        if (isBlank(bucketName)) {
+            missingFields.add("bucketName");
+        }
+        if (isBlank(accessKeyId)) {
+            missingFields.add("accessKeyId");
+        }
+        if (isBlank(accessKeySecret)) {
+            missingFields.add("accessKeySecret");
+        }
+        return missingFields;
+    }
+
+    /**
+     * 判断 OSS 是否处于启用且必填配置完整状态。
+     */
+    public boolean hasCompleteEnabledConfig() {
+        return enabled && missingRequiredFieldsWhenEnabled().isEmpty();
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 }

@@ -14,9 +14,11 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
+import java.lang.reflect.Method;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.Date;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -89,7 +91,9 @@ public class OssServiceImpl implements OssService {
             URL url = ossClient.generatePresignedUrl(ossConfig.getBucketName(), objectKey, expiration);
             return url.toString();
         } catch (Exception e) {
-            log.error("OSS签名URL生成失败, objectKey: {}", objectKey, e);
+            log.error("OSS签名URL生成失败, objectKey: {}, bucket: {}, accessKeyId: {}, errorCode: {}, errorType: {}",
+                    objectKey, ossConfig.getBucketName(), maskAccessKeyId(),
+                    resolveOssErrorCode(e), e.getClass().getSimpleName());
             throw new BusinessException("图片获取失败");
         }
     }
@@ -108,12 +112,7 @@ public class OssServiceImpl implements OssService {
 
     @Override
     public boolean isEnabled() {
-        return ossConfig != null
-                && ossConfig.isEnabled()
-                && ossConfig.getEndpoint() != null && !ossConfig.getEndpoint().isBlank()
-                && ossConfig.getAccessKeyId() != null && !ossConfig.getAccessKeyId().isBlank()
-                && ossConfig.getAccessKeySecret() != null && !ossConfig.getAccessKeySecret().isBlank()
-                && ossConfig.getBucketName() != null && !ossConfig.getBucketName().isBlank();
+        return ossConfig != null && ossConfig.hasCompleteEnabledConfig();
     }
 
     /**
@@ -123,20 +122,63 @@ public class OssServiceImpl implements OssService {
         if (ossClient == null) {
             synchronized (this) {
                 if (ossClient == null) {
-                    if (!isEnabled()) {
-                        throw new BusinessException("OSS 未配置，无法执行操作");
+                    validateEnabledConfig();
+                    log.info("初始化OSS客户端, endpoint: {}, bucket: {}, accessKeyId: {}",
+                            ossConfig.getEndpoint(), ossConfig.getBucketName(), maskAccessKeyId());
+                    try {
+                        ossClient = buildClient();
+                    } catch (Exception e) {
+                        log.error("OSS客户端初始化失败, endpoint: {}, bucket: {}, accessKeyId: {}, errorType: {}",
+                                ossConfig.getEndpoint(), ossConfig.getBucketName(),
+                                maskAccessKeyId(), e.getClass().getSimpleName());
+                        throw new BusinessException("OSS 客户端初始化失败，请检查 OSS 凭据和 Bucket 配置");
                     }
-                    log.info("初始化OSS客户端, endpoint: {}, bucket: {}, accessKeyId: {}...{}",
-                            ossConfig.getEndpoint(), ossConfig.getBucketName(),
-                            // 只打印前4位和后4位，避免完整密钥泄露到日志
-                            ossConfig.getAccessKeyId().substring(0, Math.min(4, ossConfig.getAccessKeyId().length())),
-                            ossConfig.getAccessKeyId().substring(Math.max(0, ossConfig.getAccessKeyId().length() - 4)));
-                    ossClient = new OSSClientBuilder().build(
-                            ossConfig.getEndpoint(),
-                            ossConfig.getAccessKeyId(),
-                            ossConfig.getAccessKeySecret());
                 }
             }
+        }
+    }
+
+    /**
+     * 创建 OSS 客户端。
+     * 独立成受保护方法，便于单元测试模拟 SDK 初始化失败，同时生产路径仍使用官方 SDK 类型。
+     */
+    protected OSS buildClient() {
+        return new OSSClientBuilder().build(
+                ossConfig.getEndpoint(),
+                ossConfig.getAccessKeyId(),
+                ossConfig.getAccessKeySecret());
+    }
+
+    private void validateEnabledConfig() {
+        if (ossConfig == null || !ossConfig.isEnabled()) {
+            throw new BusinessException("OSS 未启用，无法执行操作");
+        }
+        List<String> missingFields = ossConfig.missingRequiredFieldsWhenEnabled();
+        if (!missingFields.isEmpty()) {
+            throw new BusinessException("OSS 配置缺失: " + String.join(", ", missingFields));
+        }
+    }
+
+    private String maskAccessKeyId() {
+        String accessKeyId = ossConfig == null ? null : ossConfig.getAccessKeyId();
+        if (accessKeyId == null || accessKeyId.isBlank()) {
+            return "***";
+        }
+        String trimmed = accessKeyId.trim();
+        if (trimmed.length() <= 8) {
+            return trimmed.charAt(0) + "****" + trimmed.charAt(trimmed.length() - 1);
+        }
+        return trimmed.substring(0, 4) + "****" + trimmed.substring(trimmed.length() - 4);
+    }
+
+    private String resolveOssErrorCode(Exception exception) {
+        try {
+            // 阿里云 OSSException 暴露 getErrorCode，这里用反射避免把日志逻辑绑死到具体异常类。
+            Method method = exception.getClass().getMethod("getErrorCode");
+            Object value = method.invoke(exception);
+            return value == null ? "UNKNOWN" : value.toString();
+        } catch (Exception ignored) {
+            return "UNKNOWN";
         }
     }
 
