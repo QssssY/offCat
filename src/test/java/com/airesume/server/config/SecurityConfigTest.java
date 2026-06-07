@@ -3,6 +3,7 @@ package com.airesume.server.config;
 import jakarta.servlet.DispatcherType;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.core.userdetails.UserDetailsService;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -67,5 +68,14 @@ class SecurityConfigTest {
         assertFalse(SecurityConfig.supportsPublicAuthEndpoint(HttpMethod.PUT, "/api/auth/password"));
         assertFalse(SecurityConfig.supportsPublicAuthEndpoint(HttpMethod.PUT, "/api/auth/security-question"));
         assertFalse(SecurityConfig.supportsPublicAuthEndpoint(HttpMethod.POST, "/api/auth/me"));
+    }
+
+    @Test
+    void shouldProvideEmptyUserDetailsServiceToSuppressGeneratedPassword() {
+        UserDetailsService userDetailsService = SecurityConfig.emptyUserDetailsService();
+
+        assertTrue(userDetailsService instanceof org.springframework.security.provisioning.InMemoryUserDetailsManager);
+        assertFalse(((org.springframework.security.provisioning.InMemoryUserDetailsManager) userDetailsService)
+                .userExists("user"));
     }
 }

@@ -1,16 +1,22 @@
 package com.airesume.server.common.exception;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.airesume.server.common.result.Result;
 import com.airesume.server.common.result.ResultCode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
+import java.io.IOException;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -92,5 +98,30 @@ class GlobalExceptionHandlerTest {
                 .getAnnotation(ResponseStatus.class);
         assertNotNull(responseStatus);
         assertEquals(HttpStatus.METHOD_NOT_ALLOWED, responseStatus.value());
+    }
+
+    @Test
+    @DisplayName("客户端主动断开 SSE 连接时不记录 WARN")
+    void shouldLogClientDisconnectIOExceptionAtDebugLevel() {
+        Logger logger = (Logger) LoggerFactory.getLogger(GlobalExceptionHandler.class);
+        Level originalLevel = logger.getLevel();
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        logger.setLevel(Level.DEBUG);
+
+        try {
+            handler.handleIOException(new IOException("你的主机中的软件中止了一个已建立的连接。"));
+        } finally {
+            logger.detachAppender(appender);
+            logger.setLevel(originalLevel);
+            appender.stop();
+        }
+
+        assertTrue(appender.list.stream()
+                .anyMatch(event -> event.getLevel() == Level.DEBUG
+                        && event.getFormattedMessage().contains("SSE 连接已断开")));
+        assertFalse(appender.list.stream()
+                .anyMatch(event -> event.getLevel() == Level.WARN));
     }
 }

@@ -1,5 +1,9 @@
 package com.airesume.server.service;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.airesume.server.entity.UserNotification;
 import com.airesume.server.mapper.UserNotificationMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -8,8 +12,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -91,6 +97,34 @@ class NotificationServiceTest {
         notificationService.shutdown();
 
         assertTrue(getEmitterMap().isEmpty());
+    }
+
+    @Test
+    void sseClientDisconnectShouldNotLogWarning() throws Exception {
+        Logger logger = (Logger) LoggerFactory.getLogger(NotificationService.class);
+        Level originalLevel = logger.getLevel();
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        logger.setLevel(Level.DEBUG);
+
+        try {
+            SseEmitter emitter = notificationService.registerEmitter(1L);
+            notificationService.handleEmitterError(1L, emitter,
+                    new IOException("你的主机中的软件中止了一个已建立的连接。"));
+        } finally {
+            logger.detachAppender(appender);
+            logger.setLevel(originalLevel);
+            appender.stop();
+            notificationService.shutdown();
+        }
+
+        assertTrue(appender.list.stream()
+                .anyMatch(event -> event.getFormattedMessage().contains("SSE")
+                        && event.getLevel() == Level.DEBUG));
+        assertFalse(appender.list.stream()
+                .anyMatch(event -> event.getLevel() == Level.WARN
+                        && event.getFormattedMessage().contains("连接异常")));
     }
 
     @Test

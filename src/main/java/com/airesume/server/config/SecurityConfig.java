@@ -19,8 +19,10 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.util.AntPathMatcher;
@@ -131,6 +133,19 @@ public class SecurityConfig {
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
+    }
+
+    /**
+     * 项目使用 JWT 过滤器完成用户认证，不使用 Spring Boot 默认表单用户。
+     * 提供空用户存储，避免开发启动时打印 generated password 干扰异常日志排查。
+     */
+    @Bean
+    public UserDetailsService userDetailsService() {
+        return emptyUserDetailsService();
+    }
+
+    static UserDetailsService emptyUserDetailsService() {
+        return new InMemoryUserDetailsManager();
     }
 
     /**

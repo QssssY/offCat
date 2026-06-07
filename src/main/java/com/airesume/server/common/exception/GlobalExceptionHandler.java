@@ -66,7 +66,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IOException.class)
     @ResponseStatus(HttpStatus.OK)
     public void handleIOException(IOException e) {
-        log.warn("SSE 连接已断开: {}", e.getMessage());
+        if (isClientDisconnect(e)) {
+            log.debug("SSE 连接已断开: {}", e.getMessage());
+            return;
+        }
+        log.warn("IO 异常: {}", e.getMessage());
     }
 
     @ExceptionHandler(MaxUploadSizeExceededException.class)
@@ -101,6 +105,20 @@ public class GlobalExceptionHandler {
     public Result<Void> handleException(Exception e) {
         log.error("系统异常: ", e);
         return Result.error(ResultCode.SYSTEM_ERROR);
+    }
+
+    /**
+     * 客户端主动断开 SSE/长连接属于正常网络生命周期，降为 DEBUG。
+     */
+    static boolean isClientDisconnect(Throwable e) {
+        if (e == null) {
+            return false;
+        }
+        String message = e.getMessage();
+        return message != null && (message.contains("你的主机中的软件中止了一个已建立的连接")
+                || message.contains("Broken pipe")
+                || message.contains("Connection reset by peer")
+                || message.contains("远程主机强迫关闭了一个现有的连接"));
     }
 
 }

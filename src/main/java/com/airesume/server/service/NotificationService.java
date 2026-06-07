@@ -278,10 +278,7 @@ public class NotificationService {
             emitterMap.remove(userId, emitter);
             log.info("[SSE] 连接超时, userId: {}", userId);
         });
-        emitter.onError(e -> {
-            emitterMap.remove(userId, emitter);
-            log.warn("[SSE] 连接异常, userId: {}, error: {}", userId, e.getMessage());
-        });
+        emitter.onError(e -> handleEmitterError(userId, emitter, e));
 
         // 发送初始连接确认 + 心跳保活
         try {
@@ -391,7 +388,11 @@ public class NotificationService {
             try {
                 emitter.send(":\n\n");
             } catch (IOException e) {
-                log.warn("[SSE] 心跳发送失败，清理连接, userId: {}, error: {}", userId, e.getMessage());
+                if (isClientDisconnect(e)) {
+                    log.debug("[SSE] 心跳发送时发现客户端已断开，清理连接, userId: {}, error: {}", userId, e.getMessage());
+                } else {
+                    log.warn("[SSE] 心跳发送失败，清理连接, userId: {}, error: {}", userId, e.getMessage());
+                }
                 emitterMap.remove(userId, emitter);
             }
         });
@@ -408,6 +409,30 @@ public class NotificationService {
             }
         });
         emitterMap.clear();
+    }
+
+    /**
+     * 浏览器刷新、切页或网络主动关闭 SSE 时会抛出这类 IOException。
+     * 这是长连接的正常生命周期，不应作为 WARN 污染异常日志。
+     */
+    static boolean isClientDisconnect(Throwable e) {
+        if (e == null) {
+            return false;
+        }
+        String message = e.getMessage();
+        return message != null && (message.contains("你的主机中的软件中止了一个已建立的连接")
+                || message.contains("Broken pipe")
+                || message.contains("Connection reset by peer")
+                || message.contains("远程主机强迫关闭了一个现有的连接"));
+    }
+
+    void handleEmitterError(Long userId, SseEmitter emitter, Throwable e) {
+        emitterMap.remove(userId, emitter);
+        if (isClientDisconnect(e)) {
+            log.debug("[SSE] 客户端断开连接, userId: {}, error: {}", userId, e.getMessage());
+        } else {
+            log.warn("[SSE] 连接异常, userId: {}, error: {}", userId, e.getMessage());
+        }
     }
 
     /**
