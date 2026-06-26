@@ -1,0 +1,1813 @@
+package com.airesume.server.controller;
+
+import com.airesume.server.common.constants.AiEngineConstants;
+import com.airesume.server.common.constants.InterviewConstants;
+import com.airesume.server.common.constants.PromptConstants;
+import com.airesume.server.common.constants.UserRoleConstants;
+import com.airesume.server.common.exception.BusinessException;
+import com.airesume.server.common.result.Result;
+import com.airesume.server.common.result.PageResult;
+import com.airesume.server.common.util.PublicHttpsUrlValidator;
+import com.airesume.server.dto.ai.AiModelDiscoveryResponse;
+import com.airesume.server.dto.quota.ConsumptionLogResponse;
+import com.airesume.server.dto.admin.*;
+import com.airesume.server.entity.SysAiEngineConfig;
+import com.airesume.server.entity.SysJobRole;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Caching;
+import com.airesume.server.entity.SysPrompt;
+import com.airesume.server.entity.SysUser;
+import com.airesume.server.entity.UserQuota;
+import com.airesume.server.service.AdminDashboardService;
+import com.airesume.server.service.AdminUserRightsService;
+import com.airesume.server.service.AiCredentialCrypto;
+import com.airesume.server.service.AiEngineConnectivityTestService;
+import com.airesume.server.service.AiModelDiscoveryService;
+import com.airesume.server.service.SysAiEngineConfigService;
+import com.airesume.server.service.SysJobRoleService;
+import com.airesume.server.service.SysConfigService;
+import com.airesume.server.service.SysPromptService;
+import com.airesume.server.service.SysUserService;
+import com.airesume.server.service.UserQuotaService;
+import com.airesume.server.service.NotificationService;
+import com.airesume.server.service.QuotaConsumptionLogService;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.security.core.Authentication;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+/**
+ * 管理端控制器
+ * 提供提示词模板管理、用户管理、额度管理等接口
+ */
+@Slf4j
+@RestController
+@RequestMapping("/api/admin")
+@RequiredArgsConstructor
+public class AdminController {
+
+    private final AdminDashboardService adminDashboardService;
+    private final AdminUserRightsService adminUserRightsService;
+    private final SysAiEngineConfigService sysAiEngineConfigService;
+    private final AiEngineConnectivityTestService aiEngineConnectivityTestService;
+    private final AiModelDiscoveryService aiModelDiscoveryService;
+    private final SysPromptService sysPromptService;
+    private final SysJobRoleService sysJobRoleService;
+    private final SysConfigService sysConfigService;
+    private final SysUserService sysUserService;
+    private final UserQuotaService userQuotaService;
+    private final AiCredentialCrypto aiCredentialCrypto;
+    private final NotificationService notificationService;
+    private final QuotaConsumptionLogService consumptionLogService;
+
+    // ==================== 提示词模板管理接口 ====================
+
+    // ==================== 岗位配置接口 ====================
+
+    /**
+     * 查询岗位配置列表
+     *
+     * 作用：
+     * 管理员通过这个接口查看全部岗位配置，包括已禁用岗位。
+     * 用户端读取岗位选项时只会拿启用数据，因此管理端需要保留完整视图。
+     */
+    @GetMapping("/job-roles")
+    public Result<List<JobRoleResponse>> getJobRoleList(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin get job role list");
+
+        List<JobRoleResponse> responses = sysJobRoleService.listAllOrdered().stream()
+                .map(this::buildJobRoleResponse)
+                .collect(Collectors.toList());
+
+        return Result.success(responses);
+    }
+
+    /**
+     * 新增岗位配置
+     */
+    @PostMapping("/job-roles")
+    @CacheEvict(value = "config:jobRoles", allEntries = true)
+    public Result<Long> createJobRole(@Valid @RequestBody JobRoleCreateRequest request,
+                                      Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin create job role, roleCode: {}, roleName: {}", request.getRoleCode(), request.getRoleName());
+
+        validateJobRoleUniqueness(request.getRoleCode(), request.getRoleName(), null);
+
+        SysJobRole jobRole = new SysJobRole();
+        jobRole.setRoleCode(request.getRoleCode().trim());
+        jobRole.setRoleName(request.getRoleName().trim());
+        jobRole.setInterviewTag(trimToNull(request.getInterviewTag()));
+        jobRole.setTagType(trimToNull(request.getTagType()));
+        jobRole.setIsActive(1);
+        jobRole.setSort(request.getSort());
+        sysJobRoleService.save(jobRole);
+
+        return Result.success("岗位创建成功", jobRole.getId());
+    }
+
+    /**
+     * 修改岗位配置
+     */
+    @PutMapping("/job-roles")
+    @CacheEvict(value = "config:jobRoles", allEntries = true)
+    public Result<Void> updateJobRole(@Valid @RequestBody JobRoleUpdateRequest request,
+                                      Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin update job role, id: {}", request.getId());
+
+        SysJobRole jobRole = sysJobRoleService.getById(request.getId());
+        if (jobRole == null) {
+            throw new BusinessException("岗位配置不存在");
+        }
+
+        String nextRoleCode = request.getRoleCode() != null ? request.getRoleCode().trim() : jobRole.getRoleCode();
+        String nextRoleName = request.getRoleName() != null ? request.getRoleName().trim() : jobRole.getRoleName();
+        validateJobRoleUniqueness(nextRoleCode, nextRoleName, jobRole.getId());
+
+        if (request.getRoleCode() != null) {
+            jobRole.setRoleCode(nextRoleCode);
+        }
+        if (request.getRoleName() != null) {
+            jobRole.setRoleName(nextRoleName);
+        }
+        if (request.getInterviewTag() != null) {
+            jobRole.setInterviewTag(trimToNull(request.getInterviewTag()));
+        }
+        if (request.getTagType() != null) {
+            jobRole.setTagType(trimToNull(request.getTagType()));
+        }
+        if (request.getIsActive() != null) {
+            jobRole.setIsActive(request.getIsActive());
+        }
+        if (request.getSort() != null) {
+            jobRole.setSort(request.getSort());
+        }
+
+        sysJobRoleService.updateById(jobRole);
+        return Result.success("岗位更新成功", null);
+    }
+
+    /**
+     * 启用/禁用岗位配置
+     */
+    @PutMapping("/job-roles/{id}/active")
+    @CacheEvict(value = "config:jobRoles", allEntries = true)
+    public Result<Void> toggleJobRoleActive(@PathVariable Long id,
+                                            @RequestParam Integer isActive,
+                                            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin toggle job role active, id: {}, isActive: {}", id, isActive);
+        if (isActive != 0 && isActive != 1) {
+            throw new BusinessException("isActive 只能为 0 或 1");
+        }
+
+        SysJobRole jobRole = sysJobRoleService.getById(id);
+        if (jobRole == null) {
+            throw new BusinessException("岗位配置不存在");
+        }
+
+        jobRole.setIsActive(isActive);
+        sysJobRoleService.updateById(jobRole);
+        return Result.success("岗位状态更新成功", null);
+    }
+
+    /**
+     * 删除岗位配置（物理删除）
+     *
+     * 作用：
+     * 管理员可以通过此接口物理删除岗位配置，删除后数据无法恢复。
+     * 此操作会绕过逻辑删除，直接从数据库移除记录。
+     */
+    @DeleteMapping("/job-roles/{id}")
+    @CacheEvict(value = "config:jobRoles", allEntries = true)
+    public Result<Void> deleteJobRole(@PathVariable Long id, Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin delete job role, id: {}", id);
+
+        SysJobRole jobRole = sysJobRoleService.getById(id);
+        if (jobRole == null) {
+            throw new BusinessException("岗位配置不存在");
+        }
+
+        // 物理删除：直接使用 removeById 绕过逻辑删除机制
+        sysJobRoleService.removeById(id);
+        return Result.success("岗位删除成功", null);
+    }
+
+    /**
+     * 批量删除岗位配置（物理删除）
+     *
+     * 作用：
+     * 管理员可以批量物理删除岗位配置，删除后数据无法恢复。
+     */
+    @PostMapping("/job-roles/batch-delete")
+    @CacheEvict(value = "config:jobRoles", allEntries = true)
+    public Result<Void> deleteJobRolesBatch(@RequestBody List<Long> ids, Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin batch delete job roles, ids: {}", ids);
+
+        if (ids == null || ids.isEmpty()) {
+            throw new BusinessException("请选择要删除的岗位配置");
+        }
+        if (ids.size() > 100) {
+            throw new BusinessException("单次操作不能超过100条");
+        }
+
+        // 物理删除：批量移除
+        sysJobRoleService.removeByIds(ids, false);
+        log.info("Batch delete job roles completed, count: {}", ids.size());
+        return Result.success("批量删除成功", null);
+    }
+
+    /**
+     * 批量启用/禁用岗位配置
+     *
+     * 作用：
+     * 管理员可以批量启用或禁用岗位配置。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    @PutMapping("/job-roles/batch/active")
+    @CacheEvict(value = "config:jobRoles", allEntries = true)
+    public Result<Void> toggleJobRolesBatchActive(@Valid @RequestBody BatchActiveRequest request,
+                                           Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin batch toggle job roles active, ids: {}, isActive: {}", request.getIds(), request.getIsActive());
+
+        if (request.getIds() == null || request.getIds().isEmpty()) {
+            throw new BusinessException("请选择要操作的岗位配置");
+        }
+
+        sysJobRoleService.lambdaUpdate()
+                .in(SysJobRole::getId, request.getIds())
+                .set(SysJobRole::getIsActive, request.getIsActive())
+                .update();
+        log.info("Batch toggle job roles active completed, count: {}", request.getIds().size());
+        return Result.success("批量更新成功", null);
+    }
+
+    /**
+     * 查询提示词模板列表
+     *
+     * @param authentication 认证对象
+     * @return 提示词模板列表
+     */
+    /**
+     * 查询 AI 引擎配置列表
+     *
+     * 作用：
+     * 管理端通过这个接口统一查看 interview / resume 两类业务的模型配置。
+     * 列表中的 apiKey 必须脱敏，避免后台接口把敏感信息原样暴露到前端。
+     */
+    @GetMapping("/ai-engines")
+    public Result<List<AiEngineConfigResponse>> getAiEngineConfigList(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin get AI engine config list");
+
+        List<AiEngineConfigResponse> responses = sysAiEngineConfigService.listAllOrdered().stream()
+                .map(this::buildAiEngineConfigResponse)
+                .collect(Collectors.toList());
+
+        return Result.success(responses);
+    }
+
+    /**
+     * 新增 AI 引擎配置
+     */
+    @PostMapping("/ai-engines")
+    @CacheEvict(value = "config:aiEngine", allEntries = true)
+    public Result<Long> createAiEngineConfig(@Valid @RequestBody AiEngineConfigCreateRequest request,
+                                             Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+
+        String engineCode = normalizeRequiredValue(request.getEngineCode(), "引擎编码不能为空");
+        validateAiEngineCodeUniqueness(engineCode, null);
+
+        String businessType = normalizeBusinessType(request.getBusinessType());
+        sysAiEngineConfigService.validateBusinessType(businessType);
+
+        log.info("Admin create AI engine config, engineCode: {}, businessType: {}", engineCode, businessType);
+
+        SysAiEngineConfig config = new SysAiEngineConfig();
+        config.setEngineCode(engineCode);
+        config.setEngineName(normalizeRequiredValue(request.getEngineName(), "引擎名称不能为空"));
+        config.setProviderType(normalizeRequiredValue(request.getProviderType(), "提供商类型不能为空"));
+        config.setBusinessType(businessType);
+        config.setModelName(normalizeRequiredValue(request.getModelName(), "模型名称不能为空"));
+        config.setBaseUrl(validatePublicHttpsBaseUrl(normalizeRequiredValue(request.getBaseUrl(), "基础地址不能为空")));
+        config.setApiKey(aiCredentialCrypto.encrypt(normalizeRequiredValue(request.getApiKey(), "API Key 不能为空")));
+        config.setSupportsMultimodal(request.getSupportsMultimodal());
+        config.setThinkingMode(request.getThinkingMode());
+        config.setTemperature(request.getTemperature());
+        config.setMaxTokens(request.getMaxTokens());
+        config.setTimeoutMs(request.getTimeoutMs());
+        config.setIsActive(request.getIsActive());
+        config.setSort(request.getSort());
+        config.setRemark(trimToNull(request.getRemark()));
+
+        sysAiEngineConfigService.saveConfig(config);
+        return Result.success("AI 引擎配置创建成功", config.getId());
+    }
+
+    /**
+     * 修改 AI 引擎配置
+     */
+    @PutMapping("/ai-engines")
+    @CacheEvict(value = "config:aiEngine", allEntries = true)
+    public Result<Void> updateAiEngineConfig(@Valid @RequestBody AiEngineConfigUpdateRequest request,
+                                             Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin update AI engine config, id: {}", request.getId());
+
+        SysAiEngineConfig config = sysAiEngineConfigService.getById(request.getId());
+        if (config == null) {
+            throw new BusinessException("AI 引擎配置不存在");
+        }
+
+        String nextEngineCode = request.getEngineCode() != null
+                ? normalizeRequiredValue(request.getEngineCode(), "引擎编码不能为空")
+                : config.getEngineCode();
+        validateAiEngineCodeUniqueness(nextEngineCode, config.getId());
+
+        if (request.getEngineCode() != null) {
+            config.setEngineCode(nextEngineCode);
+        }
+        if (request.getEngineName() != null) {
+            config.setEngineName(normalizeRequiredValue(request.getEngineName(), "引擎名称不能为空"));
+        }
+        if (request.getProviderType() != null) {
+            config.setProviderType(normalizeRequiredValue(request.getProviderType(), "提供商类型不能为空"));
+        }
+        if (request.getBusinessType() != null) {
+            String businessType = normalizeBusinessType(request.getBusinessType());
+            sysAiEngineConfigService.validateBusinessType(businessType);
+            config.setBusinessType(businessType);
+        }
+        if (request.getModelName() != null) {
+            config.setModelName(normalizeRequiredValue(request.getModelName(), "模型名称不能为空"));
+        }
+        if (request.getBaseUrl() != null) {
+            config.setBaseUrl(validatePublicHttpsBaseUrl(normalizeRequiredValue(request.getBaseUrl(), "基础地址不能为空")));
+        }
+        if (request.getApiKey() != null) {
+            // 【关键修复】防止脱敏值误写入数据库
+            // 如果提交的 apiKey 符合脱敏格式（如 "sk-****abcd"），则拒绝更新，防止前端把脱敏值覆盖真实值
+            if (isMaskedApiKey(request.getApiKey())) {
+                throw new BusinessException("API Key 不能为脱敏格式，请输入完整的真实 API Key");
+            }
+            config.setApiKey(aiCredentialCrypto.encrypt(normalizeRequiredValue(request.getApiKey(), "API Key 不能为空")));
+        }
+        if (request.getSupportsMultimodal() != null) {
+            config.setSupportsMultimodal(request.getSupportsMultimodal());
+        }
+        if (request.getThinkingMode() != null) {
+            config.setThinkingMode(request.getThinkingMode());
+        }
+        if (request.getTemperature() != null) {
+            config.setTemperature(request.getTemperature());
+        }
+        if (request.getMaxTokens() != null) {
+            config.setMaxTokens(request.getMaxTokens());
+        }
+        if (request.getTimeoutMs() != null) {
+            config.setTimeoutMs(request.getTimeoutMs());
+        }
+        if (request.getIsActive() != null) {
+            config.setIsActive(request.getIsActive());
+        }
+        if (request.getSort() != null) {
+            config.setSort(request.getSort());
+        }
+        if (request.getRemark() != null) {
+            config.setRemark(trimToNull(request.getRemark()));
+        }
+
+        sysAiEngineConfigService.updateConfig(config);
+        return Result.success("AI 引擎配置更新成功", null);
+    }
+
+    /**
+     * 测试 AI 引擎配置连通性。
+     *
+     * 作用：
+     * 管理员在新增或编辑弹窗内可以先验证基础地址、模型名和密钥是否真实可用。
+     * 本接口不保存配置；编辑态如果未输入新 API Key，则使用数据库中已保存的真实密钥测试。
+     */
+    @PostMapping("/ai-engines/connectivity-test")
+    public Result<AiEngineConnectivityTestResponse> testAiEngineConnectivity(
+            @Valid @RequestBody AiEngineConnectivityTestRequest request,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin test AI engine connectivity, id: {}, provider: {}, model: {}",
+                request.getId(), request.getProviderType(), request.getModelName());
+
+        String apiKey = isMockProvider(request.getProviderType()) ? null : normalizeConfigApiKeyForConnectivityTest(request);
+        AiEngineConnectivityTestResponse response =
+                aiEngineConnectivityTestService.testConnectivity(request, apiKey);
+        return Result.success(response.getMessage(), response);
+    }
+
+    @PostMapping("/ai-engines/models")
+    public Result<AiModelDiscoveryResponse> fetchAiEngineModels(
+            @Valid @RequestBody AdminAiEngineModelsRequest request,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin fetch AI engine models, id: {}, provider: {}", request.getId(), request.getProviderType());
+
+        String apiKey = isMockProvider(request.getProviderType()) ? null : normalizeConfigApiKeyForModelDiscovery(request);
+        AiModelDiscoveryResponse response = aiModelDiscoveryService.fetchModels(
+                request.getBaseUrl(), apiKey, request.getTimeoutMs(), request.getProviderType());
+        return Result.success(response.getMessage(), response);
+    }
+
+    /**
+     * 启用 / 禁用 AI 引擎配置
+     *
+     * 作用：
+     * 当前启用切换必须继续走后端接口，而不是前端自行处理状态。
+     * 后端需要在这里保证同一 businessType 最多只有一个启用配置。
+     */
+    @PutMapping("/ai-engines/{id}/active")
+    @CacheEvict(value = "config:aiEngine", allEntries = true)
+    public Result<Void> toggleAiEngineConfigActive(@PathVariable Long id,
+                                                   @RequestParam Integer isActive,
+                                                   Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin toggle AI engine config active, id: {}, isActive: {}", id, isActive);
+
+        sysAiEngineConfigService.switchActive(id, isActive);
+        return Result.success("AI 引擎配置状态更新成功", null);
+    }
+
+    /**
+     * 删除 AI 引擎配置（物理删除）
+     *
+     * 作用：
+     * 管理员可以通过此接口物理删除 AI 引擎配置，删除后数据无法恢复。
+     * 注意：如果删除的引擎正处于启用状态，需要谨慎操作。
+     */
+    @DeleteMapping("/ai-engines/{id}")
+    @CacheEvict(value = "config:aiEngine", allEntries = true)
+    public Result<Void> deleteAiEngine(@PathVariable Long id, Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin delete AI engine, id: {}", id);
+
+        SysAiEngineConfig config = sysAiEngineConfigService.getById(id);
+        if (config == null) {
+            throw new BusinessException("AI 引擎配置不存在");
+        }
+
+        // 物理删除：直接移除
+        sysAiEngineConfigService.removeById(id);
+        return Result.success("AI 引擎配置删除成功", null);
+    }
+
+    /**
+     * 批量删除 AI 引擎配置（物理删除）
+     *
+     * 作用：
+     * 管理员可以批量物理删除 AI 引擎配置，删除后数据无法恢复。
+     */
+    @PostMapping("/ai-engines/batch-delete")
+    @CacheEvict(value = "config:aiEngine", allEntries = true)
+    public Result<Void> deleteAiEnginesBatch(@RequestBody List<Long> ids, Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin batch delete AI engines, ids: {}", ids);
+
+        if (ids == null || ids.isEmpty()) {
+            throw new BusinessException("请选择要删除的AI引擎配置");
+        }
+        if (ids.size() > 100) {
+            throw new BusinessException("单次操作不能超过100条");
+        }
+
+        // 物理删除：批量移除
+        sysAiEngineConfigService.removeByIds(ids, false);
+        log.info("Batch delete AI engines completed, count: {}", ids.size());
+        return Result.success("批量删除成功", null);
+    }
+
+/**
+     * 批量启用/禁用 AI 引擎配置
+     *
+     * 作用：
+     * 管理员可以批量启用或禁用 AI 引擎配置。
+     * 启用时会自动禁用同业务类型的其他配置，保证最多只有一个启用。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    @PutMapping("/ai-engines/batch/active")
+    @CacheEvict(value = "config:aiEngine", allEntries = true)
+    public Result<Void> toggleAiEnginesBatchActive(@Valid @RequestBody BatchActiveRequest request,
+                                               Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin batch toggle AI engines active, ids: {}, isActive: {}", request.getIds(), request.getIsActive());
+
+        if (request.getIds() == null || request.getIds().isEmpty()) {
+            throw new BusinessException("请选择要操作的AI引擎配置");
+        }
+
+        // 使用事务确保同业务类型只有一个启用配置
+        for (Long id : request.getIds()) {
+            sysAiEngineConfigService.switchActive(id, request.getIsActive());
+        }
+        log.info("Batch toggle AI engines active completed, count: {}", request.getIds().size());
+        return Result.success("批量更新成功", null);
+    }
+
+    /**
+     * 管理端看板总览统计接口。
+     *
+     * 返回摘要卡片需要的高层统计数据，并支持日期范围筛选。
+     */
+    @GetMapping("/dashboard/overview")
+    public Result<DashboardOverviewResponse> getDashboardOverview(
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate endDate,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin get dashboard overview, startDate: {}, endDate: {}", startDate, endDate);
+        return Result.success(adminDashboardService.getDashboardOverview(startDate, endDate));
+    }
+
+    /**
+     * 管理端看板聚合接口。
+     *
+     * 一次返回 overview/trends/hotJobRoles/businessDistribution，减少首屏并发请求数量。
+     */
+    @GetMapping("/dashboard/summary")
+    public Result<DashboardSummaryResponse> getDashboardSummary(
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate endDate,
+            @RequestParam(name = "limit", required = false) Integer hotRoleLimit,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin get dashboard summary, startDate: {}, endDate: {}, hotRoleLimit: {}",
+                startDate, endDate, hotRoleLimit);
+        return Result.success(adminDashboardService.getDashboardSummary(startDate, endDate, hotRoleLimit));
+    }
+
+    /**
+     * 管理端看板趋势统计接口。
+     *
+     * 支持参数化日期范围，且不依赖中间件监控指标。
+     */
+    @GetMapping("/dashboard/trends")
+    public Result<List<DashboardTrendResponse>> getDashboardTrends(
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate endDate,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin get dashboard trends, startDate: {}, endDate: {}", startDate, endDate);
+        return Result.success(adminDashboardService.getDashboardTrends(startDate, endDate));
+    }
+
+    /**
+     * 管理端热门岗位排行接口，支持日期范围和 limit 参数。
+     */
+    @GetMapping("/dashboard/hot-job-roles")
+    public Result<List<HotJobRoleResponse>> getHotJobRoles(
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate endDate,
+            @RequestParam(required = false) Integer limit,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin get hot job role ranking, startDate: {}, endDate: {}, limit: {}", startDate, endDate, limit);
+        return Result.success(adminDashboardService.getHotJobRoles(startDate, endDate, limit));
+    }
+
+    /**
+     * 管理端业务分布统计接口。
+     *
+     * 返回所选日期范围内 interview/resume 的业务分布结果。
+     */
+    @GetMapping("/dashboard/business-distribution")
+    public Result<BusinessDistributionResponse> getBusinessDistribution(
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate endDate,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin get business distribution, startDate: {}, endDate: {}", startDate, endDate);
+        return Result.success(adminDashboardService.getBusinessDistribution(startDate, endDate));
+    }
+
+    /**
+     * 管理端业务监控总览接口。
+     *
+     * 当前为应用层统计实现，直接读取业务表数据，
+     * 即使 RabbitMQ/Redis 深度监控尚未接入也可使用。
+     */
+    @GetMapping("/monitor/overview")
+    public Result<MonitorOverviewResponse> getMonitorOverview(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin get monitor overview");
+        return Result.success(adminDashboardService.getMonitorOverview());
+    }
+
+    @GetMapping("/prompts")
+    public Result<List<PromptResponse>> getPromptList(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin get prompt list");
+
+        List<SysPrompt> prompts = sysPromptService.list();
+        List<PromptResponse> responses = prompts.stream()
+                .map(this::buildPromptResponse)
+                .collect(Collectors.toList());
+
+        log.info("Prompt list fetched, count: {}", responses.size());
+        return Result.success(responses);
+    }
+
+    /**
+     * 新增提示词模板
+     *
+     * @param request 创建请求
+     * @param authentication 认证对象
+     * @return 新增的提示词模板 ID
+     */
+    @Transactional(rollbackFor = Exception.class)
+    @PostMapping("/prompts")
+    @CacheEvict(value = "config:prompt", allEntries = true)
+    public Result<Long> createPrompt(@Valid @RequestBody PromptCreateRequest request,
+                                       Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        SysJobRole configuredJobRole = resolvePromptJobRole(request.getJobRoleCode(), request.getJobRole());
+        log.info("Admin create prompt, scenarioType: {}, jobRoleCode: {}, jobRoleName: {}, difficulty: {}",
+                request.getScenarioType(), configuredJobRole.getRoleCode(), configuredJobRole.getRoleName(), request.getDifficulty());
+
+SysPrompt prompt = new SysPrompt();
+        prompt.setScenarioType(request.getScenarioType());
+        prompt.setJobRoleCode(configuredJobRole.getRoleCode());
+        prompt.setJobRole(configuredJobRole.getRoleName());
+        prompt.setDifficulty(request.getDifficulty());
+        prompt.setPromptContent(request.getPromptContent());
+
+        Integer isActive = request.getActiveStatus() != null ? request.getActiveStatus() : PromptConstants.ACTIVE;
+        if (isActive == PromptConstants.ACTIVE) {
+            sysPromptService.deactivateOtherPrompts(
+                    request.getScenarioType(),
+                    configuredJobRole.getRoleCode(),
+                    request.getDifficulty()
+            );
+        }
+        prompt.setIsActive(isActive);
+        sysPromptService.save(prompt);
+
+        log.info("Prompt created, id: {}", prompt.getId());
+        return Result.success("Prompt创建成功", prompt.getId());
+    }
+
+    /**
+     * 修改提示词模板
+     *
+     * @param request 更新请求
+     * @param authentication 认证对象
+     * @return 空结果
+     */
+    @Transactional(rollbackFor = Exception.class)
+    @PutMapping("/prompts")
+    @CacheEvict(value = "config:prompt", allEntries = true)
+    public Result<Void> updatePrompt(@Valid @RequestBody PromptUpdateRequest request,
+                                      Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin update prompt, id: {}", request.getId());
+
+        SysPrompt prompt = sysPromptService.getById(request.getId());
+        if (prompt == null) {
+            throw new BusinessException("Prompt不存在");
+        }
+
+        if (request.getScenarioType() != null) {
+            prompt.setScenarioType(request.getScenarioType());
+        }
+        if (request.getJobRoleCode() != null || request.getJobRole() != null) {
+            // 作用：
+            // 修改 Prompt 时只要涉及岗位字段，就必须重新走岗位配置校验，
+            // 避免 job_role_code 和 job_role_name 出现脱节。
+            SysJobRole configuredJobRole = resolvePromptJobRole(request.getJobRoleCode(), request.getJobRole());
+            prompt.setJobRoleCode(configuredJobRole.getRoleCode());
+            prompt.setJobRole(configuredJobRole.getRoleName());
+        }
+        if (request.getDifficulty() != null) {
+            prompt.setDifficulty(request.getDifficulty());
+        }
+        if (request.getPromptContent() != null) {
+            prompt.setPromptContent(request.getPromptContent());
+        }
+        if (request.getActiveStatus() != null) {
+            if (request.getActiveStatus() == PromptConstants.ACTIVE) {
+                sysPromptService.deactivateOtherPrompts(
+                        prompt.getScenarioType(),
+                        prompt.getJobRoleCode(),
+                        prompt.getDifficulty()
+                );
+            }
+            prompt.setIsActive(request.getActiveStatus());
+        }
+
+        sysPromptService.updateById(prompt);
+        log.info("Prompt updated, id: {}", request.getId());
+        return Result.success("Prompt更新成功", null);
+    }
+
+    /**
+     * 启用/禁用提示词模板
+     *
+     * @param id       提示词模板 ID
+     * @param isActive 是否启用
+     * @param authentication 认证对象
+     * @return 空结果
+     */
+    @Transactional(rollbackFor = Exception.class)
+    @PutMapping("/prompts/{id}/active")
+    @CacheEvict(value = "config:prompt", allEntries = true)
+    public Result<Void> togglePromptActive(@PathVariable Long id,
+                                             @RequestParam Integer isActive,
+                                             Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin toggle prompt active, id: {}, isActive: {}", id, isActive);
+        if (isActive != 0 && isActive != 1) {
+            throw new BusinessException("isActive 只能为 0 或 1");
+        }
+
+        SysPrompt prompt = sysPromptService.getById(id);
+        if (prompt == null) {
+            throw new BusinessException("Prompt不存在");
+        }
+
+        if (isActive == PromptConstants.ACTIVE) {
+            sysPromptService.deactivateOtherPrompts(
+                    prompt.getScenarioType(),
+                    prompt.getJobRoleCode(),
+                    prompt.getDifficulty()
+            );
+        }
+        prompt.setIsActive(isActive);
+        sysPromptService.updateById(prompt);
+
+        log.info("Prompt active status updated, id: {}, isActive: {}", id, isActive);
+        return Result.success("Prompt状态更新成功", null);
+    }
+
+    /**
+     * 删除提示词模板（物理删除）
+     *
+     * 作用：
+     * 管理员可以通过此接口物理删除 Prompt 模板，删除后数据无法恢复。
+     * 注意：如果删除的 Prompt 正处于启用状态，需要谨慎操作。
+     */
+    @DeleteMapping("/prompts/{id}")
+    @CacheEvict(value = "config:prompt", allEntries = true)
+    public Result<Void> deletePrompt(@PathVariable Long id, Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin delete prompt, id: {}", id);
+
+        SysPrompt prompt = sysPromptService.getById(id);
+        if (prompt == null) {
+            throw new BusinessException("Prompt不存在");
+        }
+
+        // 物理删除：直接移除
+        sysPromptService.removeById(id);
+        return Result.success("Prompt删除成功", null);
+    }
+
+    /**
+     * 批量删除提示词模板（物理删除）
+     *
+     * 作用：
+     * 管理员可以批量物理删除 Prompt 模板，删除后数据无法恢复。
+     */
+    @PostMapping("/prompts/batch-delete")
+    @CacheEvict(value = "config:prompt", allEntries = true)
+    public Result<Void> deletePromptsBatch(@RequestBody List<Long> ids, Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin batch delete prompts, ids: {}", ids);
+
+        if (ids == null || ids.isEmpty()) {
+            throw new BusinessException("请选择要删除的Prompt");
+        }
+        if (ids.size() > 100) {
+            throw new BusinessException("单次操作不能超过100条");
+        }
+
+        // 物理删除：批量移除
+        sysPromptService.removeByIds(ids, false);
+        log.info("Batch delete prompts completed, count: {}", ids.size());
+        return Result.success("批量删除成功", null);
+    }
+
+/**
+     * 批量启用/禁用提示词模板
+     *
+     * 作用：
+     * 管理员可以批量启用或禁用提示词模板。
+     * 启用时会自动禁用同岗位同难度的其他模板，保证最多只有一个启用。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    @PutMapping("/prompts/batch/active")
+    @CacheEvict(value = "config:prompt", allEntries = true)
+    public Result<Void> togglePromptsBatchActive(@Valid @RequestBody BatchActiveRequest request,
+                                                Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin batch toggle prompts active, ids: {}, isActive: {}", request.getIds(), request.getIsActive());
+
+        if (request.getIds() == null || request.getIds().isEmpty()) {
+            throw new BusinessException("请选择要操作的Prompt");
+        }
+
+        // 如果是启用操作，需要处理同岗位同难度的互斥逻辑
+        if (request.getIsActive() != null && request.getIsActive() == 1) {
+            // 批量读取，减少 N 次 getById 为 1 次 listByIds
+            List<SysPrompt> prompts = sysPromptService.listByIds(request.getIds());
+            for (SysPrompt prompt : prompts) {
+                // 先禁用同岗位同难度的其他prompts
+                sysPromptService.deactivateOtherPrompts(
+                        prompt.getScenarioType(),
+                        prompt.getJobRoleCode(),
+                        prompt.getDifficulty()
+                );
+                prompt.setIsActive(1);
+            }
+            // 批量写入，减少 N 次 updateById 为 1 次批量更新
+            if (!prompts.isEmpty()) {
+                sysPromptService.updateBatchById(prompts);
+            }
+        } else {
+            // 禁用操作：单条 SQL 批量更新，避免 N+1
+            sysPromptService.lambdaUpdate()
+                    .in(SysPrompt::getId, request.getIds())
+                    .set(SysPrompt::getIsActive, request.getIsActive())
+                    .update();
+        }
+        log.info("Batch toggle prompts active completed, count: {}", request.getIds().size());
+        return Result.success("批量更新成功", null);
+    }
+
+    // ==================== 用户管理接口 ====================
+
+    /**
+     * 分页查询用户列表（服务端分页+过滤）
+     *
+     * @param page 当前页码，默认 1
+     * @param size 每页条数，默认 20
+     * @param keyword 搜索关键词（模糊匹配用户名）
+     * @param role 角色筛选：0-普通，1-会员，9-管理员
+     * @param status 状态筛选：1-正常，0-封禁
+     * @param authentication 认证对象
+     * @return 分页用户列表
+     */
+    @GetMapping("/users")
+    public Result<Map<String, Object>> getUserList(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) Integer role,
+            @RequestParam(required = false) Integer status,
+            @RequestParam(required = false) String vipState,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        log.info("Admin get user list, page: {}, size: {}, keyword: {}, role: {}, status: {}, vipState: {}", page, size, keyword, role, status, vipState);
+
+        int safePage = Math.max(1, page);
+        int safeSize = Math.min(10000, Math.max(1, size));
+        Page<SysUser> pageParam = new Page<>(safePage, safeSize);
+        LambdaQueryWrapper<SysUser> wrapper = new LambdaQueryWrapper<>();
+        // 服务端过滤：关键词模糊匹配用户名
+        if (keyword != null && !keyword.isBlank()) {
+            wrapper.and(w -> w.like(SysUser::getUsername, keyword)
+                    .or().like(SysUser::getId, keyword));
+        }
+        // 服务端过滤：角色
+        if (role != null) {
+            wrapper.eq(SysUser::getRole, role);
+        }
+        // 服务端过滤：状态
+        if (status != null) {
+            wrapper.eq(SysUser::getStatus, status);
+        }
+        applyVipStateFilter(wrapper, vipState);
+        wrapper.orderByDesc(SysUser::getCreateTime);
+
+        Page<SysUser> result = sysUserService.page(pageParam, wrapper);
+        List<UserListResponse> records = result.getRecords().stream()
+                .map(this::buildUserListResponse)
+                .collect(Collectors.toList());
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("records", records);
+        data.put("total", (int) result.getTotal());
+        data.put("page", (int) result.getCurrent());
+        data.put("size", (int) result.getSize());
+
+        log.info("User list fetched, total: {}", result.getTotal());
+        return Result.success(data);
+    }
+
+    /**
+     * 用户统计概览（独立缓存端点）
+     * 支撑前端统计卡片，全表聚合带 5 分钟缓存，避免每次分页查询都扫描全表。
+     */
+    @GetMapping("/users/stats")
+    @Cacheable(value = "admin:userStats", key = "'overview'", unless = "#result == null")
+    public Result<Map<String, Object>> getUserStats(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+
+        long total = sysUserService.count();
+        long enabled = sysUserService.count(new LambdaQueryWrapper<SysUser>()
+                .eq(SysUser::getStatus, 1));
+        long disabled = sysUserService.count(new LambdaQueryWrapper<SysUser>()
+                .eq(SysUser::getStatus, 0));
+        // VIP 有效：role=1 且 vip_expire_time > NOW()
+        long vipActive = sysUserService.count(new LambdaQueryWrapper<SysUser>()
+                .eq(SysUser::getRole, UserRoleConstants.ROLE_VIP)
+                .gt(SysUser::getVipExpireTime, LocalDateTime.now()));
+        // VIP 过期：role=1 但 vip_expire_time <= NOW()
+        long vipExpired = sysUserService.count(new LambdaQueryWrapper<SysUser>()
+                .eq(SysUser::getRole, UserRoleConstants.ROLE_VIP)
+                .le(SysUser::getVipExpireTime, LocalDateTime.now()));
+
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("total", total);
+        stats.put("enabled", enabled);
+        stats.put("disabled", disabled);
+        stats.put("vipActive", vipActive);
+        stats.put("vipExpired", vipExpired);
+
+        return Result.success(stats);
+    }
+
+    /**
+     * 修改用户状态（封禁/解封）
+     *
+     * @param userId 用户ID
+     * @param status 状态：1-正常，0-封禁
+     * @param authentication 认证对象
+     * @return 空结果
+     */
+    /**
+     * 查询用户权益详情
+     *
+     * 作用：
+     * 这个接口把用户身份字段和额度状态字段聚合在一起，
+     * 方便管理端一次性查看当前会员状态、套餐和额度使用情况。
+     */
+    @GetMapping("/users/{userId}/rights")
+    public Result<UserRightsResponse> getUserRights(@PathVariable Long userId,
+                                                    Authentication authentication) {
+        Long adminUserId = (Long) authentication.getPrincipal();
+        checkAdminPermission(adminUserId);
+        log.info("Admin get user rights, userId: {}", userId);
+
+        return Result.success(adminUserRightsService.getUserRights(userId));
+    }
+
+    /**
+     * 修改用户权益
+     *
+     * 作用：
+     * 管理员可以手工调整会员角色、套餐和到期时间。
+     * 具体一致性规则交给服务层统一处理，并同步记录变更日志。
+     */
+    @PutMapping("/users/{userId}/rights")
+    @CacheEvict(value = "admin:userStats", allEntries = true)
+    public Result<Void> updateUserRights(@PathVariable Long userId,
+                                         @Valid @RequestBody UserRightsUpdateRequest request,
+                                         Authentication authentication) {
+        Long adminUserId = (Long) authentication.getPrincipal();
+        checkAdminPermission(adminUserId);
+        log.info("Admin update user rights, operatorUserId: {}, userId: {}", adminUserId, userId);
+
+        adminUserRightsService.updateUserRights(adminUserId, userId, request);
+        return Result.success("用户权益更新成功", null);
+    }
+
+    @PutMapping("/users/{userId}/status")
+    @Caching(evict = {
+            @CacheEvict(value = "auth:userInfo", key = "#userId"),
+            @CacheEvict(value = "admin:userStats", allEntries = true)
+    })
+    public Result<Void> updateUserStatus(@PathVariable Long userId,
+                                          @RequestParam Integer status,
+                                          Authentication authentication) {
+        Long adminUserId = (Long) authentication.getPrincipal();
+        checkAdminPermission(adminUserId);
+        log.info("Admin update user status, userId: {}, status: {}", userId, status);
+
+        SysUser user = sysUserService.getById(userId);
+        if (user == null) {
+            throw new BusinessException("用户不存在");
+        }
+
+        user.setStatus(status);
+        sysUserService.updateById(user);
+
+        log.info("User status updated, userId: {}, status: {}", userId, status);
+        return Result.success("用户状态更新成功", null);
+    }
+
+    /**
+     * 批量启用/禁用用户
+     *
+     * 作用：
+     * 管理员可以批量启用或禁用用户账号。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    @PutMapping("/users/batch/status")
+    @CacheEvict(value = {"auth:userInfo", "user:monthlyStats", "user:growthOverview", "admin:userStats"}, allEntries = true)
+    public Result<Void> updateUsersBatchStatus(@Valid @RequestBody BatchActiveRequest request,
+                                               Authentication authentication) {
+        Long adminUserId = (Long) authentication.getPrincipal();
+        checkAdminPermission(adminUserId);
+        log.info("Admin batch update users status, ids: {}, status: {}", request.getIds(), request.getIsActive());
+
+        sysUserService.lambdaUpdate()
+                .in(SysUser::getId, request.getIds())
+                .set(SysUser::getStatus, request.getIsActive())
+                .update();
+        log.info("Batch update users status completed, count: {}", request.getIds().size());
+        return Result.success("批量更新成功", null);
+    }
+
+    @PutMapping("/users/{userId}/ban")
+    @Caching(evict = {
+            @CacheEvict(value = "auth:userInfo", key = "#userId"),
+            @CacheEvict(value = "admin:userStats", allEntries = true)
+    })
+    public Result<Void> banUser(@PathVariable Long userId,
+                                @Valid @RequestBody AdminUserBanRequest request,
+                                Authentication authentication) {
+        Long adminUserId = (Long) authentication.getPrincipal();
+        checkAdminPermission(adminUserId);
+        SysUser target = getUserForBanOperation(userId);
+        applyUserBan(adminUserId, target, request.getDuration(), request.getReason());
+        return Result.success("用户已封禁", null);
+    }
+
+    @PutMapping("/users/{userId}/unban")
+    @Caching(evict = {
+            @CacheEvict(value = "auth:userInfo", key = "#userId"),
+            @CacheEvict(value = "admin:userStats", allEntries = true)
+    })
+    public Result<Void> unbanUser(@PathVariable Long userId,
+                                  @Valid @RequestBody AdminUserUnbanRequest request,
+                                  Authentication authentication) {
+        Long adminUserId = (Long) authentication.getPrincipal();
+        checkAdminPermission(adminUserId);
+        SysUser target = getUserForBanOperation(userId);
+        applyUserUnban(target, request != null ? request.getReason() : null);
+        return Result.success("用户已解封", null);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    @PutMapping("/users/batch/ban")
+    @CacheEvict(value = {"auth:userInfo", "user:monthlyStats", "user:growthOverview", "admin:userStats"}, allEntries = true)
+    public Result<Void> banUsersBatch(@Valid @RequestBody BatchUserBanRequest request,
+                                      Authentication authentication) {
+        Long adminUserId = (Long) authentication.getPrincipal();
+        checkAdminPermission(adminUserId);
+        validateUserIdBatch(request.getIds(), "封禁");
+        for (Long targetUserId : request.getIds()) {
+            SysUser target = getUserForBanOperation(targetUserId);
+            applyUserBan(adminUserId, target, request.getDuration(), request.getReason());
+        }
+        return Result.success("批量封禁成功", null);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    @PutMapping("/users/batch/unban")
+    @CacheEvict(value = {"auth:userInfo", "user:monthlyStats", "user:growthOverview", "admin:userStats"}, allEntries = true)
+    public Result<Void> unbanUsersBatch(@Valid @RequestBody BatchUserUnbanRequest request,
+                                        Authentication authentication) {
+        Long adminUserId = (Long) authentication.getPrincipal();
+        checkAdminPermission(adminUserId);
+        validateUserIdBatch(request.getIds(), "解封");
+        for (Long targetUserId : request.getIds()) {
+            SysUser target = getUserForBanOperation(targetUserId);
+            applyUserUnban(target, request.getReason());
+        }
+        return Result.success("批量解封成功", null);
+    }
+
+    // ==================== 额度管理接口 ====================
+
+    /**
+     * 查询用户额度
+     *
+     * @param userId 用户ID
+     * @param authentication 认证对象
+     * @return 用户额度信息
+     */
+    @GetMapping("/users/{userId}/quota")
+    public Result<UserQuotaResponse> getUserQuota(@PathVariable Long userId,
+                                                    Authentication authentication) {
+        Long adminUserId = (Long) authentication.getPrincipal();
+        checkAdminPermission(adminUserId);
+        log.info("Admin get user quota, userId: {}", userId);
+
+        UserQuota quota = userQuotaService.getByUserId(userId);
+        if (quota == null) {
+            throw new BusinessException("用户额度记录不存在");
+        }
+        // 已查到的额度对象先刷新再复用，避免 getRemainingResume/Interview 再各查一次。
+        userQuotaService.refreshDailyQuotaIfNeeded(userId, quota);
+
+        SysUser user = sysUserService.getById(userId);
+        String username = user != null ? user.getUsername() : "";
+
+        UserQuotaResponse response = UserQuotaResponse.builder()
+                .id(quota.getId())
+                .userId(quota.getUserId())
+                .username(username)
+                .totalInterviewUsed(quota.getTotalInterviewUsed())
+                .totalResumeUsed(quota.getTotalResumeUsed())
+                .dailyInterviewUsed(quota.getDailyInterviewUsed())
+                .dailyResumeUsed(quota.getDailyResumeUsed())
+                .interviewQuota(Math.max(0, quota.getInterviewQuota() == null ? 0 : quota.getInterviewQuota()))
+                .resumeQuota(Math.max(0, quota.getResumeQuota() == null ? 0 : quota.getResumeQuota()))
+                .lastRefreshDate(quota.getLastRefreshDate())
+                .createTime(quota.getCreateTime())
+                .updateTime(quota.getUpdateTime())
+                .build();
+
+        log.info("User quota fetched, userId: {}", userId);
+        return Result.success(response);
+    }
+
+    /**
+     * 调整用户额度
+     *
+     * @param request 调整请求
+     * @param authentication 认证对象
+     * @return 空结果
+     */
+    @PutMapping("/users/quota")
+    @Caching(evict = {
+            @CacheEvict(value = "auth:userInfo", key = "#request.userId"),
+            @CacheEvict(value = "user:quota", key = "#request.userId"),
+            @CacheEvict(value = "admin:userStats", allEntries = true)
+    })
+    public Result<Void> updateUserQuota(@Valid @RequestBody UserQuotaUpdateRequest request,
+                                         Authentication authentication) {
+        Long adminUserId = (Long) authentication.getPrincipal();
+        checkAdminPermission(adminUserId);
+        log.info("Admin update user quota, userId: {}", request.getUserId());
+
+        UserQuota quota = userQuotaService.getByUserId(request.getUserId());
+        if (quota == null) {
+            throw new BusinessException("用户额度记录不存在");
+        }
+
+        if (request.getTotalInterviewUsed() != null) {
+            quota.setTotalInterviewUsed(request.getTotalInterviewUsed());
+        }
+        if (request.getTotalResumeUsed() != null) {
+            quota.setTotalResumeUsed(request.getTotalResumeUsed());
+        }
+        if (request.getDailyInterviewUsed() != null) {
+            quota.setDailyInterviewUsed(request.getDailyInterviewUsed());
+        }
+        if (request.getDailyResumeUsed() != null) {
+            quota.setDailyResumeUsed(request.getDailyResumeUsed());
+        }
+        if (request.getInterviewQuota() != null) {
+            quota.setInterviewQuota(Math.max(0, request.getInterviewQuota()));
+        }
+        if (request.getResumeQuota() != null) {
+            quota.setResumeQuota(Math.max(0, request.getResumeQuota()));
+        }
+        if (request.getLastRefreshDate() != null) {
+            // 允许管理员修正日刷新边界，避免手工测试数据导致
+            // 使用计数与 lastRefreshDate 出现漂移。
+            quota.setLastRefreshDate(request.getLastRefreshDate());
+        }
+
+        userQuotaService.updateById(quota);
+        log.info("User quota updated, userId: {}", request.getUserId());
+        return Result.success("用户额度调整成功", null);
+    }
+
+    /**
+     * 查询用户自定义 AI 每日调用上限。
+     */
+
+    // ==================== 消费记录管理接口 ====================
+
+    /**
+     * 管理员查询指定用户的额度消费记录
+     *
+     * @param userId    目标用户ID
+     * @param quotaType 额度类型筛选（不传=全部）
+     * @param pageNum   页码
+     * @param pageSize  每页条数
+     */
+    @GetMapping("/users/{userId}/consumption-log")
+    public Result<PageResult<ConsumptionLogResponse>> getUserConsumptionLog(
+            @PathVariable Long userId,
+            @RequestParam(required = false) String quotaType,
+            @RequestParam(defaultValue = "1") int pageNum,
+            @RequestParam(defaultValue = "20") int pageSize,
+            Authentication authentication) {
+        Long adminUserId = (Long) authentication.getPrincipal();
+        checkAdminPermission(adminUserId);
+        log.info("Admin get user consumption log, userId: {}, quotaType: {}, page: {}", userId, quotaType, pageNum);
+
+        int safePage = Math.max(1, pageNum);
+        int safeSize = Math.min(100, Math.max(1, pageSize));
+        PageResult<ConsumptionLogResponse> result = consumptionLogService.getAdminConsumptionLog(
+                userId, quotaType, safePage, safeSize);
+        return Result.success(result);
+    }
+
+    @GetMapping("/custom-ai/daily-limit")
+    public Result<CustomAiDailyLimitResponse> getCustomAiDailyLimit(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        return Result.success(CustomAiDailyLimitResponse.builder()
+                .limit(sysConfigService.getCustomAiDailyLimit())
+                .build());
+    }
+
+    /**
+     * 修改用户自定义 AI 每日调用上限。
+     */
+    @PutMapping("/custom-ai/daily-limit")
+    public Result<CustomAiDailyLimitResponse> updateCustomAiDailyLimit(
+            @Valid @RequestBody CustomAiDailyLimitRequest request,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        checkAdminPermission(userId);
+        sysConfigService.updateCustomAiDailyLimit(request.getLimit());
+        return Result.success("每日上限已更新", CustomAiDailyLimitResponse.builder()
+                .limit(sysConfigService.getCustomAiDailyLimit())
+                .build());
+    }
+
+    // ==================== 私有方法 ====================
+
+    /**
+     * 校验管理员权限
+     *
+     * @param userId 用户ID
+     */
+    private void checkAdminPermission(Long userId) {
+        SysUser user = sysUserService.getById(userId);
+        Integer role = user != null ? user.getRole() : null;
+        if (role == null || role != UserRoleConstants.ROLE_ADMIN) {
+            log.warn("Non-admin user access denied, userId: {}, role: {}", userId, role);
+            throw new BusinessException("无权限访问");
+        }
+        log.debug("Admin permission verified, userId: {}", userId);
+    }
+
+    private SysUser getUserForBanOperation(Long userId) {
+        SysUser user = sysUserService.getById(userId);
+        if (user == null) {
+            throw new BusinessException("用户不存在");
+        }
+        return user;
+    }
+
+    private void applyUserBan(Long adminUserId, SysUser target, String duration, String reason) {
+        if (target.getId() != null && target.getId().equals(adminUserId)) {
+            throw new BusinessException("不能封禁当前管理员账号");
+        }
+        if (target.getRole() != null && target.getRole() == UserRoleConstants.ROLE_ADMIN) {
+            throw new BusinessException("不能封禁管理员账号");
+        }
+        String normalizedReason = normalizeBanReason(reason, true);
+        LocalDateTime bannedUntil = resolveBannedUntil(duration);
+
+        target.setStatus(0);
+        target.setBanReason(normalizedReason);
+        target.setBannedUntil(bannedUntil);
+        target.setBannedBy(adminUserId);
+        target.setBannedTime(LocalDateTime.now());
+        sysUserService.updateById(target);
+
+        createBanNotification(target.getId(), "账号已被封禁",
+                "你的账号已被管理员封禁，原因：" + normalizedReason + buildBanDurationText(bannedUntil),
+                "user_ban");
+    }
+
+    private void applyUserUnban(SysUser target, String reason) {
+        String normalizedReason = normalizeBanReason(reason, false);
+        target.setStatus(1);
+        target.setBanReason(null);
+        target.setBannedUntil(null);
+        target.setBannedBy(null);
+        target.setBannedTime(null);
+        sysUserService.updateById(target);
+
+        String content = normalizedReason == null
+                ? "你的账号已被管理员解封。"
+                : "你的账号已被管理员解封，说明：" + normalizedReason;
+        createBanNotification(target.getId(), "账号已解封", content, "user_unban");
+    }
+
+    private void validateUserIdBatch(List<Long> ids, String actionName) {
+        if (ids == null || ids.isEmpty()) {
+            throw new BusinessException("请选择要" + actionName + "的用户");
+        }
+        if (ids.size() > 100) {
+            throw new BusinessException("单次操作不能超过100个用户");
+        }
+    }
+
+    private String normalizeBanReason(String reason, boolean required) {
+        String normalized = trimToNull(reason);
+        if (normalized == null) {
+            if (required) {
+                throw new BusinessException("封禁原因不能为空");
+            }
+            return null;
+        }
+        if (normalized.length() > 200) {
+            throw new BusinessException("操作原因不能超过200字");
+        }
+        return normalized;
+    }
+
+    private LocalDateTime resolveBannedUntil(String duration) {
+        String normalizedDuration = trimToNull(duration);
+        if (normalizedDuration == null) {
+            throw new BusinessException("封禁时长不能为空");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        return switch (normalizedDuration.toLowerCase(Locale.ROOT)) {
+            case "1d" -> now.plusDays(1);
+            case "7d" -> now.plusDays(7);
+            case "30d" -> now.plusDays(30);
+            case "permanent" -> null;
+            default -> throw new BusinessException("封禁时长不合法");
+        };
+    }
+
+    private String buildBanDurationText(LocalDateTime bannedUntil) {
+        return bannedUntil == null ? "；封禁时长：永久。" : "；封禁至：" + bannedUntil + "。";
+    }
+
+    private void createBanNotification(Long userId, String title, String content, String bizType) {
+        if (notificationService == null) {
+            return;
+        }
+        try {
+            notificationService.createNotification(
+                    userId,
+                    "system",
+                    title,
+                    content,
+                    bizType,
+                    String.valueOf(userId)
+            );
+        } catch (Exception e) {
+            log.warn("User ban notification failed, userId: {}, bizType: {}", userId, bizType, e);
+        }
+    }
+
+    private void applyVipStateFilter(LambdaQueryWrapper<SysUser> wrapper, String vipState) {
+        String normalizedVipState = trimToNull(vipState);
+        if (normalizedVipState == null || "all".equals(normalizedVipState)) {
+            return;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        switch (normalizedVipState) {
+            case "active" -> wrapper.eq(SysUser::getRole, UserRoleConstants.ROLE_VIP)
+                    .gt(SysUser::getVipExpireTime, now);
+            case "expired" -> wrapper.eq(SysUser::getRole, UserRoleConstants.ROLE_VIP)
+                    .le(SysUser::getVipExpireTime, now);
+            case "non-vip" -> wrapper.and(w -> w.ne(SysUser::getRole, UserRoleConstants.ROLE_VIP)
+                    .or().isNull(SysUser::getRole));
+            default -> log.warn("Unsupported admin user vipState filter ignored, vipState: {}", vipState);
+        }
+    }
+
+    /**
+     * 构建提示词模板响应对象
+     *
+     * @param prompt 提示词模板实体
+     * @return 提示词模板响应
+     */
+    /**
+     * 构建 AI 引擎配置响应对象
+     *
+     * 作用：
+     * 管理端列表直接展示后台配置，但 apiKey 属于敏感字段，必须在这里统一脱敏，
+     * 避免原始密钥通过接口返回给前端。
+     */
+    private AiEngineConfigResponse buildAiEngineConfigResponse(SysAiEngineConfig config) {
+        return AiEngineConfigResponse.builder()
+                .id(config.getId())
+                .engineCode(config.getEngineCode())
+                .engineName(config.getEngineName())
+                .providerType(config.getProviderType())
+                .businessType(config.getBusinessType())
+                .businessTypeDesc(getAiBusinessTypeDesc(config.getBusinessType()))
+                .modelName(config.getModelName())
+                .baseUrl(config.getBaseUrl())
+                .apiKey(maskApiKey(aiCredentialCrypto.decrypt(config.getApiKey())))
+                .supportsMultimodal(config.getSupportsMultimodal())
+                .thinkingMode(config.getThinkingMode())
+                .temperature(config.getTemperature())
+                .maxTokens(config.getMaxTokens())
+                .timeoutMs(config.getTimeoutMs())
+                .isActive(config.getIsActive())
+                .isActiveDesc(getActiveDesc(config.getIsActive()))
+                .sort(config.getSort())
+                .remark(config.getRemark())
+                .createTime(config.getCreateTime())
+                .updateTime(config.getUpdateTime())
+                .build();
+    }
+
+    private PromptResponse buildPromptResponse(SysPrompt prompt) {
+        return PromptResponse.builder()
+                .id(prompt.getId())
+                .scenarioType(prompt.getScenarioType())
+                .scenarioTypeDesc(getScenarioTypeDesc(prompt.getScenarioType()))
+                .jobRoleCode(prompt.getJobRoleCode())
+                .jobRoleName(prompt.getJobRole())
+                .jobRole(prompt.getJobRole())
+                .difficulty(prompt.getDifficulty())
+                .difficultyDesc(getDifficultyDesc(prompt.getDifficulty()))
+                .promptContent(prompt.getPromptContent())
+                .isActive(prompt.getIsActive())
+                .isActiveDesc(getActiveDesc(prompt.getIsActive()))
+                .createTime(prompt.getCreateTime())
+                .updateTime(prompt.getUpdateTime())
+                .build();
+    }
+
+    /**
+     * 构建岗位配置响应
+     */
+    private JobRoleResponse buildJobRoleResponse(SysJobRole jobRole) {
+        return JobRoleResponse.builder()
+                .id(jobRole.getId())
+                .roleCode(jobRole.getRoleCode())
+                .roleName(jobRole.getRoleName())
+                .interviewTag(jobRole.getInterviewTag())
+                .tagType(jobRole.getTagType())
+                .isActive(jobRole.getIsActive())
+                .isActiveDesc(getActiveDesc(jobRole.getIsActive()))
+                .sort(jobRole.getSort())
+                .createTime(jobRole.getCreateTime())
+                .updateTime(jobRole.getUpdateTime())
+                .build();
+    }
+
+    /**
+     * 构建用户列表响应对象
+     *
+     * @param user 用户实体
+     * @return 用户列表响应
+     */
+private UserListResponse buildUserListResponse(SysUser user) {
+        // 角色展示要按"当前是否仍是有效会员"判断，避免会员过期后仍显示为会员用户。
+        boolean vipActive = isVipActive(user);
+        return UserListResponse.builder()
+                .id(user.getId())
+                .userId(user.getId() != null ? user.getId().toString() : null)
+                .username(user.getUsername())
+                .nickname(user.getNickname())
+                .role(user.getRole())
+                .roleDesc(getRoleDesc(user.getRole(), vipActive))
+                .status(user.getStatus())
+                .statusDesc(getUserStatusDesc(user.getStatus()))
+                .vipExpireTime(user.getVipExpireTime())
+                .banReason(user.getBanReason())
+                .bannedUntil(user.getBannedUntil())
+                .bannedBy(user.getBannedBy())
+                .bannedTime(user.getBannedTime())
+                .createTime(user.getCreateTime())
+                .build();
+    }
+
+    /**
+     * 获取场景类型描述
+     *
+     * @param scenarioType 场景类型
+     * @return 描述
+     */
+    private String getScenarioTypeDesc(Integer scenarioType) {
+        return switch (scenarioType) {
+            case PromptConstants.SCENARIO_INTERVIEW -> "面试系统设定";
+            case PromptConstants.SCENARIO_RESUME_DIAGNOSIS -> "简历诊断设定";
+            default -> "未知";
+        };
+    }
+
+    /**
+     * 获取难度描述
+     *
+     * @param difficulty 难度级别
+     * @return 描述
+     */
+    /**
+     * 获取 AI 引擎业务类型描述
+     */
+    private String getAiBusinessTypeDesc(String businessType) {
+        return switch (businessType) {
+            case AiEngineConstants.BUSINESS_TYPE_INTERVIEW -> "模拟面试";
+            case AiEngineConstants.BUSINESS_TYPE_RESUME -> "简历诊断";
+            default -> "未知";
+        };
+    }
+
+    private String getDifficultyDesc(Integer difficulty) {
+        return InterviewConstants.getDifficultyLabel(difficulty);
+    }
+
+    /**
+     * 获取启用状态描述
+     *
+     * @param isActive 启用状态
+     * @return 描述
+     */
+    private String getActiveDesc(Integer isActive) {
+        return isActive != null && isActive == PromptConstants.ACTIVE ? "启用" : "禁用";
+    }
+
+    /**
+     * 获取角色描述
+     *
+     * @param role 角色
+     * @return 描述
+     */
+    private String getRoleDesc(Integer role, boolean vipActive) {
+        return switch (role) {
+            case UserRoleConstants.ROLE_NORMAL -> "普通用户";
+            // VIP 角色但已过期时，管理端展示应回落为普通用户语义，避免误判用户权益状态。
+            case UserRoleConstants.ROLE_VIP -> vipActive ? "会员用户" : "普通用户（会员已过期）";
+            case UserRoleConstants.ROLE_ADMIN -> "管理员";
+            default -> "未知";
+        };
+    }
+
+    /**
+     * 计算用户当前是否处于“有效 VIP”状态。
+     *
+     * 作用：
+     * 列表接口直接用实体字段判定，避免额外查询带来的 N+1 开销。
+     */
+    private boolean isVipActive(SysUser user) {
+        if (user == null || user.getRole() == null || user.getRole() != UserRoleConstants.ROLE_VIP) {
+            return false;
+        }
+        LocalDateTime vipExpireTime = user.getVipExpireTime();
+        return vipExpireTime != null && vipExpireTime.isAfter(LocalDateTime.now());
+    }
+
+    /**
+     * 获取用户状态描述
+     *
+     * @param status 状态
+     * @return 描述
+     */
+    private String getUserStatusDesc(Integer status) {
+        return status == 1 ? "正常" : "封禁";
+    }
+
+    /**
+     * 解析提示词模板使用的岗位配置
+     *
+     * 作用：
+     * 让提示词模板创建/编辑与 sys_job_role 真正联动。
+     * 当前采用兼容升级方案：
+     * 1. 优先使用 jobRoleCode
+     * 2. 如果旧请求只传 jobRole 名称，则按名称回查岗位配置
+     * 3. 两者都找不到时，拒绝保存
+     *
+     * 这样可以避免提示词模板岗位字段继续使用自由输入或游离字符串。
+     */
+    private SysJobRole resolvePromptJobRole(String jobRoleCode, String jobRoleName) {
+        SysJobRole configuredJobRole = null;
+
+        if (jobRoleCode != null && !jobRoleCode.trim().isEmpty()) {
+            configuredJobRole = sysJobRoleService.getByRoleCode(jobRoleCode);
+        } else if (jobRoleName != null && !jobRoleName.trim().isEmpty()) {
+            configuredJobRole = sysJobRoleService.getByRoleName(jobRoleName);
+        }
+
+        if (configuredJobRole == null) {
+            throw new BusinessException("Prompt 适用岗位不存在，请从岗位配置中选择合法岗位");
+        }
+
+        return configuredJobRole;
+    }
+
+    /**
+     * 校验岗位编码和岗位名称唯一性
+     *
+     * 作用：
+     * 岗位选项要作为全局唯一配置源，因此编码和名称都必须唯一，
+     * 否则用户端下拉展示、面试创建校验和模板绑定都会产生歧义。
+     */
+    private void validateJobRoleUniqueness(String roleCode, String roleName, Long excludeId) {
+        if (sysJobRoleService.existsByRoleCode(roleCode, excludeId)) {
+            throw new BusinessException("岗位编码已存在");
+        }
+        if (sysJobRoleService.existsByRoleName(roleName, excludeId)) {
+            throw new BusinessException("岗位名称已存在");
+        }
+    }
+
+    /**
+     * 校验 AI 引擎编码唯一性
+     *
+     * 作用：
+     * engineCode 是后台配置的稳定标识，后续业务如果按编码引用配置，必须保证它全局唯一。
+     */
+    private void validateAiEngineCodeUniqueness(String engineCode, Long excludeId) {
+        if (sysAiEngineConfigService.existsByEngineCode(engineCode, excludeId)) {
+            throw new BusinessException("AI 引擎编码已存在");
+        }
+    }
+
+    /**
+     * 对必填字符串执行 trim 后校验
+     */
+    private String normalizeRequiredValue(String value, String errorMessage) {
+        String normalized = trimToNull(value);
+        if (normalized == null) {
+            throw new BusinessException(errorMessage);
+        }
+        return normalized;
+    }
+
+    private String validatePublicHttpsBaseUrl(String baseUrl) {
+        try {
+            return PublicHttpsUrlValidator.validate(baseUrl, "基础地址不能为空");
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(e.getMessage());
+        }
+    }
+
+    /**
+     * 归一化 businessType
+     *
+     * 作用：
+     * businessType 是“同业务只能启用一个配置”的分组键，必须统一成 trim + lowercase，
+     * 避免因为大小写或前后空格不同而被后端误判成两个不同业务类型。
+     */
+    private String normalizeBusinessType(String businessType) {
+        String normalized = trimToNull(businessType);
+        return normalized == null ? null : normalized.toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * 解析连通测试使用的真实 API Key。
+     *
+     * 作用：
+     * 新增态必须使用表单输入的完整密钥；编辑态如果未输入新密钥，则读取数据库中已加密保存的密钥。
+     */
+    private String normalizeConfigApiKeyForConnectivityTest(AiEngineConnectivityTestRequest request) {
+        String submittedApiKey = trimToNull(request.getApiKey());
+        if (submittedApiKey != null && !isMaskedApiKey(submittedApiKey)) {
+            return submittedApiKey;
+        }
+        if (request.getId() == null) {
+            throw new BusinessException("请先输入完整 API Key 后再测试连通性");
+        }
+
+        SysAiEngineConfig config = sysAiEngineConfigService.getById(request.getId());
+        if (config == null) {
+            throw new BusinessException("AI 引擎配置不存在");
+        }
+        String storedApiKey = trimToNull(aiCredentialCrypto.decrypt(config.getApiKey()));
+        if (storedApiKey == null) {
+            throw new BusinessException("当前配置未保存有效 API Key，请输入完整 API Key 后再测试");
+        }
+        return storedApiKey;
+    }
+
+    /**
+     * 解析模型列表获取使用的真实 API Key，规则与连通测试保持一致。
+     */
+    private String normalizeConfigApiKeyForModelDiscovery(AdminAiEngineModelsRequest request) {
+        String submittedApiKey = trimToNull(request.getApiKey());
+        if (submittedApiKey != null && !isMaskedApiKey(submittedApiKey)) {
+            return submittedApiKey;
+        }
+        if (request.getId() == null) {
+            throw new BusinessException("请先输入完整 API Key 后再获取模型列表");
+        }
+
+        SysAiEngineConfig config = sysAiEngineConfigService.getById(request.getId());
+        if (config == null) {
+            throw new BusinessException("AI 引擎配置不存在");
+        }
+        String storedApiKey = trimToNull(aiCredentialCrypto.decrypt(config.getApiKey()));
+        if (storedApiKey == null) {
+            throw new BusinessException("当前配置未保存有效 API Key，请输入完整 API Key 后再获取模型列表");
+        }
+        return storedApiKey;
+    }
+
+    private boolean isMockProvider(String providerType) {
+        return "mock".equalsIgnoreCase(trimToNull(providerType));
+    }
+
+    /**
+     * 验证是否为脱敏格式的 API Key。
+     *
+     * 作用：
+     * 防止前端把列表返回的脱敏值（如 "sk-****abcd"）提交回后端，
+     * 导致真实 API Key 被覆盖为脱敏值。
+     *
+     * 判断逻辑：
+     * - 如果包含 "****" 且长度明显短于真实 key（真实 key 通常 > 20 字符），则判定为脱敏值
+     *
+     * @param apiKey 待验证的 API Key
+     * @return true 表示是脱敏格式，false 表示可能是真实值
+     */
+    private boolean isMaskedApiKey(String apiKey) {
+        if (apiKey == null) {
+            return false;
+        }
+        String trimmed = apiKey.trim();
+        // 不包含脱敏标记，不是脱敏格式
+        if (!trimmed.contains("****")) {
+            return false;
+        }
+        // 【关键修复】真实 API Key 通常 > 20 字符，如果 <= 20 字符且包含 "****"，很可能是脱敏值
+        if (trimmed.length() <= 20) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * 将 API Key 脱敏返回。
+     *
+     * 作用：
+     * 原始密钥只应该保存在数据库中，管理端列表返回时必须遮罩，
+     * 防止前端日志、缓存或截图直接泄露密钥。
+     */
+    private String maskApiKey(String apiKey) {
+        String normalized = trimToNull(apiKey);
+        if (normalized == null) {
+            return null;
+        }
+        if (normalized.length() <= 4) {
+            return "****";
+        }
+        if (normalized.length() <= 8) {
+            return normalized.substring(0, 2) + "****";
+        }
+        return normalized.substring(0, 3) + "****" + normalized.substring(normalized.length() - 4);
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+}

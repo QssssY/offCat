@@ -1,0 +1,216 @@
+/* ============================================
+ * 优雅设计 — 设计/创意
+ * 居中排版 + 花饰分隔线 + 精致紫色调
+ * 轻字重姓名 + 菱形要点 + 高端排版
+ * 适配：亮色/暗色 · 打印 · 移动端
+ * ============================================ */
+
+/* ——— CSS 自定义属性 ——— */
+.resume-tpl-design-elegant.resume-tpl-design-elegant {
+  --tpl-accent: #6D28D9;
+  --tpl-accent-light: #8B5CF6;
+  --tpl-accent-soft: #F5F3FF;
+  --tpl-accent-border: #DDD6FE;
+  --tpl-text: #1E1B4B;
+  --tpl-heading: #1E1B4B;
+  --tpl-muted: #6B7280;
+  --tpl-line: #E9D5FF;
+  --tpl-bg: #FFFFFF;
+  --tpl-surface: #FAFAFE;
+  --tpl-radius-sm: 12px;
+  --tpl-radius-md: 20px;
+  --tpl-radius-lg: 24px;
+
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', sans-serif;
+  font-size: 14px;
+  color: var(--tpl-text);
+  line-height: 1.7;
+  background: var(--tpl-bg);
+  padding: 36px 44px;
+}
+
+/* ——— Header：居中排版 + 底部装饰线 ——— */
+.resume-tpl-design-elegant .resume-header {
+  text-align: center;
+  padding-bottom: 24px;
+  margin-bottom: 24px;
+  position: relative;
+}
+.resume-tpl-design-elegant .resume-header::after {
+  content: ''; position: absolute; bottom: 0; left: 50%;
+  transform: translateX(-50%);
+  width: 70px; height: 3px; border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--tpl-accent-light), transparent);
+}
+.resume-tpl-design-elegant .header-main {
+  display: flex; align-items: flex-start; justify-content: center; gap: 24px;
+}
+.resume-tpl-design-elegant .header-text { flex: 1; text-align: center; min-width: 0; }
+
+/* 姓名：轻字重 + 宽字间距 */
+.resume-tpl-design-elegant .name {
+  font-size: 32px; font-weight: 300; color: var(--tpl-heading);
+  margin-bottom: 10px; letter-spacing: 0.25em; line-height: 1.3; width: 100%;
+}
+
+/* 职位徽章 */
+.resume-tpl-design-elegant .profile-badge {
+  display: inline-block; font-size: 13px; font-weight: 500;
+  color: var(--tpl-accent); margin-bottom: 18px;
+  letter-spacing: 0.2em; text-transform: uppercase;
+  padding: 5px 22px; border: 1px solid var(--tpl-accent-border);
+  border-radius: 20px;
+  transition: background 0.2s, border-color 0.2s;
+}
+.resume-tpl-design-elegant .profile-badge:hover {
+  background: var(--tpl-accent-soft); border-color: var(--tpl-accent-light);
+}
+
+/* 联系方式：居中 + 竖线分隔 */
+.resume-tpl-design-elegant .meta-list {
+  display: flex; justify-content: center; flex-wrap: wrap; gap: 0;
+  font-size: 12.5px; color: var(--tpl-muted);
+}
+.resume-tpl-design-elegant .meta-item {
+  display: flex; align-items: center; gap: 4px;
+  padding: 0 16px; position: relative;
+}
+.resume-tpl-design-elegant .meta-item + .meta-item::before {
+  content: ''; position: absolute; left: 0; top: 50%;
+  transform: translateY(-50%); width: 1px; height: 13px;
+  background: var(--tpl-accent-border);
+}
+.resume-tpl-design-elegant .meta-icon { display: inline-flex; font-size: 13px; opacity: 0.8; }
+
+/* 照片 */
+.resume-tpl-design-elegant .header-photo {
+  display: flex; align-items: center; justify-content: center;
+  width: 100px; height: 130px; flex-shrink: 0;
+  border-radius: var(--tpl-radius-sm); border: 2px solid var(--tpl-accent-border);
+  background: var(--tpl-accent-soft); overflow: hidden;
+  transition: border-color 0.2s;
+}
+.resume-tpl-design-elegant .header-photo:hover { border-color: var(--tpl-accent-light); }
+.resume-tpl-design-elegant .header-photo img { width: 100%; height: 100%; object-fit: cover; }
+.resume-tpl-design-elegant .photo-placeholder {
+  font-size: 11px; color: var(--tpl-muted); text-align: center; line-height: 1.3;
+}
+
+/* ——— Body ——— */
+.resume-tpl-design-elegant .resume-body { padding: 0; }
+.resume-tpl-design-elegant .section { margin-bottom: 20px; }
+.resume-tpl-design-elegant .section:last-child { margin-bottom: 0; }
+
+/* Section 标题：居中 + 两侧装饰线 */
+.resume-tpl-design-elegant .section-tab {
+  display: flex; align-items: center; justify-content: center; gap: 18px;
+  margin-bottom: 14px;
+}
+.resume-tpl-design-elegant .section-tab-dot { display: none; }
+.resume-tpl-design-elegant .section-tab::before {
+  content: ''; flex: 1; max-width: 90px; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--tpl-accent-border));
+}
+.resume-tpl-design-elegant .section-tab::after {
+  content: ''; flex: 1; max-width: 90px; height: 1px;
+  background: linear-gradient(90deg, var(--tpl-accent-border), transparent);
+}
+.resume-tpl-design-elegant .section-title {
+  font-size: 14px; font-weight: 600; color: var(--tpl-accent);
+  letter-spacing: 0.2em; text-transform: uppercase; white-space: nowrap;
+  transition: color 0.2s;
+}
+.resume-tpl-design-elegant .section-line { display: none; }
+
+/* ——— 个人简介：居中 ——— */
+.resume-tpl-design-elegant .summary-text {
+  font-size: 13.5px; color: #4B5563; line-height: 1.9;
+  text-align: center; max-width: 540px; margin: 0 auto 8px;
+}
+
+/* ——— 技能标签：精致pill ——— */
+.resume-tpl-design-elegant .skills-list {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 10px;
+}
+.resume-tpl-design-elegant .skill-tag {
+  display: inline-flex; align-items: center;
+  background: transparent; color: var(--tpl-accent);
+  padding: 6px 18px; border: 1px solid var(--tpl-accent-border);
+  border-radius: 20px; font-size: 12.5px; font-weight: 500;
+  white-space: normal; word-break: break-word; line-height: 1.5;
+  transition: background 0.2s, border-color 0.2s, transform 0.15s;
+}
+.resume-tpl-design-elegant .skill-tag:hover {
+  background: var(--tpl-accent-soft); border-color: var(--tpl-accent-light);
+  transform: translateY(-1px);
+}
+
+/* ——— 经历条目 ——— */
+.resume-tpl-design-elegant .experience-item {
+  margin-bottom: 14px; padding-bottom: 14px;
+  border-bottom: 1px solid #F3F0FF; text-align: left;
+  transition: border-color 0.2s;
+}
+.resume-tpl-design-elegant .experience-item:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+.resume-tpl-design-elegant .experience-item:hover { border-bottom-color: var(--tpl-accent-border); }
+.resume-tpl-design-elegant .exp-header {
+  display: flex; justify-content: space-between; align-items: baseline;
+  flex-wrap: wrap; gap: 8px; margin-bottom: 4px;
+}
+.resume-tpl-design-elegant .exp-company {
+  font-size: 15px; font-weight: 700; color: var(--tpl-heading); letter-spacing: 0.02em;
+}
+.resume-tpl-design-elegant .exp-date {
+  font-size: 12px; color: var(--tpl-accent); font-weight: 500;
+  background: var(--tpl-accent-soft); padding: 3px 14px;
+  border-radius: var(--tpl-radius-sm); white-space: nowrap;
+}
+.resume-tpl-design-elegant .exp-position {
+  font-size: 13.5px; color: var(--tpl-accent-light); font-weight: 500; margin-bottom: 6px;
+}
+.resume-tpl-design-elegant .exp-desc { font-size: 13px; color: #6B7280; line-height: 1.7; }
+
+/* 要点：菱形 */
+.resume-tpl-design-elegant .exp-highlights { list-style: none; padding: 0; margin: 8px 0 0; }
+.resume-tpl-design-elegant .exp-highlights li {
+  font-size: 13px; color: #4B5563; padding-left: 20px; position: relative;
+  margin-bottom: 5px; line-height: 1.65;
+}
+.resume-tpl-design-elegant .exp-highlights li::before {
+  content: '◇'; position: absolute; left: 0; top: 4px;
+  color: var(--tpl-accent-light); font-size: 9px; line-height: 1;
+}
+
+/* 证书/获奖 */
+.resume-tpl-design-elegant .section-certifications .exp-header,
+.resume-tpl-design-elegant .section-awards .exp-header { margin-bottom: 0; }
+.resume-tpl-design-elegant .section-certifications .exp-desc,
+.resume-tpl-design-elegant .section-awards .exp-desc { display: none; }
+
+/* 自定义文本 */
+.resume-tpl-design-elegant .custom-text {
+  font-size: 13.5px; color: #4B5563; line-height: 1.9; text-align: left;
+}
+
+/* ——— 打印优化 ——— */
+@media print {
+  .resume-tpl-design-elegant.resume-tpl-design-elegant {
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    padding: 24px 32px;
+  }
+  .resume-tpl-design-elegant .section { break-inside: avoid; }
+  .resume-tpl-design-elegant .experience-item { break-inside: avoid; }
+}
+
+/* ——— 移动端 ——— */
+@media (max-width: 768px) {
+  .resume-tpl-design-elegant.resume-tpl-design-elegant { padding: 20px 16px; font-size: 13px; }
+  .resume-tpl-design-elegant .name { font-size: 24px; letter-spacing: 0.15em; }
+  .resume-tpl-design-elegant .header-main { flex-direction: column-reverse; align-items: center; }
+  .resume-tpl-design-elegant .header-photo { width: 80px; height: 104px; align-self: center; }
+  .resume-tpl-design-elegant .meta-list { gap: 8px 0; }
+  .resume-tpl-design-elegant .meta-item { padding: 0 10px; font-size: 11px; }
+  .resume-tpl-design-elegant .section-title { font-size: 12.5px; letter-spacing: 0.12em; }
+  .resume-tpl-design-elegant .summary-text { text-align: left; max-width: none; }
+  .resume-tpl-design-elegant .skills-list { justify-content: flex-start; gap: 8px; }
+}

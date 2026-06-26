@@ -1,0 +1,186 @@
+/* ============================================
+ * 权威法律 — 法律/咨询
+ * 纯黑居中header + 衬线字体 + 粗竖条section
+ * 方块要点 + 实线分隔 + 正式权威排版
+ * 适配：亮色/暗色 · 打印 · 移动端
+ * ============================================ */
+
+/* ——— CSS 自定义属性 ——— */
+.resume-tpl-legal-authoritative.resume-tpl-legal-authoritative {
+  --tpl-accent: #111827;
+  --tpl-accent-light: #374151;
+  --tpl-accent-soft: #F3F4F6;
+  --tpl-text: #111827;
+  --tpl-heading: #0C0A09;
+  --tpl-muted: #6B7280;
+  --tpl-line: #E5E7EB;
+  --tpl-bg: #FFFFFF;
+  --tpl-surface: #F9FAFB;
+  --tpl-header-bg: #111827;
+  --tpl-header-text: #FFFFFF;
+  --tpl-photo-border: rgba(255,255,255,0.4);
+  --tpl-photo-bg: rgba(255,255,255,0.15);
+  --tpl-radius-sm: 2px;
+  --tpl-radius-md: 4px;
+  --tpl-radius-lg: 6px;
+
+  font-family: 'Songti SC', 'SimSun', 'Times New Roman', 'Georgia', serif;
+  font-size: 14px;
+  color: var(--tpl-text);
+  line-height: 1.75;
+  background: var(--tpl-bg);
+  padding: 0;
+}
+
+/* ——— Header：纯黑居中 + 大间距 ——— */
+.resume-tpl-legal-authoritative .resume-header {
+  background: var(--tpl-header-bg);
+  color: var(--tpl-header-text);
+  padding: 32px 40px 28px;
+  text-align: center;
+}
+.resume-tpl-legal-authoritative .header-main {
+  display: flex; align-items: flex-start; justify-content: center; gap: 24px;
+}
+.resume-tpl-legal-authoritative .header-text { flex: 1; min-width: 0; }
+
+/* 姓名：宽字间距 */
+.resume-tpl-legal-authoritative .name {
+  font-size: 28px; font-weight: 700; letter-spacing: 0.28em;
+  line-height: 1.2; margin-bottom: 8px; width: 100%;
+}
+
+/* 职位：细边框方形 */
+.resume-tpl-legal-authoritative .profile-badge {
+  display: inline-block;
+  border: 1px solid rgba(255, 255, 255, 0.3); border-radius: var(--tpl-radius-sm);
+  padding: 5px 20px; font-size: 13.5px; font-weight: 400;
+  margin-bottom: 16px; letter-spacing: 0.12em;
+  transition: background 0.2s, border-color 0.2s;
+}
+.resume-tpl-legal-authoritative .profile-badge:hover {
+  background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.5);
+}
+
+/* 联系方式 */
+.resume-tpl-legal-authoritative .meta-list {
+  display: flex; justify-content: center; flex-wrap: wrap;
+  gap: 20px 28px; font-size: 13px; opacity: 0.82;
+}
+.resume-tpl-legal-authoritative .meta-item { display: flex; align-items: center; gap: 5px; }
+.resume-tpl-legal-authoritative .meta-icon { display: inline-flex; font-size: 13px; opacity: 0.8; }
+
+/* 照片 */
+.resume-tpl-legal-authoritative .header-photo {
+  display: flex; align-items: center; justify-content: center;
+  width: 100px; height: 130px; flex-shrink: 0;
+  border: 2px dashed var(--tpl-photo-border); border-radius: var(--tpl-radius-md);
+  background: var(--tpl-photo-bg); overflow: hidden;
+}
+.resume-tpl-legal-authoritative .header-photo img { width: 100%; height: 100%; object-fit: cover; }
+.resume-tpl-legal-authoritative .photo-placeholder {
+  font-size: 11px; color: rgba(255,255,255,0.65); text-align: center; line-height: 1.3;
+}
+
+/* ——— Body ——— */
+.resume-tpl-legal-authoritative .resume-body { padding: 28px 40px 32px; }
+.resume-tpl-legal-authoritative .section { margin-bottom: 28px; }
+.resume-tpl-legal-authoritative .section:last-child { margin-bottom: 0; }
+
+/* Section Tab：粗黑竖条（无dot） */
+.resume-tpl-legal-authoritative .section-tab {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 0 6px 12px;
+  border-left: 4px solid var(--tpl-accent);
+  margin-bottom: 4px;
+  transition: border-color 0.25s;
+}
+.resume-tpl-legal-authoritative .section-tab:hover { border-left-color: var(--tpl-accent-light); }
+.resume-tpl-legal-authoritative .section-tab-dot { display: none; }
+.resume-tpl-legal-authoritative .section-title {
+  font-size: 16px; font-weight: 700; color: var(--tpl-accent);
+  letter-spacing: 0.16em;
+}
+.resume-tpl-legal-authoritative .section-line {
+  display: block; height: 1px; background: var(--tpl-line);
+  margin: 0 0 14px 16px;
+}
+
+/* ——— 个人简介 ——— */
+.resume-tpl-legal-authoritative .summary-text {
+  font-size: 14px; color: #374151; text-indent: 2em; line-height: 1.85;
+}
+
+/* ——— 技能：简约文字列 ——— */
+.resume-tpl-legal-authoritative .skills-list {
+  display: flex; flex-direction: column; gap: 5px;
+}
+.resume-tpl-legal-authoritative .skill-tag {
+  background: none; border: none; padding: 0;
+  font-size: 13px; color: #4B5563; line-height: 1.7;
+  transition: color 0.15s;
+}
+.resume-tpl-legal-authoritative .skill-tag:hover { color: var(--tpl-accent); }
+
+/* ——— 经历条目：实线分隔 ——— */
+.resume-tpl-legal-authoritative .experience-item {
+  margin-bottom: 16px; padding-bottom: 14px;
+  border-bottom: 1px solid var(--tpl-line);
+  transition: border-color 0.2s;
+}
+.resume-tpl-legal-authoritative .experience-item:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+.resume-tpl-legal-authoritative .experience-item:hover { border-bottom-color: #9CA3AF; }
+.resume-tpl-legal-authoritative .exp-header {
+  display: flex; justify-content: space-between; align-items: baseline;
+  flex-wrap: wrap; gap: 8px; margin-bottom: 4px;
+}
+.resume-tpl-legal-authoritative .exp-company {
+  font-size: 15px; font-weight: 700; color: var(--tpl-accent);
+}
+.resume-tpl-legal-authoritative .exp-date {
+  font-size: 12px; color: var(--tpl-muted); font-weight: 500;
+  background: var(--tpl-accent-soft); padding: 3px 10px; border-radius: var(--tpl-radius-md);
+  white-space: nowrap;
+}
+.resume-tpl-legal-authoritative .exp-position {
+  font-size: 14px; color: #374151; font-weight: 600; margin-bottom: 6px;
+}
+.resume-tpl-legal-authoritative .exp-desc { font-size: 13px; color: #6B7280; line-height: 1.7; }
+
+/* 要点：小方块 */
+.resume-tpl-legal-authoritative .exp-highlights { list-style: none; padding: 0; margin: 8px 0 0; }
+.resume-tpl-legal-authoritative .exp-highlights li {
+  font-size: 13px; color: #4B5563; padding-left: 18px; position: relative;
+  margin-bottom: 5px; line-height: 1.65;
+}
+.resume-tpl-legal-authoritative .exp-highlights li::before {
+  content: '■'; position: absolute; left: 0; top: 7px;
+  color: var(--tpl-accent); font-size: 6px; line-height: 1;
+}
+
+/* 自定义文本 */
+.resume-tpl-legal-authoritative .custom-text {
+  font-size: 14px; color: #374151; text-indent: 2em; line-height: 1.85;
+}
+
+/* ——— 打印优化 ——— */
+@media print {
+  .resume-tpl-legal-authoritative.resume-tpl-legal-authoritative {
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .resume-tpl-legal-authoritative .resume-header {
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .resume-tpl-legal-authoritative .section { break-inside: avoid; }
+  .resume-tpl-legal-authoritative .experience-item { break-inside: avoid; }
+}
+
+/* ——— 移动端 ——— */
+@media (max-width: 768px) {
+  .resume-tpl-legal-authoritative .resume-header { padding: 24px 20px 20px; }
+  .resume-tpl-legal-authoritative .resume-body { padding: 20px 20px 24px; }
+  .resume-tpl-legal-authoritative .name { font-size: 22px; letter-spacing: 0.16em; }
+  .resume-tpl-legal-authoritative .header-main { flex-direction: column-reverse; align-items: center; }
+  .resume-tpl-legal-authoritative .header-photo { width: 80px; height: 104px; align-self: center; }
+  .resume-tpl-legal-authoritative .meta-list { gap: 10px 16px; font-size: 12px; }
+}

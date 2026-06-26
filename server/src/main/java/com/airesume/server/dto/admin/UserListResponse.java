@@ -1,0 +1,90 @@
+package com.airesume.server.dto.admin;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.time.LocalDateTime;
+
+/**
+ * 用户列表响应DTO
+ */
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class UserListResponse {
+
+    /**
+     * 用户ID
+     */
+    private Long id;
+
+    /**
+     * 用户ID字符串
+     *
+     * 作用：前端批量操作和查询必须使用字符串，避免超长 Long 在浏览器侧丢失精度。
+     */
+    private String userId;
+
+    /**
+     * 用户名
+     */
+    private String username;
+
+    /**
+     * 昵称
+     */
+    private String nickname;
+
+    /**
+     * 角色：0-普通用户，1-会员用户，9-管理员
+     */
+    private Integer role;
+
+    /**
+     * 角色描述
+     */
+    private String roleDesc;
+
+    /**
+     * 状态：1-正常，0-封禁
+     */
+    private Integer status;
+
+    /**
+     * 状态描述
+     */
+    private String statusDesc;
+
+    /**
+     * 会员到期时间
+     */
+    private LocalDateTime vipExpireTime;
+
+    /**
+     * 封禁原因摘要
+     */
+    private String banReason;
+
+    /**
+     * 封禁到期时间，null 表示永久封禁
+     */
+    private LocalDateTime bannedUntil;
+
+    /**
+     * 封禁操作人ID
+     */
+    private Long bannedBy;
+
+    /**
+     * 封禁操作时间
+     */
+    private LocalDateTime bannedTime;
+
+    /**
+     * 创建时间
+     */
+    private LocalDateTime createTime;
+}

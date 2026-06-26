@@ -1,0 +1,151 @@
+# ============================================================
+# Publish scope
+# ============================================================
+# This combined repository is intended to publish only the original
+# frontend/app and server repository contents.
+*
+
+!.gitignore
+!README.md
+!frontend/
+!frontend/app/
+!frontend/app/**
+!server/
+!server/**
+
+# ============================================================
+# Frontend ignores: frontend/app
+# ============================================================
+frontend/app/node_modules/
+frontend/app/.pnpm-store/
+frontend/app/dist/
+frontend/app/dist-ssr/
+frontend/app/.tmp-sherpa-pack/
+frontend/app/voice-models-local/
+frontend/app/public/voice-models/sherpa-onnx/zh-cn-streaming/sherpa-onnx-asr.js
+frontend/app/public/voice-models/sherpa-onnx/zh-cn-streaming/sherpa-onnx-wasm-main-asr.js
+frontend/app/public/voice-models/sherpa-onnx/zh-cn-streaming/sherpa-onnx-wasm-main-asr.wasm
+frontend/app/public/voice-models/sherpa-onnx/zh-cn-streaming/sherpa-onnx-wasm-main-asr.data
+
+frontend/app/.env.local
+frontend/app/.env.*.local
+frontend/app/*.local
+
+frontend/app/*.log
+frontend/app/npm-debug.log*
+frontend/app/yarn-debug.log*
+frontend/app/yarn-error.log*
+frontend/app/pnpm-debug.log*
+
+frontend/app/coverage/
+frontend/app/test-results/
+frontend/app/.nyc_output/
+frontend/app/.cache/
+frontend/app/*.tsbuildinfo
+
+frontend/app/.edge-tmp/
+frontend/app/.idea/
+frontend/app/.vscode/*
+!frontend/app/.vscode/extensions.json
+
+# ============================================================
+# Backend ignores: server
+# ============================================================
+server/target/
+!server/target/*.jar
+server/*.class
+server/*.jar
+server/*.war
+server/*.ear
+server/*.nar
+server/dependency-reduced-pom.xml
+server/buildNumber.properties
+server/.mvn/timing.properties
+server/.mvn/wrapper/maven-wrapper.jar
+server/pom.xml.tag
+server/pom.xml.releaseBackup
+server/pom.xml.versionsBackup
+server/pom.xml.next
+server/release.properties
+
+server/.idea/
+server/*.iws
+server/*.iml
+server/*.ipr
+server/out/
+
+server/.apt_generated/
+server/.apt_generated_tests/
+server/.classpath
+server/.factorypath
+server/.project
+server/.settings/
+server/.springBeans
+server/.sts4-cache/
+
+server/.vscode/*
+!server/.vscode/settings.json
+!server/.vscode/tasks.json
+!server/.vscode/launch.json
+!server/.vscode/extensions.json
+!server/.vscode/*.code-snippets
+server/*.code-workspace
+
+server/nbproject/private/
+server/nbbuild/
+server/nbdist/
+server/.nb-gradle/
+server/.fleet/
+
+server/.env
+server/.env.local
+server/.env.*.local
+server/src/main/resources/application-local.yml
+server/src/main/resources/application-local.yaml
+server/src/main/resources/application-local.properties
+server/src/main/resources/application-dev-local.yml
+server/src/main/resources/application-prod-local.yml
+
+server/logs/
+server/*.log
+server/*.log.*
+server/*.log.gz
+server/log/
+!server/log/.gitkeep
+
+server/coverage/
+server/.nyc_output/
+server/*.lcov
+server/site/jacoco/
+server/.jacoc/
+server/jacoco.exec
+server/test-output/
+server/surefire-reports/
+server/failsafe-reports/
+
+server/*.tmp
+server/*.temp
+server/*.swp
+server/*~
+server/*.bak
+server/*.orig
+server/*.rej
+server/hs_err_pid*
+server/replay_pid*
+server/*.pid
+server/*.seed
+server/*.pid.lock
+server/.cache/
+server/.parcel-cache/
+
+server/uploads/
+
+# ============================================================
+# Shared local noise inside allowed directories
+# ============================================================
+frontend/app/**/__pycache__/
+server/**/__pycache__/
+frontend/app/.DS_Store
+frontend/app/Thumbs.db
+server/.DS_Store
+server/Thumbs.db

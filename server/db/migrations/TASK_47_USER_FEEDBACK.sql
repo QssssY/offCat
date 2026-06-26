@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS `user_feedback` (
+  `id` BIGINT NOT NULL COMMENT '主键',
+  `user_id` BIGINT NOT NULL COMMENT '提交用户ID',
+  `type` VARCHAR(32) NOT NULL COMMENT '反馈类型: bug/suggestion/experience/other',
+  `title` VARCHAR(100) NOT NULL COMMENT '反馈标题',
+  `content` TEXT NOT NULL COMMENT '反馈内容',
+  `contact` VARCHAR(100) NULL DEFAULT NULL COMMENT '用户联系方式',
+  `status` TINYINT NOT NULL DEFAULT 0 COMMENT '处理状态: 0待处理 1处理中 2已处理 3已关闭',
+  `admin_remark` VARCHAR(1000) NULL DEFAULT NULL COMMENT '管理端处理备注',
+  `handled_by` BIGINT NULL DEFAULT NULL COMMENT '处理管理员ID',
+  `handled_at` DATETIME NULL DEFAULT NULL COMMENT '处理时间',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除标志',
+  PRIMARY KEY (`id`),
+  INDEX `idx_feedback_user_id` (`user_id`),
+  INDEX `idx_feedback_type` (`type`),
+  INDEX `idx_feedback_status` (`status`),
+  INDEX `idx_feedback_create_time` (`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户问题反馈与建议表';
