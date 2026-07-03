@@ -1,180 +1,121 @@
-# TASK_02_AUTH 接口文档
+# 认证与账号接口
 
-## 1. 用户注册
+本文档对应后端 `AuthController` 与 `UserAccountController` 的当前实现。
 
-### 基本信息
-- 请求路径：`/api/auth/register`
-- 请求方法：`POST`
-- 接口说明：注册普通用户账号，注册成功后自动初始化用户额度记录
-- 是否鉴权：否
+## 通用说明
 
-### 请求头
-- 无特殊请求头要求
+- 认证前缀：`/api/auth`
+- 账号管理前缀：`/api/user/account`
+- 鉴权方式：除注册、登录、验证码、密码重置相关接口外，其余接口需 `Authorization: Bearer <token>`
+- 密码在服务端使用 BCrypt 存储，响应体不会返回密码、密保答案或 Token 密钥。
 
-### 请求参数
+## 接口列表
 
-| 字段名 | 类型 | 是否必填 | 说明 |
-|---|---|---|---|
-| username | String | 是 | 用户名，长度3-50个字符 |
-| password | String | 是 | 密码，长度6-100个字符 |
+| 方法 | 路径 | 鉴权 | 说明 |
+|------|------|------|------|
+| POST | `/api/auth/register` | 否 | 注册普通用户，并初始化用户额度 |
+| POST | `/api/auth/login` | 否 | 登录并返回 JWT |
+| GET | `/api/auth/me` | 是 | 获取当前用户信息 |
+| PUT | `/api/auth/nickname` | 是 | 修改昵称 |
+| PUT | `/api/auth/password` | 是 | 修改登录密码 |
+| GET | `/api/auth/captcha` | 否 | 获取验证码 |
+| GET | `/api/auth/security-question` | 否 | 查询账号密保问题 |
+| PUT | `/api/auth/security-question` | 是 | 设置或更新密保问题 |
+| POST | `/api/auth/reset-password` | 否 | 通过密保问题重置密码 |
+| GET | `/api/user/account/security-question` | 是 | 注销账号前获取当前账号密保问题 |
+| POST | `/api/user/account/delete` | 是 | 注销账号 |
 
-### 示例请求
+## 关键请求示例
+
+### 注册
+
+```http
+POST /api/auth/register
+Content-Type: application/json
+```
+
 ```json
 {
-  "username": "testuser",
-  "password": "123456"
+  "username": "demo_user",
+  "password": "DemoPassword123"
 }
 ```
 
-### 返回结果说明
-- `code`：业务状态码，200表示成功
-- `message`：响应信息
-- `data`：无数据返回
+### 登录
 
-### 示例响应
+```http
+POST /api/auth/login
+Content-Type: application/json
+```
+
 ```json
 {
-  "code": 200,
-  "message": "操作成功",
-  "data": null
+  "username": "demo_user",
+  "password": "DemoPassword123"
 }
 ```
 
----
+响应中的 `tokenType` 为 `Bearer`，前端后续请求需要拼接为：
 
-## 2. 用户登录
-
-### 基本信息
-- 请求路径：`/api/auth/login`
-- 请求方法：`POST`
-- 接口说明：用户登录验证，验证成功后返回 JWT token
-- 是否鉴权：否
-
-### 请求头
-- 无特殊请求头要求
-
-### 请求参数
-
-| 字段名 | 类型 | 是否必填 | 说明 |
-|---|---|---|---|
-| username | String | 是 | 用户名 |
-| password | String | 是 | 密码 |
-
-### 示例请求
-```json
-{
-  "username": "testuser",
-  "password": "123456"
-}
+```http
+Authorization: Bearer <token>
 ```
 
-### 返回结果说明
-- `code`：业务状态码，200表示成功
-- `message`：响应信息
-- `data`：登录成功信息
-  - `token`：JWT token 字符串
-  - `tokenType`：token 类型，固定为 "Bearer"
-  - `expiresIn`：token 有效期，单位秒（默认 604800 秒 = 7 天）
+### 当前用户
 
-### 示例响应
-```json
-{
-  "code": 200,
-  "message": "操作成功",
-  "data": {
-    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "tokenType": "Bearer",
-    "expiresIn": 604800
-  }
-}
-```
-
----
-
-## 3. 获取当前登录用户信息
-
-### 基本信息
-- 请求路径：`/api/auth/me`
-- 请求方法：`GET`
-- 接口说明：获取当前登录用户的详细信息
-- 是否鉴权：是
-
-### 请求头
-
-| 名称          | 是否必填 | 说明         |
-| ------------- | -------- | ------------ |
-| Authorization | 是       | Bearer Token，格式为 "Bearer {token} |
-
-### 请求参数
-- 无请求参数
-
-### 示例请求
-```
+```http
 GET /api/auth/me
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Authorization: Bearer <token>
 ```
 
-### 返回结果说明
-- `code`：业务状态码，200表示成功
-- `message`：响应信息
-- `data`：用户信息对象
-  - `id`：用户ID（雪花算法生成的Long类型）
-  - `username`：用户名
-  - `role`：用户角色（0-普通用户，1-会员用户，9-管理员）
-  - `status`：用户状态（1-正常，0-封禁）
-  - `vipExpireTime`：会员到期时间（可为null）
+当前用户响应包含用户 ID、用户名、昵称、角色、状态、会员到期时间、可用额度等前端展示字段。
 
-### 示例响应
-```json
-{
-  "code": 200,
-  "message": "操作成功",
-  "data": {
-    "id": 1234567890123456789,
-    "username": "testuser",
-    "role": 0,
-    "status": 1,
-    "vipExpireTime": null
-  }
-}
+### 修改密码
+
+```http
+PUT /api/auth/password
+Authorization: Bearer <token>
+Content-Type: application/json
 ```
 
----
+请求体由 `PasswordUpdateRequest` 约束，包含旧密码与新密码。
 
-## 失败响应示例
+### 设置密保问题
 
-### 用户名已存在
-```json
-{
-  "code": 500,
-  "message": "用户名已存在",
-  "data": null
-}
+```http
+PUT /api/auth/security-question
+Authorization: Bearer <token>
+Content-Type: application/json
 ```
 
-### 用户名或密码错误
-```json
-{
-  "code": 400,
-  "message": "用户名或密码错误",
-  "data": null
-}
+请求体由 `SecurityQuestionUpdateRequest` 约束。密保答案仅用于校验，不会明文返回。
+
+### 重置密码
+
+```http
+POST /api/auth/reset-password
+Content-Type: application/json
 ```
 
-### 账号已被封禁
-```json
-{
-  "code": 500,
-  "message": "账号已被封禁",
-  "data": null
-}
+请求体由 `ResetPasswordRequest` 约束，需要用户名、密保答案和新密码。
+
+### 注销账号
+
+```http
+POST /api/user/account/delete
+Authorization: Bearer <token>
+Content-Type: application/json
 ```
 
-### 未授权（token无效或过期）
-```json
-{
-  "code": 401,
-  "message": "未授权",
-  "data": null
-}
-```
+请求体由 `AccountDeleteRequest` 约束。服务端会校验当前用户、密码、确认文本与密保信息，防止误删和越权删除。
+
+## 失败场景
+
+| 场景 | 典型结果 |
+|------|----------|
+| 用户名重复 | 注册失败 |
+| 用户名或密码错误 | 登录失败 |
+| 账号被封禁 | 登录或访问受限 |
+| Token 缺失、过期或非法 | 返回未授权 |
+| 密保答案错误 | 密码重置或注销失败 |
+| 参数为空、长度不合法 | 参数校验失败 |

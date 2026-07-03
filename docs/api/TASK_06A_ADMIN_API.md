@@ -1,194 +1,162 @@
-# TASK_06A_ADMIN 管理端接口文档
+# 管理端接口
 
-本文档覆盖当前管理端模块全部 **23 个接口**，包含岗位配置、AI 引擎配置、Prompt 管理、用户与权益管理、业务监控、数据看板增强能力。
+本文档对应当前 `/api/admin/**` 管理端 Controller。所有接口均需要管理员权限，前端管理端页面位于 `/admin`。
 
----
-
-## 0. 通用说明
-
-### 鉴权规则
-- 所有 `/api/admin/**` 接口都要求管理员权限
-- 请求头必须携带：
+## 通用说明
 
 ```http
-Authorization: Bearer <your-token>
+Authorization: Bearer <admin-token>
 ```
 
-### 统一返回结构
+- 管理员角色：`role=9`
+- 长整型 ID 前端需按字符串处理，避免 JavaScript 精度丢失。
+- API Key、TTS Key 等敏感字段返回时应脱敏，脱敏值不会被重新写回数据库。
 
-```json
-{
-  "code": 200,
-  "message": "success",
-  "data": {},
-  "timestamp": 1712345678901
-}
-```
+## 岗位配置
 
-### 常见状态字段
-- `isActive`: `1` 启用，`0` 禁用
-- `businessType`: `interview` / `resume`
-- `role`: `0` 普通用户，`1` VIP，`9` 管理员
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/admin/job-roles` | 岗位列表 |
+| POST | `/api/admin/job-roles` | 新增岗位 |
+| PUT | `/api/admin/job-roles` | 修改岗位 |
+| PUT | `/api/admin/job-roles/{id}/active` | 启用或禁用岗位 |
+| DELETE | `/api/admin/job-roles/{id}` | 删除岗位 |
+| POST | `/api/admin/job-roles/batch-delete` | 批量删除岗位 |
+| PUT | `/api/admin/job-roles/batch/active` | 批量启用或禁用岗位 |
 
----
+## Prompt 管理
 
-## 1. 岗位配置接口（4）
-1. `GET /api/admin/job-roles`
-2. `POST /api/admin/job-roles`
-3. `PUT /api/admin/job-roles`
-4. `PUT /api/admin/job-roles/{id}/active`
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/admin/prompts` | Prompt 列表 |
+| POST | `/api/admin/prompts` | 新增 Prompt |
+| PUT | `/api/admin/prompts` | 修改 Prompt |
+| PUT | `/api/admin/prompts/{id}/active` | 启用或禁用 Prompt |
+| DELETE | `/api/admin/prompts/{id}` | 删除 Prompt |
+| POST | `/api/admin/prompts/batch-delete` | 批量删除 Prompt |
+| PUT | `/api/admin/prompts/batch/active` | 批量启用或禁用 Prompt |
 
----
+规则：同一岗位、同一难度、同一场景下只能保留符合业务要求的启用配置。
 
-## 2. AI 引擎配置接口（4）
-1. `GET /api/admin/ai-engines`
-2. `POST /api/admin/ai-engines`
-3. `PUT /api/admin/ai-engines`
-4. `PUT /api/admin/ai-engines/{id}/active`
+## AI 引擎配置
 
-规则补充：
-- 同一 `businessType` 同时最多只有一个启用配置
-- 列表接口返回的 `apiKey` 为脱敏值
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/admin/ai-engines` | AI 引擎列表 |
+| POST | `/api/admin/ai-engines` | 新增 AI 引擎 |
+| PUT | `/api/admin/ai-engines` | 修改 AI 引擎 |
+| POST | `/api/admin/ai-engines/connectivity-test` | 连通性测试 |
+| POST | `/api/admin/ai-engines/models` | 模型发现 |
+| PUT | `/api/admin/ai-engines/{id}/active` | 启用或禁用引擎 |
+| DELETE | `/api/admin/ai-engines/{id}` | 删除引擎 |
+| POST | `/api/admin/ai-engines/batch-delete` | 批量删除引擎 |
+| PUT | `/api/admin/ai-engines/batch/active` | 批量启用或禁用引擎 |
 
----
+## 系统 TTS 配置
 
-## 3. Prompt 管理接口（4）
-1. `GET /api/admin/prompts`
-2. `POST /api/admin/prompts`
-3. `PUT /api/admin/prompts`
-4. `PUT /api/admin/prompts/{id}/active`
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/admin/tts-config` | 获取系统 TTS 配置 |
+| PUT | `/api/admin/tts-config` | 保存系统 TTS 配置 |
+| POST | `/api/admin/tts-config/test-connectivity` | 测试 TTS 连通性 |
+| POST | `/api/admin/tts-config/discover` | 发现 TTS 音色 |
+| POST | `/api/admin/tts-config/preview` | TTS 试听 |
 
-规则补充：
-- Prompt 岗位字段必须来自 `sys_job_role`
-- 返回结构包含 `jobRoleCode` 与 `jobRoleName`
+## 用户与权益
 
----
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/admin/users` | 用户列表 |
+| GET | `/api/admin/users/stats` | 用户统计 |
+| GET | `/api/admin/users/{userId}/rights` | 用户权益 |
+| PUT | `/api/admin/users/{userId}/rights` | 修改用户权益 |
+| PUT | `/api/admin/users/{userId}/status` | 修改用户状态 |
+| PUT | `/api/admin/users/batch/status` | 批量修改状态 |
+| PUT | `/api/admin/users/{userId}/ban` | 封禁用户 |
+| PUT | `/api/admin/users/{userId}/unban` | 解封用户 |
+| PUT | `/api/admin/users/batch/ban` | 批量封禁 |
+| PUT | `/api/admin/users/batch/unban` | 批量解封 |
+| GET | `/api/admin/users/{userId}/quota` | 用户配额 |
+| PUT | `/api/admin/users/quota` | 调整用户配额 |
+| GET | `/api/admin/users/{userId}/consumption-log` | 用户消耗记录 |
+| GET | `/api/admin/users/{userId}/interviews` | 用户面试记录 |
+| GET | `/api/admin/users/{userId}/resume-tasks` | 用户简历任务 |
 
-## 4. 用户与权益管理接口（6）
-1. `GET /api/admin/users`
-2. `GET /api/admin/users/{userId}/rights`
-3. `PUT /api/admin/users/{userId}/rights`
-4. `PUT /api/admin/users/{userId}/status`
-5. `GET /api/admin/users/{userId}/quota`
-6. `PUT /api/admin/users/quota`
+## 看板与监控
 
----
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/admin/dashboard/overview` | 看板总览 |
+| GET | `/api/admin/dashboard/summary` | 看板摘要 |
+| GET | `/api/admin/dashboard/trends` | 趋势统计 |
+| GET | `/api/admin/dashboard/hot-job-roles` | 热门岗位 |
+| GET | `/api/admin/dashboard/business-distribution` | 业务分布 |
+| GET | `/api/admin/monitor/overview` | 业务监控总览 |
 
-## 5. 数据看板接口（4）
+看板日期参数通常为 `startDate`、`endDate`，具体范围校验以 Controller 和 Service 实现为准。
 
-### 5.1 GET `/api/admin/dashboard/overview`
-作用：看板总览统计，支持日期范围筛选。
+## 会员与订单
 
-Query 参数：
-- `startDate`（可选，`yyyy-MM-dd`）
-- `endDate`（可选，`yyyy-MM-dd`）
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/admin/membership/plans` | 套餐列表 |
+| POST | `/api/admin/membership/plans` | 新增套餐 |
+| PUT | `/api/admin/membership/plans` | 修改套餐 |
+| PUT | `/api/admin/membership/plans/{id}/active` | 启用或禁用套餐 |
+| PUT | `/api/admin/membership/plans/batch/active` | 批量启用或禁用套餐 |
+| DELETE | `/api/admin/membership/plans/{id}` | 删除套餐 |
+| POST | `/api/admin/membership/plans/batch-delete` | 批量删除套餐 |
+| GET | `/api/admin/membership/orders` | 订单列表 |
 
-兼容默认：
-- 不传参数时默认统计“今天”
+## 通知与版本日志
 
-返回字段：
-- `totalUserCount`
-- `vipUserCount`
-- `activePromptCount`
-- `activeJobRoleCount`
-- `activeAiEngineCount`
-- `todayInterviewSessionCount`
-- `todayResumeDiagnosisCount`
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/admin/notifications` | 通知列表 |
+| GET | `/api/admin/notifications/{id}` | 通知详情 |
+| POST | `/api/admin/notifications` | 创建通知 |
+| PUT | `/api/admin/notifications/{id}/publish` | 发布或撤回通知 |
+| PUT | `/api/admin/notifications/batch/publish` | 批量发布或撤回 |
+| DELETE | `/api/admin/notifications/{id}` | 删除通知 |
+| POST | `/api/admin/notifications/batch-delete` | 批量删除通知 |
+| GET | `/api/admin/version-logs` | 版本日志列表 |
+| POST | `/api/admin/version-logs` | 创建版本日志 |
+| PUT | `/api/admin/version-logs` | 修改版本日志 |
+| PUT | `/api/admin/version-logs/{id}/publish` | 发布或撤回版本日志 |
+| PUT | `/api/admin/version-logs/batch/publish` | 批量发布或撤回 |
+| DELETE | `/api/admin/version-logs/{id}` | 删除版本日志 |
+| POST | `/api/admin/version-logs/batch-delete` | 批量删除版本日志 |
 
-### 5.2 GET `/api/admin/dashboard/trends`
-作用：趋势统计，支持日期范围筛选。
+## 审计、成长、社区与反馈
 
-Query 参数：
-- `startDate`（可选，`yyyy-MM-dd`）
-- `endDate`（可选，`yyyy-MM-dd`）
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/admin/audit-logs` | 用户权益变更审计日志 |
+| GET | `/api/admin/growth-config` | 成长配置列表 |
+| POST | `/api/admin/growth-config` | 新增成长配置 |
+| PUT | `/api/admin/growth-config` | 修改成长配置 |
+| DELETE | `/api/admin/growth-config/{id}` | 删除成长配置 |
+| POST | `/api/admin/growth-config/batch-delete` | 批量删除成长配置 |
+| GET | `/api/admin/community/posts` | 帖子审核列表 |
+| GET | `/api/admin/community/comments` | 评论审核列表 |
+| PUT | `/api/admin/community/posts/{postId}/review` | 审核帖子 |
+| PUT | `/api/admin/community/comments/{commentId}/review` | 审核评论 |
+| GET | `/api/admin/feedback` | 反馈列表 |
+| GET | `/api/admin/feedback/{id}` | 反馈详情 |
+| PUT | `/api/admin/feedback/{id}/status` | 更新反馈状态 |
+| POST | `/api/admin/feedback/batch-delete` | 批量删除反馈 |
 
-兼容默认：
-- 不传参数时默认最近 7 天
+## 自定义 AI 统计与限额
 
-返回字段：
-- `date`
-- `interviewSessionCount`
-- `resumeDiagnosisCount`
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/admin/custom-ai/usage-stats` | 自定义 AI 用量统计 |
+| GET | `/api/admin/custom-ai/usage-trends` | 自定义 AI 用量趋势 |
+| GET | `/api/admin/custom-ai/daily-limit` | 查询每日限额 |
+| PUT | `/api/admin/custom-ai/daily-limit` | 修改每日限额 |
 
-### 5.3 GET `/api/admin/dashboard/hot-job-roles`
-作用：热门岗位排行，支持日期范围和条数限制。
+## 开发调试接口
 
-Query 参数：
-- `startDate`（可选，`yyyy-MM-dd`）
-- `endDate`（可选，`yyyy-MM-dd`）
-- `limit`（可选，默认 10，最大 50）
-
-返回字段：
-- `jobRole`
-- `sessionCount`
-
-### 5.4 GET `/api/admin/dashboard/business-distribution`
-作用：业务分布统计（面试/简历），用于饼图或占比图。
-
-Query 参数：
-- `startDate`（可选，`yyyy-MM-dd`）
-- `endDate`（可选，`yyyy-MM-dd`）
-
-默认行为：
-- 不传参数时默认最近 7 天
-
-返回字段：
-- `startDate`
-- `endDate`
-- `interviewCount`
-- `resumeCount`
-- `totalCount`
-- `interviewPercent`
-- `resumePercent`
-
----
-
-## 6. 业务监控接口（1）
-
-### 6.1 GET `/api/admin/monitor/overview`
-作用：业务监控总览（应用层统计版）。
-
-返回字段：
-- `pendingResumeTaskCount`
-- `processingResumeTaskCount`
-- `failedResumeTaskCount`
-- `completedResumeTaskCount`
-- `activeInterviewSessionCount`
-- `todayInterviewSessionCount`
-- `todayResumeDiagnosisCount`
-- `todayResumePolishCount`
-- `todayJobMatchCount`
-- `todayCommunityPostCount`
-- `pendingFeedbackCount`
-- `processingFeedbackCount`
-- `todayFeedbackCount`
-- `pendingCommunityPostCount`
-- `pendingCommunityCommentCount`
-- `pendingCommunityReviewCount`
-- `todayOrderCount`
-
-口径说明：
-- 当前接口仍为应用层业务表统计版，不依赖 Redis、RabbitMQ、JVM 或数据库连接池探活。
-- `pendingCommunityReviewCount = pendingCommunityPostCount + pendingCommunityCommentCount`。
-- 今日类指标统一按 `[今日 00:00, 明日 00:00)` 的 `create_time` 半开区间统计。
-
----
-
-## 7. 统一参数校验规则（看板接口）
-- `startDate` 不能大于 `endDate`
-- 单次查询范围不能超过 90 天
-- 统计口径统一：
-  - 面试统计按 `InterviewSession.createTime`
-  - 简历诊断按 `ResumeDiagnosisTask.createTime`
-
----
-
-## 8. 错误响应示例
-
-```json
-{
-  "code": 500,
-  "message": "startDate 不能大于 endDate",
-  "data": null
-}
-```
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/debug/ai-config` | 查看当前 AI 配置解析状态，仅用于开发排查 |

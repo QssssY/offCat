@@ -1,182 +1,143 @@
-# TASK_04_RESUME 接口文档
+# 简历诊断与简历处理接口
 
-## 1. 上传简历并创建诊断任务
+本文档对应 `ResumeDiagnosisController`、`ResumePdfController` 与 `TemplateController` 的当前实现。
 
-### 基本信息
-- 请求路径：`/api/resume/upload`
-- 请求方法：`POST`
-- 接口说明：上传PDF简历并创建诊断任务，任务会异步处理
-- 是否鉴权：是
+## 通用说明
 
-### 请求头
+- 主要前缀：`/api/resume`
+- 模板前缀：`/api/template`
+- 鉴权：除无特殊说明外均需 `Authorization: Bearer <token>`
+- 简历上传当前为 `multipart/form-data`，不是旧版 `fileUrl` JSON 占位模式。
+- 诊断任务支持智能路由：低负载时直接异步处理，高负载时进入 RabbitMQ。
 
-| 名称          | 是否必填 | 说明         |
-| ------------- | -------- | ------------ |
-| Authorization | 是       | Bearer Token |
+## 接口列表
 
-### 请求参数
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/resume/upload` | 上传简历文件并创建诊断任务 |
+| GET | `/api/resume/task/{taskId}` | 查询任务详情 |
+| GET | `/api/resume/task/{taskId}/status` | 查询任务阶段状态 |
+| GET | `/api/resume/history` | 查询诊断历史 |
+| DELETE | `/api/resume/history` | 清空诊断历史 |
+| DELETE | `/api/resume/history/{taskId}` | 删除单条诊断历史 |
+| POST | `/api/resume/task/{taskId}/retry` | 重试失败任务 |
+| POST | `/api/resume/job-match/analyze` | 简历与 JD 匹配分析 |
+| POST | `/api/resume/polish/analyze` | AI 简历润色 |
+| PUT | `/api/resume/polish-records/{polishRecordId}/document` | 更新润色后的结构化文档 |
+| POST | `/api/resume/export-pdf` | 导出 PDF |
+| GET | `/api/resume/download-pdf/{fileId}` | 下载导出的 PDF |
+| POST | `/api/template/use` | 使用模板并扣减模板额度 |
 
-| 字段名  | 类型   | 是否必填 | 说明               |
-|---------|--------|----------|--------------------|
-| fileUrl | string | 是       | PDF简历存储地址    |
+## 上传简历
 
-### 示例请求
-```json
-{
-  "fileUrl": "https://example.com/resumes/user-resume.pdf"
-}
+```http
+POST /api/resume/upload
+Authorization: Bearer <token>
+Content-Type: multipart/form-data
 ```
 
-### 返回结果说明
-- `code`：业务状态码
-- `message`：响应信息
-- `data`：任务ID（Long类型）
-- `timestamp`：响应时间
+表单字段以 `ResumeUploadRequest` 和 Controller 入参为准，核心字段为上传文件。服务端会校验文件类型与用户额度，创建 `resume_diagnosis_task` 后返回任务信息。
 
-### 示例响应
-```json
-{
-  "code": 200,
-  "message": "简历诊断任务已提交",
-  "data": 1789012345678901234,
-  "timestamp": 1712345678901
-}
+支持的业务能力：
+
+- PDF/DOC/DOCX 简历上传。
+- PDFBox 文本提取。
+- 文本不足时可走多模态或 OCR 解析链路。
+- 诊断阶段进度记录。
+- AI 诊断结果结构化存储。
+- 失败任务自动退还配额，可手动重试。
+
+## 查询任务
+
+```http
+GET /api/resume/task/{taskId}
+Authorization: Bearer <token>
 ```
 
----
+任务详情包含任务状态、阶段进度、文件信息、诊断结果、错误信息、创建和更新时间等字段。只能查询当前用户自己的任务。
 
-## 2. 查询任务详情
-
-### 基本信息
-- 请求路径：`/api/resume/task/{taskId}`
-- 请求方法：`GET`
-- 接口说明：根据任务ID查询简历诊断任务的详细信息，包括状态和结果
-- 是否鉴权：是
-
-### 请求头
-
-| 名称          | 是否必填 | 说明         |
-| ------------- | -------- | ------------ |
-| Authorization | 是       | Bearer Token |
-
-### 路径参数
-
-| 字段名 | 类型   | 是否必填 | 说明     |
-|--------|--------|----------|----------|
-| taskId | Long   | 是       | 任务ID   |
-
-### 请求参数
-- 无请求参数
-
-### 示例请求
-```
-GET /api/resume/task/1789012345678901234
+```http
+GET /api/resume/task/{taskId}/status
+Authorization: Bearer <token>
 ```
 
-### 返回结果说明
-- `code`：业务状态码
-- `message`：响应信息
-- `data`：任务详情对象
-- `timestamp`：响应时间
+状态接口用于前端轮询任务进度，重点关注：
 
-data 字段说明：
+- 当前任务状态。
+- 当前处理阶段。
+- 是否完成。
+- 是否失败及失败原因。
 
-| 字段名           | 类型     | 说明                     |
-|------------------|----------|--------------------------|
-| taskId           | Long     | 任务ID                   |
-| userId           | Long     | 用户ID                   |
-| fileUrl          | string   | PDF简历存储地址          |
-| status           | Integer  | 任务状态：0-排队中，1-解析分析中，2-完成，3-失败 |
-| statusDesc       | string   | 任务状态描述             |
-| diagnosisResult  | string   | AI返回的结构化诊断报告（JSON格式，仅完成时有值） |
-| errorMsg         | string   | 失败时的异常记录（仅失败时有值） |
-| createTime       | DateTime | 创建时间                 |
-| updateTime       | DateTime | 更新时间                 |
+## 历史与清理
 
-### 示例响应
-```json
-{
-  "code": 200,
-  "message": "success",
-  "data": {
-    "taskId": 1789012345678901234,
-    "userId": 1789012345678901001,
-    "fileUrl": "https://example.com/resumes/user-resume.pdf",
-    "status": 2,
-    "statusDesc": "已完成",
-    "diagnosisResult": "{\"basicInfo\":{\"score\":85,\"hasName\":true},\"overall\":{\"totalScore\":78}}",
-    "errorMsg": null,
-    "createTime": "2024-04-01T10:00:00",
-    "updateTime": "2024-04-01T10:00:05"
-  },
-  "timestamp": 1712345678901
-}
-```
-
----
-
-## 3. 查询历史记录
-
-### 基本信息
-- 请求路径：`/api/resume/history`
-- 请求方法：`GET`
-- 接口说明：查询当前登录用户的简历诊断历史记录列表
-- 是否鉴权：是
-
-### 请求头
-
-| 名称          | 是否必填 | 说明         |
-| ------------- | -------- | ------------ |
-| Authorization | 是       | Bearer Token |
-
-### 请求参数
-- 无请求参数
-
-### 示例请求
-```
+```http
 GET /api/resume/history
+DELETE /api/resume/history
+DELETE /api/resume/history/{taskId}
 ```
 
-### 返回结果说明
-- `code`：业务状态码
-- `message`：响应信息
-- `data`：历史记录数组
-- `timestamp`：响应时间
+历史接口按当前用户隔离。删除接口只影响当前用户可访问的历史记录，不允许越权操作其他用户任务。
 
-data 数组元素说明：
+## 失败重试
 
-| 字段名     | 类型     | 说明                     |
-|------------|----------|--------------------------|
-| taskId     | Long     | 任务ID                   |
-| fileUrl    | string   | PDF简历存储地址          |
-| status     | Integer  | 任务状态：0-排队中，1-解析分析中，2-完成，3-失败 |
-| statusDesc | string   | 任务状态描述             |
-| createTime | DateTime | 创建时间                 |
-| updateTime | DateTime | 更新时间                 |
-
-### 示例响应
-```json
-{
-  "code": 200,
-  "message": "success",
-  "data": [
-    {
-      "taskId": 1789012345678901234,
-      "fileUrl": "https://example.com/resumes/user-resume.pdf",
-      "status": 2,
-      "statusDesc": "已完成",
-      "createTime": "2024-04-01T10:00:00",
-      "updateTime": "2024-04-01T10:00:05"
-    },
-    {
-      "taskId": 1789012345678901235,
-      "fileUrl": "https://example.com/resumes/user-resume-v2.pdf",
-      "status": 0,
-      "statusDesc": "排队中",
-      "createTime": "2024-04-01T11:00:00",
-      "updateTime": "2024-04-01T11:00:00"
-    }
-  ],
-  "timestamp": 1712345678901
-}
+```http
+POST /api/resume/task/{taskId}/retry
+Authorization: Bearer <token>
 ```
+
+仅失败任务可重试。重试会重新进入诊断处理链路，并更新任务状态与阶段信息。
+
+## JD 匹配
+
+```http
+POST /api/resume/job-match/analyze
+Authorization: Bearer <token>
+Content-Type: application/json
+```
+
+请求体由 `ResumeJobMatchAnalyzeRequest` 约束，用于提交简历任务、目标岗位或 JD 文本，生成岗位匹配度、关键词命中、缺口与优化建议。
+
+## AI 简历润色
+
+```http
+POST /api/resume/polish/analyze
+Authorization: Bearer <token>
+Content-Type: application/json
+```
+
+请求体由 `ResumePolishAnalyzeRequest` 约束。返回内容包含润色文本、结构化简历文档和润色记录 ID。
+
+```http
+PUT /api/resume/polish-records/{polishRecordId}/document
+Authorization: Bearer <token>
+Content-Type: application/json
+```
+
+用于前端模板编辑器保存润色后的结构化文档。
+
+## PDF 导出
+
+```http
+POST /api/resume/export-pdf
+Authorization: Bearer <token>
+Content-Type: application/json
+```
+
+PDF 导出使用 Headless Chrome，依赖 `app.pdf.chrome-path` 配置。服务端会对 HTML 内容做安全处理后生成文件。
+
+```http
+GET /api/resume/download-pdf/{fileId}
+Authorization: Bearer <token>
+```
+
+下载指定导出结果。
+
+## 模板使用
+
+```http
+POST /api/template/use
+Authorization: Bearer <token>
+Content-Type: application/json
+```
+
+用于记录模板使用并扣减模板相关额度。前端模板库和模板编辑器依赖该接口完成模板使用链路。
