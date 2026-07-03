@@ -1,0 +1,178 @@
+/* ============================================
+ * 工业风格 — 制造/工程
+ * 无header背景 + 粗体大写标题 + 左侧竖条section
+ * 硬朗方形标签 + > 符号要点 + 工业极简
+ * 适配：亮色/暗色 · 打印 · 移动端
+ * ============================================ */
+
+/* ——— CSS 自定义属性 ——— */
+.resume-tpl-manufacture-industrial.resume-tpl-manufacture-industrial {
+  --tpl-accent: #78716C;
+  --tpl-accent-dark: #57534E;
+  --tpl-accent-soft: #F5F5F4;
+  --tpl-accent-border: #D6D3D1;
+  --tpl-text: #1C1917;
+  --tpl-heading: #0C0A09;
+  --tpl-muted: #78716C;
+  --tpl-line: #D6D3D1;
+  --tpl-bg: #FAFAF9;
+  --tpl-surface: #FFFFFF;
+  --tpl-radius-sm: 3px;
+  --tpl-radius-md: 6px;
+
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', sans-serif;
+  font-size: 14px;
+  color: var(--tpl-text);
+  line-height: 1.65;
+  background: var(--tpl-bg);
+  padding: 36px 40px;
+}
+
+/* ——— Header：底线分隔 ——— */
+.resume-tpl-manufacture-industrial .resume-header {
+  padding-bottom: 22px;
+  border-bottom: 4px solid var(--tpl-accent);
+  margin-bottom: 28px;
+  transition: border-color 0.25s;
+}
+.resume-tpl-manufacture-industrial .header-main {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 24px;
+}
+.resume-tpl-manufacture-industrial .header-text { flex: 1; min-width: 0; }
+
+/* 姓名 */
+.resume-tpl-manufacture-industrial .name {
+  font-size: 32px; font-weight: 800; color: var(--tpl-heading);
+  margin-bottom: 6px; letter-spacing: 0.06em; width: 100%;
+}
+
+/* 职位：大写标签 */
+.resume-tpl-manufacture-industrial .profile-badge {
+  display: inline-block; font-size: 12px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.15em;
+  color: var(--tpl-accent); margin-bottom: 14px;
+}
+
+/* 联系方式 */
+.resume-tpl-manufacture-industrial .meta-list {
+  display: flex; flex-wrap: wrap; gap: 16px 22px;
+  font-size: 13px; color: var(--tpl-muted);
+}
+.resume-tpl-manufacture-industrial .meta-item { display: flex; align-items: center; gap: 5px; }
+.resume-tpl-manufacture-industrial .meta-icon { display: inline-flex; font-size: 13px; opacity: 0.8; }
+
+/* 照片 */
+.resume-tpl-manufacture-industrial .header-photo {
+  display: flex; align-items: center; justify-content: center;
+  width: 100px; height: 130px; flex-shrink: 0;
+  border: 2px dashed #D1D5DB; border-radius: var(--tpl-radius-md);
+  background: var(--tpl-surface); overflow: hidden;
+  transition: border-color 0.2s;
+}
+.resume-tpl-manufacture-industrial .header-photo:hover { border-color: var(--tpl-accent); }
+.resume-tpl-manufacture-industrial .header-photo img { width: 100%; height: 100%; object-fit: cover; }
+.resume-tpl-manufacture-industrial .photo-placeholder {
+  font-size: 11px; color: #9CA3AF; text-align: center; line-height: 1.3;
+}
+
+/* ——— Body ——— */
+.resume-tpl-manufacture-industrial .resume-body { padding: 0; }
+.resume-tpl-manufacture-industrial .section { margin-bottom: 24px; }
+.resume-tpl-manufacture-industrial .section:last-child { margin-bottom: 0; }
+
+/* Section 标题：左侧粗竖条 + 大写（无dot/line） */
+.resume-tpl-manufacture-industrial .section-tab {
+  display: flex; align-items: center;
+}
+.resume-tpl-manufacture-industrial .section-tab-dot { display: none; }
+.resume-tpl-manufacture-industrial .section-line { display: none; }
+.resume-tpl-manufacture-industrial .section-title {
+  font-size: 14px; font-weight: 800; color: var(--tpl-heading);
+  text-transform: uppercase; letter-spacing: 0.12em;
+  padding-left: 14px; border-left: 4px solid var(--tpl-accent);
+  margin-bottom: 16px;
+  transition: border-color 0.25s;
+}
+.resume-tpl-manufacture-industrial .section-tab:hover .section-title {
+  border-left-color: var(--tpl-accent-dark);
+}
+
+/* ——— 个人简介 ——— */
+.resume-tpl-manufacture-industrial .summary-text {
+  font-size: 14px; color: #44403C; line-height: 1.85;
+}
+
+/* ——— 技能：极简文字列 ——— */
+.resume-tpl-manufacture-industrial .skills-list {
+  display: flex; flex-direction: column; gap: 5px;
+}
+.resume-tpl-manufacture-industrial .skill-tag {
+  background: none; border: none; padding: 0;
+  font-size: 13px; color: #44403C; line-height: 1.7;
+  transition: color 0.15s;
+}
+.resume-tpl-manufacture-industrial .skill-tag:hover { color: var(--tpl-accent); }
+
+/* ——— 经历条目 ——— */
+.resume-tpl-manufacture-industrial .experience-item {
+  margin-bottom: 16px;
+  transition: transform 0.15s;
+}
+.resume-tpl-manufacture-industrial .experience-item:hover { transform: translateX(3px); }
+.resume-tpl-manufacture-industrial .experience-item:last-child { margin-bottom: 0; }
+.resume-tpl-manufacture-industrial .exp-header {
+  display: flex; justify-content: space-between; align-items: baseline;
+  flex-wrap: wrap; gap: 8px; margin-bottom: 3px;
+}
+.resume-tpl-manufacture-industrial .exp-company {
+  font-size: 14.5px; font-weight: 700; color: var(--tpl-heading);
+}
+.resume-tpl-manufacture-industrial .exp-date {
+  font-size: 12px; color: var(--tpl-muted); font-weight: 500;
+  background: var(--tpl-accent-soft); padding: 3px 10px; border-radius: var(--tpl-radius-sm);
+  white-space: nowrap;
+}
+.resume-tpl-manufacture-industrial .exp-position {
+  font-size: 13px; color: var(--tpl-accent); font-weight: 700; margin-bottom: 5px;
+}
+.resume-tpl-manufacture-industrial .exp-desc {
+  font-size: 13px; color: #44403C; line-height: 1.7;
+}
+
+/* 要点：> 符号 */
+.resume-tpl-manufacture-industrial .exp-highlights { list-style: none; padding: 0; margin: 6px 0 0; }
+.resume-tpl-manufacture-industrial .exp-highlights li {
+  font-size: 13px; color: #44403C; padding-left: 16px; position: relative;
+  margin-bottom: 4px; line-height: 1.6;
+}
+.resume-tpl-manufacture-industrial .exp-highlights li::before {
+  content: '>'; position: absolute; left: 0; top: 0;
+  color: var(--tpl-accent); font-weight: 800;
+}
+
+/* 自定义文本 */
+.resume-tpl-manufacture-industrial .custom-text {
+  font-size: 14px; color: #44403C; line-height: 1.85;
+}
+
+/* ——— 打印优化 ——— */
+@media print {
+  .resume-tpl-manufacture-industrial.resume-tpl-manufacture-industrial {
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    padding: 24px 32px;
+  }
+  .resume-tpl-manufacture-industrial .section { break-inside: avoid; }
+  .resume-tpl-manufacture-industrial .experience-item { break-inside: avoid; }
+}
+
+/* ——— 移动端 ——— */
+@media (max-width: 768px) {
+  .resume-tpl-manufacture-industrial.resume-tpl-manufacture-industrial {
+    padding: 20px 16px; font-size: 13px;
+  }
+  .resume-tpl-manufacture-industrial .name { font-size: 24px; letter-spacing: 0.04em; }
+  .resume-tpl-manufacture-industrial .header-main { flex-direction: column-reverse; align-items: flex-start; }
+  .resume-tpl-manufacture-industrial .header-photo { width: 80px; height: 104px; align-self: flex-start; }
+  .resume-tpl-manufacture-industrial .meta-list { gap: 10px 14px; font-size: 12px; }
+  .resume-tpl-manufacture-industrial .section-title { font-size: 13px; }
+}

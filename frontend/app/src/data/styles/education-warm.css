@@ -1,0 +1,212 @@
+/* ============================================
+ * 温暖教育 — 教育/培训
+ * 绿色渐变header + 装饰圆 + 圆润section标签
+ * 柔和配色 + 圆形要点 + 圆角pill技能标签
+ * 适配：亮色/暗色 · 打印 · 移动端
+ * ============================================ */
+
+/* ——— CSS 自定义属性 ——— */
+.resume-tpl-education-warm.resume-tpl-education-warm {
+  --tpl-accent: #059669;
+  --tpl-accent-dark: #047857;
+  --tpl-accent-soft: #ECFDF5;
+  --tpl-accent-border: #A7F3D0;
+  --tpl-text: #1F2937;
+  --tpl-heading: #111827;
+  --tpl-muted: #6B7280;
+  --tpl-line: #D1FAE5;
+  --tpl-bg: #FFFFFF;
+  --tpl-surface: #F9FAFB;
+  --tpl-header-bg: linear-gradient(135deg, #059669 0%, #047857 100%);
+  --tpl-header-text: #FFFFFF;
+  --tpl-photo-border: rgba(255,255,255,0.4);
+  --tpl-photo-bg: rgba(255,255,255,0.15);
+  --tpl-radius-sm: 4px;
+  --tpl-radius-md: 6px;
+  --tpl-radius-lg: 16px;
+  --tpl-radius-pill: 999px;
+
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', sans-serif;
+  font-size: 14px;
+  color: var(--tpl-text);
+  line-height: 1.65;
+  background: var(--tpl-bg);
+  padding: 0;
+}
+
+/* ——— Header：绿色渐变 + 装饰圆 ——— */
+.resume-tpl-education-warm .resume-header {
+  background: var(--tpl-header-bg);
+  color: var(--tpl-header-text);
+  padding: 32px 36px 28px;
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.resume-tpl-education-warm .resume-header::after {
+  content: ''; position: absolute; bottom: -24px; right: 24px; z-index: 0;
+  width: 90px; height: 90px; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+}
+.resume-tpl-education-warm .header-main {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 24px;
+}
+.resume-tpl-education-warm .header-text { flex: 1; min-width: 0; }
+
+/* 姓名 */
+.resume-tpl-education-warm .name {
+  font-size: 30px; font-weight: 700; letter-spacing: 0.02em;
+  line-height: 1.15; margin-bottom: 8px; width: 100%;
+  position: relative; z-index: 1;
+}
+
+/* 职位pill */
+.resume-tpl-education-warm .profile-badge {
+  display: inline-block;
+  background: rgba(255, 255, 255, 0.15); border-radius: var(--tpl-radius-pill);
+  padding: 5px 18px; font-size: 13.5px; font-weight: 500;
+  margin-bottom: 16px; position: relative; z-index: 1;
+  transition: background 0.2s;
+}
+.resume-tpl-education-warm .profile-badge:hover { background: rgba(255, 255, 255, 0.22); }
+
+/* 联系方式 */
+.resume-tpl-education-warm .meta-list {
+  display: flex; flex-wrap: wrap; gap: 16px 22px; font-size: 13px;
+  opacity: 0.9; position: relative; z-index: 1;
+}
+.resume-tpl-education-warm .meta-item { display: flex; align-items: center; gap: 5px; }
+.resume-tpl-education-warm .meta-icon { display: inline-flex; font-size: 13px; opacity: 0.8; }
+
+/* 照片 */
+.resume-tpl-education-warm .header-photo {
+  display: flex; align-items: center; justify-content: center;
+  width: 100px; height: 130px; flex-shrink: 0;
+  border: 2px dashed var(--tpl-photo-border); border-radius: var(--tpl-radius-md);
+  background: var(--tpl-photo-bg); overflow: hidden;
+}
+.resume-tpl-education-warm .header-photo img { width: 100%; height: 100%; object-fit: cover; }
+.resume-tpl-education-warm .photo-placeholder {
+  font-size: 11px; color: rgba(255,255,255,0.65); text-align: center; line-height: 1.3;
+}
+
+/* ——— Body ——— */
+.resume-tpl-education-warm .resume-body { padding: 28px 36px 32px; }
+.resume-tpl-education-warm .section { margin-bottom: 28px; }
+.resume-tpl-education-warm .section:last-child { margin-bottom: 0; }
+
+/* Section Tab：绿色渐变 + 圆角 */
+.resume-tpl-education-warm .section-tab {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 14px 7px 12px;
+  background: linear-gradient(90deg, rgba(5, 150, 105, 0.10), rgba(5, 150, 105, 0.01));
+  border-left: 3px solid var(--tpl-accent);
+  border-radius: 0 var(--tpl-radius-lg) var(--tpl-radius-lg) 0;
+  margin-bottom: 6px;
+  transition: border-color 0.25s, background 0.25s;
+}
+.resume-tpl-education-warm .section-tab:hover {
+  border-left-color: var(--tpl-accent-dark);
+  background: linear-gradient(90deg, rgba(5, 150, 105, 0.15), rgba(5, 150, 105, 0.03));
+}
+.resume-tpl-education-warm .section-tab-dot {
+  display: block; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--tpl-accent); flex-shrink: 0;
+  transition: transform 0.25s, background 0.25s;
+}
+.resume-tpl-education-warm .section-tab:hover .section-tab-dot { transform: scale(1.3); }
+.resume-tpl-education-warm .section-title {
+  font-size: 15px; font-weight: 700; color: var(--tpl-accent);
+  letter-spacing: 0.04em;
+}
+.resume-tpl-education-warm .section-line {
+  display: block; height: 1px;
+  background: linear-gradient(90deg, rgba(5, 150, 105, 0.3), rgba(209, 250, 229, 0.4));
+  margin: 0 0 14px 15px;
+}
+
+/* ——— 个人简介 ——— */
+.resume-tpl-education-warm .summary-text {
+  font-size: 14px; color: #4B5563; line-height: 1.85; padding-left: 15px;
+}
+
+/* ——— 技能标签：圆角pill ——— */
+.resume-tpl-education-warm .skills-list {
+  display: flex; flex-wrap: wrap; gap: 10px; padding-left: 15px;
+}
+.resume-tpl-education-warm .skill-tag {
+  display: inline-flex; align-items: center;
+  background: var(--tpl-accent-soft); color: var(--tpl-accent);
+  padding: 5px 16px; border-radius: var(--tpl-radius-pill);
+  font-size: 13px; font-weight: 500; line-height: 1.5;
+  white-space: normal; word-break: break-word;
+  border: 1px solid var(--tpl-accent-border);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.resume-tpl-education-warm .skill-tag:hover {
+  transform: translateY(-1px); box-shadow: 0 2px 8px rgba(5, 150, 105, 0.12);
+}
+
+/* ——— 经历条目 ——— */
+.resume-tpl-education-warm .experience-item {
+  margin-bottom: 16px; padding: 0 0 14px 15px;
+  border-bottom: 1px dashed var(--tpl-line);
+  transition: border-color 0.2s;
+}
+.resume-tpl-education-warm .experience-item:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+.resume-tpl-education-warm .experience-item:hover { border-bottom-color: var(--tpl-accent-border); }
+.resume-tpl-education-warm .exp-header {
+  display: flex; justify-content: space-between; align-items: baseline;
+  flex-wrap: wrap; gap: 8px; margin-bottom: 4px;
+}
+.resume-tpl-education-warm .exp-company {
+  font-size: 15px; font-weight: 700; color: var(--tpl-heading);
+}
+.resume-tpl-education-warm .exp-date {
+  font-size: 12px; color: var(--tpl-accent-dark); font-weight: 500;
+  background: var(--tpl-accent-soft); padding: 3px 10px; border-radius: var(--tpl-radius-sm);
+  white-space: nowrap;
+}
+.resume-tpl-education-warm .exp-position {
+  font-size: 13.5px; color: var(--tpl-accent); font-weight: 600; margin-bottom: 6px;
+}
+.resume-tpl-education-warm .exp-desc { font-size: 13px; color: var(--tpl-muted); line-height: 1.7; }
+
+/* 要点：实心圆 */
+.resume-tpl-education-warm .exp-highlights { list-style: none; padding: 0; margin: 8px 0 0; }
+.resume-tpl-education-warm .exp-highlights li {
+  font-size: 13px; color: #4B5563; padding-left: 18px; position: relative;
+  margin-bottom: 5px; line-height: 1.65;
+}
+.resume-tpl-education-warm .exp-highlights li::before {
+  content: '●'; position: absolute; left: 0; top: 6px;
+  color: var(--tpl-accent); font-size: 7px; line-height: 1;
+}
+
+/* 自定义文本 */
+.resume-tpl-education-warm .custom-text {
+  font-size: 14px; color: #4B5563; line-height: 1.85; padding-left: 15px;
+}
+
+/* ——— 打印优化 ——— */
+@media print {
+  .resume-tpl-education-warm.resume-tpl-education-warm {
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .resume-tpl-education-warm .resume-header {
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .resume-tpl-education-warm .section { break-inside: avoid; }
+  .resume-tpl-education-warm .experience-item { break-inside: avoid; }
+}
+
+/* ——— 移动端 ——— */
+@media (max-width: 768px) {
+  .resume-tpl-education-warm .resume-header { padding: 24px 20px 20px; }
+  .resume-tpl-education-warm .resume-body { padding: 20px 20px 24px; }
+  .resume-tpl-education-warm .name { font-size: 24px; }
+  .resume-tpl-education-warm .header-main { flex-direction: column-reverse; align-items: flex-start; }
+  .resume-tpl-education-warm .header-photo { width: 80px; height: 104px; align-self: flex-start; }
+  .resume-tpl-education-warm .meta-list { gap: 10px 14px; font-size: 12px; }
+  .resume-tpl-education-warm .skills-list { gap: 8px; }
+}

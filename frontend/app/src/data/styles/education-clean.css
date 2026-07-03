@@ -1,0 +1,250 @@
+/* ============================================
+ * 清新教育 — 教育/培训
+ * 左右分栏布局 + 深蓝侧边栏 + 白色主区域
+ * 圆形section图标 + 专业简洁 + 圆点标记
+ * 适配：亮色/暗色 · 打印 · 移动端
+ * ============================================ */
+
+/* ——— CSS 自定义属性 ——— */
+.resume-tpl-education-clean.resume-tpl-education-clean {
+  --tpl-accent: #1B3A5C;
+  --tpl-accent-light: #2C5282;
+  --tpl-sidebar-bg: #1B2A4A;
+  --tpl-sidebar-text: #CBD5E0;
+  --tpl-sidebar-heading: #FFFFFF;
+  --tpl-text: #2D3748;
+  --tpl-heading: #1A202C;
+  --tpl-muted: #718096;
+  --tpl-line: #E2E8F0;
+  --tpl-bg: #FFFFFF;
+  --tpl-surface: #F7FAFC;
+  --tpl-radius-sm: 3px;
+  --tpl-radius-md: 6px;
+  --tpl-radius-lg: 12px;
+  --tpl-section-icon-bg: #1B3A5C;
+
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', sans-serif;
+  font-size: 14px;
+  color: var(--tpl-text);
+  line-height: 1.65;
+  background: var(--tpl-bg);
+  padding: 0;
+  display: grid;
+  grid-template-columns: 230px 1fr;
+  min-height: 1123px;
+}
+
+/* ===== 左侧栏：resume-header 充当侧边栏 ===== */
+.resume-tpl-education-clean .resume-header {
+  grid-column: 1; grid-row: 1;
+  background: var(--tpl-sidebar-bg);
+  color: var(--tpl-sidebar-text);
+  padding: 36px 22px;
+  display: flex; flex-direction: column; gap: 0;
+  position: relative;
+}
+.resume-tpl-education-clean .header-left { flex: none; width: 100%; }
+.resume-tpl-education-clean .profile-badge {
+  display: block; background: none; border: none; border-radius: 0;
+  padding: 0; font-size: 12px; font-weight: 400;
+  color: var(--tpl-sidebar-text); opacity: 0.8;
+  text-align: center; margin-bottom: 22px; letter-spacing: 0;
+}
+
+/* 照片 */
+.resume-tpl-education-clean .header-photo {
+  order: -1;
+  width: 100px; height: 120px; border-radius: 4px;
+  margin: 0 auto 18px; flex-shrink: 0;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.12);
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+.resume-tpl-education-clean .header-photo:hover { border-color: rgba(255, 255, 255, 0.35); }
+.resume-tpl-education-clean .header-photo img { width: 100%; height: 100%; object-fit: cover; border-radius: 0; }
+.resume-tpl-education-clean .photo-placeholder {
+  font-size: 11px; color: rgba(255, 255, 255, 0.35); text-align: center; line-height: 1.3;
+}
+
+/* 姓名 */
+.resume-tpl-education-clean .name {
+  font-size: 20px; font-weight: 700; color: var(--tpl-sidebar-heading);
+  text-align: center; margin-bottom: 4px; width: 100%; letter-spacing: 0.05em;
+}
+.resume-tpl-education-clean .header-main {
+  display: flex; flex-direction: column; gap: 0;
+}
+
+/* 联系方式 */
+.resume-tpl-education-clean .meta-list {
+  display: flex; flex-direction: column; gap: 14px;
+  padding-top: 22px;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+}
+.resume-tpl-education-clean .meta-item {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 12px; color: var(--tpl-sidebar-text);
+  transition: color 0.15s;
+}
+.resume-tpl-education-clean .meta-item:hover { color: #fff; }
+
+/* 圆形图标 */
+.resume-tpl-education-clean .meta-icon {
+  display: inline-flex !important; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 50%;
+  font-size: 12px; flex-shrink: 0;
+}
+.resume-tpl-education-clean .meta-item:nth-child(1) .meta-icon { background: rgba(72, 187, 120, 0.25); }
+.resume-tpl-education-clean .meta-item:nth-child(2) .meta-icon { background: rgba(66, 153, 225, 0.25); }
+.resume-tpl-education-clean .meta-item:nth-child(3) .meta-icon { background: rgba(237, 100, 100, 0.25); }
+.resume-tpl-education-clean .meta-item:nth-child(4) .meta-icon { background: rgba(159, 122, 234, 0.25); }
+
+/* ===== 右侧主体 ===== */
+.resume-tpl-education-clean .resume-body {
+  grid-column: 2; grid-row: 1;
+  padding: 32px 40px 36px;
+}
+.resume-tpl-education-clean .section { margin-bottom: 26px; }
+.resume-tpl-education-clean .section:last-child { margin-bottom: 0; }
+
+/* Section Tab：圆形图标 + 文字 */
+.resume-tpl-education-clean .section-tab {
+  display: flex; align-items: center; gap: 12px;
+  margin-bottom: 16px;
+  transition: opacity 0.2s;
+}
+.resume-tpl-education-clean .section-tab:hover { opacity: 0.8; }
+.resume-tpl-education-clean .section-tab-dot {
+  width: 34px; height: 34px; border-radius: 50%;
+  background: var(--tpl-section-icon-bg);
+  display: flex !important; align-items: center; justify-content: center;
+  font-size: 15px; color: #fff; flex-shrink: 0;
+  transition: transform 0.2s, background 0.2s;
+}
+.resume-tpl-education-clean .section-tab:hover .section-tab-dot { transform: scale(1.1); }
+.resume-tpl-education-clean .section-line { display: none; }
+.resume-tpl-education-clean .section-title {
+  font-size: 16px; font-weight: 700; color: var(--tpl-accent);
+  letter-spacing: 0.02em;
+}
+
+/* Section图标 emoji */
+.resume-tpl-education-clean .section-education .section-tab-dot::before { content: '🎓'; }
+.resume-tpl-education-clean .section-work .section-tab-dot::before { content: '💼'; }
+.resume-tpl-education-clean .section-projects .section-tab-dot::before { content: '📋'; }
+.resume-tpl-education-clean .section-certifications .section-tab-dot::before { content: '📜'; }
+.resume-tpl-education-clean .section-awards .section-tab-dot::before { content: '🏆'; }
+.resume-tpl-education-clean .section-languages .section-tab-dot::before { content: '🌐'; }
+.resume-tpl-education-clean .section-interests .section-tab-dot::before { content: '❤️'; }
+
+/* ——— 个人简介 ——— */
+.resume-tpl-education-clean .summary-text {
+  font-size: 14px; color: var(--tpl-text); line-height: 1.85;
+}
+
+/* ——— 技能标签 ——— */
+.resume-tpl-education-clean .skills-list {
+  display: flex; flex-wrap: wrap; gap: 8px;
+}
+.resume-tpl-education-clean .skill-tag {
+  display: inline-flex; align-items: center;
+  background: var(--tpl-surface); color: var(--tpl-text);
+  padding: 5px 14px; border-radius: var(--tpl-radius-sm);
+  font-size: 12.5px; font-weight: 500; line-height: 1.5;
+  white-space: normal; word-break: break-word;
+  border: 1px solid var(--tpl-line);
+  transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+}
+.resume-tpl-education-clean .skill-tag:hover {
+  transform: translateY(-1px); box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+  border-color: #CBD5E0;
+}
+
+/* 右侧技能（section-skills-right）专用 */
+.resume-tpl-education-clean .section-skills-right .skills-list { padding-left: 0; }
+
+/* ——— 经历条目 ——— */
+.resume-tpl-education-clean .experience-item {
+  margin-bottom: 18px; padding-left: 22px; position: relative;
+  transition: transform 0.15s;
+}
+.resume-tpl-education-clean .experience-item:hover { transform: translateX(3px); }
+.resume-tpl-education-clean .experience-item:last-child { margin-bottom: 0; }
+.resume-tpl-education-clean .experience-item::before {
+  content: ''; position: absolute; left: 4px; top: 8px;
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--tpl-accent-light);
+  transition: transform 0.2s, background 0.2s;
+}
+.resume-tpl-education-clean .experience-item:hover::before { transform: scale(1.3); }
+.resume-tpl-education-clean .exp-header {
+  display: flex; justify-content: space-between; align-items: baseline;
+  flex-wrap: wrap; gap: 8px; margin-bottom: 3px;
+}
+.resume-tpl-education-clean .exp-company {
+  font-size: 14.5px; font-weight: 700; color: var(--tpl-heading);
+}
+.resume-tpl-education-clean .exp-date {
+  font-size: 12px; color: var(--tpl-muted); font-weight: 500;
+  background: var(--tpl-surface); padding: 3px 10px; border-radius: var(--tpl-radius-sm);
+  white-space: nowrap;
+}
+.resume-tpl-education-clean .exp-position {
+  font-size: 13px; color: var(--tpl-accent-light); font-weight: 500; margin-bottom: 5px;
+}
+.resume-tpl-education-clean .exp-desc {
+  font-size: 13px; color: var(--tpl-muted); margin-top: 4px; line-height: 1.7;
+}
+
+/* 要点 */
+.resume-tpl-education-clean .exp-highlights { list-style: none; padding: 0; margin: 7px 0 0; }
+.resume-tpl-education-clean .exp-highlights li {
+  font-size: 13px; color: #4A5568; padding-left: 16px; position: relative;
+  margin-bottom: 4px; line-height: 1.6;
+}
+.resume-tpl-education-clean .exp-highlights li::before {
+  content: '•'; position: absolute; left: 0; top: 0;
+  color: var(--tpl-accent-light); font-weight: 700;
+}
+
+/* 自定义文本 */
+.resume-tpl-education-clean .custom-text {
+  font-size: 14px; color: #4A5568; line-height: 1.85;
+}
+
+/* ——— 打印优化 ——— */
+@media print {
+  .resume-tpl-education-clean.resume-tpl-education-clean {
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    display: grid; min-height: auto;
+  }
+  .resume-tpl-education-clean .resume-header {
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .resume-tpl-education-clean .section { break-inside: avoid; }
+  .resume-tpl-education-clean .experience-item { break-inside: avoid; }
+}
+
+/* ——— 移动端：取消网格，侧边栏变顶部 ——— */
+@media (max-width: 768px) {
+  .resume-tpl-education-clean.resume-tpl-education-clean {
+    display: block; min-height: auto;
+  }
+  .resume-tpl-education-clean .resume-header {
+    padding: 24px 20px 20px; text-align: center;
+  }
+  .resume-tpl-education-clean .header-photo {
+    width: 80px; height: 100px; margin: 0 auto 14px;
+  }
+  .resume-tpl-education-clean .name { font-size: 18px; }
+  .resume-tpl-education-clean .meta-list {
+    flex-direction: row; flex-wrap: wrap; justify-content: center;
+    gap: 10px 16px; padding-top: 16px;
+  }
+  .resume-tpl-education-clean .meta-item { font-size: 11px; }
+  .resume-tpl-education-clean .resume-body { padding: 20px 20px 24px; }
+  .resume-tpl-education-clean .section-tab-dot { width: 28px; height: 28px; font-size: 13px; }
+  .resume-tpl-education-clean .section-title { font-size: 14px; }
+}
