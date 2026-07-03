@@ -16,8 +16,8 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/ai_resume?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
-    # 数据库密码：优先使用环境变量MYSQL_PASSWORD，默认值为123456（仅开发环境）
-    password: ${DB_PASSWORD:${MYSQL_PASSWORD:123456}}
+    # 数据库密码：通过环境变量注入，避免在仓库中保留明文默认值
+    password: ${DB_PASSWORD:${MYSQL_PASSWORD:}}
 
   # ------------------------------------------
   # Redis 配置 - 缓存和会话管理
@@ -26,8 +26,8 @@ spring:
     redis:
       host: localhost
       port: 6379
-      # Redis密码：优先使用环境变量REDIS_PASSWORD，默认值为123456（仅开发环境）
-      password: ${REDIS_PASSWORD:123456}
+      # Redis密码：通过环境变量注入，避免在仓库中保留明文默认值
+      password: ${REDIS_PASSWORD:}
       database: 0
       timeout: 3000ms
       lettuce:
@@ -53,8 +53,8 @@ spring:
     host: localhost
     port: 5672
     username: guest
-    # RabbitMQ密码：优先使用环境变量RABBITMQ_PASSWORD，默认值为guest（仅开发环境）
-    password: ${MQ_PASSWORD:${RABBITMQ_PASSWORD:guest}}
+    # RabbitMQ密码：通过环境变量注入，避免在仓库中保留明文默认值
+    password: ${MQ_PASSWORD:${RABBITMQ_PASSWORD:}}
     virtual-host: /
 
 # ------------------------------------------
@@ -93,7 +93,7 @@ logging:
 # JWT 配置 - 身份认证
 # ------------------------------------------
 jwt:
-  secret: ${JWT_SECRET:dev-secret-key-change-in-production-123456}
+  secret: ${JWT_SECRET:}
   expiration: 604800000
   header: Authorization
   prefix: "Bearer "
@@ -105,7 +105,7 @@ jwt:
 app:
   security:
     trust-forwarded-headers: false
-    api-key-encryption-secret: ${AI_CONFIG_KEY_ENCRYPTION_SECRET:${JWT_SECRET:dev-secret-key-change-in-production-123456}}
+    api-key-encryption-secret: ${AI_CONFIG_KEY_ENCRYPTION_SECRET:${JWT_SECRET:}}
     new-user-ai-cooldown-minutes: ${NEW_USER_AI_COOLDOWN_MINUTES:0}
 
   community:
