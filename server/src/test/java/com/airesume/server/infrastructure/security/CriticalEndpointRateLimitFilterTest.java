@@ -1,0 +1,553 @@
+package com.airesume.server.infrastructure.security;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.FilterChain;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+
+class CriticalEndpointRateLimitFilterTest {
+
+    @AfterEach
+    void tearDown() {
+        SecurityContextHolder.clearContext();
+    }
+
+    @Test
+    void shouldBlockRegisterRequestAfterLimitReached() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-05-15T00:00:00Z"));
+        CriticalEndpointRateLimitFilter filter = new CriticalEndpointRateLimitFilter(new ObjectMapper(), clock);
+
+        for (int i = 0; i < 5; i++) {
+            MockHttpServletRequest request = buildRequest("POST", "/api/auth/register", "10.0.0.1");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            verify(chain).doFilter(request, response);
+            assertEquals(200, response.getStatus());
+        }
+
+        MockHttpServletRequest blockedRequest = buildRequest("POST", "/api/auth/register", "10.0.0.1");
+        MockHttpServletResponse blockedResponse = new MockHttpServletResponse();
+        FilterChain blockedChain = mock(FilterChain.class);
+
+        filter.doFilter(blockedRequest, blockedResponse, blockedChain);
+
+        verify(blockedChain, never()).doFilter(blockedRequest, blockedResponse);
+        assertEquals(429, blockedResponse.getStatus());
+    }
+
+    @Test
+    void shouldBlockResetPasswordRequestAfterLimitReached() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-05-15T00:00:00Z"));
+        CriticalEndpointRateLimitFilter filter = new CriticalEndpointRateLimitFilter(new ObjectMapper(), clock);
+
+        for (int i = 0; i < 5; i++) {
+            MockHttpServletRequest request = buildRequest("POST", "/api/auth/reset-password", "10.0.0.8");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            verify(chain).doFilter(request, response);
+            assertEquals(200, response.getStatus());
+        }
+
+        MockHttpServletRequest blockedRequest = buildRequest("POST", "/api/auth/reset-password", "10.0.0.8");
+        MockHttpServletResponse blockedResponse = new MockHttpServletResponse();
+        FilterChain blockedChain = mock(FilterChain.class);
+
+        filter.doFilter(blockedRequest, blockedResponse, blockedChain);
+
+        verify(blockedChain, never()).doFilter(blockedRequest, blockedResponse);
+        assertEquals(429, blockedResponse.getStatus());
+    }
+
+    @Test
+    void shouldBlockSecurityQuestionLookupAfterLimitReached() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-05-15T00:00:00Z"));
+        CriticalEndpointRateLimitFilter filter = new CriticalEndpointRateLimitFilter(new ObjectMapper(), clock);
+
+        for (int i = 0; i < 10; i++) {
+            MockHttpServletRequest request = buildRequest("GET", "/api/auth/security-question", "10.0.0.9");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            verify(chain).doFilter(request, response);
+            assertEquals(200, response.getStatus());
+        }
+
+        MockHttpServletRequest blockedRequest = buildRequest("GET", "/api/auth/security-question", "10.0.0.9");
+        MockHttpServletResponse blockedResponse = new MockHttpServletResponse();
+        FilterChain blockedChain = mock(FilterChain.class);
+
+        filter.doFilter(blockedRequest, blockedResponse, blockedChain);
+
+        verify(blockedChain, never()).doFilter(blockedRequest, blockedResponse);
+        assertEquals(429, blockedResponse.getStatus());
+    }
+
+    @Test
+    void shouldUseAuthenticatedUserAsInterviewRateLimitKey() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-05-15T00:00:00Z"));
+        CriticalEndpointRateLimitFilter filter = new CriticalEndpointRateLimitFilter(new ObjectMapper(), clock);
+
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(100L, null));
+        for (int i = 0; i < 40; i++) {
+            MockHttpServletRequest request = buildRequest("POST", "/api/interview/session/abc/message", "10.0.0.2");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            verify(chain).doFilter(request, response);
+            assertEquals(200, response.getStatus());
+        }
+
+        MockHttpServletRequest blockedRequest = buildRequest("POST", "/api/interview/session/abc/message", "10.0.0.2");
+        MockHttpServletResponse blockedResponse = new MockHttpServletResponse();
+        FilterChain blockedChain = mock(FilterChain.class);
+        filter.doFilter(blockedRequest, blockedResponse, blockedChain);
+        verify(blockedChain, never()).doFilter(blockedRequest, blockedResponse);
+        assertEquals(429, blockedResponse.getStatus());
+
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(101L, null));
+        MockHttpServletRequest anotherUserRequest = buildRequest("POST", "/api/interview/session/abc/message", "10.0.0.2");
+        MockHttpServletResponse anotherUserResponse = new MockHttpServletResponse();
+        FilterChain anotherUserChain = mock(FilterChain.class);
+
+        filter.doFilter(anotherUserRequest, anotherUserResponse, anotherUserChain);
+
+        verify(anotherUserChain).doFilter(anotherUserRequest, anotherUserResponse);
+        assertEquals(200, anotherUserResponse.getStatus());
+    }
+
+    @Test
+    void shouldAllowNormalVoiceInterviewStreamTurnsWithinWindow() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-05-15T00:00:00Z"));
+        CriticalEndpointRateLimitFilter filter = new CriticalEndpointRateLimitFilter(new ObjectMapper(), clock);
+
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(150L, null));
+
+        // 语音面试会把每一轮回答都发送到 SSE 流式接口，60 轮仍属于高强度但合理的面试节奏。
+        for (int i = 0; i < 60; i++) {
+            MockHttpServletRequest request = buildRequest("POST", "/api/interview/session/voice-session/message/stream", "10.0.0.12");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            verify(chain).doFilter(request, response);
+            assertEquals(200, response.getStatus());
+        }
+    }
+
+    @Test
+    void shouldBlockInterviewStreamAfterExpandedLimitReached() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-05-15T00:00:00Z"));
+        CriticalEndpointRateLimitFilter filter = new CriticalEndpointRateLimitFilter(new ObjectMapper(), clock);
+
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(151L, null));
+
+        for (int i = 0; i < 60; i++) {
+            MockHttpServletRequest request = buildRequest("POST", "/api/interview/session/stream-session/message/stream", "10.0.0.13");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            verify(chain).doFilter(request, response);
+            assertEquals(200, response.getStatus());
+        }
+
+        MockHttpServletRequest blockedRequest = buildRequest("POST", "/api/interview/session/stream-session/message/stream", "10.0.0.13");
+        MockHttpServletResponse blockedResponse = new MockHttpServletResponse();
+        FilterChain blockedChain = mock(FilterChain.class);
+
+        filter.doFilter(blockedRequest, blockedResponse, blockedChain);
+
+        verify(blockedChain, never()).doFilter(blockedRequest, blockedResponse);
+        assertEquals(429, blockedResponse.getStatus());
+    }
+
+    @Test
+    void shouldUseAuthenticatedUserAsOfferRateLimitKey() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-05-15T00:00:00Z"));
+        CriticalEndpointRateLimitFilter filter = new CriticalEndpointRateLimitFilter(new ObjectMapper(), clock);
+
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(200L, null));
+        for (int i = 0; i < 10; i++) {
+            MockHttpServletRequest request = buildRequest("POST", "/api/offer/salary-negotiation/simulate", "10.0.0.20");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            verify(chain).doFilter(request, response);
+            assertEquals(200, response.getStatus());
+        }
+
+        MockHttpServletRequest blockedRequest = buildRequest("POST", "/api/offer/salary-negotiation/simulate", "10.0.0.20");
+        MockHttpServletResponse blockedResponse = new MockHttpServletResponse();
+        FilterChain blockedChain = mock(FilterChain.class);
+
+        filter.doFilter(blockedRequest, blockedResponse, blockedChain);
+
+        verify(blockedChain, never()).doFilter(blockedRequest, blockedResponse);
+        assertEquals(429, blockedResponse.getStatus());
+
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(201L, null));
+        MockHttpServletRequest anotherUserRequest = buildRequest("POST", "/api/offer/salary-negotiation/script", "10.0.0.20");
+        MockHttpServletResponse anotherUserResponse = new MockHttpServletResponse();
+        FilterChain anotherUserChain = mock(FilterChain.class);
+
+        filter.doFilter(anotherUserRequest, anotherUserResponse, anotherUserChain);
+
+        verify(anotherUserChain).doFilter(anotherUserRequest, anotherUserResponse);
+        assertEquals(200, anotherUserResponse.getStatus());
+    }
+
+    @Test
+    void shouldBlockResumePdfExportAfterLimitReached() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-05-15T00:00:00Z"));
+        CriticalEndpointRateLimitFilter filter = new CriticalEndpointRateLimitFilter(new ObjectMapper(), clock);
+
+        for (int i = 0; i < 5; i++) {
+            MockHttpServletRequest request = buildRequest("POST", "/api/resume/export-pdf", "10.0.0.30");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            verify(chain).doFilter(request, response);
+            assertEquals(200, response.getStatus());
+        }
+
+        MockHttpServletRequest blockedRequest = buildRequest("POST", "/api/resume/export-pdf", "10.0.0.30");
+        MockHttpServletResponse blockedResponse = new MockHttpServletResponse();
+        FilterChain blockedChain = mock(FilterChain.class);
+
+        filter.doFilter(blockedRequest, blockedResponse, blockedChain);
+
+        verify(blockedChain, never()).doFilter(blockedRequest, blockedResponse);
+        assertEquals(429, blockedResponse.getStatus());
+    }
+
+    @Test
+    void shouldBlockCommunityPostCreateAfterLimitReached() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-05-15T00:00:00Z"));
+        CriticalEndpointRateLimitFilter filter = new CriticalEndpointRateLimitFilter(new ObjectMapper(), clock);
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(400L, null));
+
+        for (int i = 0; i < 5; i++) {
+            MockHttpServletRequest request = buildRequest("POST", "/api/community/posts", "10.0.0.40");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            verify(chain).doFilter(request, response);
+            assertEquals(200, response.getStatus());
+        }
+
+        MockHttpServletRequest blockedRequest = buildRequest("POST", "/api/community/posts", "10.0.0.40");
+        MockHttpServletResponse blockedResponse = new MockHttpServletResponse();
+        FilterChain blockedChain = mock(FilterChain.class);
+
+        filter.doFilter(blockedRequest, blockedResponse, blockedChain);
+
+        verify(blockedChain, never()).doFilter(blockedRequest, blockedResponse);
+        assertEquals(429, blockedResponse.getStatus());
+    }
+
+    @Test
+    void shouldBlockCommunityImageUploadAfterLimitReached() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-05-15T00:00:00Z"));
+        CriticalEndpointRateLimitFilter filter = new CriticalEndpointRateLimitFilter(new ObjectMapper(), clock);
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(401L, null));
+
+        for (int i = 0; i < 20; i++) {
+            MockHttpServletRequest request = buildRequest("POST", "/api/community/images/upload", "10.0.0.41");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            verify(chain).doFilter(request, response);
+            assertEquals(200, response.getStatus());
+        }
+
+        MockHttpServletRequest blockedRequest = buildRequest("POST", "/api/community/images/upload", "10.0.0.41");
+        MockHttpServletResponse blockedResponse = new MockHttpServletResponse();
+        FilterChain blockedChain = mock(FilterChain.class);
+
+        filter.doFilter(blockedRequest, blockedResponse, blockedChain);
+
+        verify(blockedChain, never()).doFilter(blockedRequest, blockedResponse);
+        assertEquals(429, blockedResponse.getStatus());
+    }
+
+    @Test
+    void shouldBlockUserAiConnectivityTestAfterLimitReached() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-06-01T00:00:00Z"));
+        CriticalEndpointRateLimitFilter filter = new CriticalEndpointRateLimitFilter(new ObjectMapper(), clock);
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(500L, null));
+
+        for (int i = 0; i < 5; i++) {
+            MockHttpServletRequest request = buildRequest("POST", "/api/user/ai-config/test-connectivity", "10.0.0.50");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            verify(chain).doFilter(request, response);
+            assertEquals(200, response.getStatus());
+        }
+
+        MockHttpServletRequest blockedRequest = buildRequest("POST", "/api/user/ai-config/test-connectivity", "10.0.0.50");
+        MockHttpServletResponse blockedResponse = new MockHttpServletResponse();
+        FilterChain blockedChain = mock(FilterChain.class);
+
+        filter.doFilter(blockedRequest, blockedResponse, blockedChain);
+
+        verify(blockedChain, never()).doFilter(blockedRequest, blockedResponse);
+        assertEquals(429, blockedResponse.getStatus());
+    }
+
+    @Test
+    void shouldBlockUserAiModelDiscoveryAfterLimitReached() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-06-03T02:00:00Z"));
+        CriticalEndpointRateLimitFilter filter = new CriticalEndpointRateLimitFilter(new ObjectMapper(), clock);
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(503L, null));
+
+        for (int i = 0; i < 5; i++) {
+            MockHttpServletRequest request = buildRequest("POST", "/api/user/ai-config/models", "10.0.0.53");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            verify(chain).doFilter(request, response);
+            assertEquals(200, response.getStatus());
+        }
+
+        MockHttpServletRequest blockedRequest = buildRequest("POST", "/api/user/ai-config/models", "10.0.0.53");
+        MockHttpServletResponse blockedResponse = new MockHttpServletResponse();
+        FilterChain blockedChain = mock(FilterChain.class);
+
+        filter.doFilter(blockedRequest, blockedResponse, blockedChain);
+
+        verify(blockedChain, never()).doFilter(blockedRequest, blockedResponse);
+        assertEquals(429, blockedResponse.getStatus());
+    }
+
+    @Test
+    void shouldBlockUserTtsConnectivityTestAfterLimitReached() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-06-03T00:00:00Z"));
+        CriticalEndpointRateLimitFilter filter = new CriticalEndpointRateLimitFilter(new ObjectMapper(), clock);
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(501L, null));
+
+        for (int i = 0; i < 5; i++) {
+            MockHttpServletRequest request = buildRequest("POST", "/api/user/ai-config/test-tts-connectivity", "10.0.0.51");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            verify(chain).doFilter(request, response);
+            assertEquals(200, response.getStatus());
+        }
+
+        MockHttpServletRequest blockedRequest = buildRequest("POST", "/api/user/ai-config/test-tts-connectivity", "10.0.0.51");
+        MockHttpServletResponse blockedResponse = new MockHttpServletResponse();
+        FilterChain blockedChain = mock(FilterChain.class);
+
+        filter.doFilter(blockedRequest, blockedResponse, blockedChain);
+
+        verify(blockedChain, never()).doFilter(blockedRequest, blockedResponse);
+        assertEquals(429, blockedResponse.getStatus());
+    }
+
+    @Test
+    void shouldBlockInterviewTtsSynthesisAfterLimitReached() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-06-03T01:00:00Z"));
+        CriticalEndpointRateLimitFilter filter = new CriticalEndpointRateLimitFilter(new ObjectMapper(), clock);
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(502L, null));
+
+        for (int i = 0; i < 30; i++) {
+            MockHttpServletRequest request = buildRequest("POST", "/api/interview/session/voice-session/tts", "10.0.0.52");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            verify(chain).doFilter(request, response);
+            assertEquals(200, response.getStatus());
+        }
+
+        MockHttpServletRequest blockedRequest = buildRequest("POST", "/api/interview/session/voice-session/tts", "10.0.0.52");
+        MockHttpServletResponse blockedResponse = new MockHttpServletResponse();
+        FilterChain blockedChain = mock(FilterChain.class);
+
+        filter.doFilter(blockedRequest, blockedResponse, blockedChain);
+
+        verify(blockedChain, never()).doFilter(blockedRequest, blockedResponse);
+        assertEquals(429, blockedResponse.getStatus());
+    }
+
+    @Test
+    void shouldUseAuthenticatedUserAsResumePdfExportRateLimitKey() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-05-15T00:00:00Z"));
+        CriticalEndpointRateLimitFilter filter = new CriticalEndpointRateLimitFilter(new ObjectMapper(), clock);
+
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(300L, null));
+        for (int i = 0; i < 5; i++) {
+            MockHttpServletRequest request = buildRequest("POST", "/api/resume/export-pdf", "10.0.0.31");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            verify(chain).doFilter(request, response);
+            assertEquals(200, response.getStatus());
+        }
+
+        MockHttpServletRequest blockedRequest = buildRequest("POST", "/api/resume/export-pdf", "10.0.0.31");
+        MockHttpServletResponse blockedResponse = new MockHttpServletResponse();
+        FilterChain blockedChain = mock(FilterChain.class);
+
+        filter.doFilter(blockedRequest, blockedResponse, blockedChain);
+
+        verify(blockedChain, never()).doFilter(blockedRequest, blockedResponse);
+        assertEquals(429, blockedResponse.getStatus());
+
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(301L, null));
+        MockHttpServletRequest anotherUserRequest = buildRequest("POST", "/api/resume/export-pdf", "10.0.0.31");
+        MockHttpServletResponse anotherUserResponse = new MockHttpServletResponse();
+        FilterChain anotherUserChain = mock(FilterChain.class);
+
+        filter.doFilter(anotherUserRequest, anotherUserResponse, anotherUserChain);
+
+        verify(anotherUserChain).doFilter(anotherUserRequest, anotherUserResponse);
+        assertEquals(200, anotherUserResponse.getStatus());
+    }
+
+    @Test
+    void shouldAllowRequestsAgainAfterWindowExpires() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-05-15T00:00:00Z"));
+        CriticalEndpointRateLimitFilter filter = new CriticalEndpointRateLimitFilter(new ObjectMapper(), clock);
+
+        for (int i = 0; i < 5; i++) {
+            filter.doFilter(buildRequest("POST", "/api/auth/register", "10.0.0.3"),
+                    new MockHttpServletResponse(), mock(FilterChain.class));
+        }
+
+        MockHttpServletResponse blockedResponse = new MockHttpServletResponse();
+        filter.doFilter(buildRequest("POST", "/api/auth/register", "10.0.0.3"),
+                blockedResponse, mock(FilterChain.class));
+        assertEquals(429, blockedResponse.getStatus());
+
+        clock.plus(Duration.ofMinutes(16));
+
+        MockHttpServletRequest requestAfterWindow = buildRequest("POST", "/api/auth/register", "10.0.0.3");
+        MockHttpServletResponse responseAfterWindow = new MockHttpServletResponse();
+        FilterChain chainAfterWindow = mock(FilterChain.class);
+
+        filter.doFilter(requestAfterWindow, responseAfterWindow, chainAfterWindow);
+
+        verify(chainAfterWindow).doFilter(requestAfterWindow, responseAfterWindow);
+        assertEquals(200, responseAfterWindow.getStatus());
+    }
+
+    @Test
+    void shouldIgnoreForwardedForWhenProxyTrustIsDisabled() throws Exception {
+        MutableClock clock = new MutableClock(Instant.parse("2026-05-15T00:00:00Z"));
+        CriticalEndpointRateLimitFilter filter = new CriticalEndpointRateLimitFilter(new ObjectMapper(), clock);
+
+        for (int i = 0; i < 5; i++) {
+            MockHttpServletRequest request = buildRequest("POST", "/api/auth/register", "10.0.0.4");
+            request.addHeader("X-Forwarded-For", "198.51.100." + i);
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilter(request, response, chain);
+
+            verify(chain).doFilter(request, response);
+        }
+
+        MockHttpServletRequest blockedRequest = buildRequest("POST", "/api/auth/register", "10.0.0.4");
+        blockedRequest.addHeader("X-Forwarded-For", "198.51.100.99");
+        MockHttpServletResponse blockedResponse = new MockHttpServletResponse();
+        FilterChain blockedChain = mock(FilterChain.class);
+
+        filter.doFilter(blockedRequest, blockedResponse, blockedChain);
+
+        verify(blockedChain, never()).doFilter(blockedRequest, blockedResponse);
+        assertEquals(429, blockedResponse.getStatus());
+    }
+
+    private MockHttpServletRequest buildRequest(String method, String path, String remoteAddr) {
+        MockHttpServletRequest request = new MockHttpServletRequest(method, path);
+        request.setRemoteAddr(remoteAddr);
+        return request;
+    }
+
+    private static final class MutableClock extends Clock {
+
+        private Instant current;
+
+        private MutableClock(Instant current) {
+            this.current = current;
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneId.of("UTC");
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return current;
+        }
+
+        private void plus(Duration duration) {
+            current = current.plus(duration);
+        }
+    }
+}

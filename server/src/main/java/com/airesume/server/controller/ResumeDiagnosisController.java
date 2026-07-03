@@ -1,0 +1,263 @@
+package com.airesume.server.controller;
+
+import com.airesume.server.common.exception.BusinessException;
+import com.airesume.server.common.constants.UserAiConstants;
+import com.airesume.server.common.result.PageResult;
+import com.airesume.server.common.result.Result;
+import com.airesume.server.common.result.ResultCode;
+import com.airesume.server.dto.resume.ResumeDiagnosisHistoryResponse;
+import com.airesume.server.dto.resume.ResumeDiagnosisTaskResponse;
+import com.airesume.server.dto.resume.ResumeDiagnosisTaskStatusResponse;
+import com.airesume.server.dto.resume.ResumeDocumentUpdateRequest;
+import com.airesume.server.dto.resume.ResumeJobMatchAnalyzeRequest;
+import com.airesume.server.dto.resume.ResumeJobMatchAnalyzeResponse;
+import com.airesume.server.dto.resume.ResumePolishAnalyzeRequest;
+import com.airesume.server.dto.resume.ResumePolishAnalyzeResponse;
+import com.airesume.server.dto.user.DataCleanupResponse;
+import com.airesume.server.service.ResumeDiagnosisTaskService;
+import com.airesume.server.service.ResumeJobMatchService;
+import com.airesume.server.service.ResumePolishService;
+import com.airesume.server.service.UserQuotaService;
+import com.airesume.server.service.UserAiConfigResolver;
+import com.airesume.server.service.UserAiUsageLimitService;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import java.util.Locale;
+import java.util.Set;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.MediaType;
+import org.springframework.security.core.Authentication;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
+
+/**
+ * 简历诊断控制器。
+ */
+@Slf4j
+@Validated
+@RestController
+@RequestMapping("/api/resume")
+@RequiredArgsConstructor
+public class ResumeDiagnosisController {
+
+    private static final Set<String> ALLOWED_CONTENT_TYPES = Set.of(
+            "application/pdf",
+            "application/octet-stream"
+    );
+
+    private static final Set<String> ALLOWED_FILE_EXTENSIONS = Set.of(".pdf");
+
+    private final ResumeDiagnosisTaskService resumeDiagnosisTaskService;
+    private final ResumeJobMatchService resumeJobMatchService;
+    private final ResumePolishService resumePolishService;
+    private final UserQuotaService userQuotaService;
+    private final UserAiConfigResolver userAiConfigResolver;
+    private final UserAiUsageLimitService userAiUsageLimitService;
+
+    /**
+     * 上传简历文件并创建诊断任务。
+     */
+    @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Result<String> uploadResume(@RequestParam("file") MultipartFile file,
+                                       @RequestParam(defaultValue = "false") boolean fallbackToPlatform,
+                                       Authentication authentication) {
+        if (file.isEmpty()) {
+            throw new BusinessException(ResultCode.RESUME_FILE_EMPTY);
+        }
+        if (!isAllowedResumeFile(file)) {
+            throw new BusinessException(ResultCode.RESUME_FORMAT_UNSUPPORTED);
+        }
+
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("Upload resume request, userId: {}, fileName: {}, fileSize: {}",
+                userId, file.getOriginalFilename(), file.getSize());
+
+        String taskId = resumeDiagnosisTaskService.createTask(userId, file, fallbackToPlatform);
+        return Result.success("简历诊断任务已提交", taskId);
+    }
+
+    /**
+     * 查询任务详情。
+     */
+    @GetMapping("/task/{taskId}")
+    public Result<ResumeDiagnosisTaskResponse> getTaskDetail(@PathVariable Long taskId,
+                                                             Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("Get task detail request, taskId: {}, userId: {}", taskId, userId);
+
+        ResumeDiagnosisTaskResponse task = resumeDiagnosisTaskService.getTaskById(taskId, userId);
+        return Result.success(task);
+    }
+
+    /**
+     * 查询任务轻量状态。
+     * 等待诊断结果时只返回状态和阶段，避免轮询接口反复读取简历原文、诊断 JSON 等大字段。
+     */
+    @GetMapping("/task/{taskId}/status")
+    public Result<ResumeDiagnosisTaskStatusResponse> getTaskStatus(@PathVariable Long taskId,
+                                                                   Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("Get task status request, taskId: {}, userId: {}", taskId, userId);
+
+        ResumeDiagnosisTaskStatusResponse task = resumeDiagnosisTaskService.getTaskStatusById(taskId, userId);
+        return Result.success(task);
+    }
+
+    /**
+     * 查询当前用户的简历诊断历史记录。
+     */
+    @GetMapping("/history")
+    public Result<PageResult<ResumeDiagnosisHistoryResponse>> getHistory(
+            @RequestParam(defaultValue = "1") @Min(1) Integer pageNum,
+            @RequestParam(defaultValue = "10") @Min(1) @Max(value = 100, message = "每页最大 100 条") Integer pageSize,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("Get history request, userId: {}, pageNum: {}, pageSize: {}", userId, pageNum, pageSize);
+
+        PageResult<ResumeDiagnosisHistoryResponse> history =
+                resumeDiagnosisTaskService.getHistoryByUserId(userId, pageNum, pageSize);
+        return Result.success(history);
+    }
+
+    /**
+     * 清理当前用户的全部简历诊断历史及衍生记录。
+     */
+    @DeleteMapping("/history")
+    public Result<DataCleanupResponse> clearHistory(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("Clear resume history request, userId: {}", userId);
+        int deletedCount = resumeDiagnosisTaskService.clearHistory(userId);
+        return Result.success(new DataCleanupResponse(deletedCount));
+    }
+
+    /**
+     * 删除单条简历诊断记录。
+     */
+    @DeleteMapping("/history/{taskId}")
+    public Result<Boolean> deleteTask(@PathVariable Long taskId,
+                                      Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("删除简历诊断记录, userId: {}, taskId: {}", userId, taskId);
+        resumeDiagnosisTaskService.deleteTask(userId, taskId);
+        return Result.success(true);
+    }
+
+    /**
+     * 重试失败的简历诊断任务。
+     * 复用原文件创建新任务，原任务保留。
+     */
+    @PostMapping("/task/{taskId}/retry")
+    public Result<String> retryTask(@PathVariable Long taskId,
+                                    Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("重试简历诊断任务, userId: {}, 原taskId: {}", userId, taskId);
+        String newTaskId = resumeDiagnosisTaskService.retryFailedTask(taskId, userId);
+        return Result.success("重试任务已提交", newTaskId);
+    }
+
+    /**
+     * 执行岗位 JD 对比分析。
+     */
+    @PostMapping("/job-match/analyze")
+    @Transactional(rollbackFor = Exception.class)
+    public Result<ResumeJobMatchAnalyzeResponse> analyzeJobMatch(
+            @Valid @RequestBody ResumeJobMatchAnalyzeRequest request,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("Analyze job match request, userId: {}, resumeTaskId: {}", userId, request.getResumeTaskId());
+
+        boolean fallbackToPlatform = Boolean.TRUE.equals(request.getFallbackToPlatform());
+        boolean useCustomAi = shouldUseCustomAi(userId, fallbackToPlatform);
+        if (useCustomAi) {
+            userAiUsageLimitService.checkAndIncrement(userId, UserAiConstants.USAGE_TYPE_JD_MATCH);
+            try {
+                ResumeJobMatchAnalyzeResponse response = resumeJobMatchService.analyzeJobMatch(userId, request);
+                return Result.success("岗位 JD 对比分析完成", response);
+            } catch (RuntimeException e) {
+                userAiUsageLimitService.rollback(userId, UserAiConstants.USAGE_TYPE_JD_MATCH);
+                throw e;
+            }
+        }
+
+        userQuotaService.checkAndDeductJdMatchQuota(userId);
+        ResumeJobMatchAnalyzeResponse response = resumeJobMatchService.analyzeJobMatch(userId, request);
+        return Result.success("岗位 JD 对比分析完成", response);
+    }
+
+    /**
+     * 执行 AI 简历润色。
+     */
+    @PostMapping("/polish/analyze")
+    @Transactional(rollbackFor = Exception.class)
+    public Result<ResumePolishAnalyzeResponse> analyzeResumePolish(
+            @Valid @RequestBody ResumePolishAnalyzeRequest request,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("Analyze resume polish request, userId: {}, resumeTaskId: {}", userId, request.getResumeTaskId());
+
+        boolean fallbackToPlatform = Boolean.TRUE.equals(request.getFallbackToPlatform());
+        boolean useCustomAi = shouldUseCustomAi(userId, fallbackToPlatform);
+        if (useCustomAi) {
+            userAiUsageLimitService.checkAndIncrement(userId, UserAiConstants.USAGE_TYPE_RESUME_POLISH);
+            try {
+                ResumePolishAnalyzeResponse response = resumePolishService.analyzeResumePolish(userId, request);
+                return Result.success("AI 简历润色完成", response);
+            } catch (RuntimeException e) {
+                userAiUsageLimitService.rollback(userId, UserAiConstants.USAGE_TYPE_RESUME_POLISH);
+                throw e;
+            }
+        }
+
+        userQuotaService.checkAndDeductPolishQuota(userId, Long.parseLong(request.getResumeTaskId()));
+        ResumePolishAnalyzeResponse response = resumePolishService.analyzeResumePolish(userId, request);
+        return Result.success("AI 简历润色完成", response);
+    }
+
+    /**
+     * 保存用户编辑的简历文档。
+     */
+    @PutMapping("/polish-records/{polishRecordId}/document")
+    public Result<Void> updatePolishDocument(@PathVariable Long polishRecordId,
+                                             @Valid @RequestBody ResumeDocumentUpdateRequest request,
+                                             Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        log.info("Save polish document request, userId: {}, polishRecordId: {}", userId, polishRecordId);
+
+        resumePolishService.updateDocument(userId, polishRecordId, request);
+        return Result.success();
+    }
+
+    private boolean isAllowedResumeFile(MultipartFile file) {
+        String contentType = file.getContentType();
+        if (contentType != null && ALLOWED_CONTENT_TYPES.contains(contentType.toLowerCase(Locale.ROOT))) {
+            return true;
+        }
+
+        String fileName = file.getOriginalFilename();
+        if (fileName == null) {
+            return false;
+        }
+
+        String lowerCaseFileName = fileName.toLowerCase(Locale.ROOT);
+        return ALLOWED_FILE_EXTENSIONS.stream().anyMatch(lowerCaseFileName::endsWith);
+    }
+
+    /**
+     * 简历相关同步 AI 入口统一判断是否命中用户自定义配置。
+     */
+    private boolean shouldUseCustomAi(Long userId, boolean fallbackToPlatform) {
+        return userAiConfigResolver.resolve(userId, UserAiConstants.CONFIG_TYPE_RESUME, fallbackToPlatform) != null;
+    }
+}

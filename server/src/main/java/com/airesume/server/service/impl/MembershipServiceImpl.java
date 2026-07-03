@@ -1,0 +1,218 @@
+package com.airesume.server.service.impl;
+
+import com.airesume.server.common.constants.MembershipConstants;
+import com.airesume.server.common.constants.QuotaConstants;
+import com.airesume.server.common.constants.UserRoleConstants;
+import com.airesume.server.common.exception.BusinessException;
+import com.airesume.server.common.result.ResultCode;
+import com.airesume.server.dto.membership.MembershipUpgradeRequest;
+import com.airesume.server.entity.MembershipOrder;
+import com.airesume.server.entity.MembershipPlan;
+import com.airesume.server.entity.SysUser;
+import com.airesume.server.entity.UserQuota;
+import com.airesume.server.service.MembershipOrderService;
+import com.airesume.server.service.MembershipPlanService;
+import com.airesume.server.service.MembershipService;
+import com.airesume.server.service.SysUserService;
+import com.airesume.server.service.UserQuotaService;
+import com.airesume.server.vo.membership.MembershipPlanVO;
+import com.airesume.server.vo.membership.MembershipUpgradeVO;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class MembershipServiceImpl implements MembershipService {
+
+    private static final DateTimeFormatter ORDER_NO_TIME_FORMATTER =
+            DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
+    private static final int PUBLIC_PLAN_LIMIT = 6;
+
+    private final MembershipPlanService membershipPlanService;
+    private final MembershipOrderService membershipOrderService;
+    private final SysUserService sysUserService;
+    private final UserQuotaService userQuotaService;
+
+    @Override
+    @Cacheable(value = "config:membershipPlans", key = "'all'")
+    public List<MembershipPlanVO> listPlans() {
+        LambdaQueryWrapper<MembershipPlan> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(MembershipPlan::getStatus, MembershipConstants.PLAN_STATUS_ENABLED)
+                .orderByAsc(MembershipPlan::getSort)
+                .orderByAsc(MembershipPlan::getId);
+
+        return membershipPlanService.list(wrapper).stream()
+                .limit(PUBLIC_PLAN_LIMIT)
+                .map(this::buildPlanVO)
+                .toList();
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "auth:userInfo", key = "#userId")
+    public MembershipUpgradeVO mockUpgrade(Long userId, MembershipUpgradeRequest request) {
+        if (userId == null) {
+            throw new BusinessException(ResultCode.MEMBERSHIP_USER_NOT_LOGGED_IN);
+        }
+
+        MembershipPlan plan = membershipPlanService.getActiveByCode(request.getPlanCode());
+        if (plan == null) {
+            throw new BusinessException(ResultCode.MEMBERSHIP_PLAN_NOT_FOUND);
+        }
+
+        SysUser user = sysUserService.getById(userId);
+        if (user == null) {
+            throw new BusinessException(ResultCode.MEMBERSHIP_USER_NOT_FOUND);
+        }
+        if (user.getStatus() != null && user.getStatus() == 0) {
+            throw new BusinessException(ResultCode.MEMBERSHIP_ACCOUNT_DISABLED);
+        }
+
+        // 降级检查：VIP用户不允许购买低于当前等级的套餐
+        String currentPlanCode = user.getMembershipPlanCode();
+        boolean planChanged = currentPlanCode == null || !currentPlanCode.equals(plan.getPlanCode());
+        if (currentPlanCode != null && user.getRole() != null && user.getRole() == UserRoleConstants.ROLE_VIP) {
+            MembershipPlan currentPlan = membershipPlanService.getByPlanCode(currentPlanCode);
+            if (currentPlan != null && currentPlan.getSort() != null
+                    && plan.getSort() != null && currentPlan.getSort() > plan.getSort()) {
+                throw new BusinessException(ResultCode.PLAN_DOWNGRADE_NOT_ALLOWED);
+            }
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime expireTimeBefore = user.getVipExpireTime();
+        LocalDateTime baseExpireTime = expireTimeBefore != null && expireTimeBefore.isAfter(now)
+                ? expireTimeBefore
+                : now;
+        LocalDateTime expireTimeAfter = baseExpireTime.plusDays(plan.getDurationDays());
+
+        MembershipOrder order = buildMembershipOrder(userId, plan, expireTimeBefore, expireTimeAfter, now);
+        membershipOrderService.save(order);
+
+        // The old implementation added a purchased total quota after upgrade.
+        // That does not match the business rule anymore.
+        // Renewing or upgrading now only changes VIP validity and membership identity.
+        // Keeping the same API here is intentional: current-plan renewal should call
+        // the same upgrade endpoint so vipExpireTime can continue to extend forward.
+        user.setRole(UserRoleConstants.ROLE_VIP);
+        user.setMembershipPlanCode(plan.getPlanCode());
+        user.setVipExpireTime(expireTimeAfter);
+        sysUserService.updateById(user);
+
+        // 重置周期配额计数器 + 充入赠送额度
+        // 套餐发生变化时才开启新的权益周期；同套餐续费只延长有效期。
+        if (planChanged) {
+            userQuotaService.resetCycleQuota(userId);
+        }
+        if (safeQuota(plan.getBonusResumeQuota()) > 0 || safeQuota(plan.getBonusInterviewQuota()) > 0) {
+            userQuotaService.addBonusQuota(userId, safeQuota(plan.getBonusResumeQuota()), safeQuota(plan.getBonusInterviewQuota()));
+        }
+
+        // 写操作会清理额度缓存；这里统一读取一次最新额度并复用，避免两个 getRemaining 再各查一次。
+        UserQuota updatedQuota = userQuotaService.getByUserId(userId);
+        userQuotaService.refreshDailyQuotaIfNeeded(userId, updatedQuota);
+        int resumeQuota = updatedQuota == null ? 0 : safeQuota(updatedQuota.getResumeQuota());
+        int interviewQuota = updatedQuota == null ? 0 : safeQuota(updatedQuota.getInterviewQuota());
+
+        log.info("Membership upgraded successfully, userId: {}, planCode: {}, orderNo: {}",
+                userId, plan.getPlanCode(), order.getOrderNo());
+
+        return MembershipUpgradeVO.builder()
+                .orderNo(order.getOrderNo())
+                .orderStatus(order.getOrderStatus())
+                .payChannel(order.getPayChannel())
+                .planCode(plan.getPlanCode())
+                .planName(plan.getPlanName())
+                .role(user.getRole())
+                .membershipPlanCode(user.getMembershipPlanCode())
+                .vipExpireTime(user.getVipExpireTime())
+                .resumeQuota(resumeQuota)
+                .interviewQuota(interviewQuota)
+                .build();
+    }
+
+    private MembershipPlanVO buildPlanVO(MembershipPlan plan) {
+        // 解析 benefits JSON 字符串为 List
+        List<String> benefitsList = null;
+        if (plan.getBenefits() != null && !plan.getBenefits().isBlank()) {
+            try {
+                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                benefitsList = mapper.readValue(plan.getBenefits(),
+                        mapper.getTypeFactory().constructCollectionType(List.class, String.class));
+            } catch (Exception e) {
+                log.warn("解析套餐权益JSON失败, planCode={}: {}", plan.getPlanCode(), e.getMessage());
+            }
+        }
+
+        return MembershipPlanVO.builder()
+                .planCode(plan.getPlanCode())
+                .planName(plan.getPlanName())
+                .description(plan.getDescription())
+                .priceAmount(plan.getPriceAmount())
+                .durationDays(plan.getDurationDays())
+                .resumeQuota(plan.getResumeQuota())
+                .interviewQuota(plan.getInterviewQuota())
+                .dailyPolishLimit(plan.getDailyPolishLimit())
+                .dailyJdMatchLimit(plan.getDailyJdMatchLimit())
+                .dailyTemplateLimit(plan.getDailyTemplateLimit())
+                .dailyOfferLimit(plan.getDailyOfferLimit())
+                .bonusResumeQuota(plan.getBonusResumeQuota())
+                .bonusInterviewQuota(plan.getBonusInterviewQuota())
+                .benefits(benefitsList)
+                .sort(plan.getSort())
+                .build();
+    }
+
+    private MembershipOrder buildMembershipOrder(Long userId,
+                                                 MembershipPlan plan,
+                                                 LocalDateTime expireTimeBefore,
+                                                 LocalDateTime expireTimeAfter,
+                                                 LocalDateTime paidAt) {
+        MembershipOrder order = new MembershipOrder();
+        order.setOrderNo(buildOrderNo(userId));
+        order.setUserId(userId);
+        order.setPlanId(plan.getId());
+        order.setPlanCode(plan.getPlanCode());
+        order.setPlanName(plan.getPlanName());
+        order.setOrderStatus(MembershipConstants.ORDER_STATUS_PAID);
+        order.setPayChannel(MembershipConstants.PAY_CHANNEL_MOCK);
+        order.setOrderAmount(plan.getPriceAmount());
+        order.setDurationDays(plan.getDurationDays());
+
+        order.setGrantedResumeQuota(safeQuota(plan.getResumeQuota()));
+        order.setGrantedInterviewQuota(safeQuota(plan.getInterviewQuota()));
+
+        order.setExpireTimeBefore(expireTimeBefore);
+        order.setExpireTimeAfter(expireTimeAfter);
+        order.setPaidAt(paidAt);
+        return order;
+    }
+
+    private int safeQuota(Integer quota) {
+        return Math.max(0, quota == null ? 0 : quota);
+    }
+
+    private String buildPlanDescription(Integer durationDays) {
+        return String.format("会员有效期 %d 天，有效期内每日 %d 次简历诊断、每日 %d 次模拟面试",
+                durationDays,
+                QuotaConstants.VIP_USER_DAILY_RESUME_LIMIT,
+                QuotaConstants.VIP_USER_DAILY_INTERVIEW_LIMIT);
+    }
+
+    private String buildOrderNo(Long userId) {
+        return "MOCK" + ORDER_NO_TIME_FORMATTER.format(LocalDateTime.now())
+                + userId
+                + ThreadLocalRandom.current().nextInt(100, 1000);
+    }
+}
