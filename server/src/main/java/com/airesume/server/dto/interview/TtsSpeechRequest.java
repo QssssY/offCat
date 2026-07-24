@@ -16,4 +16,9 @@ public class TtsSpeechRequest {
     @NotBlank(message = "TTS 文本不能为空")
     @Size(max = 600, message = "单次 TTS 文本不能超过 600 个字符")
     private String text;
+    /**
+     * 可选的 EdgeTTS 音色覆盖值，仅允许服务端预设白名单中的 voiceId。
+     */
+    @Size(max = 128, message = "TTS 音色标识不能超过 128 个字符")
+    private String voiceId;
 }

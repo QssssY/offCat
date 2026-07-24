@@ -1015,6 +1015,33 @@ describe('InterviewSessionView', () => {
     expect(wrapper.text()).toContain('播报音色：自定义云端 TTS')
   })
 
+  it('passes the selected EdgeTTS voice to cloud synthesis', async () => {
+    saveSettingsPreferences({ voicePreferredType: 'edge_cloud:zh-CN-YunxiNeural' })
+    getInterviewTtsCapability.mockResolvedValue({
+      data: { available: true, engine: 'user_custom_tts', configType: 'interview' },
+    })
+    getInterviewSession.mockResolvedValue({
+      data: {
+        ...baseSession,
+        interactionType: 1,
+        chatLogs: [
+          { id: 1, messageRole: 'assistant', content: '浣犲ソ', createTime: '2026-05-19 14:00:00' },
+        ],
+      },
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.findAll('.voice-dock-actions .voice-icon-btn')[1].trigger('click')
+    await flushPromises()
+
+    expect(synthesizeInterviewTts).toHaveBeenCalledWith(
+      'session-1',
+      '浣犲ソ',
+      expect.objectContaining({ voiceId: 'zh-CN-YunxiNeural' })
+    )
+  })
   it('labels cloud TTS as system source when system fallback is available', async () => {
     getInterviewTtsCapability.mockResolvedValue({
       data: { available: true, engine: 'system', systemTtsAvailable: true },
@@ -1036,6 +1063,30 @@ describe('InterviewSessionView', () => {
     expect(wrapper.text()).toContain('播报音色：系统云端 TTS')
   })
 
+  it('keeps browser TTS when a browser preset is selected', async () => {
+    saveSettingsPreferences({ voicePreferredType: 'slow_clear' })
+    getInterviewTtsCapability.mockResolvedValue({
+      data: { available: true, engine: 'user_custom_tts', configType: 'interview' },
+    })
+    getInterviewSession.mockResolvedValue({
+      data: {
+        ...baseSession,
+        interactionType: 1,
+        chatLogs: [
+          { id: 1, messageRole: 'assistant', content: '浣犲ソ', createTime: '2026-05-19 14:00:00' },
+        ],
+      },
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.findAll('.voice-dock-actions .voice-icon-btn')[1].trigger('click')
+    await flushPromises()
+
+    expect(synthesizeInterviewTts).not.toHaveBeenCalled()
+    expect(window.speechSynthesis.speak).toHaveBeenCalledTimes(1)
+  })
   it('shows cloud TTS preparing state before real audio playback starts', async () => {
     let resolveAudio
     synthesizeInterviewTts.mockReturnValueOnce(new Promise((resolve) => {

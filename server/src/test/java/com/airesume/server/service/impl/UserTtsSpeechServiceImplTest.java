@@ -26,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.client.ExpectedCount.once;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
@@ -334,6 +335,67 @@ class UserTtsSpeechServiceImplTest {
                 Duration.ofMillis(15000));
     }
 
+    @Test
+    void shouldUseValidEdgeVoiceOverrideForInterviewSpeech() {
+        UserAiConfigService configService = mock(UserAiConfigService.class);
+        AiCredentialCrypto crypto = mock(AiCredentialCrypto.class);
+        EdgeTtsClient edgeTtsClient = mock(EdgeTtsClient.class);
+        UserTtsSpeechServiceImpl service = new UserTtsSpeechServiceImpl(
+                configService, mock(SysTtsConfigService.class), crypto,
+                RestClient.builder(), new ObjectMapper(), edgeTtsClient);
+        UserAiConfig config = buildTtsConfig("interview", "https://speech.platform.bing.com",
+                null, "edge-tts", "zh-CN-XiaoxiaoNeural");
+        config.setTtsProvider("edge");
+        when(configService.findEnabledConfig(20L, UserAiConstants.CONFIG_TYPE_INTERVIEW)).thenReturn(config);
+        when(edgeTtsClient.synthesize("璇风户缁€?", "zh-CN-YunxiNeural", Duration.ofMillis(15000)))
+                .thenReturn(new byte[]{4, 5, 6});
+
+        TtsAudioResult result = service.synthesizeInterviewSpeechAudio(20L, "璇风户缁€?", "zh-CN-YunxiNeural");
+
+        assertArrayEquals(new byte[]{4, 5, 6}, result.getAudioBytes());
+        verify(edgeTtsClient).synthesize("璇风户缁€?", "zh-CN-YunxiNeural", Duration.ofMillis(15000));
+    }
+
+    @Test
+    void shouldRejectUnknownEdgeVoiceOverrideBeforeCallingProvider() {
+        UserAiConfigService configService = mock(UserAiConfigService.class);
+        AiCredentialCrypto crypto = mock(AiCredentialCrypto.class);
+        EdgeTtsClient edgeTtsClient = mock(EdgeTtsClient.class);
+        UserTtsSpeechServiceImpl service = new UserTtsSpeechServiceImpl(
+                configService, mock(SysTtsConfigService.class), crypto,
+                RestClient.builder(), new ObjectMapper(), edgeTtsClient);
+        UserAiConfig config = buildTtsConfig("interview", "https://speech.platform.bing.com",
+                null, "edge-tts", "zh-CN-XiaoxiaoNeural");
+        config.setTtsProvider("edge");
+        when(configService.findEnabledConfig(21L, UserAiConstants.CONFIG_TYPE_INTERVIEW)).thenReturn(config);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> service.synthesizeInterviewSpeechAudio(21L, "璇风户缁€?", "not-a-real-edge-voice"));
+
+        assertTrue(exception.getMessage().contains("EdgeTTS"));
+        verifyNoInteractions(edgeTtsClient);
+    }
+
+    @Test
+    void shouldIgnoreVoiceOverrideForNonEdgeProvider() {
+        UserAiConfigService configService = mock(UserAiConfigService.class);
+        AiCredentialCrypto crypto = mock(AiCredentialCrypto.class);
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        UserTtsSpeechServiceImpl service = buildService(configService, crypto, builder);
+        UserAiConfig config = buildTtsConfig("interview", "https://8.8.8.8/v1", "enc-tts", "tts-1", "alloy");
+        when(configService.findEnabledConfig(22L, UserAiConstants.CONFIG_TYPE_INTERVIEW)).thenReturn(config);
+        when(crypto.decrypt("enc-tts")).thenReturn("tts-real-key");
+        byte[] audio = new byte[]{7, 8, 9};
+        server.expect(once(), requestTo("https://8.8.8.8/v1/audio/speech"))
+                .andExpect(jsonPath("$.voice").value("alloy"))
+                .andRespond(withSuccess(audio, MediaType.valueOf("audio/mpeg")));
+
+        TtsAudioResult result = service.synthesizeInterviewSpeechAudio(22L, "璇风户缁€?", "zh-CN-YunxiNeural");
+
+        assertArrayEquals(audio, result.getAudioBytes());
+        server.verify();
+    }
     private UserAiConfig buildTtsConfig(String configType, String baseUrl, String apiKey, String model, String voiceId) {
         UserAiConfig config = new UserAiConfig();
         config.setConfigType(configType);

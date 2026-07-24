@@ -208,6 +208,7 @@ describe('SettingsView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
+    saveSettingsPreferences({ voicePreferredType: 'natural_zh' })
     window.speechSynthesis = {
       getVoices: vi.fn(() => []),
       speak: vi.fn(),
@@ -891,7 +892,7 @@ describe('SettingsView', () => {
       voiceAutoSubmitDelayMs: 3000,
       voiceRecognitionLanguage: 'auto',
       voiceRecognitionEngine: 'system_local',
-      voicePreferredType: 'natural_zh',
+      voicePreferredType: 'edge_cloud',
       voiceName: '',
       voiceURI: '',
       voiceLang: ''
@@ -1047,7 +1048,7 @@ describe('SettingsView', () => {
     expect(wrapper.vm.userAiConfigForm.ttsVoiceId).toBe('zh-CN-XiaoxiaoNeural')
     expect(wrapper.vm.userAiConfigForm.ttsEndpointPath).toBe('/consumer/speech/synthesize/readaloud/edge/v1')
     expect(wrapper.vm.userTtsConfigExpanded).toBe(true)
-    expect(getSettingsPreferences().voicePreferredType).toBe(previousPreference)
+    expect(getSettingsPreferences().voicePreferredType).toBe('edge_cloud')
     expect(wrapper.vm.browserTtsVoiceStatusText).toContain('EdgeTTS')
 
     await wrapper.vm.handleVoicePreview()
@@ -1076,7 +1077,7 @@ describe('SettingsView', () => {
     expect(wrapper.vm.userAiConfigForm.ttsProvider).toBe('edge')
     expect(wrapper.vm.userAiConfigForm.ttsVoiceId).toBe('zh-CN-YunxiNeural')
     expect(wrapper.vm.userTtsConfigExpanded).toBe(true)
-    expect(getSettingsPreferences().voicePreferredType).toBe(previousPreference)
+    expect(getSettingsPreferences().voicePreferredType).toBe('edge_cloud:zh-CN-YunxiNeural')
 
     await wrapper.vm.handleVoicePreview()
     await flushPromises()

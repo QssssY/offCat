@@ -314,7 +314,10 @@ public class InterviewController {
         if (!isVoiceSession(session)) {
             throw new com.airesume.server.common.exception.BusinessException("文字面试不支持云端 TTS 播报");
         }
-        TtsAudioResult audio = userTtsSpeechService.synthesizeInterviewSpeechAudio(userId, request.getText());
+        // 仅在请求明确选择音色时传入覆盖值，空值继续走原有服务入口保持兼容。
+        TtsAudioResult audio = request.getVoiceId() == null || request.getVoiceId().isBlank()
+                ? userTtsSpeechService.synthesizeInterviewSpeechAudio(userId, request.getText())
+                : userTtsSpeechService.synthesizeInterviewSpeechAudio(userId, request.getText(), request.getVoiceId());
         return ResponseEntity.ok()
                 .contentType(MediaType.valueOf(audio.getContentType()))
                 .cacheControl(CacheControl.noStore())

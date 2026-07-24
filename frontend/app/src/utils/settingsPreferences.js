@@ -153,7 +153,7 @@ export const DEFAULT_SETTINGS_PREFERENCES = Object.freeze({
   voiceAutoSubmitDelayMs: 3000,
   voiceRecognitionLanguage: 'auto',
   voiceRecognitionEngine: 'system_local',
-  voicePreferredType: 'natural_zh',
+  voicePreferredType: 'edge_cloud',
   voiceName: '',
   voiceURI: '',
   voiceLang: '',

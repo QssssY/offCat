@@ -430,7 +430,12 @@ import {
 import { prefetchInterviewReportRoute } from "@/router/routeLoaders";
 import { ElMessage } from "element-plus";
 import { getToken } from "@/utils/auth";
-import { getBrowserTtsPresetParameters, getSettingsPreferences } from "@/utils/settingsPreferences";
+import {
+  getBrowserTtsPresetParameters,
+  getEdgeCloudTtsVoiceId,
+  getSettingsPreferences,
+  isEdgeCloudTtsVoicePreference
+} from "@/utils/settingsPreferences";
 import FeatureIcon from "@/components/common/FeatureIcon.vue";
 import OptimizedImage from "@/components/common/OptimizedImage.vue";
 import { useSpeechToText } from "@/composables/useSpeechToText";
@@ -444,6 +449,10 @@ const router = useRouter();
 const route = useRoute();
 const settingsPreferences = getSettingsPreferences();
 const browserTtsPresetParameters = getBrowserTtsPresetParameters(settingsPreferences.voicePreferredType);
+const isEdgeCloudTtsSelected = isEdgeCloudTtsVoicePreference(settingsPreferences.voicePreferredType);
+const edgeCloudTtsVoiceId = isEdgeCloudTtsSelected
+  ? getEdgeCloudTtsVoiceId(settingsPreferences.voicePreferredType)
+  : '';
 const RATE_LIMIT_STATUS = 429;
 const INTERVIEW_STREAM_RATE_LIMIT_MESSAGE = "发送太频繁，请稍后继续。10 分钟内最多 60 轮对话。";
 const OPENING_SPEECH_MAX_ATTEMPTS = 2;
@@ -606,6 +615,7 @@ function handleCloudTtsFallback(event = {}) {
 const cloudTextToSpeech = useCloudTextToSpeech({
   sessionId,
   enabled: false,
+  voiceId: edgeCloudTtsVoiceId,
   onFallback: handleCloudTtsFallback,
 });
 const cloudTtsEngine = ref('');
@@ -1025,8 +1035,8 @@ const loadInterviewTtsCapability = async (nextSessionData) => {
     const response = await getInterviewTtsCapability(sessionId.value);
     const capability = response.data || {};
     // capability 只决定本场播放层是否走用户自定义 TTS；不可用时继续浏览器播报，不触发平台 AI fallback。
-    cloudTextToSpeech.setEnabled(Boolean(capability.available));
-    cloudTtsEngine.value = capability.available ? String(capability.engine || '') : '';
+    cloudTextToSpeech.setEnabled(Boolean(capability.available && isEdgeCloudTtsSelected));
+    cloudTtsEngine.value = capability.available && isEdgeCloudTtsSelected ? String(capability.engine || '') : '';
     if (capability.available) {
       cloudTtsFallbackWarned.value = false;
     }

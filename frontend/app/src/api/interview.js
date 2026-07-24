@@ -63,7 +63,7 @@ export function sendInterviewMessage(sessionId, data) {
  * @param {string} sessionId - 会话 ID
  * @param {{content: string, feedbackMode?: string}} data - 消息参数，feedbackMode 控制每题反馈或面完复盘
  * @param {string} token - 登录 token
- * @param {{ signal?: AbortSignal }} [options] - 可选配置，signal 用于路由切换或重复发送时取消旧流
+ * @param {{ signal?: AbortSignal, voiceId?: string }} [options] - 可选配置，signal 用于路由切换或重复发送时取消旧流
  * @returns {Promise<Response>}
  */
 export function streamInterviewMessage(sessionId, data, token, options = {}) {
@@ -137,7 +137,7 @@ export function getInterviewTtsCapability(sessionId) {
  * 这里使用 fetch 接收 audio/mpeg Blob，避免 Axios 默认 JSON 解析干扰二进制响应。
  * @param {string} sessionId - 会话 ID
  * @param {string} text - 待合成文本
- * @param {{ signal?: AbortSignal }} [options] - 可选取消信号
+ * @param {{ signal?: AbortSignal, voiceId?: string }} [options] - 可选取消信号
  * @returns {Promise<Blob>}
  */
 export async function synthesizeInterviewTts(sessionId, text, options = {}) {
@@ -148,7 +148,12 @@ export async function synthesizeInterviewTts(sessionId, text, options = {}) {
       'Content-Type': 'application/json',
       Authorization: token ? `Bearer ${token}` : ''
     },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({
+      text,
+      ...(typeof options.voiceId === 'string' && options.voiceId.trim()
+        ? { voiceId: options.voiceId.trim() }
+        : {})
+    }),
     signal: options.signal
   })
 

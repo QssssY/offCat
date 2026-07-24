@@ -82,6 +82,24 @@ describe('interview API fallbackToPlatform', () => {
     expect(result).toBe(audioBlob)
   })
 
+  it('should include an explicitly selected EdgeTTS voice in the synthesis body', async () => {
+    const audioBlob = new Blob(['mp3'], { type: 'audio/mpeg' })
+    global.fetch = vi.fn(() => Promise.resolve({
+      ok: true,
+      blob: () => Promise.resolve(audioBlob),
+    }))
+
+    await synthesizeInterviewTts('session-1', '浣犲ソ', {
+      voiceId: 'zh-CN-YunxiNeural'
+    })
+
+    expect(global.fetch).toHaveBeenCalledWith('/api/interview/session/session-1/tts', expect.objectContaining({
+      body: JSON.stringify({
+        text: '浣犲ソ',
+        voiceId: 'zh-CN-YunxiNeural'
+      })
+    }))
+  })
   it('should expose backend TTS errors without leaking response internals', async () => {
     global.fetch = vi.fn(() => Promise.resolve({
       ok: false,

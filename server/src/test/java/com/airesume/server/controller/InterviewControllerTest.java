@@ -462,6 +462,28 @@ class InterviewControllerTest {
     }
 
     @Test
+    void synthesizeTtsShouldPassSelectedVoiceIdToSpeechService() {
+        String sessionId = "voice-session-override";
+        InterviewSession session = buildSession(sessionId, InterviewConstants.INTERACTION_TYPE_VOICE,
+                InterviewConstants.STATUS_IN_PROGRESS);
+        TtsSpeechRequest request = new TtsSpeechRequest();
+        request.setText("hello");
+        request.setVoiceId("zh-CN-YunxiNeural");
+        byte[] audio = new byte[]{3, 4, 5};
+        when(interviewService.getSessionByOwnerOrThrow(sessionId, 1L)).thenReturn(session);
+        when(interviewService.resolveInteractionType(InterviewConstants.INTERACTION_TYPE_VOICE))
+                .thenReturn(InterviewConstants.INTERACTION_TYPE_VOICE);
+        when(userTtsSpeechService.synthesizeInterviewSpeechAudio(1L, "hello", "zh-CN-YunxiNeural"))
+                .thenReturn(TtsAudioResult.of(audio, "audio/mpeg"));
+
+        ResponseEntity<byte[]> response = controller.synthesizeTts(sessionId, request, authentication);
+
+        assertEquals(200, response.getStatusCode().value());
+        assertArrayEquals(audio, response.getBody());
+        verify(userTtsSpeechService).synthesizeInterviewSpeechAudio(1L, "hello", "zh-CN-YunxiNeural");
+    }
+
+    @Test
     void synthesizeTtsShouldRejectTextSession() {
         String sessionId = "text-session";
         InterviewSession session = buildSession(sessionId, InterviewConstants.INTERACTION_TYPE_TEXT,

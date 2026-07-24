@@ -89,13 +89,18 @@ public class UserTtsSpeechServiceImpl implements UserTtsSpeechService {
 
     @Override
     public TtsAudioResult synthesizeInterviewSpeechAudio(Long userId, String text) {
+        return synthesizeInterviewSpeechAudio(userId, text, null);
+    }
+
+    @Override
+    public TtsAudioResult synthesizeInterviewSpeechAudio(Long userId, String text, String voiceIdOverride) {
         ResolvedTtsConfig config = resolveInterviewTtsConfig(userId);
         if (config == null) {
             throw new BusinessException(ResultCode.CUSTOM_AI_CONFIG_INVALID, "未配置可用于语音面试的 TTS");
         }
         String normalizedText = normalizeRequired(text, "TTS 文本不能为空");
 
-        // 根据 Provider 分发到不同的协议处理器
+        // 根据 Provider 分发协议；前端音色覆盖只允许影响 EdgeTTS，避免改写其它服务商配置。
         String provider = normalizeProvider(config.getTtsProvider());
         if ("gemini".equals(provider)) {
             return synthesizeViaGemini(userId, config, normalizedText);
@@ -111,12 +116,29 @@ public class UserTtsSpeechServiceImpl implements UserTtsSpeechService {
         }
         TtsProviderConstants.TtsApiFormat apiFormat = TtsProviderConstants.resolveApiFormat(config.getTtsProvider());
         if (apiFormat == TtsProviderConstants.TtsApiFormat.EDGE_READALOUD) {
-            return TtsAudioResult.of(synthesizeViaEdgeReadAloud(userId, config, normalizedText), "audio/mpeg");
+            String voiceId = resolveEdgeVoiceId(config, voiceIdOverride);
+            return TtsAudioResult.of(synthesizeViaEdgeReadAloud(userId, config, normalizedText, voiceId), "audio/mpeg");
         }
         if (apiFormat == TtsProviderConstants.TtsApiFormat.CHAT_COMPLETIONS_TTS) {
             return TtsAudioResult.of(synthesizeViaChatCompletions(userId, config, normalizedText), "audio/mpeg");
         }
         return TtsAudioResult.of(synthesizeViaAudioSpeech(userId, config, normalizedText), "audio/mpeg");
+    }
+
+    /**
+     * 校验面试请求传入的 EdgeTTS 音色，非法值在访问上游前直接失败。
+     */
+    private String resolveEdgeVoiceId(ResolvedTtsConfig config, String voiceIdOverride) {
+        String normalizedOverride = trimToNull(voiceIdOverride);
+        if (normalizedOverride == null) {
+            return config.getVoiceId();
+        }
+        boolean allowed = TtsProviderConstants.EDGE_PRESET.getPresetVoices().stream()
+                .anyMatch(voice -> voice.getId().equals(normalizedOverride));
+        if (!allowed) {
+            throw new BusinessException(ResultCode.CUSTOM_AI_CONFIG_INVALID, "EdgeTTS 音色不在允许列表中");
+        }
+        return normalizedOverride;
     }
 
     /**
@@ -256,9 +278,9 @@ public class UserTtsSpeechServiceImpl implements UserTtsSpeechService {
      * <p>
      * EdgeTTS 不使用用户 API Key，但仍复用既有配置解析和音频返回链路，确保语音面试前端继续接收 mp3 Blob。
      */
-    private byte[] synthesizeViaEdgeReadAloud(Long userId, ResolvedTtsConfig config, String text) {
+    private byte[] synthesizeViaEdgeReadAloud(Long userId, ResolvedTtsConfig config, String text, String voiceId) {
         try {
-            byte[] audioBytes = edgeTtsClient.synthesize(text, config.getVoiceId(), Duration.ofMillis(TTS_TIMEOUT_MS));
+            byte[] audioBytes = edgeTtsClient.synthesize(text, voiceId, Duration.ofMillis(TTS_TIMEOUT_MS));
             if (audioBytes == null || audioBytes.length == 0) {
                 throw new BusinessException(ResultCode.CUSTOM_AI_CALL_FAILED, "EdgeTTS 返回音频为空");
             }

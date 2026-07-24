@@ -4,6 +4,7 @@ import {
   clearLocalSettingsCache,
   DEFAULT_SETTINGS_PREFERENCES,
   EDGE_CLOUD_TTS_VOICE_PREFERENCE,
+  getEdgeCloudTtsVoiceId,
   getBrowserTtsPresetParameters,
   getSettingsPreferences,
   normalizeSettingsPreferences,
@@ -19,6 +20,8 @@ describe('settingsPreferences', () => {
   it('returns defaults when nothing is stored', () => {
     expect(getSettingsPreferences()).toEqual(DEFAULT_SETTINGS_PREFERENCES)
     expect(getSettingsPreferences().voiceRecognitionEngine).toBe('system_local')
+    expect(DEFAULT_SETTINGS_PREFERENCES.voicePreferredType).toBe('edge_cloud')
+    expect(getEdgeCloudTtsVoiceId(DEFAULT_SETTINGS_PREFERENCES.voicePreferredType)).toBe('zh-CN-XiaoxiaoNeural')
   })
 
   it('merges and persists saved preferences', () => {

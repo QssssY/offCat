@@ -238,6 +238,7 @@ export function useCloudTextToSpeech(options = {}) {
     try {
       const audioBlob = await synthesizeInterviewTts(sessionId, item.text, {
         signal: abortController.signal,
+        voiceId: unref(options.voiceId),
       })
       if (currentRunId !== runId) return
       item.preparing = false

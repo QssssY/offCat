@@ -29,6 +29,13 @@ public interface UserTtsSpeechService {
     TtsAudioResult synthesizeInterviewSpeechAudio(Long userId, String text);
 
     /**
+     * 使用可选音色覆盖合成面试播报，覆盖值仅由 EdgeTTS Provider 处理。
+     */
+    default TtsAudioResult synthesizeInterviewSpeechAudio(Long userId, String text, String voiceIdOverride) {
+        return synthesizeInterviewSpeechAudio(userId, text);
+    }
+
+    /**
      * 兼容旧调用方：只需要音频字节时从完整结果中取出 byte[]。
      */
     default byte[] synthesizeInterviewSpeech(Long userId, String text) {

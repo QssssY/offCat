@@ -2591,6 +2591,12 @@ const handleVoicePreferredTypeChange = () => {
     handleTtsProviderChange('edge', {
       voiceId: getEdgeCloudTtsVoiceId(interviewPreferenceForm.value.voicePreferredType)
     })
+    syncPreferenceForms(saveSettingsPreferences({
+      ...interviewPreferenceForm.value,
+      voiceName: '',
+      voiceURI: '',
+      voiceLang: ''
+    }))
     userTtsConfigExpanded.value = true
     previewTextToSpeech.setVoicePreference(buildVoicePreferenceFromForm())
     return
