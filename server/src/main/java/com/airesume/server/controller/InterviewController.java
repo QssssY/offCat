@@ -314,7 +314,8 @@ public class InterviewController {
         if (!isVoiceSession(session)) {
             throw new com.airesume.server.common.exception.BusinessException("文字面试不支持云端 TTS 播报");
         }
-        TtsAudioResult audio = userTtsSpeechService.synthesizeInterviewSpeechAudio(userId, request.getText());
+        TtsAudioResult audio = userTtsSpeechService.synthesizeInterviewSpeechAudio(
+                userId, request.getText(), request.getVoiceId());
         return ResponseEntity.ok()
                 .contentType(MediaType.valueOf(audio.getContentType()))
                 .cacheControl(CacheControl.noStore())
@@ -409,7 +410,15 @@ public class InterviewController {
         if (config == null) {
             return "browser";
         }
-        return "system".equals(config.getSource()) ? "system" : "user_custom";
+        String source = config.getSource();
+        if ("system".equals(source)) {
+            return "system";
+        }
+        // 内置 EdgeTTS 兜底既非用户自定义也非系统配置，单独标记为 builtin，前端按通用云端 TTS 展示。
+        if ("builtin".equals(source)) {
+            return "builtin";
+        }
+        return "user_custom";
     }
 
     private InterviewJobRoleResponse buildInterviewJobRoleResponse(SysJobRole jobRole) {

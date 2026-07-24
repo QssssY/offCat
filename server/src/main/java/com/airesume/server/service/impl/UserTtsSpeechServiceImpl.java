@@ -46,6 +46,9 @@ public class UserTtsSpeechServiceImpl implements UserTtsSpeechService {
     private static final String DEFAULT_TTS_ENDPOINT = "/audio/speech";
     private static final int TTS_TIMEOUT_MS = 15000;
 
+    /** 内置 EdgeTTS 兜底音色（晓晓）。用户和系统均未配置 TTS 时，语音面试仍可开箱即用地云端播报。 */
+    private static final String BUILTIN_EDGE_DEFAULT_VOICE = "zh-CN-XiaoxiaoNeural";
+
     private final UserAiConfigService userAiConfigService;
     private final SysTtsConfigService sysTtsConfigService;
     private final AiCredentialCrypto aiCredentialCrypto;
@@ -69,7 +72,55 @@ public class UserTtsSpeechServiceImpl implements UserTtsSpeechService {
             return resolved;
         }
         // 用户未配置可用 TTS 时，才启用系统级 TTS 兜底；用户自定义始终优先于系统默认。
-        return sysTtsConfigService.resolveEnabledConfig();
+        ResolvedTtsConfig systemConfig = sysTtsConfigService.resolveEnabledConfig();
+        if (systemConfig != null) {
+            return systemConfig;
+        }
+        // 用户与系统都未配置时，回落到内置 EdgeTTS 晓晓，保证语音面试开箱即用地云端播报。
+        return buildBuiltinEdgeConfig();
+    }
+
+    /**
+     * 构造内置 EdgeTTS 兜底配置（晓晓）。
+     * <p>
+     * EdgeTTS 走 WebSocket 在线朗读通道，不需要项目内 baseUrl/apiKey，运行时由 {@link EdgeTtsClientImpl} 直连上游。
+     */
+    private ResolvedTtsConfig buildBuiltinEdgeConfig() {
+        return ResolvedTtsConfig.builder()
+                .source("builtin")
+                .configType("builtin")
+                .ttsProvider(TtsProviderConstants.PROVIDER_EDGE)
+                .voiceId(BUILTIN_EDGE_DEFAULT_VOICE)
+                .model("edge-tts")
+                .build();
+    }
+
+    /**
+     * 按前端选择的音色逐请求覆盖解析出的 TTS 配置。
+     * <p>
+     * 仅当解析出的配置是 EdgeTTS 且请求音色在 EdgeTTS 白名单内时才覆盖：
+     * 其它 Provider 的音色空间不同，跨 Provider 透传会导致上游拒绝或串音，所以此处严格限定 EdgeTTS。
+     */
+    private ResolvedTtsConfig applyRequestedVoice(ResolvedTtsConfig config, String requestedVoiceId) {
+        String normalizedVoice = trimToNull(requestedVoiceId);
+        if (normalizedVoice == null || config == null) {
+            return config;
+        }
+        if (!isEdgeProvider(config.getTtsProvider()) || !isSupportedEdgeVoice(normalizedVoice)) {
+            return config;
+        }
+        if (normalizedVoice.equals(config.getVoiceId())) {
+            return config;
+        }
+        return config.toBuilder().voiceId(normalizedVoice).build();
+    }
+
+    /**
+     * 校验音色是否在 EdgeTTS 预设白名单内，防止任意字符串被当作 SSML voice 注入上游。
+     */
+    private boolean isSupportedEdgeVoice(String voiceId) {
+        return TtsProviderConstants.EDGE_PRESET.getPresetVoices().stream()
+                .anyMatch(voice -> voice.getId().equals(voiceId));
     }
 
     @Override
@@ -88,11 +139,13 @@ public class UserTtsSpeechServiceImpl implements UserTtsSpeechService {
     }
 
     @Override
-    public TtsAudioResult synthesizeInterviewSpeechAudio(Long userId, String text) {
+    public TtsAudioResult synthesizeInterviewSpeechAudio(Long userId, String text, String requestedVoiceId) {
         ResolvedTtsConfig config = resolveInterviewTtsConfig(userId);
         if (config == null) {
             throw new BusinessException(ResultCode.CUSTOM_AI_CONFIG_INVALID, "未配置可用于语音面试的 TTS");
         }
+        // 前端设置中心选择的 EdgeTTS 音色逐请求透传：只覆盖 EdgeTTS 且白名单内音色，避免误传给其它 Provider。
+        config = applyRequestedVoice(config, requestedVoiceId);
         String normalizedText = normalizeRequired(text, "TTS 文本不能为空");
 
         // 根据 Provider 分发到不同的协议处理器

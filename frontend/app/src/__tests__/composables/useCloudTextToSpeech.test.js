@@ -64,6 +64,25 @@ describe('useCloudTextToSpeech', () => {
     }))
   })
 
+  it('threads the selected EdgeTTS voice through each synthesis request', async () => {
+    synthesizeInterviewTts.mockResolvedValue(new Blob(['first'], { type: 'audio/mpeg' }))
+    const tts = useCloudTextToSpeech({
+      sessionId: 'session-1',
+      enabled: true,
+      voiceId: 'zh-CN-YunxiNeural',
+    })
+
+    tts.speak('你好，请介绍一下自己。')
+    await flushPromises()
+
+    // 每次合成都带上所选音色，后端据此在 EdgeTTS 上生效，声音设置不再被面试链路吞掉。
+    expect(synthesizeInterviewTts).toHaveBeenCalledWith(
+      'session-1',
+      '你好，请介绍一下自己。',
+      expect.objectContaining({ voiceId: 'zh-CN-YunxiNeural' }),
+    )
+  })
+
   it('pre-synthesizes the next sentence while current cloud audio is playing', async () => {
     const secondAudioDeferred = createDeferred()
     synthesizeInterviewTts

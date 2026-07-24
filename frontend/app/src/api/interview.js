@@ -137,18 +137,20 @@ export function getInterviewTtsCapability(sessionId) {
  * 这里使用 fetch 接收 audio/mpeg Blob，避免 Axios 默认 JSON 解析干扰二进制响应。
  * @param {string} sessionId - 会话 ID
  * @param {string} text - 待合成文本
- * @param {{ signal?: AbortSignal }} [options] - 可选取消信号
+ * @param {{ signal?: AbortSignal, voiceId?: string }} [options] - 可选取消信号与播报音色；voiceId 仅对 EdgeTTS 生效
  * @returns {Promise<Blob>}
  */
 export async function synthesizeInterviewTts(sessionId, text, options = {}) {
   const token = getToken()
+  // voiceId 为空时不写入请求体，保持与旧调用方一致，由后端沿用配置默认音色。
+  const payload = options.voiceId ? { text, voiceId: options.voiceId } : { text }
   const response = await fetch(`/api/interview/session/${sessionId}/tts`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: token ? `Bearer ${token}` : ''
     },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify(payload),
     signal: options.signal
   })
 

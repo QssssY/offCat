@@ -128,15 +128,64 @@ class UserTtsSpeechServiceImplTest {
     }
 
     @Test
-    void shouldReturnUnavailableWhenTtsFieldsIncomplete() {
+    void shouldFallbackToBuiltinEdgeWhenUserTtsFieldsIncompleteAndNoSystemConfig() {
         UserAiConfigService configService = mock(UserAiConfigService.class);
+        SysTtsConfigService sysTtsConfigService = mock(SysTtsConfigService.class);
         UserTtsSpeechServiceImpl service = new UserTtsSpeechServiceImpl(
-                configService, mock(SysTtsConfigService.class), mock(AiCredentialCrypto.class), RestClient.builder(),
+                configService, sysTtsConfigService, mock(AiCredentialCrypto.class), RestClient.builder(),
                 new ObjectMapper(), mock(EdgeTtsClient.class));
         UserAiConfig incompleteConfig = buildTtsConfig("interview", "https://8.8.8.8/v1", "enc-interview", "", "alloy");
         when(configService.findEnabledConfig(10L, UserAiConstants.CONFIG_TYPE_INTERVIEW)).thenReturn(incompleteConfig);
+        when(sysTtsConfigService.resolveEnabledConfig()).thenReturn(null);
 
-        assertFalse(service.hasInterviewTtsConfig(10L));
+        // 用户配置不完整且系统未配置时，回落到内置 EdgeTTS 晓晓，保证语音面试开箱即用地云端播报。
+        ResolvedTtsConfig resolved = service.resolveInterviewTtsConfig(10L);
+
+        assertTrue(service.hasInterviewTtsConfig(10L));
+        assertEquals("builtin", resolved.getSource());
+        assertEquals("edge", resolved.getTtsProvider());
+        assertEquals("zh-CN-XiaoxiaoNeural", resolved.getVoiceId());
+    }
+
+    @Test
+    void shouldOverrideEdgeVoiceWithWhitelistedRequestedVoice() {
+        UserAiConfigService configService = mock(UserAiConfigService.class);
+        SysTtsConfigService sysTtsConfigService = mock(SysTtsConfigService.class);
+        EdgeTtsClient edgeTtsClient = mock(EdgeTtsClient.class);
+        UserTtsSpeechServiceImpl service = new UserTtsSpeechServiceImpl(
+                configService, sysTtsConfigService, mock(AiCredentialCrypto.class),
+                RestClient.builder(), new ObjectMapper(), edgeTtsClient);
+        when(configService.findEnabledConfig(20L, UserAiConstants.CONFIG_TYPE_INTERVIEW)).thenReturn(null);
+        when(configService.findEnabledConfig(20L, UserAiConstants.CONFIG_TYPE_DEFAULT)).thenReturn(null);
+        when(sysTtsConfigService.resolveEnabledConfig()).thenReturn(null);
+        when(edgeTtsClient.synthesize("你好", "zh-CN-YunxiNeural", Duration.ofMillis(15000)))
+                .thenReturn(new byte[]{5, 6, 7});
+
+        // 内置 EdgeTTS 兜底默认晓晓，但前端选择的白名单音色（云希）应逐请求覆盖。
+        TtsAudioResult result = service.synthesizeInterviewSpeechAudio(20L, "你好", "zh-CN-YunxiNeural");
+
+        assertArrayEquals(new byte[]{5, 6, 7}, result.getAudioBytes());
+        verify(edgeTtsClient).synthesize("你好", "zh-CN-YunxiNeural", Duration.ofMillis(15000));
+    }
+
+    @Test
+    void shouldIgnoreNonWhitelistedRequestedVoiceForEdge() {
+        UserAiConfigService configService = mock(UserAiConfigService.class);
+        SysTtsConfigService sysTtsConfigService = mock(SysTtsConfigService.class);
+        EdgeTtsClient edgeTtsClient = mock(EdgeTtsClient.class);
+        UserTtsSpeechServiceImpl service = new UserTtsSpeechServiceImpl(
+                configService, sysTtsConfigService, mock(AiCredentialCrypto.class),
+                RestClient.builder(), new ObjectMapper(), edgeTtsClient);
+        when(configService.findEnabledConfig(21L, UserAiConstants.CONFIG_TYPE_INTERVIEW)).thenReturn(null);
+        when(configService.findEnabledConfig(21L, UserAiConstants.CONFIG_TYPE_DEFAULT)).thenReturn(null);
+        when(sysTtsConfigService.resolveEnabledConfig()).thenReturn(null);
+        when(edgeTtsClient.synthesize("你好", "zh-CN-XiaoxiaoNeural", Duration.ofMillis(15000)))
+                .thenReturn(new byte[]{1});
+
+        // 非白名单音色（可能被注入的任意字符串）必须忽略，回退到默认晓晓，避免恶意 SSML voice 透传上游。
+        service.synthesizeInterviewSpeechAudio(21L, "你好", "evil-voice");
+
+        verify(edgeTtsClient).synthesize("你好", "zh-CN-XiaoxiaoNeural", Duration.ofMillis(15000));
     }
 
     @Test

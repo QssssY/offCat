@@ -1031,11 +1031,10 @@ describe('SettingsView', () => {
     expect(livelyFemaleOption.label).toContain('当前系统不可用')
   }, 15000)
 
-  it('selects EdgeTTS cloud voice as an unsaved TTS configuration shortcut', async () => {
+  it('persists EdgeTTS cloud voice locally so built-in fallback broadcasts it in interviews', async () => {
     const wrapper = mountView()
     await flushPromises()
 
-    const previousPreference = getSettingsPreferences().voicePreferredType
     wrapper.vm.interviewPreferenceForm.voicePreferredType = 'edge_cloud'
     wrapper.vm.handleVoicePreferredTypeChange()
     await flushPromises()
@@ -1047,7 +1046,8 @@ describe('SettingsView', () => {
     expect(wrapper.vm.userAiConfigForm.ttsVoiceId).toBe('zh-CN-XiaoxiaoNeural')
     expect(wrapper.vm.userAiConfigForm.ttsEndpointPath).toBe('/consumer/speech/synthesize/readaloud/edge/v1')
     expect(wrapper.vm.userTtsConfigExpanded).toBe(true)
-    expect(getSettingsPreferences().voicePreferredType).toBe(previousPreference)
+    // 选择后直接落本机偏好：内置 EdgeTTS 兜底让语音面试逐请求透传该音色，无需先保存完整自定义 AI 配置。
+    expect(getSettingsPreferences().voicePreferredType).toBe('edge_cloud')
     expect(wrapper.vm.browserTtsVoiceStatusText).toContain('EdgeTTS')
 
     await wrapper.vm.handleVoicePreview()
@@ -1068,7 +1068,6 @@ describe('SettingsView', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    const previousPreference = getSettingsPreferences().voicePreferredType
     wrapper.vm.interviewPreferenceForm.voicePreferredType = 'edge_cloud:zh-CN-YunxiNeural'
     wrapper.vm.handleVoicePreferredTypeChange()
     await flushPromises()
@@ -1076,7 +1075,8 @@ describe('SettingsView', () => {
     expect(wrapper.vm.userAiConfigForm.ttsProvider).toBe('edge')
     expect(wrapper.vm.userAiConfigForm.ttsVoiceId).toBe('zh-CN-YunxiNeural')
     expect(wrapper.vm.userTtsConfigExpanded).toBe(true)
-    expect(getSettingsPreferences().voicePreferredType).toBe(previousPreference)
+    // 具体音色同样直接落本机偏好，语音面试透传该 voice 给内置 EdgeTTS 兜底。
+    expect(getSettingsPreferences().voicePreferredType).toBe('edge_cloud:zh-CN-YunxiNeural')
 
     await wrapper.vm.handleVoicePreview()
     await flushPromises()

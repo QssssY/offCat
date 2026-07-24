@@ -38,6 +38,8 @@ export function useCloudTextToSpeech(options = {}) {
   }
 
   const resolveSessionId = () => unref(options.sessionId)
+  // 播报音色随每次合成透传给后端；仅 EdgeTTS 且命中白名单时后端才会覆盖，其它情况后端忽略。
+  const resolveVoiceId = () => unref(options.voiceId) || ''
 
   const setEnabled = (enabled) => {
     isSupported.value = Boolean(enabled)
@@ -238,6 +240,7 @@ export function useCloudTextToSpeech(options = {}) {
     try {
       const audioBlob = await synthesizeInterviewTts(sessionId, item.text, {
         signal: abortController.signal,
+        voiceId: resolveVoiceId(),
       })
       if (currentRunId !== runId) return
       item.preparing = false

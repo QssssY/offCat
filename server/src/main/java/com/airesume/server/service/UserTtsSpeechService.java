@@ -25,8 +25,18 @@ public interface UserTtsSpeechService {
 
     /**
      * 使用解析后的 TTS 配置合成面试官播报音频，返回音频字节与真实媒体类型。
+     * <p>
+     * requestedVoiceId 为前端设置中心选择的播报音色：仅当解析出的配置是 EdgeTTS
+     * 且该音色在 EdgeTTS 白名单内时才逐请求覆盖，避免把某个 Provider 的音色误传给其它 Provider。
      */
-    TtsAudioResult synthesizeInterviewSpeechAudio(Long userId, String text);
+    TtsAudioResult synthesizeInterviewSpeechAudio(Long userId, String text, String requestedVoiceId);
+
+    /**
+     * 兼容旧调用方：未显式指定音色时按配置默认音色合成。
+     */
+    default TtsAudioResult synthesizeInterviewSpeechAudio(Long userId, String text) {
+        return synthesizeInterviewSpeechAudio(userId, text, null);
+    }
 
     /**
      * 兼容旧调用方：只需要音频字节时从完整结果中取出 byte[]。

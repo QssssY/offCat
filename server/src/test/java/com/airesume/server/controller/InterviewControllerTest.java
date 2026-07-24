@@ -446,11 +446,12 @@ class InterviewControllerTest {
                 InterviewConstants.STATUS_IN_PROGRESS);
         TtsSpeechRequest request = new TtsSpeechRequest();
         request.setText("你好，请介绍一下自己。");
+        request.setVoiceId("zh-CN-YunxiNeural");
         byte[] audio = new byte[]{1, 2, 3};
         when(interviewService.getSessionByOwnerOrThrow(sessionId, 1L)).thenReturn(session);
         when(interviewService.resolveInteractionType(InterviewConstants.INTERACTION_TYPE_VOICE))
                 .thenReturn(InterviewConstants.INTERACTION_TYPE_VOICE);
-        when(userTtsSpeechService.synthesizeInterviewSpeechAudio(1L, "你好，请介绍一下自己。"))
+        when(userTtsSpeechService.synthesizeInterviewSpeechAudio(1L, "你好，请介绍一下自己。", "zh-CN-YunxiNeural"))
                 .thenReturn(TtsAudioResult.of(audio, "audio/wav"));
 
         ResponseEntity<byte[]> response = controller.synthesizeTts(sessionId, request, authentication);
@@ -458,6 +459,8 @@ class InterviewControllerTest {
         assertEquals(200, response.getStatusCode().value());
         assertArrayEquals(audio, response.getBody());
         assertEquals("audio/wav", response.getHeaders().getContentType().toString());
+        // 前端所选音色随请求透传给合成服务，声音设置在语音面试中才会生效。
+        verify(userTtsSpeechService).synthesizeInterviewSpeechAudio(1L, "你好，请介绍一下自己。", "zh-CN-YunxiNeural");
         verify(interviewService).assertSessionInProgress(session);
     }
 

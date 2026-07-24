@@ -2593,6 +2593,8 @@ const handleVoicePreferredTypeChange = () => {
     })
     userTtsConfigExpanded.value = true
     previewTextToSpeech.setVoicePreference(buildVoicePreferenceFromForm())
+    // 内置 EdgeTTS 兜底让云端播报开箱即用，所选音色需直接落本机偏好，语音面试才能逐请求透传给后端。
+    handleInterviewPreferenceSave()
     return
   }
   if (interviewPreferenceForm.value.voicePreferredType !== 'custom') {

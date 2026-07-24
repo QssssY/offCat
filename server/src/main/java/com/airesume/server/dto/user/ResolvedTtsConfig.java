@@ -7,7 +7,7 @@ import lombok.Data;
  * 用户自定义 TTS 运行时配置。
  */
 @Data
-@Builder
+@Builder(toBuilder = true)
 public class ResolvedTtsConfig {
 
     /** 配置来源：user_custom/system，用于控制层和前端区分展示。 */

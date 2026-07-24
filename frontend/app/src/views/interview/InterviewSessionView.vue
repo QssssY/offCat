@@ -430,7 +430,12 @@ import {
 import { prefetchInterviewReportRoute } from "@/router/routeLoaders";
 import { ElMessage } from "element-plus";
 import { getToken } from "@/utils/auth";
-import { getBrowserTtsPresetParameters, getSettingsPreferences } from "@/utils/settingsPreferences";
+import {
+  getBrowserTtsPresetParameters,
+  getEdgeCloudTtsVoiceId,
+  getSettingsPreferences,
+  isEdgeCloudTtsVoicePreference,
+} from "@/utils/settingsPreferences";
 import FeatureIcon from "@/components/common/FeatureIcon.vue";
 import OptimizedImage from "@/components/common/OptimizedImage.vue";
 import { useSpeechToText } from "@/composables/useSpeechToText";
@@ -603,9 +608,16 @@ function handleCloudTtsFallback(event = {}) {
   }
 }
 
+// 用户在设置中心选择的 EdgeTTS 云端音色：仅当偏好指向 EdgeTTS 时解析出具体 voice，逐请求透传给后端。
+// 非 EdgeTTS 偏好（浏览器预设等）返回空串，后端沿用解析出的默认音色。
+const selectedCloudVoiceId = isEdgeCloudTtsVoicePreference(settingsPreferences.voicePreferredType)
+  ? getEdgeCloudTtsVoiceId(settingsPreferences.voicePreferredType)
+  : "";
+
 const cloudTextToSpeech = useCloudTextToSpeech({
   sessionId,
   enabled: false,
+  voiceId: selectedCloudVoiceId,
   onFallback: handleCloudTtsFallback,
 });
 const cloudTtsEngine = ref('');
