@@ -5,6 +5,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest(properties = {
         "jwt.secret=test-jwt-secret-key-for-spring-context-123456",
+        "app.security.api-key-encryption-secret=test-api-key-encryption-secret-123456",
         "spring.datasource.password=123456",
         "spring.rabbitmq.listener.simple.auto-startup=false",
         "spring.rabbitmq.listener.direct.auto-startup=false",

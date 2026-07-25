@@ -21,12 +21,14 @@ class CommunityServiceConstructorInjectionTest {
                 .toArray(Constructor[]::new);
 
         assertEquals(1, autowiredConstructors.length, "社区服务只能有一个显式 Spring 注入构造器");
-        assertEquals(10, autowiredConstructors[0].getParameterCount(), "生产注入构造器必须包含完整的 10 个依赖");
+        assertEquals(11, autowiredConstructors[0].getParameterCount(), "生产注入构造器必须包含完整的 11 个依赖");
         assertEquals(CommunityTextModerationService.class, autowiredConstructors[0].getParameterTypes()[7],
                 "第 8 个依赖必须是社区文本审核服务，避免生产环境使用测试兼容构造器");
         assertEquals(NotificationService.class, autowiredConstructors[0].getParameterTypes()[8],
                 "第 9 个依赖必须是站内通知服务，确保管理员下架后能通知作者");
         assertEquals(OssService.class, autowiredConstructors[0].getParameterTypes()[9],
-                "最后一个依赖必须是 OSS 服务，确保生产环境使用真实对象存储实现");
+                "第 10 个依赖必须是 OSS 服务，确保生产环境使用真实对象存储实现");
+        assertEquals(CommunityImageRegistryService.class, autowiredConstructors[0].getParameterTypes()[10],
+                "最后一个依赖必须是社区图片登记服务，确保生产环境记录并绑定上传图片");
     }
 }

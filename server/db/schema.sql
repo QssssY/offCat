@@ -19,6 +19,7 @@ DROP TABLE IF EXISTS `resume_polish_record`;
 DROP TABLE IF EXISTS `resume_job_match_record`;
 DROP TABLE IF EXISTS `resume_diagnosis_task`;
 DROP TABLE IF EXISTS `user_rights_change_log`;
+DROP TABLE IF EXISTS `sys_stt_config`;
 DROP TABLE IF EXISTS `sys_ai_engine_config`;
 DROP TABLE IF EXISTS `sys_growth_config`;
 DROP TABLE IF EXISTS `sys_job_role`;
@@ -320,6 +321,22 @@ CREATE TABLE `sys_tts_config` (
   UNIQUE INDEX `uk_sys_tts_config_singleton` (`singleton_key`, `is_deleted`),
   INDEX `idx_sys_tts_config_enabled` (`enabled`, `is_deleted`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='系统级TTS配置';
+
+CREATE TABLE `sys_stt_config` (
+  `id` BIGINT NOT NULL COMMENT '雪花ID',
+  `singleton_key` TINYINT NOT NULL DEFAULT 1 COMMENT '系统STT单例键，固定为1',
+  `base_url` VARCHAR(512) NULL COMMENT 'STT服务基础地址(OpenAI兼容)',
+  `api_key` VARCHAR(1024) NULL COMMENT 'STT API Key密文',
+  `model` VARCHAR(128) NULL COMMENT 'STT模型标识, 如 FunAudioLLM/SenseVoiceSmall',
+  `endpoint_path` VARCHAR(128) NOT NULL DEFAULT '/audio/transcriptions' COMMENT 'STT转写端点路径',
+  `enabled` TINYINT NOT NULL DEFAULT 0 COMMENT '是否启用系统STT兜底: 1=启用, 0=禁用',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `is_deleted` TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除标记',
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `uk_sys_stt_config_singleton` (`singleton_key`, `is_deleted`),
+  INDEX `idx_sys_stt_config_enabled` (`enabled`, `is_deleted`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='系统级STT配置';
 
 CREATE TABLE `user_rights_change_log` (
   `id` BIGINT NOT NULL COMMENT 'Primary key',

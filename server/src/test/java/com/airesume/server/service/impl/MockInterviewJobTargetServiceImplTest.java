@@ -1,11 +1,16 @@
 package com.airesume.server.service.impl;
 
 import com.airesume.server.dto.interview.InterviewJobTargetContext;
+import com.airesume.server.entity.MockInterviewJobTargetRecord;
 import com.airesume.server.mapper.ResumeDiagnosisTaskMapper;
 import com.airesume.server.service.ResumeContentExtractor;
 import com.airesume.server.service.ResumeJobMatchService;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.cache.annotation.Cacheable;
 
@@ -21,6 +26,15 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 
 class MockInterviewJobTargetServiceImplTest {
+
+    @BeforeEach
+    void setUp() {
+        // 单元测试不加载 Spring 上下文，需手动初始化 MyBatis-Plus 的 lambda 缓存，
+        // 否则 LambdaQueryWrapper 解析 Entity::getX 会抛 "can not find lambda cache"。
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(new MybatisConfiguration(), ""),
+                MockInterviewJobTargetRecord.class);
+    }
 
     @Test
     void shouldCacheEmptySessionContext() throws Exception {
