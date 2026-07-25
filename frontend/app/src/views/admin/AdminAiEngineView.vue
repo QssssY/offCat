@@ -399,6 +399,46 @@
         </div>
       </el-form>
     </el-card>
+    <!-- 系统级 STT 配置卡片：只服务语音面试的语音输入兜底，与面试对话 AI、TTS 播报完全独立。 -->
+    <el-card v-if="activeAdminSection === 'system-stt-config'" shadow="never" class="system-stt-card" v-loading="systemSttLoading">
+      <div class="system-stt-header">
+        <div>
+          <span>系统级云端识别</span>
+          <strong>系统 STT 配置</strong>
+          <small>仅在浏览器语音识别失败时作为兜底使用；需用户在设置中开启云端识别后才会生效。</small>
+        </div>
+        <el-switch
+          v-model="systemSttForm.enabled"
+          active-text="启用"
+          inactive-text="禁用"
+        />
+      </div>
+
+      <el-form label-width="100px" class="system-stt-form">
+        <div class="system-stt-grid">
+          <el-form-item label="Base URL">
+            <el-input v-model.trim="systemSttForm.baseUrl" maxlength="512" placeholder="https://api.example.com/v1" />
+          </el-form-item>
+          <el-form-item label="API Key">
+            <el-input v-model="systemSttForm.apiKey" type="password" show-password maxlength="1024" placeholder="留空或保留脱敏值表示复用已保存 Key" />
+          </el-form-item>
+          <el-form-item label="模型">
+            <el-input v-model.trim="systemSttForm.model" maxlength="128" placeholder="FunAudioLLM/SenseVoiceSmall" />
+          </el-form-item>
+          <el-form-item label="端点路径">
+            <el-input v-model.trim="systemSttForm.endpointPath" maxlength="128" placeholder="/audio/transcriptions" />
+          </el-form-item>
+        </div>
+        <div v-if="systemSttConnectivityResult" class="system-stt-result" :class="{ failed: !systemSttConnectivityResult.success }">
+          <span>{{ systemSttConnectivityResult.message || (systemSttConnectivityResult.success ? 'STT 连通测试成功' : 'STT 连通测试失败') }}</span>
+          <small v-if="systemSttConnectivityResult.latencyMs">{{ systemSttConnectivityResult.latencyMs }}ms</small>
+        </div>
+        <div class="system-stt-actions">
+          <el-button :loading="systemSttSaving" type="primary" @click="handleSystemSttSave">保存配置</el-button>
+          <el-button :loading="systemSttTesting" @click="handleSystemSttConnectivityTest">测试连通性</el-button>
+        </div>
+      </el-form>
+    </el-card>
 
     <div v-if="activeAdminSection === 'engine-config'" class="filter-bar">
       <!-- 引擎配置本地筛选：方便按业务类型和状态快速定位当前生效配置 -->
@@ -3123,11 +3163,13 @@ watch(
   margin-top: 14px;
 }
 
-.system-tts-card :deep(.el-card__body) {
+.system-tts-card :deep(.el-card__body),
+.system-stt-card :deep(.el-card__body) {
   padding: 18px 20px;
 }
 
-.system-tts-header {
+.system-tts-header,
+.system-stt-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -3136,45 +3178,55 @@ watch(
 }
 
 .system-tts-header span,
+.system-stt-header span,
 .system-tts-header strong,
-.system-tts-header small {
+.system-stt-header strong,
+.system-tts-header small,
+.system-stt-header small {
   display: block;
 }
 
-.system-tts-header span {
+.system-tts-header span,
+.system-stt-header span {
   color: #a08060;
   font-size: 13px;
 }
 
-.system-tts-header strong {
+.system-tts-header strong,
+.system-stt-header strong {
   margin-top: 4px;
   color: #5a4030;
   font-size: 20px;
   line-height: 1.2;
 }
 
-.system-tts-header small {
+.system-tts-header small,
+.system-stt-header small {
   margin-top: 6px;
   color: #8f6f55;
   font-size: 12px;
   line-height: 1.5;
 }
 
-.system-tts-grid {
+.system-tts-grid,
+.system-stt-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 2px 14px;
 }
 
-.system-tts-form :deep(.el-form-item) {
+.system-tts-form :deep(.el-form-item),
+.system-stt-form :deep(.el-form-item) {
   margin-bottom: 16px;
 }
 
-.system-tts-form :deep(.el-select) {
+.system-tts-form :deep(.el-select),
+.system-stt-form :deep(.el-select) {
   width: 100%;
 }
 
-.system-tts-result {
+.system-tts-result,
+.system-stt-result {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -3187,20 +3239,23 @@ watch(
   font-size: 13px;
 }
 
-.system-tts-result.failed {
+.system-tts-result.failed,
+.system-stt-result.failed {
   border-color: rgba(239, 68, 68, 0.2);
   background: rgba(239, 68, 68, 0.08);
   color: #b91c1c;
 }
 
-.system-tts-result small {
+.system-tts-result small,
+.system-stt-result small {
   margin-left: auto;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   opacity: 0.78;
 }
 
-.system-tts-actions {
+.system-tts-actions,
+.system-stt-actions {
   display: flex;
   justify-content: flex-end;
   flex-wrap: wrap;
@@ -3472,12 +3527,15 @@ watch(
   }
 
   .system-tts-header,
-  .system-tts-actions {
+  .system-stt-header,
+  .system-tts-actions,
+  .system-stt-actions {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .system-tts-grid {
+  .system-tts-grid,
+  .system-stt-grid {
     grid-template-columns: 1fr;
   }
 

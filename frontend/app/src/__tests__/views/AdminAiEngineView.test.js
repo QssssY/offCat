@@ -19,7 +19,12 @@ import {
   saveAdminTtsConfig,
   testAdminTtsConnectivity
 } from '@/api/admin/ttsConfig'
-import { showAdminSuccess } from '@/utils/adminFeedback'
+import {
+  getAdminSttConfig,
+  saveAdminSttConfig,
+  testAdminSttConnectivity
+} from '@/api/admin/sttConfig'
+import { showAdminError, showAdminSuccess, showAdminWarning } from '@/utils/adminFeedback'
 
 let currentWrapper = null
 
@@ -153,6 +158,28 @@ vi.mock('@/api/admin/ttsConfig', () => ({
   }))
 }))
 
+vi.mock('@/api/admin/sttConfig', () => ({
+  getAdminSttConfig: vi.fn(() => Promise.resolve({
+    data: {
+      enabled: true,
+      configured: true,
+      baseUrl: 'https://stt.example.com/v1',
+      apiKey: 'sys****4321',
+      model: 'FunAudioLLM/SenseVoiceSmall',
+      endpointPath: '/audio/transcriptions'
+    }
+  })),
+  saveAdminSttConfig: vi.fn(() => Promise.resolve({ data: { enabled: true, configured: true } })),
+  testAdminSttConnectivity: vi.fn(() => Promise.resolve({
+    data: {
+      success: true,
+      message: 'STT 连通测试成功',
+      endpointPath: '/audio/transcriptions',
+      latencyMs: 23
+    }
+  }))
+}))
+
 vi.mock('@/utils/adminFeedback', () => ({
   confirmAdminRiskAction: vi.fn(() => Promise.resolve()),
   resolveAdminTableEmptyText: vi.fn(() => '暂无 AI 引擎配置'),
@@ -195,6 +222,11 @@ const switchToCustomAiUsageSection = async (wrapper) => {
 
 const switchToSystemTtsSection = async (wrapper) => {
   await wrapper.find('[data-admin-section="system-tts-config"]').trigger('click')
+  await nextTick()
+}
+
+const switchToSystemSttSection = async (wrapper) => {
+  await wrapper.find('[data-admin-section="system-stt-config"]').trigger('click')
   await nextTick()
 }
 
@@ -621,5 +653,75 @@ describe('AdminAiEngineView', () => {
 
     expect(wrapper.text()).toContain('暂无趋势数据')
     expect(wrapper.find('.line-chart-stub').exists()).toBe(false)
+  })
+
+  it('should render system STT tab and load current config', async () => {
+    const wrapper = await mountView()
+    await switchToSystemSttSection(wrapper)
+
+    expect(getAdminSttConfig).toHaveBeenCalled()
+    expect(wrapper.find('.system-stt-card').exists()).toBe(true)
+    expect(wrapper.text()).toContain('系统 STT 配置')
+    expect(wrapper.vm.systemSttForm).toMatchObject({
+      enabled: true,
+      baseUrl: 'https://stt.example.com/v1',
+      model: 'FunAudioLLM/SenseVoiceSmall',
+      endpointPath: '/audio/transcriptions'
+    })
+  })
+
+  it('should render STT action buttons and no TTS-only voice controls', async () => {
+    const wrapper = await mountView()
+    await switchToSystemSttSection(wrapper)
+
+    const buttonText = wrapper.findAll('.system-stt-actions button').map((b) => b.text())
+    expect(buttonText).toContain('保存配置')
+    expect(buttonText).toContain('测试连通性')
+    // STT 只有单一 OpenAI 兼容形态，不应出现 TTS 的音色试听按钮
+    expect(buttonText).not.toContain('预览音色')
+    expect(buttonText).not.toContain('获取模型/音色')
+  })
+
+  it('should save and test system STT config with current form values', async () => {
+    const wrapper = await mountView()
+    await switchToSystemSttSection(wrapper)
+    Object.assign(wrapper.vm.systemSttForm, {
+      enabled: true,
+      baseUrl: 'https://stt.example.com/v1',
+      apiKey: 'sys-real-stt-key',
+      model: 'FunAudioLLM/SenseVoiceSmall',
+      endpointPath: '/audio/transcriptions'
+    })
+
+    await wrapper.vm.handleSystemSttSave()
+    await wrapper.vm.handleSystemSttConnectivityTest()
+    await flushPromises()
+
+    expect(saveAdminSttConfig).toHaveBeenCalledWith({
+      enabled: true,
+      baseUrl: 'https://stt.example.com/v1',
+      apiKey: 'sys-real-stt-key',
+      model: 'FunAudioLLM/SenseVoiceSmall',
+      endpointPath: '/audio/transcriptions'
+    })
+    expect(testAdminSttConnectivity).toHaveBeenCalled()
+    expect(wrapper.vm.systemSttConnectivityResult).toMatchObject({ success: true })
+  })
+
+  it('should block STT save when base url or model is missing', async () => {
+    const wrapper = await mountView()
+    await switchToSystemSttSection(wrapper)
+    Object.assign(wrapper.vm.systemSttForm, {
+      enabled: true,
+      baseUrl: '',
+      apiKey: 'sys-real-stt-key',
+      model: '',
+      endpointPath: '/audio/transcriptions'
+    })
+
+    await wrapper.vm.handleSystemSttSave()
+    await flushPromises()
+
+    expect(saveAdminSttConfig).not.toHaveBeenCalled()
   })
 })
