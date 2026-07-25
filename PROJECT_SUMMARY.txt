@@ -1,0 +1,151 @@
+本次扫描覆盖：server/src/main/java（14个子目录，约50个Java文件）+ frontend/app/src（11个子目录）+ db/schema.sql + 配置文件2个 + README.md
+
+---
+
+## 技术画像
+
+- **后端**：Java 21 + Spring Boot 3.2.3 + MyBatis-Plus 3.5.7 + MySQL 8.0 + Redis 6.0 + RabbitMQ 3.8
+- **前端**：Vue 3.4 + Vite 5.0 + Element Plus 2.4 + Pinia 2.1 + Axios
+- **认证**：JWT (jjwt 0.12.3) + Spring Security
+- **PDF处理**：Apache PDFBox 3.0.1
+- **构建**：Maven (server) + npm (frontend)
+
+---
+
+## 目录与模块地图
+
+| 目录 | 职责 | 代表文件 |
+|------|------|----------|
+| server/controller/ | HTTP入口，按业务域分发 | AuthController, InterviewController, ResumeDiagnosisController, AdminController, MembershipController |
+| server/service/impl/ | 业务逻辑实现层 | AuthServiceImpl, InterviewService, ResumeDiagnosisTaskService, AdminDashboardService |
+| server/entity/ | MyBatis-Plus实体，与db/schema.sql对应 | SysUser, InterviewSession, ResumeDiagnosisTask, SysPrompt |
+| server/config/ | Spring配置类 | SecurityConfig(白名单规则), RabbitMQConfig, RedisConfig |
+| server/mq/ | RabbitMQ生产者/消费者 | ResumeDiagnosisProducer, ResumeDiagnosisConsumer |
+| server/mock/ | Mock实现替代真实AI | MockInterviewService, MockDiagnosisResultGenerator |
+| server/infrastructure/security/ | JWT工具与Filter | JwtAuthenticationFilter, JwtUtil |
+| frontend/app/src/views/ | 前端页面 | interview/, resume/, admin/, membership/ |
+| db/ | 数据库DDL与设计文档 | schema.sql (17表) |
+
+---
+
+## 启动与运行时流程
+
+ServerApplication.main() -> @MapperScan("com.airesume.server.mapper") -> SpringApplication.run() -> 自动装配 SecurityConfig（JwtAuthenticationFilter前置）-> 等待HTTP请求
+
+简历诊断异步链路：ResumeDiagnosisController.uploadResume() -> ResumeDiagnosisProducer.send() -> RabbitMQ resume_diagnosis_queue -> ResumeDiagnosisConsumer.receive() -> MockDiagnosisResultGenerator（当前为Mock）
+
+模拟面试流式链路：InterviewController.streamMessage() -> 新线程中调用 interviewAiService.generateReplyStream() -> ResponseBodyEmitter SSE推送
+
+---
+
+## 对外接口清单
+
+| 路径 | 方法 | 认证 | 功能 | 来源文件 |
+|------|------|------|------|----------|
+| /api/auth/register | POST | 公开 | 用户注册 | AuthController:39 |
+| /api/auth/login | POST | 公开 | 登录返回JWT | AuthController:52 |
+| /api/auth/me | GET | JWT | 获取当前用户 | AuthController:65 |
+| /api/auth/nickname | PUT | JWT | 更新昵称 | AuthController:80 |
+| /api/interview/session | POST | JWT | 创建面试会话 | InterviewController:60 |
+| /api/interview/session/{id}/message/stream | POST | JWT | 流式发消息(SSE) | InterviewController:75 |
+| /api/interview/session/{id}/message | POST | JWT | 非流式发消息 | InterviewController:154 |
+| /api/interview/session/{id}/end | POST | JWT | 结束面试 | InterviewController:181 |
+| /api/interview/history | GET | JWT | 分页历史记录 | InterviewController:194 |
+| /api/interview/job-roles | GET | 公开 | 启用的岗位列表 | InterviewController:49 |
+| /api/resume/upload | POST | JWT | 上传PDF创建诊断 | ResumeDiagnosisController:43 |
+| /api/resume/task/{id} | GET | JWT | 查询任务详情 | ResumeDiagnosisController:57 |
+| /api/resume/history | GET | JWT | 诊断历史分页 | ResumeDiagnosisController:70 |
+| /api/resume/job-match/analyze | POST | JWT | JD对比分析 | ResumeDiagnosisController:86 |
+| /api/resume/polish/analyze | POST | JWT | AI简历润色 | ResumeDiagnosisController:100 |
+| /api/membership/plans | GET | 公开 | 套餐列表 | MembershipController:28 |
+| /api/membership/upgrade/mock | POST | JWT | Mock升级会员 | MembershipController:33 |
+| /api/admin/** | * | ADMIN角色 | 管理端全部接口 | AdminController:42 |
+| /api/diagnostic/** | * | 公开 | 网络诊断（放行） | SecurityConfig:47 |
+| /actuator/** | * | 公开 | Spring Boot Actuator | SecurityConfig:45 |
+
+---
+
+## 核心领域模型
+
+SysUser - 用户实体（db/schema.sql:19）：id, username, nickname, password, role(0普通/1会员/9管理员), status, membership_plan_code, vip_expire_time
+
+UserQuota - 额度实体（db/schema.sql:40）：user_id, total_interview_used, total_resume_used, interview_quota, resume_quota, daily_interview_used, daily_resume_used, last_refresh_date
+
+InterviewSession - 面试会话（db/schema.sql:248）：session_id, user_id, job_role, job_role_code, difficulty, interview_mode(normal/stress), status(0进行中/1结束), comprehensive_score, evaluation_report
+
+InterviewChatLog - 聊天记录（db/schema.sql:299）：session_id, message_role(user/assistant/system), content
+
+ResumeDiagnosisTask - 诊断任务（db/schema.sql:191）：user_id, file_url, status(0待处理/1处理中/2完成/3失败), diagnosis_result(JSON), error_msg
+
+SysPrompt - Prompt模板（db/schema.sql:108）：scenario_type(1面试/2简历), job_role_code, difficulty, prompt_content, is_active
+
+SysAiEngineConfig - AI引擎配置（db/schema.sql:145）：engine_code, provider_type, business_type(interview/resume), model_name, base_url, api_key, is_active
+
+SysJobRole - 岗位配置（db/schema.sql:128）：role_code, role_name, interview_tag, tag_type, is_active, sort
+
+---
+
+## 数据流与持久化
+
+- **ORM层**：MyBatis-Plus 逻辑删除（is_deleted=1）全局配置于 application.yml:63-65
+- **主数据**：MySQL，13个业务表 + 3个系统表
+- **缓存**：Redis，JVM外缓存，用于JWT状态等
+- **异步队列**：RabbitMQ，队列名 resume_diagnosis_queue（ResumeDiagnosisConstants）
+- **文件存储**：本地文件URL，file_url字段存储路径
+- **JSON字段**：诊断结果 diagnosis_result、评价报告 evaluation_report、分析结果 analysis_result 均为JSON
+
+---
+
+## 外部依赖
+
+| 依赖 | 接入点 | 配置文件 |
+|------|--------|----------|
+| MySQL | spring.datasource.url | application.yml:18 |
+| Redis | spring.data.redis | application.yml:27 |
+| RabbitMQ | spring.rabbitmq | application.yml:44 |
+| AI Provider (当前Mock) | app.interview.mode=real / app.ai.mode=mock | application.yml:92,128 |
+
+当前Mock模式：简历AI (app.ai.mode: mock) 与面试AI (app.interview.mode: real) 配置不一致——简历诊断默认Mock，面试默认配置为real但实际由 @ConditionalOnProperty 切换 MockInterviewAiServiceImpl（当mode=mock时生效）
+
+---
+
+## 架构观察
+
+1. **分层清晰**：Controller -> Service -> Mapper 三层，部分业务有 infrastructure/ 基础设施层和 mock/ Mock层
+2. **明显耦合点**：InterviewAiService 接口有两个实现（MockInterviewAiServiceImpl / InterviewAiServiceImpl），通过 @ConditionalOnProperty 切换，但 InterviewController 直接注入接口，不感知具体实现
+3. **可疑废弃模块**：InterviewController:209 标记 @Deprecated 的 /api/interview/history/all 未分页接口仍在服务中
+4. **跨层依赖**：部分Controller直接注入Mapper（如 InterviewController:38 注入 InterviewChatLogMapper），违反分层原则
+5. **DTO/VO混乱**：dto/vo/response混用，部分Response直接复用entity字段
+
+---
+
+## 信息缺口
+
+- server/src/test/ 测试用例目录未扫描（扫描策略要求忽略test）
+- 前端 frontend/app/src/views/ 各页面实现细节未深入阅读
+- server/fixes/ 目录用途未确认（可能是历史修复记录）
+- server/runtime/ 目录用途未确认
+- tasks/ 目录用途未确认
+- AI真实接入后的行为未验证（当前全为Mock）
+
+---
+
+## 后续AI需沿用的约定
+
+**命名风格**：
+- 类名：大驼峰（PascalCase），如 ResumeDiagnosisTaskService
+- 方法名：小驼峰（camelCase），如 createTask, getHistoryByUserId
+- 常量：全大写下划线，如 USER_ROLE_NORMAL, QUEUE_RESUME_DIAGNOSIS
+- 包名：小写单数/复数混用，如 common/, service/impl/
+
+**错误处理**：
+- 抛出 BusinessException（自定义异常）而非 RuntimeException
+- 全局异常统一由 GlobalExceptionHandler 处理
+- 响应统一用 Result<T> 包装，成功 Result.success(data)，失败 Result.error(code, msg)
+
+**日志规范**：
+- 使用 Lombok @Slf4j 注入 log
+- 方法入口打印 log.info，包含关键参数
+- 异常打印 log.error 或 log.warn
+
+**分页返回**：统一使用 PageResult<T>，包含 total, records, pageNum, pageSize

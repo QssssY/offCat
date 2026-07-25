@@ -132,3 +132,30 @@ frontend/app/.DS_Store
 frontend/app/Thumbs.db
 server/.DS_Store
 server/Thumbs.db
+
+# ---- Root-level ignores ----
+# 用户上传的真实简历文件，含个人隐私，禁止入库
+/uploads/
+
+# 运行时日志与调试输出
+/logs/
+/*.log
+/debug.txt
+
+# IDE 与本地工作区
+/.idea/
+/.worktrees/
+
+# Agent / 工具私有配置与本地记忆
+/.claude/
+/frontend/.claude/
+/.workbuddy/
+/memory/
+/pets/
+
+# 临时导出与设计草稿
+/tmp-pencil-export/
+/design-md-tmp/
+
+# 含测试账号明文口令
+/frontend/测试用户.txt

@@ -1,0 +1,142 @@
+功能 1：功能分布日期范围扩展
+需求
+当前"功能分布"只能看选定的单天数据。扩展为支持日期范围 + 快捷按钮，用户表格同步支持。
+
+方案
+前端（AdminAiEngineView.vue）：
+
+将"功能分布"区域的单日 DatePicker 替换为 DatePicker（type="daterange"），附带快捷按钮：今天 / 最近7天 / 最近30天
+默认选中"最近7天"（比默认今天更有用，避免当天没数据时看到空页面）
+用户表格共用同一个日期范围选择器，一改同改
+调用新的日期范围接口替代原单日接口
+后端（AdminCustomAiStatsController + UserAiUsageStatsService）：
+
+新增或修改 /api/admin/custom-ai/usage-stats 接口，支持 startDate + endDate 参数（保留 date 参数向后兼容，date 传入时等价于 start=end=date）
+UserAiUsageDetailMapper.selectTypeStats SQL 改为 WHERE usage_date BETWEEN #{startDate} AND #{endDate}，call_count 做 SUM 聚合
+selectUserStatsPage 同理支持日期范围，用户的总调用量聚合多天
+改动文件
+层级	文件	改动
+后端 Mapper	UserAiUsageDetailMapper.java	selectTypeStats / selectUserStatsPage 增加 startDate/endDate 参数
+后端 Service	UserAiUsageStatsServiceImpl.java	getDailyStats 支持日期范围
+后端 Controller	AdminCustomAiStatsController.java	接口参数扩展
+前端 API	api/admin/aiEngines.js	修改请求参数
+前端页面	AdminAiEngineView.vue	DatePicker 换 daterange + 快捷按钮
+风险
+低风险。只涉及查询条件扩展，不改数据表结构，不影响写入链路。
+
+功能 2：管理端系统级 TTS 配置
+需求
+管理员在"AI 引擎管理"页面配置一套系统级 TTS，没有配置自己 API Key 的用户可以直接使用系统 TTS 进行语音面试。用户自定义 > 系统默认的优先级。管理端支持测试连通性和预览音色。
+
+方案
+数据库：
+
+sys_ai_engine_config 表新增 TTS 相关字段（或新建 sys_tts_config 独立表更干净）。推荐新建 sys_tts_config 表，字段：
+id, tts_provider (openai/mimo/doubao 等), base_url, api_key(加密), model, endpoint_path, enabled(启用开关), create_time, update_time, is_deleted
+仅存一行有效配置（系统级单例）
+后端：
+
+新增 SysTtsConfig Entity + SysTtsConfigMapper
+新增 AdminTtsConfigController：
+GET /api/admin/tts-config — 查询当前系统 TTS 配置
+PUT /api/admin/tts-config — 保存/更新系统 TTS 配置
+POST /api/admin/tts-config/test-connectivity — 测试连通性（复用 UserTtsConnectivityTestService 逻辑）
+POST /api/admin/tts-config/preview — 预览音色（复用 TtsDiscoveryService 逻辑）
+POST /api/admin/tts-config/discover — 发现可用模型和音色
+新增 SysTtsConfigService — 管理系统 TTS 配置的增删改查 + 缓存
+修改 InterviewController / UserTtsSpeechService 的 TTS 配置解析链路：
+解析优先级：用户自定义 TTS 配置 → 系统 TTS 配置 → 不可用
+新增 ResolvedTtsConfig 工厂方法，先查用户配置，无则查系统配置
+前端 InterviewController.getTtsCapability 返回值新增 systemTtsAvailable 字段
+前端（管理端）：
+
+AdminAiEngineView.vue 新增 "系统 TTS 配置" Tab
+表单：提供商选择、Base URL、API Key、模型、音色、端点路径
+启用/禁用开关
+"测试连通性"按钮 + "预览音色"按钮
+复用用户端 TTS 配置的 UI 模式，保持一致
+前端（用户端设置页）：
+
+SettingsView.vue "自定义 AI" 区域 TTS 部分新增提示：
+如果系统 TTS 已启用 且 用户未配置自定义 TTS → 显示"当前使用系统提供的云端语音服务"
+如果用户已配置自定义 TTS → 显示"当前使用自定义语音服务（优先于系统配置）"
+前端（面试入口）：
+
+InterviewEntryView.vue / InterviewSessionView.vue：
+语音面试入口判断 TTS 可用性时，除了检查浏览器 Speech API，还检查 systemTtsAvailable
+useCloudTextToSpeech 调用时，如果用户未配自定义 TTS 但系统 TTS 可用，使用系统 TTS
+改动文件
+层级	文件	改动
+数据库	新增迁移脚本	新建 sys_tts_config 表
+后端 Entity	新增 SysTtsConfig.java	系统 TTS 配置实体
+后端 Mapper	新增 SysTtsConfigMapper.java	数据访问
+后端 Service	新增 SysTtsConfigService.java + Impl	配置管理 + 缓存
+后端 Controller	新增 AdminTtsConfigController.java	管理端接口
+后端 Service	UserTtsSpeechServiceImpl.java	增加系统 TTS 回退逻辑
+后端 Controller	InterviewController.java	TTS 能力接口增加系统 TTS 状态
+前端 API	新增 api/admin/ttsConfig.js	管理端 TTS API
+前端页面	AdminAiEngineView.vue	新增系统 TTS Tab
+前端页面	SettingsView.vue	TTS 状态提示
+前端	InterviewSessionView.vue	系统 TTS 回退
+风险
+中等风险。涉及新表和面试 TTS 回退链路。需要充分测试：
+
+用户无自定义 TTS + 系统 TTS 启用 → 正常语音面试
+用户有自定义 TTS → 优先使用自定义
+系统 TTS 未配置/禁用 + 用户无自定义 → 降级到浏览器语音
+功能 3：浏览器音色预设扩充
+需求
+当前只有 5 个预设（natural_zh / female / male / system / custom）。扩充到 15+ 个，每个预设绑定特定的 rate/pitch 参数。用户选择预设后滑块跟着变。如果用户系统上没有匹配的声音，该预设降级或隐藏。
+
+方案
+新增预设设计（基于 Windows/Mac 常见的 SpeechSynthesis 声音）：
+
+预设 key	名称	目标声音匹配	rate	pitch	风格
+natural_zh	默认中文自然音色	保持不变	0.92	1.06	自然
+gentle_female	温柔女声	xiaoxiao/Yaoyao	0.85	1.12	轻柔舒缓
+pro_female	专业女声	xiaoyi/Jenny	0.95	1.0	播报正式
+lively_female	活泼女声	xiaoxuan/Aria	0.98	1.15	明快
+warm_female	暖心女声	xiaobei/Samantha	0.88	1.08	温暖亲切
+magnetic_male	磁性男声	yunxi/Mark	0.88	0.90	低沉磁性
+pro_male	专业男声	yunyang/David	0.95	0.95	稳重正式
+calm_male	沉稳男声	yunjian/Daniel	0.85	0.88	深沉慢速
+energetic_male	活力男声	Kangkang/George	0.98	1.05	精力充沛
+news_anchor	新闻播报	最佳质量中文声音	1.0	1.0	标准播报
+slow_clear	慢速清晰	最佳质量中文声音	0.75	1.02	听力友好
+female	女声优先	保持不变	0.92	1.06	通用
+male	男声优先	保持不变	0.92	1.06	通用
+system	系统默认	保持不变	-	-	浏览器默认
+custom	指定浏览器音色	保持不变	-	-	自定义
+关键实现
+useTextToSpeech.js：
+
+pickPreferredVoice() 扩展，每个新预设定义声音匹配规则（名称正则 + 品质偏好）
+新增 getPresetParameters(presetKey) 函数，返回该预设绑定的 { rate, pitch } 或 null（表示不绑定）
+新增 isPresetAvailable(presetKey, voices) 函数，检查当前系统是否有匹配声音
+settingsPreferences.js：
+
+VOICE_PREFERRED_TYPE_VALUES 白名单扩展
+默认值保持 natural_zh
+SettingsView.vue：
+
+voicePreferredTypeOptions 列表扩展，按分组排列（女声系列 / 男声系列 / 通用 / 自定义）
+选择新预设时，如果预设绑定了 rate/pitch，自动更新滑块值
+不可用的预设：选项 label 后追加"（当前系统不可用）"并禁用，或直接隐藏
+预设分组用 el-option-group 实现
+InterviewSessionView.vue：
+
+读取偏好时，如果选了绑定 rate/pitch 的预设，用预设值覆盖存储的 rate/pitch
+改动文件
+层级	文件	改动
+前端 composable	useTextToSpeech.js	新增预设声音匹配逻辑 + 参数绑定
+前端 utils	settingsPreferences.js	白名单扩展 + 预设参数定义
+前端页面	SettingsView.vue	预设选项扩展 + 分组 + 联动滑块
+前端页面	InterviewSessionView.vue	预设参数应用
+风险
+低风险。纯前端改动，不涉及后端和数据库。主要风险是不同操作系统声音可用性差异需要测试。Windows 10/11 通常有 Microsoft Xiaoxiao/Yunxi 等高质量声音，Mac 有不同的声音集。
+
+实施顺序建议
+功能 3（浏览器音色预设扩充） — 纯前端，风险最低，独立性最强，可以最快交付
+功能 1（功能分布日期范围） — 前后端都改但改动量小，低风险
+功能 2（系统级 TTS） — 改动最大，需要新建数据表和修改面试 TTS 链路，放最后
+每个功能独立完成、独立验收，不跨功能开发。
