@@ -572,8 +572,8 @@ const {
 
 // 语音通话用（第二个实例）：协调器包住浏览器识别 + 云端识别兜底。
 // 浏览器 Web Speech 仍是主链路；浏览器出现“录音了却无文字”等降级错误码且云端可用时，
-// 静默切到云端识别，不把错误抛给通话层。cloud_fallback 设置关闭或后端未配置时退化为纯浏览器识别。
-const cloudSttUserEnabled = settingsPreferences.voiceRecognitionEngine === 'cloud_fallback';
+// 静默切到云端识别，不把错误抛给通话层。云端兜底与 TTS 对齐——由管理端配置驱动：
+// 只要后端 stt-capability 返回可用即启用，不再依赖用户端偏好开关。后端未配置则退化为纯浏览器识别。
 const {
   isSupported: voiceSttSupported,
   isRecording: voiceSttRecording,
@@ -591,7 +591,8 @@ const {
   setCloudEnabled: voiceSttSetCloudEnabled,
 } = useResilientSpeechToText({
   sessionId,
-  cloudEnabled: cloudSttUserEnabled,
+  // 初始不启用，真正开关交给会话加载后的 stt-capability 探测（管理端配置驱动）。
+  cloudEnabled: false,
 });
 
 const browserTextToSpeech = useTextToSpeech({
@@ -1058,11 +1059,21 @@ const loadInterviewTtsCapability = async (nextSessionData) => {
   }
 };
 
-// 云端语音识别兜底能力探测：只有“用户在设置里开启 cloud_fallback” + “后端已配置可用 STT” 同时成立才启用。
-// 任一不满足都保持纯浏览器识别现状，浏览器识别失败即按原有规则降级手动输入。
+// 云端识别隐私提示：兜底改为管理端配置驱动后用户无法在设置里关闭，
+// 因此在浏览器识别失败、真正切到云端识别的那一刻给一次性提示，让用户知晓音频会上传到云端。
+const cloudSttPrivacyNotified = ref(false);
+watch(voiceSttEngineStatus, (status) => {
+  if (status === 'cloud-service' && !cloudSttPrivacyNotified.value) {
+    cloudSttPrivacyNotified.value = true;
+    ElMessage.info('浏览器语音识别不稳定，已切换到云端语音识别，你的语音会上传到服务端进行识别。');
+  }
+});
+
+// 云端语音识别兜底能力探测：与 TTS 对齐，由管理端配置驱动。
+// 只要“当前为语音会话” + “后端已配置可用 STT”成立即启用，不再依赖用户端偏好开关。
+// 后端未配置可用 STT 时保持纯浏览器识别现状，浏览器识别失败即按原有规则降级手动输入。
 const loadInterviewSttCapability = async (nextSessionData) => {
-  if (!cloudSttUserEnabled
-    || (nextSessionData?.interactionType ?? INTERACTION_TYPE_TEXT) !== INTERACTION_TYPE_VOICE
+  if ((nextSessionData?.interactionType ?? INTERACTION_TYPE_TEXT) !== INTERACTION_TYPE_VOICE
     || !sessionId.value) {
     voiceSttSetCloudEnabled(false);
     return;

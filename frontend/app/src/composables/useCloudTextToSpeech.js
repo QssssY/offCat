@@ -3,6 +3,12 @@ import { synthesizeInterviewTts } from '@/api/interview'
 
 const SENTENCE_END_REGEXP = /[。！？.!?]/
 const FEEDBACK_BLOCK_REGEXP = /<FEEDBACK>[\s\S]*?<\/FEEDBACK>/gi
+// 云端逐段合成有网络往返（每段约 1~3s）。若按每个句末标点切段，一句“。”就是一次请求，
+// 短句播完而下一段还没合成回来就会卡顿（UI 反复跳“正在合成”）。
+// 因此把连续短句合并成较大段：首段用较小阈值抢“首句尽快出声”，后续段用较大阈值让
+// 单段音频足够长以掩盖下一段的合成延迟，从而消除断流。
+const FIRST_SEGMENT_MIN_CHARS = 14
+const SEGMENT_TARGET_CHARS = 56
 
 /**
  * 用户自定义云端 TTS 播放队列。
@@ -25,6 +31,8 @@ export function useCloudTextToSpeech(options = {}) {
   let runId = 0
   let isPlaying = false
   let fallbackNotified = false
+  // 本轮播报是否已切出过至少一段：首段用较小阈值抢首句出声，之后切回较大阈值。
+  let hasEmittedSegment = false
 
   const normalizeTextForSpeech = (text) => {
     if (!text) return ''
@@ -282,31 +290,69 @@ export function useCloudTextToSpeech(options = {}) {
   const speak = (text, speechOptions = {}) => {
     stop()
     if (!isSupported.value) return
+    // speak 是整句直接播报，视为已切段，后续 flush 走大段阈值。
+    hasEmittedSegment = true
     enqueue(text, speechOptions)
+  }
+
+  // 目标切段长度：首段用较小阈值抢“首句尽快出声”，之后用较大阈值把连续短句合并成一段，
+  // 让单段音频足够长以掩盖下一段的合成往返延迟，从而消除断流。
+  const currentSegmentTarget = () => (hasEmittedSegment ? SEGMENT_TARGET_CHARS : FIRST_SEGMENT_MIN_CHARS)
+
+  // 从 buffer 头部切出一段：累积完整句子直到达到目标长度，返回切出的段（不足目标且无更多完整句时返回 null）。
+  const takeSegmentFromBuffer = (force) => {
+    const chars = Array.from(buffer)
+    let lastSentenceEnd = -1
+    for (let i = 0; i < chars.length; i += 1) {
+      if (SENTENCE_END_REGEXP.test(chars[i])) {
+        lastSentenceEnd = i
+        // 已累积到目标长度且落在句末，切到此处，避免继续吞并整段回复。
+        if (i + 1 >= currentSegmentTarget()) {
+          const segment = chars.slice(0, i + 1).join('').trim()
+          buffer = chars.slice(i + 1).join('')
+          return segment
+        }
+      }
+    }
+    // 无完整句：非强制时不切，等待更多 chunk 合并成大段。
+    if (lastSentenceEnd === -1) {
+      return force ? takeForcedSegment() : null
+    }
+    // 有完整句但未达目标长度：非强制时继续等待合并；强制（done/flush）时把已有完整句整体切出。
+    if (!force) return null
+    const segment = chars.slice(0, lastSentenceEnd + 1).join('').trim()
+    buffer = chars.slice(lastSentenceEnd + 1).join('')
+    return segment
+  }
+
+  // 强制切段兜底：done/flush 时把 buffer 剩余全部作为一段切出。
+  const takeForcedSegment = () => {
+    const segment = buffer.trim()
+    buffer = ''
+    return segment || null
+  }
+
+  const drainSegments = (force, speechOptions) => {
+    while (true) {
+      const segment = takeSegmentFromBuffer(force)
+      if (!segment) break
+      hasEmittedSegment = true
+      enqueue(segment, speechOptions)
+    }
   }
 
   const speakStreaming = (chunk, speechOptions = {}) => {
     if (!chunk || !isSupported.value) return
     buffer += String(chunk).replace(FEEDBACK_BLOCK_REGEXP, '')
     if (!buffer.trim()) return
-    while (true) {
-      const endIndex = Array.from(buffer).findIndex((char) => SENTENCE_END_REGEXP.test(char))
-      if (endIndex === -1) break
-      const sentence = buffer.slice(0, endIndex + 1).trim()
-      buffer = buffer.slice(endIndex + 1)
-      enqueue(sentence, speechOptions)
-    }
+    drainSegments(false, speechOptions)
   }
 
   const flushRemaining = (speechOptions = {}) => {
     if (!isSupported.value) return
-    const remaining = buffer.trim()
-    buffer = ''
-    if (remaining) {
-      enqueue(remaining, speechOptions)
-      return
-    }
-    if (!isActive.value) {
+    // done/flush：把 buffer 剩余全部切出播报，无残留时才判定本轮结束。
+    drainSegments(true, speechOptions)
+    if (!buffer.trim() && !isActive.value && queue.length === 0) {
       options.onEnd?.()
     }
   }
@@ -321,6 +367,8 @@ export function useCloudTextToSpeech(options = {}) {
     isPlaying = false
     isPreparing.value = false
     isSpeaking.value = false
+    // 下一轮播报重新从首段小阈值开始，保证首句尽快出声。
+    hasEmittedSegment = false
     releaseActiveAudio()
   }
 

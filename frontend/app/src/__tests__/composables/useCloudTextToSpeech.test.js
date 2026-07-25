@@ -83,20 +83,26 @@ describe('useCloudTextToSpeech', () => {
     )
   })
 
-  it('pre-synthesizes the next sentence while current cloud audio is playing', async () => {
+  it('pre-synthesizes the next merged segment while current cloud audio is playing', async () => {
     const secondAudioDeferred = createDeferred()
     synthesizeInterviewTts
       .mockResolvedValueOnce(new Blob(['first'], { type: 'audio/mpeg' }))
       .mockReturnValueOnce(secondAudioDeferred.promise)
     const tts = useCloudTextToSpeech({ sessionId: 'session-1', enabled: true })
 
-    tts.speakStreaming('第一句。第二句。')
+    // 首段用较小阈值抢首句出声：14+ 字且落在句末即切段。
+    const firstSegment = `${'甲'.repeat(14)}。`
+    // 后续段用较大阈值合并短句：56+ 字才切段，掩盖下一段合成延迟。
+    const secondSegment = `${'乙'.repeat(56)}。`
+    tts.speakStreaming(firstSegment)
+    tts.speakStreaming(secondSegment)
     await flushPromises()
 
     expect(audioInstances[0].play).toHaveBeenCalledTimes(1)
     expect(tts.isSpeaking.value).toBe(true)
+    // 首段播放期间已预合成第二段，避免播完首段等待网络往返造成断流。
     expect(synthesizeInterviewTts).toHaveBeenCalledTimes(2)
-    expect(synthesizeInterviewTts).toHaveBeenNthCalledWith(2, 'session-1', '第二句。', expect.any(Object))
+    expect(synthesizeInterviewTts).toHaveBeenNthCalledWith(2, 'session-1', secondSegment, expect.any(Object))
 
     secondAudioDeferred.resolve(new Blob(['second'], { type: 'audio/mpeg' }))
     await flushPromises()
@@ -109,16 +115,38 @@ describe('useCloudTextToSpeech', () => {
     expect(tts.isSpeaking.value).toBe(true)
   })
 
-  it('queues cloud speech by sentence and releases blob urls after playback', async () => {
+  it('merges consecutive short sentences into one segment to cut cloud round-trips', async () => {
+    synthesizeInterviewTts.mockResolvedValue(new Blob(['audio'], { type: 'audio/mpeg' }))
+    const tts = useCloudTextToSpeech({ sessionId: 'session-1', enabled: true })
+
+    // 一段回复含多个短句：逐句切段会产生多次云端往返导致卡顿；合并后应显著减少请求数。
+    tts.speakStreaming('你好。')
+    tts.speakStreaming('很高兴见到你。')
+    tts.speakStreaming('请先做个自我介绍。')
+    tts.flushRemaining()
+    await flushPromises()
+
+    // 三个短句合并进极少数几段，而不是三次独立请求。
+    expect(synthesizeInterviewTts.mock.calls.length).toBeLessThan(3)
+    const spokenText = synthesizeInterviewTts.mock.calls.map((call) => call[1]).join('')
+    // 合并不丢字：所有句子内容都被播报。
+    expect(spokenText).toContain('你好')
+    expect(spokenText).toContain('很高兴见到你')
+    expect(spokenText).toContain('请先做个自我介绍')
+  })
+
+  it('queues cloud speech by segment and releases blob urls after playback', async () => {
     synthesizeInterviewTts
       .mockResolvedValueOnce(new Blob(['first'], { type: 'audio/mpeg' }))
       .mockResolvedValueOnce(new Blob(['second'], { type: 'audio/mpeg' }))
     const tts = useCloudTextToSpeech({ sessionId: 'session-1', enabled: true })
 
-    tts.speakStreaming('你好。下一句')
+    // 首段满足小阈值即在流式阶段切出并播放。
+    const firstSegment = `${'首'.repeat(14)}。`
+    tts.speakStreaming(firstSegment)
     await flushPromises()
 
-    expect(synthesizeInterviewTts).toHaveBeenCalledWith('session-1', '你好。', expect.any(Object))
+    expect(synthesizeInterviewTts).toHaveBeenCalledWith('session-1', firstSegment, expect.any(Object))
     expect(audioInstances[0].play).toHaveBeenCalledTimes(1)
     expect(tts.isSpeaking.value).toBe(true)
 
@@ -126,6 +154,8 @@ describe('useCloudTextToSpeech', () => {
     await flushPromises()
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:5:0')
 
+    // done 时 flush 剩余不足阈值的尾段也要播报。
+    tts.speakStreaming('下一句')
     tts.flushRemaining()
     await flushPromises()
 

@@ -2,14 +2,19 @@ import { onUnmounted, ref, watch } from 'vue'
 import { useSpeechToText } from '@/composables/useSpeechToText'
 import { useCloudSpeechToText } from '@/composables/useCloudSpeechToText'
 
-// 浏览器 Web Speech 出现下列错误码时，说明“在录音却拿不到文字/服务不可用”，
+// 浏览器 Web Speech 出现下列错误码时，说明“在录音却拿不到文字/服务不可用/无法启动”，
 // 此时若云端识别可用则静默切到云端兜底，不把错误抛给通话层（避免直接降级手动输入）。
+// 覆盖 Chrome/Edge 语音后端抖动时的启动失败（start-failed）与未归类识别错误（recognition-error），
+// 确保浏览器识别反复罢工时能真正切到管理端配置的云端兜底，而不是停留在浏览器识别或手动输入。
+// 不含 no-speech：它在用户正常停顿时也会触发，纳入会导致一次停顿就永久切到云端上传，过于激进。
 const BROWSER_TO_CLOUD_SWITCH_CODES = new Set([
   'network',
   'service-not-allowed',
   'start-timeout',
   'end-without-result',
   'no-transcript',
+  'start-failed',
+  'recognition-error',
 ])
 
 /**

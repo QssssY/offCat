@@ -10,6 +10,7 @@ import {
   getInterviewSession,
   getInterviewSessionStatus,
   getInterviewTtsCapability,
+  getInterviewSttCapability,
   streamInterviewMessage,
   synthesizeInterviewTts,
 } from '@/api/interview'
@@ -269,6 +270,8 @@ describe('InterviewSessionView', () => {
     useSpeechToTextOptions = []
     useResilientSpeechToTextOptions = []
     voiceSttSetCloudEnabled.mockClear()
+    // 云端 STT 能力探测默认不可用，个别用例按需覆盖为可用；避免 mockResolvedValue 跨用例泄漏。
+    getInterviewSttCapability.mockResolvedValue({ data: { available: false } })
     sttSupported.value = true
     sttRecording.value = false
     sttFinal.value = ''
@@ -953,36 +956,17 @@ describe('InterviewSessionView', () => {
     expect(voiceSttLanguage.value).toBe('en-US')
   })
 
-  it('keeps cloud fallback disabled when local recognition engine preference is set', async () => {
-    saveSettingsPreferences({
-      voiceRecognitionEngine: 'system_local'
-    })
-
+  it('initializes the voice coordinator with cloud fallback disabled before capability probe', async () => {
     mountView()
     await flushPromises()
 
-    // 文本听写仍用浏览器识别（1 次调用）；通话侧走协调器，system_local 表示不启用云端兜底。
+    // 云端兜底改为管理端配置驱动：协调器初始不启用，真正开关交给会话加载后的 stt-capability 探测。
     expect(useSpeechToText).toHaveBeenCalledTimes(1)
     expect(useSpeechToTextOptions[0]).toEqual({})
     expect(useResilientSpeechToTextOptions[0].cloudEnabled).toBe(false)
   })
 
-  it('enables cloud fallback for the voice coordinator when preference is cloud_fallback', async () => {
-    saveSettingsPreferences({
-      voiceRecognitionEngine: 'cloud_fallback'
-    })
-
-    mountView()
-    await flushPromises()
-
-    expect(useResilientSpeechToTextOptions[0].cloudEnabled).toBe(true)
-  })
-
-  it('ignores legacy offline recognition preference after offline engine removal', async () => {
-    saveSettingsPreferences({
-      voiceRecognitionEngine: 'offline_sherpa'
-    })
-
+  it('enables cloud fallback for a voice session when backend stt-capability is available', async () => {
     getInterviewSession.mockResolvedValue({
       data: {
         ...baseSession,
@@ -990,14 +974,47 @@ describe('InterviewSessionView', () => {
         chatLogs: [],
       },
     })
+    getInterviewSttCapability.mockResolvedValue({ data: { available: true } })
 
     mountView()
     await flushPromises()
 
-    // 旧离线引擎偏好被清洗为默认 system_local，通话协调器不启用云端兜底。
-    expect(useSpeechToTextOptions[0]).toEqual({})
-    expect(useResilientSpeechToTextOptions[0].cloudEnabled).toBe(false)
-    expect(voiceSttStart).not.toHaveBeenCalled()
+    // 语音会话 + 后端可用即启用，不再依赖用户端 voiceRecognitionEngine 偏好。
+    expect(voiceSttSetCloudEnabled).toHaveBeenCalledWith(true)
+  })
+
+  it('keeps cloud fallback disabled when backend stt-capability is unavailable', async () => {
+    getInterviewSession.mockResolvedValue({
+      data: {
+        ...baseSession,
+        interactionType: 1,
+        chatLogs: [],
+      },
+    })
+    getInterviewSttCapability.mockResolvedValue({ data: { available: false } })
+
+    mountView()
+    await flushPromises()
+
+    expect(voiceSttSetCloudEnabled).toHaveBeenCalledWith(false)
+  })
+
+  it('keeps cloud fallback disabled for text sessions regardless of backend capability', async () => {
+    getInterviewSession.mockResolvedValue({
+      data: {
+        ...baseSession,
+        interactionType: 0,
+        chatLogs: [],
+      },
+    })
+    getInterviewSttCapability.mockResolvedValue({ data: { available: true } })
+
+    mountView()
+    await flushPromises()
+
+    // 文本会话不探测云端能力，直接关闭。
+    expect(voiceSttSetCloudEnabled).toHaveBeenCalledWith(false)
+    expect(getInterviewSttCapability).not.toHaveBeenCalled()
   })
   it('speaks the opening message once when the first voice call starts', async () => {
     getInterviewSession.mockResolvedValue({

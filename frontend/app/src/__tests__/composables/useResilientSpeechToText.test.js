@@ -97,6 +97,24 @@ describe('useResilientSpeechToText', () => {
     scope.stop()
   })
 
+  it.each(['start-failed', 'recognition-error'])('浏览器 %s 错误码且云端可用时也切到云端', async (code) => {
+    const { result, scope } = runInScope(() => useResilientSpeechToText({ sessionId: 's1', cloudEnabled: true }))
+    cloudRefs.isSupported.value = true
+    await nextTick()
+    result.start()
+
+    // 浏览器语音后端反复抖动时最常见的启动失败 / 未归类识别错误，也应触发切到云端兜底
+    browserRefs.errorCode.value = code
+    browserRefs.error.value = '浏览器语音识别不可用'
+    await nextTick()
+    await nextTick()
+
+    expect(cloudApi.start).toHaveBeenCalled()
+    expect(result.engineStatus.value).toBe('cloud-service')
+    expect(result.error.value).toBe('')
+    scope.stop()
+  })
+
   it('云端不可用时浏览器错误透传给通话层', async () => {
     const { result, scope } = runInScope(() => useResilientSpeechToText({ sessionId: 's1', cloudEnabled: false }))
     result.start()
