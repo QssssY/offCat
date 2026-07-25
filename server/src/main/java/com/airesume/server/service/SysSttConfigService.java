@@ -4,7 +4,7 @@ import com.airesume.server.dto.admin.AdminSttConfigRequest;
 import com.airesume.server.dto.admin.AdminSttConfigResponse;
 import com.airesume.server.dto.admin.AdminSttConnectivityTestResponse;
 import com.airesume.server.dto.user.ResolvedSttConfig;
-import com.airesume.server.dto.user.ResolvedSttConfig;
+import com.airesume.server.dto.user.UserSttDiscoveryResponse;
 
 /**
  * 系统级语音识别（STT）配置服务。
@@ -28,6 +28,11 @@ public interface SysSttConfigService {
      * 使用表单参数测试 STT 连通性，不保存配置。
      */
     AdminSttConnectivityTestResponse testConnectivity(AdminSttConfigRequest request);
+
+    /**
+     * 使用表单参数发现可用 STT 模型列表（调用 OpenAI 兼容 GET /models），不保存配置。
+     */
+    UserSttDiscoveryResponse discoverModels(AdminSttConfigRequest request);
 
     /**
      * 云端 STT 当前是否可用（已启用且配置完整）。

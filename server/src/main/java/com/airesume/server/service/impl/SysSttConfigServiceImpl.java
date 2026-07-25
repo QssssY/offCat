@@ -7,11 +7,18 @@ import com.airesume.server.dto.admin.AdminSttConfigRequest;
 import com.airesume.server.dto.admin.AdminSttConfigResponse;
 import com.airesume.server.dto.admin.AdminSttConnectivityTestResponse;
 import com.airesume.server.dto.user.ResolvedSttConfig;
+import com.airesume.server.dto.user.SttModelOption;
+import com.airesume.server.dto.user.UserSttDiscoveryResponse;
 import com.airesume.server.entity.SysSttConfig;
 import com.airesume.server.mapper.SysSttConfigMapper;
 import com.airesume.server.service.AiCredentialCrypto;
 import com.airesume.server.service.SysSttConfigService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
@@ -42,10 +49,18 @@ public class SysSttConfigServiceImpl implements SysSttConfigService {
     private static final String DEFAULT_STT_ENDPOINT = "/audio/transcriptions";
     /** 连通性测试用的最短静音音频（1 帧 WAV），只验证鉴权和端点，不追求识别结果。 */
     private static final int TEST_TIMEOUT_MS = 10000;
+    /** 模型发现超时。 */
+    private static final int DISCOVERY_TIMEOUT_MS = 10000;
+    /** 模型列表端点（OpenAI 兼容）。 */
+    private static final String MODELS_ENDPOINT = "/models";
+    /** 最大返回模型数，避免超长响应撑爆内存。 */
+    private static final int MAX_MODEL_COUNT = 500;
 
     private final SysSttConfigMapper sysSttConfigMapper;
     private final AiCredentialCrypto aiCredentialCrypto;
     private final RestClient.Builder restClientBuilder;
+    /** 解析 /models 响应用；带初始化值，@RequiredArgsConstructor 不纳入构造器，保持 3 参构造不变。 */
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
     public AdminSttConfigResponse getCurrentConfig() {
@@ -143,6 +158,47 @@ public class SysSttConfigServiceImpl implements SysSttConfigService {
     }
 
     @Override
+    public UserSttDiscoveryResponse discoverModels(AdminSttConfigRequest request) {
+        long start = System.currentTimeMillis();
+        String baseUrl;
+        try {
+            baseUrl = validateBaseUrl(normalizeRequired(request.getBaseUrl(), "STT 地址不能为空"));
+        } catch (BusinessException ex) {
+            return buildDiscoveryFailure(ex.getMessage(), start);
+        }
+        String apiKey = normalizePlainApiKey(request, sysSttConfigMapper.selectCurrent());
+
+        try {
+            // 调用 OpenAI 兼容 GET /models 获取模型列表；STT 无音色/合成端点，逻辑比 TTS 精简。
+            String rawResponse = createRestClient(baseUrl, DISCOVERY_TIMEOUT_MS)
+                    .get()
+                    .uri(MODELS_ENDPOINT)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .retrieve()
+                    .body(String.class);
+            List<SttModelOption> models = parseModels(rawResponse);
+            long latencyMs = System.currentTimeMillis() - start;
+            log.info("系统 STT 模型发现成功, 模型: {} 个, 耗时: {}ms", models.size(), latencyMs);
+            return UserSttDiscoveryResponse.builder()
+                    .success(true)
+                    .message(String.format("发现 %d 个模型", models.size()))
+                    .models(models)
+                    .build();
+        } catch (RestClientResponseException ex) {
+            int status = ex.getStatusCode().value();
+            log.warn("系统 STT 模型发现失败, status: {}", status);
+            String message = status == 401 || status == 403
+                    ? "API Key 无效或已过期，请检查后重试"
+                    : "模型列表获取失败：上游返回 " + status;
+            return buildDiscoveryFailure(message, start);
+        } catch (Exception ex) {
+            log.warn("系统 STT 模型发现异常, errorType: {}", ex.getClass().getSimpleName());
+            return buildDiscoveryFailure("模型列表获取失败，请检查地址和 API Key，或手动输入模型名", start);
+        }
+    }
+
+    @Override
     @CacheEvict(value = "config:systemStt", allEntries = true)
     public boolean isCloudSttAvailable() {
         return resolveEnabledConfig() != null;
@@ -173,6 +229,46 @@ public class SysSttConfigServiceImpl implements SysSttConfigService {
                 .apiKey(apiKey)
                 .model(config.getModel().trim())
                 .endpointPath(normalizeEndpointPath(config.getEndpointPath()))
+                .build();
+    }
+
+    /**
+     * 解析 OpenAI 兼容 /models 响应的 data 数组，收集模型 ID。
+     */
+    private List<SttModelOption> parseModels(String rawResponse) throws Exception {
+        if (rawResponse == null || rawResponse.isBlank()) {
+            throw new IllegalArgumentException("模型列表响应为空");
+        }
+        JsonNode dataNode = objectMapper.readTree(rawResponse).path("data");
+        if (!dataNode.isArray()) {
+            throw new IllegalArgumentException("模型列表响应缺少 data 数组");
+        }
+        Set<String> ids = new LinkedHashSet<>();
+        for (JsonNode item : dataNode) {
+            String id = item.path("id").asText("").trim();
+            if (!id.isEmpty()) {
+                ids.add(id);
+            }
+            if (ids.size() >= MAX_MODEL_COUNT) {
+                break;
+            }
+        }
+        if (ids.isEmpty()) {
+            throw new IllegalArgumentException("模型列表为空");
+        }
+        return ids.stream()
+                .map(id -> SttModelOption.builder().id(id).name(id).build())
+                .toList();
+    }
+
+    private UserSttDiscoveryResponse buildDiscoveryFailure(String errorMessage, long start) {
+        String safeMessage = errorMessage == null || errorMessage.isBlank() ? "未知错误" : errorMessage;
+        log.info("系统 STT 模型发现失败, 耗时: {}ms", System.currentTimeMillis() - start);
+        return UserSttDiscoveryResponse.builder()
+                .success(false)
+                .message(safeMessage)
+                .models(List.of())
+                .errorMessage(safeMessage)
                 .build();
     }
 

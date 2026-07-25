@@ -36,3 +36,16 @@ export function testAdminSttConnectivity(data) {
     data
   })
 }
+
+/**
+ * 使用当前表单值发现可用 STT 模型列表（后端调用 OpenAI 兼容 GET /models），不保存配置。
+ * @param {{baseUrl: string, apiKey?: string, endpointPath?: string}} data
+ * @returns {Promise}
+ */
+export function discoverAdminSttModels(data) {
+  return adminRequest({
+    url: '/api/admin/stt-config/discover',
+    method: 'post',
+    data
+  })
+}

@@ -62,6 +62,17 @@ Authorization: Bearer <admin-token>
 | POST | `/api/admin/tts-config/discover` | 发现 TTS 音色 |
 | POST | `/api/admin/tts-config/preview` | TTS 试听 |
 
+## 系统 STT 配置
+
+仅服务语音面试的语音输入兜底：浏览器 Web Speech 不可用时改用云端识别；与面试对话 AI、TTS 播报配置完全独立。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/admin/stt-config` | 获取系统 STT 配置（API Key 脱敏） |
+| PUT | `/api/admin/stt-config` | 保存系统 STT 配置 |
+| POST | `/api/admin/stt-config/test-connectivity` | 测试 STT 连通性 |
+| POST | `/api/admin/stt-config/discover` | 发现可用 STT 模型 |
+
 ## 用户与权益
 
 | 方法 | 路径 | 说明 |

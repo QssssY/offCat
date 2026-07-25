@@ -423,7 +423,22 @@
             <el-input v-model="systemSttForm.apiKey" type="password" show-password maxlength="1024" placeholder="留空或保留脱敏值表示复用已保存 Key" />
           </el-form-item>
           <el-form-item label="模型">
-            <el-input v-model.trim="systemSttForm.model" maxlength="128" placeholder="FunAudioLLM/SenseVoiceSmall" />
+            <el-select
+              v-if="systemSttModelOptions.length > 0"
+              v-model="systemSttForm.model"
+              filterable
+              allow-create
+              default-first-option
+              placeholder="选择或输入模型"
+            >
+              <el-option
+                v-for="item in systemSttModelOptions"
+                :key="item.id"
+                :label="item.name || item.id"
+                :value="item.id"
+              />
+            </el-select>
+            <el-input v-else v-model.trim="systemSttForm.model" maxlength="128" placeholder="FunAudioLLM/SenseVoiceSmall" />
           </el-form-item>
           <el-form-item label="端点路径">
             <el-input v-model.trim="systemSttForm.endpointPath" maxlength="128" placeholder="/audio/transcriptions" />
@@ -436,6 +451,7 @@
         <div class="system-stt-actions">
           <el-button :loading="systemSttSaving" type="primary" @click="handleSystemSttSave">保存配置</el-button>
           <el-button :loading="systemSttTesting" @click="handleSystemSttConnectivityTest">测试连通性</el-button>
+          <el-button :loading="systemSttDiscovering" @click="handleSystemSttDiscover">获取模型</el-button>
         </div>
       </el-form>
     </el-card>
@@ -921,6 +937,7 @@ import {
   testAdminTtsConnectivity
 } from '@/api/admin/ttsConfig'
 import {
+  discoverAdminSttModels,
   getAdminSttConfig,
   saveAdminSttConfig,
   testAdminSttConnectivity
@@ -1631,8 +1648,11 @@ const handleSystemTtsConnectivityTest = async () => {
 const systemSttLoading = ref(false)
 const systemSttSaving = ref(false)
 const systemSttTesting = ref(false)
+const systemSttDiscovering = ref(false)
 const systemSttConfigured = ref(false)
 const systemSttConnectivityResult = ref(null)
+// 发现到的 STT 模型列表；有值时模型输入框切换为可选下拉。
+const systemSttModelOptions = ref([])
 const systemSttForm = reactive({
   enabled: false,
   baseUrl: '',
@@ -1719,6 +1739,36 @@ const handleSystemSttConnectivityTest = async () => {
     showAdminError(systemSttConnectivityResult.value.message)
   } finally {
     systemSttTesting.value = false
+  }
+}
+
+// 获取模型：调用后端 /discover（OpenAI 兼容 GET /models），成功后填充下拉并默认选中首个。
+const handleSystemSttDiscover = async () => {
+  const payload = buildSystemSttPayload()
+  if (!payload.baseUrl) {
+    showAdminWarning('请先填写系统 STT 地址')
+    return
+  }
+  if (!payload.apiKey && !systemSttConfigured.value) {
+    showAdminWarning('首次获取模型时必须填写 API Key')
+    return
+  }
+  systemSttDiscovering.value = true
+  try {
+    const res = await discoverAdminSttModels(payload)
+    const data = res?.data || {}
+    if (!data.success) {
+      throw new Error(data.errorMessage || data.message || '模型获取失败')
+    }
+    systemSttModelOptions.value = Array.isArray(data.models) ? data.models : []
+    if (!systemSttForm.model && systemSttModelOptions.value[0]?.id) {
+      systemSttForm.model = systemSttModelOptions.value[0].id
+    }
+    showAdminSuccess(data.message || 'STT 模型获取成功')
+  } catch (error) {
+    showAdminError(error?.message || 'STT 模型获取失败')
+  } finally {
+    systemSttDiscovering.value = false
   }
 }
 

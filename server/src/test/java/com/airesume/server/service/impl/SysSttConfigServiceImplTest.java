@@ -14,6 +14,7 @@ import com.airesume.server.common.exception.BusinessException;
 import com.airesume.server.dto.admin.AdminSttConfigRequest;
 import com.airesume.server.dto.admin.AdminSttConfigResponse;
 import com.airesume.server.dto.user.ResolvedSttConfig;
+import com.airesume.server.dto.user.UserSttDiscoveryResponse;
 import com.airesume.server.entity.SysSttConfig;
 import com.airesume.server.mapper.SysSttConfigMapper;
 import com.airesume.server.service.AiCredentialCrypto;
@@ -117,6 +118,27 @@ class SysSttConfigServiceImplTest {
         when(crypto.decrypt("enc-key")).thenReturn("secret-abcd-1234");
 
         assertTrue(service.isCloudSttAvailable());
+    }
+
+    @Test
+    void discoverModelsFailsGracefullyWhenBaseUrlInvalid() {
+        AdminSttConfigRequest request = new AdminSttConfigRequest();
+        request.setBaseUrl("not-a-valid-url");
+        request.setApiKey("real-plain-key");
+
+        UserSttDiscoveryResponse response = service.discoverModels(request);
+
+        assertFalse(response.getSuccess());
+        assertTrue(response.getModels().isEmpty());
+    }
+
+    @Test
+    void discoverModelsThrowsWhenApiKeyMissingAndNoExisting() {
+        AdminSttConfigRequest request = new AdminSttConfigRequest();
+        request.setBaseUrl("https://api.siliconflow.cn/v1");
+        when(mapper.selectCurrent()).thenReturn(null);
+
+        assertThrows(BusinessException.class, () -> service.discoverModels(request));
     }
 
     private SysSttConfig buildConfig(String encryptedApiKey, int enabled) {

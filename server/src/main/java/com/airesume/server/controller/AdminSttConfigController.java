@@ -4,6 +4,7 @@ import com.airesume.server.common.result.Result;
 import com.airesume.server.dto.admin.AdminSttConfigRequest;
 import com.airesume.server.dto.admin.AdminSttConfigResponse;
 import com.airesume.server.dto.admin.AdminSttConnectivityTestResponse;
+import com.airesume.server.dto.user.UserSttDiscoveryResponse;
 import com.airesume.server.service.SysSttConfigService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -55,6 +56,15 @@ public class AdminSttConfigController {
     public Result<AdminSttConnectivityTestResponse> testConnectivity(
             @Valid @RequestBody AdminSttConfigRequest request) {
         AdminSttConnectivityTestResponse response = sysSttConfigService.testConnectivity(request);
+        return Result.success(response.getMessage(), response);
+    }
+
+    /**
+     * 使用当前表单值发现可用 STT 模型列表（OpenAI 兼容 GET /models），不保存配置。
+     */
+    @PostMapping("/discover")
+    public Result<UserSttDiscoveryResponse> discoverModels(@Valid @RequestBody AdminSttConfigRequest request) {
+        UserSttDiscoveryResponse response = sysSttConfigService.discoverModels(request);
         return Result.success(response.getMessage(), response);
     }
 }

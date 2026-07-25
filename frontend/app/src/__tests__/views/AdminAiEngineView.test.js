@@ -20,6 +20,7 @@ import {
   testAdminTtsConnectivity
 } from '@/api/admin/ttsConfig'
 import {
+  discoverAdminSttModels,
   getAdminSttConfig,
   saveAdminSttConfig,
   testAdminSttConnectivity
@@ -176,6 +177,16 @@ vi.mock('@/api/admin/sttConfig', () => ({
       message: 'STT 连通测试成功',
       endpointPath: '/audio/transcriptions',
       latencyMs: 23
+    }
+  })),
+  discoverAdminSttModels: vi.fn(() => Promise.resolve({
+    data: {
+      success: true,
+      message: '发现 2 个模型',
+      models: [
+        { id: 'FunAudioLLM/SenseVoiceSmall', name: 'FunAudioLLM/SenseVoiceSmall' },
+        { id: 'whisper-1', name: 'whisper-1' }
+      ]
     }
   }))
 }))
@@ -677,7 +688,8 @@ describe('AdminAiEngineView', () => {
     const buttonText = wrapper.findAll('.system-stt-actions button').map((b) => b.text())
     expect(buttonText).toContain('保存配置')
     expect(buttonText).toContain('测试连通性')
-    // STT 只有单一 OpenAI 兼容形态，不应出现 TTS 的音色试听按钮
+    expect(buttonText).toContain('获取模型')
+    // STT 只有单一 OpenAI 兼容形态，无音色概念，不应出现 TTS 的音色试听按钮
     expect(buttonText).not.toContain('预览音色')
     expect(buttonText).not.toContain('获取模型/音色')
   })
@@ -723,5 +735,57 @@ describe('AdminAiEngineView', () => {
     await flushPromises()
 
     expect(saveAdminSttConfig).not.toHaveBeenCalled()
+  })
+
+  it('should discover STT models and fill the model select with options', async () => {
+    discoverAdminSttModels.mockResolvedValueOnce({
+      data: {
+        success: true,
+        message: '发现 2 个模型',
+        models: [
+          { id: 'FunAudioLLM/SenseVoiceSmall', name: 'FunAudioLLM/SenseVoiceSmall' },
+          { id: 'whisper-1', name: 'whisper-1' }
+        ]
+      }
+    })
+    const wrapper = await mountView()
+    await switchToSystemSttSection(wrapper)
+    // 清空模型以便验证发现后自动回填首个模型
+    wrapper.vm.systemSttForm.model = ''
+    Object.assign(wrapper.vm.systemSttForm, {
+      baseUrl: 'https://stt.example.com/v1',
+      apiKey: 'sys-real-stt-key'
+    })
+
+    await wrapper.vm.handleSystemSttDiscover()
+    await flushPromises()
+
+    expect(discoverAdminSttModels).toHaveBeenCalledWith({
+      enabled: true,
+      baseUrl: 'https://stt.example.com/v1',
+      apiKey: 'sys-real-stt-key',
+      model: '',
+      endpointPath: '/audio/transcriptions'
+    })
+    expect(wrapper.vm.systemSttModelOptions).toHaveLength(2)
+    expect(wrapper.vm.systemSttForm.model).toBe('FunAudioLLM/SenseVoiceSmall')
+  })
+
+  it('should not fill model options when STT discovery fails', async () => {
+    discoverAdminSttModels.mockResolvedValueOnce({
+      data: { success: false, errorMessage: 'API Key 无效或已过期，请检查后重试', models: [] }
+    })
+    const wrapper = await mountView()
+    await switchToSystemSttSection(wrapper)
+    Object.assign(wrapper.vm.systemSttForm, {
+      baseUrl: 'https://stt.example.com/v1',
+      apiKey: 'sys-bad-key'
+    })
+
+    await wrapper.vm.handleSystemSttDiscover()
+    await flushPromises()
+
+    expect(discoverAdminSttModels).toHaveBeenCalled()
+    expect(wrapper.vm.systemSttModelOptions).toHaveLength(0)
   })
 })
