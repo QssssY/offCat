@@ -24,6 +24,7 @@ const elMessageWarning = vi.hoisted(() => vi.fn())
 const elMessageSuccess = vi.hoisted(() => vi.fn())
 let useSpeechToTextCall = 0
 let useSpeechToTextOptions = []
+let useResilientSpeechToTextOptions = []
 let mountedWrappers = []
 let audioInstances = []
 
@@ -100,6 +101,8 @@ vi.mock('@/api/interview', () => ({
   getInterviewSession: vi.fn(),
   getInterviewSessionStatus: vi.fn(),
   getInterviewTtsCapability: vi.fn(),
+  getInterviewSttCapability: vi.fn(() => Promise.resolve({ data: { available: false } })),
+  transcribeInterviewSpeech: vi.fn(() => Promise.resolve('')),
   streamInterviewMessage: vi.fn(),
   synthesizeInterviewTts: vi.fn(),
 }))
@@ -146,6 +149,32 @@ vi.mock('@/composables/useSpeechToText', () => ({
       start: voiceSttStart,
       stop: voiceSttStop,
       cancel: voiceSttCancel,
+    }
+  }),
+}))
+
+// 协调器对外暴露与 useSpeechToText 一致的接口，通话层消费其统一 ref。
+// 测试直接返回通话侧共享 ref，保持既有断言语义；setCloudEnabled 记录调用即可。
+const voiceSttSetCloudEnabled = vi.fn()
+vi.mock('@/composables/useResilientSpeechToText', () => ({
+  useResilientSpeechToText: vi.fn((options = {}) => {
+    useResilientSpeechToTextOptions.push(options)
+    return {
+      isSupported: voiceSttSupported,
+      isRecording: voiceSttRecording,
+      isVoiceActive: ref(false),
+      voiceActivityAt: ref(0),
+      finalTranscript: voiceSttFinal,
+      interimTranscript: voiceSttInterim,
+      error: voiceSttError,
+      errorCode: voiceSttErrorCode,
+      engineStatus: voiceSttEngineStatus,
+      startConfirmed: ref(false),
+      language: voiceSttLanguage,
+      start: voiceSttStart,
+      stop: voiceSttStop,
+      cancel: voiceSttCancel,
+      setCloudEnabled: voiceSttSetCloudEnabled,
     }
   }),
 }))
@@ -238,6 +267,8 @@ describe('InterviewSessionView', () => {
     mountedWrappers = []
     useSpeechToTextCall = 0
     useSpeechToTextOptions = []
+    useResilientSpeechToTextOptions = []
+    voiceSttSetCloudEnabled.mockClear()
     sttSupported.value = true
     sttRecording.value = false
     sttFinal.value = ''
@@ -922,7 +953,7 @@ describe('InterviewSessionView', () => {
     expect(voiceSttLanguage.value).toBe('en-US')
   })
 
-  it('passes local recognition engine preference into both speech recognizers', async () => {
+  it('keeps cloud fallback disabled when local recognition engine preference is set', async () => {
     saveSettingsPreferences({
       voiceRecognitionEngine: 'system_local'
     })
@@ -930,9 +961,21 @@ describe('InterviewSessionView', () => {
     mountView()
     await flushPromises()
 
-    expect(useSpeechToText).toHaveBeenCalledTimes(2)
+    // 文本听写仍用浏览器识别（1 次调用）；通话侧走协调器，system_local 表示不启用云端兜底。
+    expect(useSpeechToText).toHaveBeenCalledTimes(1)
     expect(useSpeechToTextOptions[0]).toEqual({})
-    expect(useSpeechToTextOptions[1]).toEqual({})
+    expect(useResilientSpeechToTextOptions[0].cloudEnabled).toBe(false)
+  })
+
+  it('enables cloud fallback for the voice coordinator when preference is cloud_fallback', async () => {
+    saveSettingsPreferences({
+      voiceRecognitionEngine: 'cloud_fallback'
+    })
+
+    mountView()
+    await flushPromises()
+
+    expect(useResilientSpeechToTextOptions[0].cloudEnabled).toBe(true)
   })
 
   it('ignores legacy offline recognition preference after offline engine removal', async () => {
@@ -951,8 +994,9 @@ describe('InterviewSessionView', () => {
     mountView()
     await flushPromises()
 
+    // 旧离线引擎偏好被清洗为默认 system_local，通话协调器不启用云端兜底。
     expect(useSpeechToTextOptions[0]).toEqual({})
-    expect(useSpeechToTextOptions[1]).toEqual({})
+    expect(useResilientSpeechToTextOptions[0].cloudEnabled).toBe(false)
     expect(voiceSttStart).not.toHaveBeenCalled()
   })
   it('speaks the opening message once when the first voice call starts', async () => {

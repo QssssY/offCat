@@ -74,6 +74,17 @@
       >
         系统 TTS 配置
       </button>
+      <button
+        type="button"
+        class="admin-section-tab"
+        :class="{ active: activeAdminSection === 'system-stt-config' }"
+        role="tab"
+        data-admin-section="system-stt-config"
+        :aria-selected="activeAdminSection === 'system-stt-config' ? 'true' : 'false'"
+        @click="activeAdminSection = 'system-stt-config'"
+      >
+        系统 STT 配置
+      </button>
     </div>
 
     <div v-if="activeAdminSection === 'engine-config'" class="stats-grid">
@@ -870,6 +881,11 @@ import {
   testAdminTtsConnectivity
 } from '@/api/admin/ttsConfig'
 import {
+  getAdminSttConfig,
+  saveAdminSttConfig,
+  testAdminSttConnectivity
+} from '@/api/admin/sttConfig'
+import {
   confirmAdminRiskAction,
   resolveAdminTableEmptyText,
   showAdminError,
@@ -1567,6 +1583,105 @@ const handleSystemTtsConnectivityTest = async () => {
     systemTtsTesting.value = false
   }
 }
+
+// ---------------- 系统 STT（云端语音识别兜底）配置 ----------------
+// STT 只有单一 OpenAI 兼容形态，无 provider/音色/试听，逻辑比 TTS 精简。
+// 系统级 STT（云端语音识别兜底）配置状态。
+// 只服务语音面试的语音输入兜底，与面试对话 AI、TTS 播报配置完全独立。
+const systemSttLoading = ref(false)
+const systemSttSaving = ref(false)
+const systemSttTesting = ref(false)
+const systemSttConfigured = ref(false)
+const systemSttConnectivityResult = ref(null)
+const systemSttForm = reactive({
+  enabled: false,
+  baseUrl: '',
+  apiKey: '',
+  model: '',
+  endpointPath: '/audio/transcriptions'
+})
+
+const buildSystemSttPayload = () => ({
+  enabled: Boolean(systemSttForm.enabled),
+  baseUrl: String(systemSttForm.baseUrl || '').trim(),
+  apiKey: String(systemSttForm.apiKey || '').trim(),
+  model: String(systemSttForm.model || '').trim(),
+  endpointPath: String(systemSttForm.endpointPath || '').trim()
+})
+
+const validateSystemSttPayload = (payload, requireApiKey = false) => {
+  const hasAnyConfigValue = Boolean(payload.baseUrl || payload.apiKey || payload.model)
+  if (!payload.enabled && !hasAnyConfigValue) {
+    return true
+  }
+  if (!payload.baseUrl || !payload.model) {
+    showAdminWarning('请完整填写系统 STT 地址和模型')
+    return false
+  }
+  if (requireApiKey && !payload.apiKey && !systemSttConfigured.value) {
+    showAdminWarning('首次配置系统 STT 时必须填写 API Key')
+    return false
+  }
+  return true
+}
+
+const applySystemSttConfig = (config = {}) => {
+  systemSttConfigured.value = Boolean(config.configured)
+  systemSttForm.enabled = Boolean(config.enabled)
+  systemSttForm.baseUrl = config.baseUrl || ''
+  systemSttForm.apiKey = config.apiKey || ''
+  systemSttForm.model = config.model || ''
+  systemSttForm.endpointPath = config.endpointPath || '/audio/transcriptions'
+  systemSttConnectivityResult.value = null
+}
+
+const fetchSystemSttConfig = async () => {
+  systemSttLoading.value = true
+  try {
+    const res = await getAdminSttConfig()
+    applySystemSttConfig(res?.data || {})
+  } catch (error) {
+    showAdminError(error?.message || '加载系统 STT 配置失败')
+  } finally {
+    systemSttLoading.value = false
+  }
+}
+
+const handleSystemSttSave = async () => {
+  const payload = buildSystemSttPayload()
+  if (!validateSystemSttPayload(payload, true)) return
+  systemSttSaving.value = true
+  try {
+    const res = await saveAdminSttConfig(payload)
+    applySystemSttConfig({ ...payload, ...(res?.data || {}) })
+    showAdminSuccess('系统 STT 配置已保存')
+  } catch (error) {
+    showAdminError(error?.message || '保存系统 STT 配置失败')
+  } finally {
+    systemSttSaving.value = false
+  }
+}
+
+const handleSystemSttConnectivityTest = async () => {
+  const payload = buildSystemSttPayload()
+  if (!validateSystemSttPayload(payload, true)) return
+  systemSttTesting.value = true
+  systemSttConnectivityResult.value = null
+  try {
+    const res = await testAdminSttConnectivity(payload)
+    systemSttConnectivityResult.value = res?.data || { success: true, message: 'STT 连通测试成功' }
+    showAdminSuccess(systemSttConnectivityResult.value.message || 'STT 连通测试成功')
+  } catch (error) {
+    systemSttConnectivityResult.value = {
+      success: false,
+      message: error?.message || 'STT 连通测试失败'
+    }
+    showAdminError(systemSttConnectivityResult.value.message)
+  } finally {
+    systemSttTesting.value = false
+  }
+}
+
 
 const handleSystemTtsDiscover = async () => {
   const payload = buildSystemTtsPayload()
@@ -2485,6 +2600,7 @@ onMounted(() => {
   fetchCustomAiUsageStats()
   fetchCustomAiUsageTrends()
   fetchSystemTtsConfig()
+  fetchSystemSttConfig()
 })
 
 // 离开系统 TTS 配置时释放试听音频，避免后台播放和 blob URL 泄漏

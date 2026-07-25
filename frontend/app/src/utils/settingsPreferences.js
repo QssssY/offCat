@@ -179,7 +179,7 @@ const FEEDBACK_MODE_VALUES = Object.freeze(['after_interview', 'immediate'])
 const INTERACTION_TYPE_VALUES = Object.freeze([0, 1])
 const VOICE_MUTE_RESUME_MODE_VALUES = Object.freeze(['auto', 'manual'])
 const VOICE_RECOGNITION_LANGUAGE_VALUES = Object.freeze(['auto', 'zh-CN', 'en-US'])
-const VOICE_RECOGNITION_ENGINE_VALUES = Object.freeze(['system_local'])
+const VOICE_RECOGNITION_ENGINE_VALUES = Object.freeze(['system_local', 'cloud_fallback'])
 const VOICE_PREFERRED_TYPE_VALUES = Object.freeze(
   BROWSER_TTS_VOICE_PRESET_GROUPS.flatMap((group) => group.options.map((option) => option.value))
 )

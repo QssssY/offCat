@@ -311,6 +311,17 @@
                   @update:value="handleInterviewPreferenceSave"
                 />
               </div>
+              <div class="preference-row">
+                <div>
+                  <strong>浏览器识别失败时启用云端语音识别</strong>
+                  <span>浏览器语音识别不稳定时，自动改用服务端云端识别兜底，识别更稳定。仅影响语音面试的语音输入，需服务端已配置识别服务才生效。</span>
+                </div>
+                <n-switch
+                  :value="cloudSttFallbackEnabled"
+                  aria-label="浏览器识别失败时启用云端语音识别"
+                  @update:value="handleCloudSttFallbackToggle"
+                />
+              </div>
               <div class="preference-row stacked">
                 <div>
                   <strong>重置语音偏好</strong>
@@ -2581,6 +2592,17 @@ const handleNotificationPreferenceSave = () => {
 
 const handleInterviewPreferenceSave = () => {
   syncPreferenceForms(saveSettingsPreferences(interviewPreferenceForm.value))
+}
+
+// 云端语音识别兜底开关：用 voiceRecognitionEngine 枚举承载，cloud_fallback 表示开启，system_local 表示关闭。
+// 复用现有字段避免新增偏好项，也不影响其它语音功能。
+const cloudSttFallbackEnabled = computed(
+  () => interviewPreferenceForm.value.voiceRecognitionEngine === 'cloud_fallback'
+)
+
+const handleCloudSttFallbackToggle = (enabled) => {
+  interviewPreferenceForm.value.voiceRecognitionEngine = enabled ? 'cloud_fallback' : 'system_local'
+  handleInterviewPreferenceSave()
 }
 
 const handleVoicePreferredTypeChange = () => {

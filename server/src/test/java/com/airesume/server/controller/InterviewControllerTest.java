@@ -21,6 +21,7 @@ import com.airesume.server.entity.InterviewSession;
 import com.airesume.server.entity.SysJobRole;
 import com.airesume.server.service.InterviewAiService;
 import com.airesume.server.service.InterviewService;
+import com.airesume.server.service.InterviewSttService;
 import com.airesume.server.service.MockInterviewJobTargetService;
 import com.airesume.server.service.SysJobRoleService;
 import com.airesume.server.service.UserAiConfigResolver;
@@ -55,6 +56,7 @@ class InterviewControllerTest {
     @Mock private UserAiConfigResolver userAiConfigResolver;
     @Mock private UserAiUsageLimitService userAiUsageLimitService;
     @Mock private UserTtsSpeechService userTtsSpeechService;
+    @Mock private InterviewSttService interviewSttService;
     @Mock private Executor aiAsyncExecutor;
     @Mock private Authentication authentication;
 
@@ -65,7 +67,7 @@ class InterviewControllerTest {
         controller = new InterviewController(
                 interviewService, interviewAiService, sysJobRoleService,
                 mockInterviewJobTargetService, userAiConfigResolver,
-                userAiUsageLimitService, userTtsSpeechService, aiAsyncExecutor);
+                userAiUsageLimitService, userTtsSpeechService, interviewSttService, aiAsyncExecutor);
         lenient().when(authentication.getPrincipal()).thenReturn(1L);
     }
 

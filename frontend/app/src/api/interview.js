@@ -172,6 +172,64 @@ export async function synthesizeInterviewTts(sessionId, text, options = {}) {
 }
 
 /**
+ * 查询当前语音面试是否可使用云端语音识别兜底。
+ * 只在浏览器 Web Speech 不可用时前端才会走云端识别；此接口让前端提前得知云端兜底是否可用。
+ * @param {string} sessionId - 会话 ID
+ * @returns {Promise}
+ */
+export function getInterviewSttCapability(sessionId) {
+  return request({
+    url: `/api/interview/session/${sessionId}/stt-capability`,
+    method: 'get',
+    skipDefaultErrorHandler: true
+  })
+}
+
+/**
+ * 上传单段音频到后端云端语音识别，返回识别文本。
+ * 使用 fetch 直接发送 multipart，避免 Axios 包装干扰二进制上传。
+ * @param {string} sessionId - 会话 ID
+ * @param {Blob} audioBlob - 前端录制的音频块
+ * @param {{ signal?: AbortSignal, language?: string, filename?: string }} [options]
+ * @returns {Promise<string>} 识别出的文本，可能为空字符串
+ */
+export async function transcribeInterviewSpeech(sessionId, audioBlob, options = {}) {
+  const token = getToken()
+  const formData = new FormData()
+  formData.append('audio', audioBlob, options.filename || 'speech.webm')
+  // language 为空或 auto 时不发送，由后端交给上游自动判定语言。
+  if (options.language && options.language !== 'auto') {
+    formData.append('language', options.language)
+  }
+  const response = await fetch(`/api/interview/session/${sessionId}/stt`, {
+    method: 'POST',
+    headers: {
+      Authorization: token ? `Bearer ${token}` : ''
+    },
+    body: formData,
+    signal: options.signal
+  })
+
+  if (!response.ok) {
+    let message = `语音识别失败 (${response.status})`
+    let code = null
+    try {
+      const errorBody = await response.json()
+      code = errorBody.code ?? null
+      message = errorBody.message || errorBody.msg || message
+    } catch { /* 识别失败体不一定是 JSON，保留通用错误即可 */ }
+    const error = new Error(message)
+    error.status = response.status
+    error.code = code
+    throw error
+  }
+
+  const result = await response.json()
+  // 后端统一 Result 包装：{ code, message, data: { text } }
+  return result?.data?.text ?? ''
+}
+
+/**
  * 查询面试历史记录。
  * @param {Object} params - 分页参数
  * @param {number} params.pageNum - 页码

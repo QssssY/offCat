@@ -13,6 +13,8 @@ import com.airesume.server.dto.interview.InterviewSessionResponse;
 import com.airesume.server.dto.interview.InterviewSessionStatusResponse;
 import com.airesume.server.dto.interview.SendMessageRequest;
 import com.airesume.server.dto.interview.SendMessageResponse;
+import com.airesume.server.dto.interview.SttCapabilityResponse;
+import com.airesume.server.dto.interview.SttTranscriptionResponse;
 import com.airesume.server.dto.interview.TtsCapabilityResponse;
 import com.airesume.server.dto.interview.TtsSpeechRequest;
 import com.airesume.server.dto.user.DataCleanupResponse;
@@ -23,6 +25,7 @@ import com.airesume.server.entity.InterviewSession;
 import com.airesume.server.entity.SysJobRole;
 import com.airesume.server.service.InterviewAiService;
 import com.airesume.server.service.InterviewService;
+import com.airesume.server.service.InterviewSttService;
 import com.airesume.server.service.MockInterviewJobTargetService;
 import com.airesume.server.service.SysJobRoleService;
 import com.airesume.server.service.UserAiConfigResolver;
@@ -50,6 +53,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
 
 import java.util.List;
@@ -74,6 +78,7 @@ public class InterviewController {
     private final UserAiConfigResolver userAiConfigResolver;
     private final UserAiUsageLimitService userAiUsageLimitService;
     private final UserTtsSpeechService userTtsSpeechService;
+    private final InterviewSttService interviewSttService;
     @Qualifier("aiAsyncExecutor")
     private final Executor aiAsyncExecutor;
 
@@ -320,6 +325,47 @@ public class InterviewController {
                 .contentType(MediaType.valueOf(audio.getContentType()))
                 .cacheControl(CacheControl.noStore())
                 .body(audio.getAudioBytes());
+    }
+
+    /**
+     * 查询当前语音面试是否可使用云端语音识别兜底。
+     * <p>
+     * 只在浏览器 Web Speech 不可用时前端才会走云端识别；此接口让前端提前得知云端兜底是否可用，
+     * 未配置时前端保持“浏览器识别失败即降级手动输入”的现状。
+     */
+    @GetMapping("/session/{sessionId}/stt-capability")
+    public Result<SttCapabilityResponse> getSttCapability(
+            @PathVariable String sessionId,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        InterviewSession session = interviewService.getSessionByOwnerOrThrow(sessionId, userId);
+        boolean available = isVoiceSession(session) && interviewSttService.isCloudSttAvailable();
+        return Result.success(SttCapabilityResponse.builder()
+                .available(available)
+                .build());
+    }
+
+    /**
+     * 云端语音识别：接收前端上传的单段音频，返回识别文本。
+     * <p>
+     * 仅服务语音面试语音输入兜底。音频通过 multipart 上传，避免 base64 膨胀。
+     */
+    @PostMapping(value = "/session/{sessionId}/stt", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Result<SttTranscriptionResponse> transcribeStt(
+            @PathVariable String sessionId,
+            @RequestParam("audio") MultipartFile audio,
+            @RequestParam(value = "language", required = false) String language,
+            Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        InterviewSession session = interviewService.getSessionByOwnerOrThrow(sessionId, userId);
+        interviewService.assertSessionInProgress(session);
+        if (!isVoiceSession(session)) {
+            throw new com.airesume.server.common.exception.BusinessException("文字面试不支持云端语音识别");
+        }
+        String text = interviewSttService.transcribe(audio, language);
+        return Result.success(SttTranscriptionResponse.builder()
+                .text(text)
+                .build());
     }
 
     /**

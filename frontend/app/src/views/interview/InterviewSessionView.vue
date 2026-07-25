@@ -425,6 +425,7 @@ import {
   getInterviewSession,
   getInterviewSessionStatus,
   getInterviewTtsCapability,
+  getInterviewSttCapability,
   streamInterviewMessage,
 } from "@/api/interview";
 import { prefetchInterviewReportRoute } from "@/router/routeLoaders";
@@ -439,6 +440,7 @@ import {
 import FeatureIcon from "@/components/common/FeatureIcon.vue";
 import OptimizedImage from "@/components/common/OptimizedImage.vue";
 import { useSpeechToText } from "@/composables/useSpeechToText";
+import { useResilientSpeechToText } from "@/composables/useResilientSpeechToText";
 import { useCloudTextToSpeech } from "@/composables/useCloudTextToSpeech";
 import { useTextToSpeech } from "@/composables/useTextToSpeech";
 import { useVoiceCall } from "@/composables/useVoiceCall";
@@ -568,6 +570,10 @@ const {
   toggle: sttToggle,
 } = useSpeechToText();
 
+// 语音通话用（第二个实例）：协调器包住浏览器识别 + 云端识别兜底。
+// 浏览器 Web Speech 仍是主链路；浏览器出现“录音了却无文字”等降级错误码且云端可用时，
+// 静默切到云端识别，不把错误抛给通话层。cloud_fallback 设置关闭或后端未配置时退化为纯浏览器识别。
+const cloudSttUserEnabled = settingsPreferences.voiceRecognitionEngine === 'cloud_fallback';
 const {
   isSupported: voiceSttSupported,
   isRecording: voiceSttRecording,
@@ -582,7 +588,11 @@ const {
   start: voiceSttStart,
   stop: voiceSttStop,
   cancel: voiceSttCancel,
-} = useSpeechToText();
+  setCloudEnabled: voiceSttSetCloudEnabled,
+} = useResilientSpeechToText({
+  sessionId,
+  cloudEnabled: cloudSttUserEnabled,
+});
 
 const browserTextToSpeech = useTextToSpeech({
   // 绑定预设优先使用预设语速/音调，避免历史滑块值覆盖本次选择的音色风格。
@@ -1048,6 +1058,24 @@ const loadInterviewTtsCapability = async (nextSessionData) => {
   }
 };
 
+// 云端语音识别兜底能力探测：只有“用户在设置里开启 cloud_fallback” + “后端已配置可用 STT” 同时成立才启用。
+// 任一不满足都保持纯浏览器识别现状，浏览器识别失败即按原有规则降级手动输入。
+const loadInterviewSttCapability = async (nextSessionData) => {
+  if (!cloudSttUserEnabled
+    || (nextSessionData?.interactionType ?? INTERACTION_TYPE_TEXT) !== INTERACTION_TYPE_VOICE
+    || !sessionId.value) {
+    voiceSttSetCloudEnabled(false);
+    return;
+  }
+  try {
+    const response = await getInterviewSttCapability(sessionId.value);
+    const capability = response.data || {};
+    voiceSttSetCloudEnabled(Boolean(capability.available));
+  } catch {
+    voiceSttSetCloudEnabled(false);
+  }
+};
+
 const fetchSessionDetail = async () => {
   if (!sessionId.value) {
     error.value = "会话 ID 不存在";
@@ -1064,8 +1092,12 @@ const fetchSessionDetail = async () => {
       ...data,
       chatLogs: normalizeChatLogs(data.chatLogs),
     };
-    await loadInterviewTtsCapability(data);
-    
+    // 播放层 TTS 与识别层云端兜底能力并行探测，互不阻塞。
+    await Promise.all([
+      loadInterviewTtsCapability(data),
+      loadInterviewSttCapability(data),
+    ]);
+
     // 处理开场白待生成状态
     if (data.openingPending) {
       openingPending.value = true;
