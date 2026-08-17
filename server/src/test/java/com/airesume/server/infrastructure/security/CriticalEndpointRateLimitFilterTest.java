@@ -13,6 +13,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
@@ -24,6 +25,36 @@ class CriticalEndpointRateLimitFilterTest {
     @AfterEach
     void tearDown() {
         SecurityContextHolder.clearContext();
+    }
+
+    @Test
+    void shouldRateLimitFreeResumeAiActionsPerUser() throws Exception {
+        for (String path : List.of("/api/resume/polish/analyze", "/api/resume/job-match/analyze")) {
+            MutableClock clock = new MutableClock(Instant.parse("2026-08-18T00:00:00Z"));
+            CriticalEndpointRateLimitFilter filter = new CriticalEndpointRateLimitFilter(new ObjectMapper(), clock);
+            SecurityContextHolder.getContext().setAuthentication(
+                    new UsernamePasswordAuthenticationToken(600L, null));
+
+            for (int i = 0; i < 10; i++) {
+                MockHttpServletRequest request = buildRequest("POST", path, "10.0.0.60");
+                MockHttpServletResponse response = new MockHttpServletResponse();
+                FilterChain chain = mock(FilterChain.class);
+
+                filter.doFilter(request, response, chain);
+
+                verify(chain).doFilter(request, response);
+                assertEquals(200, response.getStatus());
+            }
+
+            MockHttpServletRequest blockedRequest = buildRequest("POST", path, "10.0.0.60");
+            MockHttpServletResponse blockedResponse = new MockHttpServletResponse();
+            FilterChain blockedChain = mock(FilterChain.class);
+
+            filter.doFilter(blockedRequest, blockedResponse, blockedChain);
+
+            verify(blockedChain, never()).doFilter(blockedRequest, blockedResponse);
+            assertEquals(429, blockedResponse.getStatus());
+        }
     }
 
     @Test

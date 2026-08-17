@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 关键高成本接口限流过滤器。
- * 这一层只覆盖注册、找回密码、简历上传和面试写操作，先用最小改动阻断批量滥用。
+ * 这一层覆盖注册、找回密码、简历与面试高成本写操作，阻断短时间批量滥用。
  */
 @Slf4j
 @Component
@@ -40,6 +40,8 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
     private static final String RESET_PASSWORD_PATH = "/api/auth/reset-password";
     private static final String CAPTCHA_PATH = "/api/auth/captcha";
     private static final String RESUME_UPLOAD_PATH = "/api/resume/upload";
+    private static final String RESUME_POLISH_ANALYZE_PATH = "/api/resume/polish/analyze";
+    private static final String RESUME_JOB_MATCH_ANALYZE_PATH = "/api/resume/job-match/analyze";
     private static final String RESUME_EXPORT_PDF_PATH = "/api/resume/export-pdf";
     private static final String INTERVIEW_SESSION_PATH = "/api/interview/session";
     private static final String INTERVIEW_SESSION_PREFIX = "/api/interview/session/";
@@ -66,6 +68,13 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
             "captcha", CAPTCHA_PATH, MatchType.EXACT, 60, Duration.ofMinutes(1).toMillis(), KeyStrategy.IP_ONLY, "GET");
     private static final RateLimitPolicy RESUME_UPLOAD_POLICY = new RateLimitPolicy(
             "resume_upload", RESUME_UPLOAD_PATH, MatchType.EXACT, 10, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
+    // 免费额度提高后仍限制高成本 AI 的突发调用，单项权益总数不受影响。
+    private static final RateLimitPolicy RESUME_POLISH_ANALYZE_POLICY = new RateLimitPolicy(
+            "resume_polish_analyze", RESUME_POLISH_ANALYZE_PATH, MatchType.EXACT, 10,
+            Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
+    private static final RateLimitPolicy RESUME_JOB_MATCH_ANALYZE_POLICY = new RateLimitPolicy(
+            "resume_job_match_analyze", RESUME_JOB_MATCH_ANALYZE_PATH, MatchType.EXACT, 10,
+            Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
     // PDF 导出会启动浏览器进程生成文件，成本高于普通查询，单独限制频率保护 CPU 和内存。
     private static final RateLimitPolicy RESUME_EXPORT_PDF_POLICY = new RateLimitPolicy(
             "resume_export_pdf", RESUME_EXPORT_PDF_PATH, MatchType.EXACT, 5, Duration.ofMinutes(10).toMillis(), KeyStrategy.USER_OR_IP);
@@ -247,6 +256,12 @@ public class CriticalEndpointRateLimitFilter extends OncePerRequestFilter {
         }
         if (RESUME_UPLOAD_POLICY.matches(requestMethod, requestUri)) {
             return RESUME_UPLOAD_POLICY;
+        }
+        if (RESUME_POLISH_ANALYZE_POLICY.matches(requestMethod, requestUri)) {
+            return RESUME_POLISH_ANALYZE_POLICY;
+        }
+        if (RESUME_JOB_MATCH_ANALYZE_POLICY.matches(requestMethod, requestUri)) {
+            return RESUME_JOB_MATCH_ANALYZE_POLICY;
         }
         if (RESUME_EXPORT_PDF_POLICY.matches(requestMethod, requestUri)) {
             return RESUME_EXPORT_PDF_POLICY;

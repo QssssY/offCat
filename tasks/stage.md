@@ -1,3 +1,31 @@
+# 免费用户六项功能额度统一为 100 次（2026-08-18）
+## 已完成且已验证的功能
+
+- 简历诊断、模拟面试、AI 润色、JD 匹配、模板使用、Offer 辅助六项免费额度已统一为一次性 100 次。
+- 新用户初始化常量与双份 schema 默认值保持一致；存量迁移会补足所有非管理员账号的免费基础储备，VIP 套餐日额度和超过 100 的人工额度不受损。
+- 润色和 JD 匹配新增每账号每项 10 次/10 分钟突发限频，免费总额度仍保持 100 次。
+- 前端接口与展示结构未修改，继续直接展示后端剩余额度。
+
+## 本轮完成状态
+
+- RED 验证：旧六项值 `3/1/1/1/2/1`、缺失迁移和旧 schema 默认值均被新增测试捕获。
+- RED 验证：旧实现未限制润色/JD 的第 11 次突发请求，新增限频测试失败。
+- GREEN 验证：`QuotaConstantsTest`、`FreeUserQuotaMigrationTest`、`SchemaConsistencyTest`、`UserQuotaServiceImplTest`、`UserQuotaServiceImplAtomicDeductionTest`、`CriticalEndpointRateLimitFilterTest` 全部通过。
+- 后端全量测试在设置测试占位 `DOUBAO_API_KEY` 后 855 个用例全部通过；后端编译与 `-DskipTests package` 均通过。
+- 生产数据库迁移、后端服务替换和 `kelin.cyou` 外部验收待上线后回填。
+- 关联任务文件：`tasks/TASK_90_FREE_USER_QUOTA_100_BACKEND.md`。
+
+## 尚未开始的功能
+
+- 未修改 VIP 套餐额度、支付、会员购买、前端页面或每日刷新规则。
+- 未取消现有新用户 AI 冷却、原子扣减、消费日志和接口鉴权。
+
+## 停止，不继续下一个功能
+
+本轮只完成免费额度 100 次及其直接安全边界，等待生产上线验收，不继续推进其它功能。
+
+---
+
 # 合规分支四项回归修复后端（2026-06-07）
 ## 已完成且已验证的功能
 

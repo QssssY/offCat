@@ -4,18 +4,23 @@ import com.airesume.server.common.constants.QuotaConstants;
 import com.airesume.server.entity.UserQuota;
 import com.airesume.server.entity.SysUser;
 import com.airesume.server.mapper.ResumePolishRecordMapper;
+import com.airesume.server.mapper.UserQuotaMapper;
 import com.airesume.server.service.QuotaConsumptionLogService;
 import com.airesume.server.service.SysUserService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
 import java.time.LocalDate;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -37,20 +42,36 @@ class UserQuotaServiceImplTest {
     private static final Long TEST_USER_ID = 12345L;
     private static final Long VIP_USER_ID = 67890L;
 
+    private UserQuotaServiceImpl service;
+    private UserQuotaServiceImpl self;
+    private UserQuotaMapper userQuotaMapper;
+
+    @BeforeEach
+    void setUp() {
+        service = new UserQuotaServiceImpl(
+                mock(SysUserService.class),
+                mock(ResumePolishRecordMapper.class),
+                mock(QuotaConsumptionLogService.class));
+        self = mock(UserQuotaServiceImpl.class);
+        userQuotaMapper = mock(UserQuotaMapper.class);
+        ReflectionTestUtils.setField(service, "self", self);
+        ReflectionTestUtils.setField(service, "baseMapper", userQuotaMapper);
+    }
+
     @Nested
     @DisplayName("配额常量测试")
     class ConstantsTests {
 
         @Test
-        @DisplayName("普通用户免费面试限制应该是 3")
+        @DisplayName("普通用户免费面试限制应该是 100")
         void shouldHaveCorrectNormalUserInterviewLimit() {
-            assertEquals(3, QuotaConstants.NORMAL_USER_FREE_INTERVIEW_LIMIT);
+            assertEquals(100, QuotaConstants.NORMAL_USER_FREE_INTERVIEW_LIMIT);
         }
 
         @Test
-        @DisplayName("普通用户免费简历限制应该是 1")
+        @DisplayName("普通用户免费简历限制应该是 100")
         void shouldHaveCorrectNormalUserResumeLimit() {
-            assertEquals(1, QuotaConstants.NORMAL_USER_FREE_RESUME_LIMIT);
+            assertEquals(100, QuotaConstants.NORMAL_USER_FREE_RESUME_LIMIT);
         }
 
         @Test
@@ -71,6 +92,27 @@ class UserQuotaServiceImplTest {
     class UserQuotaEntityTests {
 
         @Test
+        @DisplayName("初始化普通用户时六项功能额度都应该是 100")
+        void shouldInitializeEveryFreeUserQuotaWithOneHundredUses() {
+            when(self.getByUserId(TEST_USER_ID)).thenReturn(null);
+            when(userQuotaMapper.insert(any(UserQuota.class))).thenReturn(1);
+
+            service.initUserQuota(TEST_USER_ID);
+
+            ArgumentCaptor<UserQuota> quotaCaptor = ArgumentCaptor.forClass(UserQuota.class);
+            verify(userQuotaMapper).insert(quotaCaptor.capture());
+            UserQuota quota = quotaCaptor.getValue();
+            assertAll(
+                    () -> assertEquals(100, quota.getInterviewQuota()),
+                    () -> assertEquals(100, quota.getResumeQuota()),
+                    () -> assertEquals(100, quota.getFreePolishLeft()),
+                    () -> assertEquals(100, quota.getFreeJdMatchLeft()),
+                    () -> assertEquals(100, quota.getFreeTemplateLeft()),
+                    () -> assertEquals(100, quota.getFreeOfferLeft())
+            );
+        }
+
+        @Test
         @DisplayName("应该正确初始化普通用户配额")
         void shouldInitializeNormalUserQuota() {
             UserQuota quota = new UserQuota();
@@ -84,8 +126,8 @@ class UserQuotaServiceImplTest {
             quota.setLastRefreshDate(LocalDate.now());
 
             assertEquals(TEST_USER_ID, quota.getUserId());
-            assertEquals(3, quota.getInterviewQuota());
-            assertEquals(1, quota.getResumeQuota());
+            assertEquals(100, quota.getInterviewQuota());
+            assertEquals(100, quota.getResumeQuota());
             assertEquals(0, quota.getTotalInterviewUsed());
             assertEquals(0, quota.getTotalResumeUsed());
             assertEquals(0, quota.getDailyInterviewUsed());
@@ -101,7 +143,7 @@ class UserQuotaServiceImplTest {
             quota.setTotalInterviewUsed(1);
 
             int remaining = Math.max(0, quota.getInterviewQuota());
-            assertEquals(3, remaining);
+            assertEquals(100, remaining);
         }
 
         @Test
@@ -407,7 +449,7 @@ class UserQuotaServiceImplTest {
         @DisplayName("普通用户面试配额扣减逻辑验证")
         void shouldDeductInterviewQuotaForNormalUser() {
             UserQuota quota = new UserQuota();
-            quota.setInterviewQuota(3);
+            quota.setInterviewQuota(100);
 
             // 模拟原子扣减
             int affected = quota.getInterviewQuota() > 0 ? 1 : 0;
@@ -416,7 +458,7 @@ class UserQuotaServiceImplTest {
             }
 
             assertEquals(1, affected);
-            assertEquals(2, quota.getInterviewQuota());
+            assertEquals(99, quota.getInterviewQuota());
         }
 
         @Test
@@ -434,7 +476,7 @@ class UserQuotaServiceImplTest {
         @DisplayName("普通用户简历配额扣减逻辑验证")
         void shouldDeductResumeQuotaForNormalUser() {
             UserQuota quota = new UserQuota();
-            quota.setResumeQuota(1);
+            quota.setResumeQuota(100);
 
             int affected = quota.getResumeQuota() > 0 ? 1 : 0;
             if (affected > 0) {
@@ -442,7 +484,7 @@ class UserQuotaServiceImplTest {
             }
 
             assertEquals(1, affected);
-            assertEquals(0, quota.getResumeQuota());
+            assertEquals(99, quota.getResumeQuota());
         }
 
         @Test
