@@ -12,7 +12,9 @@
 - RED 验证：旧实现未限制润色/JD 的第 11 次突发请求，新增限频测试失败。
 - GREEN 验证：`QuotaConstantsTest`、`FreeUserQuotaMigrationTest`、`SchemaConsistencyTest`、`UserQuotaServiceImplTest`、`UserQuotaServiceImplAtomicDeductionTest`、`CriticalEndpointRateLimitFilterTest` 全部通过。
 - 后端全量测试在设置测试占位 `DOUBAO_API_KEY` 后 855 个用例全部通过；后端编译与 `-DskipTests package` 均通过。
-- 生产数据库迁移、后端服务替换和 `kelin.cyou` 外部验收待上线后回填。
+- 生产数据库迁移已完成：首次补足 7 个非管理员账号，第二次执行更新 0 行；六项最低额度和数据库默认值均为 100，管理员额度保持不变。
+- 已使用本地构建 Jar 部署，服务器未执行构建；旧 Jar 与 `user_quota` 完整备份位于 `/opt/offercat/backups/quota100-retry-20260818-010705`。
+- `offercat.service`、`nginx` 和 `/actuator/health` 验收通过；`kelin.cyou` 首页及公开统计接口返回 200，图床上传仍返回“图床服务现在还未开放”。
 - 关联任务文件：`tasks/TASK_90_FREE_USER_QUOTA_100_BACKEND.md`。
 
 ## 尚未开始的功能
@@ -22,7 +24,7 @@
 
 ## 停止，不继续下一个功能
 
-本轮只完成免费额度 100 次及其直接安全边界，等待生产上线验收，不继续推进其它功能。
+本轮只完成免费额度 100 次及其直接安全边界，生产上线验收已完成，不继续推进其它功能。
 
 ---
 
