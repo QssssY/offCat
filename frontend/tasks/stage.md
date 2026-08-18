@@ -1,10 +1,11 @@
 ## OfferCat 项目介绍与 GitHub 支持入口前端（2026-08-18）
-- 当前阶段：已完成项目介绍弹窗与更自然的 GitHub 支持 CTA，等待人工在桌面和移动端点击确认“前往 GitHub，给项目一个 Star”新窗口跳转。
+- 当前阶段：已完成项目介绍弹窗与更自然的 GitHub 支持 CTA，并部署至 `https://kelin.cyou/`；等待人工点击确认 GitHub 新窗口跳转。
 - 文案调整：顶部入口由“开源 · 求 Star”改为“了解 OfferCat”；先展示“完全开源的 AI 求职准备平台”及简历诊断、岗位匹配、模拟面试、Offer 辅助四项能力，再提出 GitHub 支持请求。
 - 交互边界：桌面入口和移动抽屉入口打开同一个项目介绍弹窗；弹窗放在登录状态模板之外，未登录访客同样可见；移动入口会先关闭抽屉再打开弹窗。
 - 无障碍与响应式：桌面使用语义 button 打开对话框，GitHub 外链设置 `target="_blank"`、`noopener noreferrer`、`aria-label` 和焦点样式；介绍弹窗在 375px 下改为单列能力列表和等宽操作按钮。
 - 前端 GREEN 验证：`npm.cmd test -- --run src/__tests__/components/AppHeader.test.js src/__tests__/components/common/GitHubIcon.test.js` 通过，2 个测试文件 / 12 个用例；`npm.cmd run build` 通过。
 - 视觉验收：1440px 桌面弹窗实测 600px 宽、四项能力完整、CTA 和页面无横向溢出；移动端点击验收因本地后端错误 toast 持续覆盖汉堡按钮受阻，状态链路由测试覆盖。
+- 生产部署：使用提交 `d7cadb4` 的本地构建产物低资源部署，备份位于 `/opt/offercat/backups/project-intro-20260818-190608`；Nginx、OfferCat 服务和健康检查正常，域名首页、新主包及公开统计接口均返回 `200`，旧“开源 · 求 Star”文案已从线上产物移除。
 - 关联任务文件：`frontend/tasks/TASK_GITHUB_PROJECT_INTRO_FRONTEND.md`。
 - 停止说明：本轮只优化开源入口文案并增加项目介绍弹窗，不继续增加动态 Star 数量、README 展示、页脚入口或其它营销模块。
 

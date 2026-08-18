@@ -58,6 +58,15 @@ git diff --check
 
 已在 `frontend/tasks/stage.md` 顶部追加本轮项目介绍与 GitHub 支持入口记录。
 
+## 生产部署结果
+
+- 2026-08-18 使用源码提交 `d7cadb4` 对应的本地已验证 `dist` 上传部署，服务器未执行 Node、npm 或 Vite 构建，未停止 Nginx、OfferCat 后端、MySQL 或其它项目。
+- 上传包 SHA-256 为 `e479d9e4ba81095bd4c1b65ea0846b86f9a853953ef210df102bb92a916f5ca0`，本地与服务器校验一致。
+- 上线前完整前端备份位于 `/opt/offercat/backups/project-intro-20260818-190608`。
+- 部署后 Nginx 与 `offercat.service` 均为 `active`，后端 `/actuator/health` 返回 `200` 和 `UP`。
+- `https://kelin.cyou/`、`https://kelin.cyou/api/stats` 和新主包 `assets/index-BYKMi_aa.js` 均返回 `200`；新主包包含项目介绍与新 GitHub CTA，旧“开源 · 求 Star”文案已不存在。
+- 上传压缩包已从本地和服务器清理。
+
 ## 停止，不继续下一个功能
 
 本轮只优化开源入口文案、增加项目介绍弹窗和 GitHub 支持 CTA，不继续增加 Star 数量 API、README 展示、页脚入口或其它营销模块。
