@@ -167,23 +167,43 @@ describe('AppHeader', () => {
     expect(wrapper.findAll('.mobile-nav-link').length).toBeGreaterThanOrEqual(10)
   })
 
-  it('exposes the open source GitHub repository on desktop and mobile navigation', () => {
+  it('introduces the open source project before asking users to visit GitHub', async () => {
     const wrapper = mountHeader()
     const desktopLink = wrapper.get('.github-star-link')
     const mobileLink = wrapper.get('.mobile-github-link')
+    const githubCta = wrapper.get('.project-intro-github-link')
     const source = headerSource()
 
-    expect(desktopLink.attributes('href')).toBe('https://github.com/QssssY/offCat')
-    expect(desktopLink.attributes('target')).toBe('_blank')
-    expect(desktopLink.attributes('rel')).toBe('noopener noreferrer')
-    expect(desktopLink.attributes('aria-label')).toContain('GitHub')
-    expect(desktopLink.text()).toContain('开源')
-    expect(desktopLink.text()).toContain('求 Star')
+    expect(desktopLink.element.tagName).toBe('BUTTON')
+    expect(desktopLink.attributes('type')).toBe('button')
+    expect(desktopLink.attributes('aria-haspopup')).toBe('dialog')
+    expect(desktopLink.attributes('aria-label')).toContain('了解')
+    expect(desktopLink.text()).toContain('了解 OfferCat')
 
-    expect(mobileLink.attributes('href')).toBe('https://github.com/QssssY/offCat')
-    expect(mobileLink.attributes('target')).toBe('_blank')
-    expect(mobileLink.attributes('rel')).toBe('noopener noreferrer')
-    expect(mobileLink.text()).toContain('GitHub 开源 · 求 Star')
+    expect(mobileLink.element.tagName).toBe('BUTTON')
+    expect(mobileLink.attributes('type')).toBe('button')
+    expect(mobileLink.attributes('aria-haspopup')).toBe('dialog')
+    expect(mobileLink.text()).toContain('了解 OfferCat 开源项目')
+
+    expect(wrapper.text()).toContain('完全开源的 AI 求职准备平台')
+    expect(wrapper.text()).toContain('简历诊断')
+    expect(wrapper.text()).toContain('岗位匹配')
+    expect(wrapper.text()).toContain('模拟面试')
+    expect(wrapper.text()).toContain('Offer 辅助')
+    expect(githubCta.attributes('href')).toBe('https://github.com/QssssY/offCat')
+    expect(githubCta.attributes('target')).toBe('_blank')
+    expect(githubCta.attributes('rel')).toBe('noopener noreferrer')
+    expect(githubCta.text()).toContain('给项目一个 Star')
+
+    expect(wrapper.vm.projectIntroVisible).toBe(false)
+    await desktopLink.trigger('click')
+    expect(wrapper.vm.projectIntroVisible).toBe(true)
+
+    wrapper.vm.projectIntroVisible = false
+    wrapper.vm.drawerVisible = true
+    await mobileLink.trigger('click')
+    expect(wrapper.vm.drawerVisible).toBe(false)
+    expect(wrapper.vm.projectIntroVisible).toBe(true)
 
     const responsiveBlock = source.slice(
       source.indexOf('@media (max-width: 1439px)'),
@@ -192,6 +212,28 @@ describe('AppHeader', () => {
     expect(responsiveBlock).toContain('.github-star-link')
     expect(responsiveBlock).toContain('.desktop-nav')
     expect(responsiveBlock).toContain('display: none')
+    expect(source).toContain('class="project-intro-dialog"')
+    expect(source).toContain('#header="{ titleId, titleClass }"')
+    expect(source).toContain(':id="titleId"')
+    expect(source).toContain('前往 GitHub，给项目一个 Star')
+  })
+
+  it('keeps the project introduction available to signed-out visitors', async () => {
+    useUserStore.mockReturnValue({
+      userInfo: null,
+      isLoggedIn: () => false,
+      isVip: () => false,
+      fetchUserInfo,
+      clearUserInfo: vi.fn()
+    })
+    const wrapper = mountHeader()
+
+    expect(wrapper.find('.project-intro-github-link').exists()).toBe(true)
+    expect(wrapper.vm.projectIntroVisible).toBe(false)
+
+    await wrapper.get('.github-star-link').trigger('click')
+
+    expect(wrapper.vm.projectIntroVisible).toBe(true)
   })
 
   it('opens mobile drawer from hamburger button and appends drawer to body for responsive layout', async () => {

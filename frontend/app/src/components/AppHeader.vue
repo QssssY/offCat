@@ -145,17 +145,17 @@
 
     <div class="header-right">
       <!-- 开源仓库入口：桌面端保持全局可见，作为不打断业务导航的次级行动按钮。 -->
-      <a
-        href="https://github.com/QssssY/offCat"
-        target="_blank"
-        rel="noopener noreferrer"
+      <button
+        type="button"
         class="github-star-link"
-        aria-label="在 GitHub 查看 OfferCat 开源项目并点个 Star"
-        title="项目完全开源，欢迎在 GitHub 点个 Star"
+        aria-label="了解 OfferCat 开源项目"
+        title="了解 OfferCat 开源项目"
+        aria-haspopup="dialog"
+        @click="projectIntroVisible = true"
       >
         <GitHubIcon class="github-star-icon" />
-        <span class="github-star-label">开源 · 求 Star</span>
-      </a>
+        <span class="github-star-label">了解 OfferCat</span>
+      </button>
 
       <!-- 主题切换按钮 -->
       <el-tooltip :content="themeStore.resolvedTheme === 'dark' ? '切换亮色模式' : '切换暗色模式'" placement="bottom" :show-after="300">
@@ -347,6 +347,69 @@
       </template>
     </div>
 
+    <!-- 项目介绍对所有访客开放，不依赖登录状态。 -->
+    <el-dialog
+      v-model="projectIntroVisible"
+      class="project-intro-dialog"
+      :show-close="true"
+      :append-to-body="true"
+      title="认识 OfferCat"
+    >
+      <template #header="{ titleId, titleClass }">
+        <div class="project-intro-header">
+          <div class="project-intro-icon" aria-hidden="true">
+            <GitHubIcon />
+          </div>
+          <div>
+            <div class="project-intro-eyebrow">开源求职准备工具</div>
+            <div :id="titleId" :class="[titleClass, 'project-intro-title']">认识 OfferCat</div>
+          </div>
+        </div>
+      </template>
+
+      <div class="project-intro-body">
+        <p class="project-intro-summary">
+          OfferCat 是一个完全开源的 AI 求职准备平台，帮助你把从简历到 Offer 的每一步准备做得更有方向。
+        </p>
+        <ul class="project-intro-feature-list" aria-label="OfferCat 核心能力">
+          <li>
+            <FeatureIcon name="resume-analysis" size="sm" />
+            <span><strong>简历诊断</strong>：找到最影响投递效果的问题</span>
+          </li>
+          <li>
+            <FeatureIcon name="job-match-analysis" size="sm" />
+            <span><strong>岗位匹配</strong>：看清经历与目标岗位的差距</span>
+          </li>
+          <li>
+            <FeatureIcon name="mock-interview" size="sm" />
+            <span><strong>模拟面试</strong>：练习回答结构与临场表达</span>
+          </li>
+          <li>
+            <FeatureIcon name="offer-assistant" size="sm" />
+            <span><strong>Offer 辅助</strong>：比较机会并做好谈薪准备</span>
+          </li>
+        </ul>
+      </div>
+
+      <template #footer>
+        <div class="project-intro-footer">
+          <button type="button" class="project-intro-dismiss" @click="projectIntroVisible = false">
+            先看看
+          </button>
+          <a
+            href="https://github.com/QssssY/offCat"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="project-intro-github-link"
+            aria-label="在 GitHub 查看 OfferCat 开源项目并给项目一个 Star"
+          >
+            <GitHubIcon />
+            前往 GitHub，给项目一个 Star
+          </a>
+        </div>
+      </template>
+    </el-dialog>
+
     <!-- 移动端 Drawer -->
     <el-drawer
       v-model="drawerVisible"
@@ -480,17 +543,16 @@
           设置中心
         </router-link>
         <!-- 移动端保留完整开源文案，避免顶部空间不足时丢失 GitHub 入口。 -->
-        <a
-          href="https://github.com/QssssY/offCat"
-          target="_blank"
-          rel="noopener noreferrer"
+        <button
+          type="button"
           class="mobile-nav-link mobile-github-link"
-          aria-label="在 GitHub 查看 OfferCat 开源项目并点个 Star"
-          @click="drawerVisible = false"
+          aria-label="了解 OfferCat 开源项目"
+          aria-haspopup="dialog"
+          @click="drawerVisible = false; projectIntroVisible = true"
         >
           <GitHubIcon class="mobile-github-icon" />
-          GitHub 开源 · 求 Star
-        </a>
+          了解 OfferCat 开源项目
+        </button>
         <!-- 移动端主题切换 -->
         <button class="mobile-nav-link theme-toggle-mobile" @click="themeStore.toggleTheme(); drawerVisible = false">
           <FeatureIcon
@@ -577,6 +639,7 @@ const settingsPreferences = ref(getSettingsPreferences());
 
 const drawerVisible = ref(false);
 const nicknameDialogVisible = ref(false);
+const projectIntroVisible = ref(false);
 const nicknameFormRef = ref(null);
 const nicknameSaving = ref(false);
 const nicknameForm = ref({ nickname: "" });
@@ -1113,6 +1176,7 @@ onUnmounted(() => {
 }
 
 .github-star-link {
+  appearance: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1124,6 +1188,8 @@ onUnmounted(() => {
   border-radius: 999px;
   background: var(--bg-card);
   color: var(--text-title);
+  font: inherit;
+  text-align: center;
   text-decoration: none;
   white-space: nowrap;
   cursor: pointer;
@@ -1841,6 +1907,174 @@ onUnmounted(() => {
   overflow-wrap: anywhere;
 }
 
+/* 项目介绍弹窗：先说明项目价值，再提供 GitHub 支持入口。 */
+.project-intro-dialog {
+  --el-dialog-width: 600px;
+}
+
+.project-intro-dialog .el-dialog {
+  border-radius: 12px;
+  background: var(--bg-card);
+}
+
+.project-intro-dialog .el-dialog__header {
+  padding: 24px 24px 14px;
+  margin-right: 38px;
+}
+
+.project-intro-dialog .el-dialog__body {
+  padding: 0 24px 18px;
+}
+
+.project-intro-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.project-intro-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 140, 66, 0.2);
+  border-radius: 50%;
+  background: var(--orange-light-bg);
+  color: var(--orange-main);
+}
+
+.project-intro-icon .github-icon {
+  width: 24px;
+  height: 24px;
+}
+
+.project-intro-eyebrow {
+  color: var(--orange-main);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.project-intro-title {
+  margin-top: 3px;
+  color: var(--text-title);
+  font-size: 20px;
+  line-height: 1.35;
+  font-weight: 800;
+}
+
+.project-intro-summary {
+  margin: 0 0 18px;
+  color: var(--text-body);
+  font-size: 15px;
+  line-height: 1.8;
+}
+
+.project-intro-feature-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.project-intro-feature-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border-card);
+  border-radius: 8px;
+  background: var(--bg-page);
+  color: var(--text-body);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.project-intro-feature-list li .feature-icon {
+  flex: 0 0 auto;
+  color: var(--orange-main);
+}
+
+.project-intro-feature-list strong {
+  color: var(--text-title);
+  font-weight: 700;
+}
+
+.project-intro-dialog .el-dialog__footer {
+  padding: 10px 24px 22px;
+}
+
+.project-intro-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.project-intro-dismiss,
+.project-intro-github-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+  transition:
+    background-color 180ms var(--header-motion-ease),
+    border-color 180ms var(--header-motion-ease),
+    color 180ms var(--header-motion-ease),
+    transform 180ms var(--header-motion-ease);
+}
+
+.project-intro-dismiss {
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.project-intro-dismiss:hover {
+  border-color: var(--border-card);
+  background: var(--bg-page);
+  color: var(--text-title);
+}
+
+.project-intro-github-link {
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid var(--orange-main);
+  background: var(--orange-main);
+  color: #fff;
+}
+
+.project-intro-github-link:hover {
+  border-color: var(--orange-dark, #e56d20);
+  background: var(--orange-dark, #e56d20);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.project-intro-github-link .github-icon {
+  width: 19px;
+  height: 19px;
+}
+
+.project-intro-dismiss:focus-visible,
+.project-intro-github-link:focus-visible {
+  outline: 2px solid var(--orange-main);
+  outline-offset: 3px;
+}
+
 @media (max-width: 767px) {
   .app-header {
     height: var(--header-height, 64px);
@@ -1905,6 +2139,31 @@ onUnmounted(() => {
     font-size: 13px;
     max-height: 45vh;
   }
+
+  .project-intro-dialog {
+    --el-dialog-width: calc(100vw - 32px);
+  }
+
+  .project-intro-dialog .el-dialog__header {
+    padding: 18px 16px 12px;
+    margin-right: 32px;
+  }
+
+  .project-intro-dialog .el-dialog__body {
+    padding: 0 16px 14px;
+  }
+
+  .project-intro-dialog .el-dialog__footer {
+    padding: 8px 16px 16px;
+  }
+
+  .project-intro-feature-list {
+    grid-template-columns: 1fr;
+  }
+
+  .project-intro-summary {
+    font-size: 14px;
+  }
 }
 
 @media (max-width: 480px) {
@@ -1942,6 +2201,27 @@ onUnmounted(() => {
     padding: 10px;
     font-size: 12px;
     max-height: 40vh;
+  }
+
+  .project-intro-dialog {
+    --el-dialog-width: 100vw;
+  }
+
+  .project-intro-dialog .el-dialog {
+    border-radius: 0;
+  }
+
+  .project-intro-title {
+    font-size: 18px;
+  }
+
+  .project-intro-footer {
+    justify-content: stretch;
+  }
+
+  .project-intro-dismiss,
+  .project-intro-github-link {
+    flex: 1 1 0;
   }
 }
 </style>
