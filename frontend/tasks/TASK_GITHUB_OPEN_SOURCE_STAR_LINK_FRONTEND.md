@@ -73,6 +73,15 @@ git diff --check
 
 已在 `frontend/tasks/stage.md` 顶部追加本轮 GitHub 开源求 Star 入口完成记录。
 
+## 生产部署结果
+
+- 2026-08-18 使用源码提交 `70d5ccb` 对应的本地已验证 `dist` 上传部署，服务器未执行 Node、npm 或 Vite 构建，未停止 Nginx、OfferCat 后端、MySQL 或其它项目。
+- 上传包 SHA-256 为 `ea6cfb0fc3014a64f3ca7da8bce48b1ace6577c4436746f85393df5e8299fd70`，本地与服务器校验一致。
+- 上线前完整前端备份位于 `/opt/offercat/backups/github-star-20260818-182516`，可用于快速回滚。
+- 部署后 Nginx 与 `offercat.service` 均为 `active`，后端 `/actuator/health` 返回 `200` 和 `UP`。
+- `https://kelin.cyou/`、`https://kelin.cyou/api/stats` 和新主包 `assets/index-usizkytV.js` 均返回 `200`；新主包已确认包含 GitHub 仓库地址及“求 Star”文案。
+- 服务器部署后约有 2.3 GiB 可用内存和 24 GiB 可用磁盘；上传压缩包已从本地及服务器清理。
+
 ## 停止，不继续下一个功能
 
 本轮只增加 GitHub 开源求 Star 入口及其响应式、无障碍和测试保障，不继续修改页脚、首页营销内容、GitHub API Star 数量展示或其它功能。

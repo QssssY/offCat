@@ -1,10 +1,11 @@
 ## GitHub 开源求 Star 入口前端（2026-08-18）
-- 当前阶段：已完成全局 GitHub 开源求 Star 入口，等待人工在桌面顶部导航和移动端导航抽屉中验收跳转。
+- 当前阶段：已完成全局 GitHub 开源求 Star 入口并部署至 `https://kelin.cyou/`，等待人工点击桌面顶部导航和移动端导航抽屉中的入口确认 GitHub 新窗口跳转。
 - 位置方案：桌面端放在全局顶部导航右侧作为次级行动入口；`1439px` 及以下统一切换为汉堡导航，在抽屉底部显示完整“GitHub 开源 · 求 Star”，避免登录态多导航项与操作区重叠。
 - 交互与无障碍：新窗口打开 `https://github.com/QssssY/offCat`，设置 `noopener noreferrer`、可读 `aria-label`、键盘焦点样式，并使用官方 GitHub 品牌图标。
 - 前端 RED 验证：旧实现缺少桌面、移动 GitHub 链接及图标组件，目标测试失败并准确复现功能缺失。
 - 前端 GREEN 验证：`npm.cmd test -- --run src/__tests__/components/AppHeader.test.js src/__tests__/components/common/GitHubIcon.test.js` 通过，2 个测试文件 / 11 个用例。
 - 构建与视觉验证：`npm.cmd run build` 和 `git diff --check` 通过；1440px、1280px、1024px、375px 响应式页面中入口显示、隐藏、抽屉布局和文字溢出检查均通过。
+- 生产部署：使用提交 `70d5ccb` 的本地构建产物低资源部署，服务器未构建；备份位于 `/opt/offercat/backups/github-star-20260818-182516`，Nginx、OfferCat 服务和健康检查正常，域名首页、新主包及公开统计接口均返回 `200`。
 - 关联任务文件：`frontend/tasks/TASK_GITHUB_OPEN_SOURCE_STAR_LINK_FRONTEND.md`。
 - 停止说明：本轮只增加 GitHub 开源求 Star 入口，不继续修改页脚、首页营销内容、动态 Star 数量或其它功能。
 
