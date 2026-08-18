@@ -1,3 +1,13 @@
+## GitHub 开源求 Star 入口前端（2026-08-18）
+- 当前阶段：已完成全局 GitHub 开源求 Star 入口，等待人工在桌面顶部导航和移动端导航抽屉中验收跳转。
+- 位置方案：桌面端放在全局顶部导航右侧作为次级行动入口；`1439px` 及以下统一切换为汉堡导航，在抽屉底部显示完整“GitHub 开源 · 求 Star”，避免登录态多导航项与操作区重叠。
+- 交互与无障碍：新窗口打开 `https://github.com/QssssY/offCat`，设置 `noopener noreferrer`、可读 `aria-label`、键盘焦点样式，并使用官方 GitHub 品牌图标。
+- 前端 RED 验证：旧实现缺少桌面、移动 GitHub 链接及图标组件，目标测试失败并准确复现功能缺失。
+- 前端 GREEN 验证：`npm.cmd test -- --run src/__tests__/components/AppHeader.test.js src/__tests__/components/common/GitHubIcon.test.js` 通过，2 个测试文件 / 11 个用例。
+- 构建与视觉验证：`npm.cmd run build` 和 `git diff --check` 通过；1440px、1280px、1024px、375px 响应式页面中入口显示、隐藏、抽屉布局和文字溢出检查均通过。
+- 关联任务文件：`frontend/tasks/TASK_GITHUB_OPEN_SOURCE_STAR_LINK_FRONTEND.md`。
+- 停止说明：本轮只增加 GitHub 开源求 Star 入口，不继续修改页脚、首页营销内容、动态 Star 数量或其它功能。
+
 ## 语音面试云端语音识别兜底前端（2026-07-25）
 - 当前阶段：已在 `fix/edge-tts-voice` 分支完成语音输入的云端 STT 兜底，等待人工在语音面试中验收“浏览器识别失败自动切云端”链路。
 - 问题根因：语音输入原本完全依赖浏览器 `webkitSpeechRecognition`（Chrome/Edge 把音频上传 Google 服务器识别），网络抖动即失败，Firefox 不支持；历史 TASK_67/68/69 的重启/看门狗/降级都只是绕过这条不稳定链路，空间已用尽。

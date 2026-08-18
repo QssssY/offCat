@@ -144,6 +144,19 @@
     </button>
 
     <div class="header-right">
+      <!-- 开源仓库入口：桌面端保持全局可见，作为不打断业务导航的次级行动按钮。 -->
+      <a
+        href="https://github.com/QssssY/offCat"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="github-star-link"
+        aria-label="在 GitHub 查看 OfferCat 开源项目并点个 Star"
+        title="项目完全开源，欢迎在 GitHub 点个 Star"
+      >
+        <GitHubIcon class="github-star-icon" />
+        <span class="github-star-label">开源 · 求 Star</span>
+      </a>
+
       <!-- 主题切换按钮 -->
       <el-tooltip :content="themeStore.resolvedTheme === 'dark' ? '切换亮色模式' : '切换暗色模式'" placement="bottom" :show-after="300">
         <button class="theme-toggle" @click="themeStore.toggleTheme()" :aria-label="themeStore.resolvedTheme === 'dark' ? '切换为亮色模式' : '切换为暗色模式'">
@@ -466,6 +479,18 @@
           <FeatureIcon name="settings" size="sm" />
           设置中心
         </router-link>
+        <!-- 移动端保留完整开源文案，避免顶部空间不足时丢失 GitHub 入口。 -->
+        <a
+          href="https://github.com/QssssY/offCat"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="mobile-nav-link mobile-github-link"
+          aria-label="在 GitHub 查看 OfferCat 开源项目并点个 Star"
+          @click="drawerVisible = false"
+        >
+          <GitHubIcon class="mobile-github-icon" />
+          GitHub 开源 · 求 Star
+        </a>
         <!-- 移动端主题切换 -->
         <button class="mobile-nav-link theme-toggle-mobile" @click="themeStore.toggleTheme(); drawerVisible = false">
           <FeatureIcon
@@ -536,6 +561,7 @@ import { removeToken } from "@/utils/auth";
 import { updateNickname } from "@/api/auth";
 import { getNotifications, getUnreadCount, markAsRead, markAllAsRead, connectNotificationStream } from "@/api/notification";
 import FeatureIcon from "@/components/common/FeatureIcon.vue";
+import GitHubIcon from "@/components/common/GitHubIcon.vue";
 import OptimizedImage from "@/components/common/OptimizedImage.vue";
 import NotificationTypeIcon from "@/components/notification/NotificationTypeIcon.vue";
 import { formatNotificationTime, getNotificationTypeMeta, isAdminAnnouncementType } from "@/utils/notificationMeta";
@@ -1086,6 +1112,57 @@ onUnmounted(() => {
   gap: 2px;
 }
 
+.github-star-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 8px 13px;
+  margin-right: 5px;
+  border: 1px solid var(--border-card);
+  border-radius: 999px;
+  background: var(--bg-card);
+  color: var(--text-title);
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(34, 39, 46, 0.06);
+  transition:
+    background-color 180ms var(--header-motion-ease),
+    border-color 180ms var(--header-motion-ease),
+    color 180ms var(--header-motion-ease),
+    box-shadow 220ms var(--header-motion-ease),
+    transform 180ms var(--header-motion-ease);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.github-star-link:hover {
+  border-color: rgba(255, 140, 66, 0.34);
+  background-color: var(--orange-light-bg);
+  color: var(--orange-main);
+  box-shadow: 0 12px 24px rgba(255, 140, 66, 0.12);
+  transform: translateY(-1px);
+}
+
+.github-star-link:focus-visible,
+.mobile-github-link:focus-visible {
+  outline: 2px solid var(--orange-main);
+  outline-offset: 3px;
+}
+
+.github-star-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.github-star-label {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
 .login-link {
   font-size: 14px;
   color: var(--orange-main);
@@ -1220,6 +1297,20 @@ onUnmounted(() => {
   transform: scale(1.08);
 }
 
+.mobile-github-link {
+  margin-top: 5px;
+  border-color: var(--border-card);
+  background-color: var(--bg-card);
+  color: var(--text-title);
+  cursor: pointer;
+}
+
+.mobile-github-icon {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+}
+
 .motion-desktop-nav > .nav-link,
 .motion-desktop-nav > .history-dropdown-wrapper {
   opacity: 1;
@@ -1230,8 +1321,12 @@ onUnmounted(() => {
 }
 
 /* 响应式断点 */
-/* 中屏及以下：≤1279px 使用汉堡菜单 */
-@media (max-width: 1279px) {
+/* 中屏及以下：登录态导航项较多，≤1439px 统一使用汉堡菜单避免操作区重叠。 */
+@media (max-width: 1439px) {
+  .github-star-link {
+    display: none;
+  }
+
   .hamburger-btn {
     display: flex;
     align-items: center;
@@ -1641,6 +1736,7 @@ onUnmounted(() => {
   .nav-link::before,
   .nav-feature-icon,
   .dropdown-arrow,
+  .github-star-link,
   .hamburger-btn,
   .mobile-nav-link,
   .mobile-nav-link :deep(.feature-icon),
@@ -1658,6 +1754,7 @@ onUnmounted(() => {
 
   .brand-mark:hover,
   .nav-link:hover,
+  .github-star-link:hover,
   .nav-link:hover .nav-feature-icon,
   .nav-link.active .nav-feature-icon,
   .hamburger-btn:hover,

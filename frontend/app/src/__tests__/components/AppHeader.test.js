@@ -167,6 +167,33 @@ describe('AppHeader', () => {
     expect(wrapper.findAll('.mobile-nav-link').length).toBeGreaterThanOrEqual(10)
   })
 
+  it('exposes the open source GitHub repository on desktop and mobile navigation', () => {
+    const wrapper = mountHeader()
+    const desktopLink = wrapper.get('.github-star-link')
+    const mobileLink = wrapper.get('.mobile-github-link')
+    const source = headerSource()
+
+    expect(desktopLink.attributes('href')).toBe('https://github.com/QssssY/offCat')
+    expect(desktopLink.attributes('target')).toBe('_blank')
+    expect(desktopLink.attributes('rel')).toBe('noopener noreferrer')
+    expect(desktopLink.attributes('aria-label')).toContain('GitHub')
+    expect(desktopLink.text()).toContain('开源')
+    expect(desktopLink.text()).toContain('求 Star')
+
+    expect(mobileLink.attributes('href')).toBe('https://github.com/QssssY/offCat')
+    expect(mobileLink.attributes('target')).toBe('_blank')
+    expect(mobileLink.attributes('rel')).toBe('noopener noreferrer')
+    expect(mobileLink.text()).toContain('GitHub 开源 · 求 Star')
+
+    const responsiveBlock = source.slice(
+      source.indexOf('@media (max-width: 1439px)'),
+      source.indexOf('/* ===== 消息通知铃铛 ===== */')
+    )
+    expect(responsiveBlock).toContain('.github-star-link')
+    expect(responsiveBlock).toContain('.desktop-nav')
+    expect(responsiveBlock).toContain('display: none')
+  })
+
   it('opens mobile drawer from hamburger button and appends drawer to body for responsive layout', async () => {
     const wrapper = mountHeader()
 
