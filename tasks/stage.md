@@ -1806,6 +1806,9 @@
 - GREEN：`AuthServiceImplTest,NotificationServiceTest,OneYearMembershipGiftMigrationTest,SchemaConsistencyTest,MembershipServiceImplTest` 通过。
 - 全量测试共执行 861 个用例，仅既有 AI 流式测试因本机缺少 `DOUBAO_API_KEY` 报错，本任务相关测试全部通过。
 - `mvn.cmd -q -DskipTests package` 通过，本地 Jar 构建成功。
+- 生产迁移首次补发 9 个非管理员账号及 9 条通知，重复执行数据摘要完全不变；管理员继续保持 `role=9`。
+- 本地构建 Jar 已部署，`offercat.service`、Nginx、MySQL 正常，域名首页、统计、版本日志和健康检查均返回 `200`。
+- 生产 Jar SHA-256：`3d13c0c8f6dc3d0e89a3745f7ee56c692e9d06c4d02635a0d0ecbd86f11f827a`；备份目录：`/opt/offercat/backups/membership-20260819-224238`。
 - 关联任务文件：`tasks/TASK_91_ONE_YEAR_MEMBERSHIP_GIFT_BACKEND.md`。
 
 ### 尚未开始的功能

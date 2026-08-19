@@ -58,5 +58,17 @@
 - 老用户迁移可重复执行，不重复延期或重复通知，管理员权限不受影响。
 - 不修改前端、会员订单、免费 100 次额度和图床禁用策略。
 
+## 生产部署结果
+- 2026-08-19 使用本地构建 Jar 部署，服务器未执行 Maven、Node 或前端构建，未停止 Nginx、MySQL 或其它项目。
+- 备份目录为 `/opt/offercat/backups/membership-20260819-224238`，包含旧 Jar、迁移脚本以及 `sys_user`、`user_notification` 完整备份。
+- 生产迁移首次补发 9 个非管理员账号并创建 9 条通知；第二次执行后用户会员字段哈希及通知数量完全不变，验证迁移幂等。
+- 管理员仍为 `role=9`，会员字段保持未设置；9 个非管理员账号均为有效 `vip_year` 会员。
+- 生产 Jar SHA-256 为 `3d13c0c8f6dc3d0e89a3745f7ee56c692e9d06c4d02635a0d0ecbd86f11f827a`，属主和权限为 `offercat:offercat 640`。
+- `offercat.service`、`nginx`、`mysql` 均为 `active`，本机健康检查返回 `200 UP`，启动期无 systemd ERROR 日志。
+- `https://kelin.cyou/`、`/api/stats`、`/api/version-logs/latest?limit=5`、`/actuator/health` 均返回 `200`。
+- 部署时发现公开版本日志修复此前只存在本地 stash、未进入 master；已通过提交 `3beffd3` 将精确匿名 GET 规则正式纳入仓库，未放行写操作或管理端路径。
+- 迁移安全复审后通过提交 `4aaab90` 在更新和通知阶段再次检查非管理员状态，防止迁移并发期间覆盖管理员角色。
+- 上线后服务器约有 2.4 GiB 可用内存、24 GiB 可用磁盘，无 Maven、Gradle、npm、Vite 或 Webpack 构建进程。
+
 ## 停止说明
 - 本轮只实现一年会员赠送与通知，不继续扩展支付、角色模型、前端会员页面或其它功能。
