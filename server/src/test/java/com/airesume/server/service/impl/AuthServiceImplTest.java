@@ -8,10 +8,13 @@ import com.airesume.server.dto.auth.RegisterRequest;
 import com.airesume.server.dto.auth.ResetPasswordRequest;
 import com.airesume.server.dto.auth.UserInfoResponse;
 import com.airesume.server.entity.SysUser;
+import com.airesume.server.entity.MembershipPlan;
 import com.airesume.server.entity.UserQuota;
 import com.airesume.server.infrastructure.security.JwtProperties;
 import com.airesume.server.infrastructure.security.JwtUtil;
 import com.airesume.server.service.CaptchaService;
+import com.airesume.server.service.MembershipPlanService;
+import com.airesume.server.service.NotificationService;
 import com.airesume.server.service.SysUserService;
 import com.airesume.server.service.UserQuotaService;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,6 +23,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -30,6 +34,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.lang.reflect.Constructor;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -40,6 +45,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -70,6 +76,12 @@ class AuthServiceImplTest {
     private CaptchaService captchaService;
 
     @Mock
+    private MembershipPlanService membershipPlanService;
+
+    @Mock
+    private NotificationService notificationService;
+
+    @Mock
     private StringRedisTemplate stringRedisTemplate;
 
     @Mock
@@ -88,6 +100,9 @@ class AuthServiceImplTest {
         lenient().when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
         lenient().when(jwtProperties.getPrefix()).thenReturn("Bearer ");
         lenient().when(jwtProperties.getExpiration()).thenReturn(SEVEN_DAY_TOKEN_EXPIRATION_MILLIS);
+        MembershipPlan yearlyPlan = new MembershipPlan();
+        yearlyPlan.setPlanCode("vip_year");
+        lenient().when(membershipPlanService.getActiveByCode("vip_year")).thenReturn(yearlyPlan);
     }
 
     @Nested
@@ -114,13 +129,71 @@ class AuthServiceImplTest {
                 return true;
             });
 
+            LocalDateTime beforeRegister = LocalDateTime.now();
             authService.register(request);
+            LocalDateTime afterRegister = LocalDateTime.now();
 
             verify(sysUserService).existsByUsername(TEST_USERNAME);
-            verify(sysUserService).save(any(SysUser.class));
+            ArgumentCaptor<SysUser> userCaptor = ArgumentCaptor.forClass(SysUser.class);
+            verify(sysUserService).save(userCaptor.capture());
+            SysUser savedUser = userCaptor.getValue();
+            assertEquals(1, savedUser.getRole());
+            assertEquals("vip_year", savedUser.getMembershipPlanCode());
+            assertFalse(savedUser.getVipExpireTime().isBefore(beforeRegister.plusYears(1)));
+            assertFalse(savedUser.getVipExpireTime().isAfter(afterRegister.plusYears(1)));
             verify(userQuotaService).initUserQuota(TEST_USER_ID);
+            verify(notificationService).createNotificationRequired(
+                    TEST_USER_ID,
+                    "system",
+                    "一年会员已到账",
+                    "注册成功，已赠送你一年会员权益，有效期至 "
+                            + DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").format(savedUser.getVipExpireTime()) + "。",
+                    "membership_gift",
+                    "registration_one_year");
             verify(passwordEncoder).encode(TEST_PASSWORD);
             verify(captchaService).verify("captcha-register", "A8K2");
+        }
+
+        @Test
+        @DisplayName("should propagate membership notification failure")
+        void shouldPropagateMembershipNotificationFailure() {
+            RegisterRequest request = new RegisterRequest();
+            request.setUsername(TEST_USERNAME);
+            request.setPassword(TEST_PASSWORD);
+            request.setCaptchaId("captcha-register");
+            request.setCaptchaCode("A8K2");
+
+            when(sysUserService.existsByUsername(TEST_USERNAME)).thenReturn(false);
+            when(passwordEncoder.encode(TEST_PASSWORD)).thenReturn(ENCODED_PASSWORD);
+            when(sysUserService.save(any(SysUser.class))).thenAnswer(invocation -> {
+                SysUser user = invocation.getArgument(0);
+                user.setId(TEST_USER_ID);
+                return true;
+            });
+            doThrow(new IllegalStateException("notification insert failed"))
+                    .when(notificationService).createNotificationRequired(
+                            any(), anyString(), anyString(), anyString(), anyString(), anyString());
+
+            assertThrows(IllegalStateException.class, () -> authService.register(request));
+        }
+
+        @Test
+        @DisplayName("should reject registration when yearly membership plan is unavailable")
+        void shouldRejectRegistrationWhenYearlyMembershipPlanIsUnavailable() {
+            RegisterRequest request = new RegisterRequest();
+            request.setUsername(TEST_USERNAME);
+            request.setPassword(TEST_PASSWORD);
+            request.setCaptchaId("captcha-register");
+            request.setCaptchaCode("A8K2");
+
+            when(sysUserService.existsByUsername(TEST_USERNAME)).thenReturn(false);
+            when(membershipPlanService.getActiveByCode("vip_year")).thenReturn(null);
+
+            assertThrows(IllegalStateException.class, () -> authService.register(request));
+            verify(sysUserService, times(0)).save(any(SysUser.class));
+            verify(userQuotaService, times(0)).initUserQuota(any());
+            verify(notificationService, times(0)).createNotificationRequired(
+                    any(), anyString(), anyString(), anyString(), anyString(), anyString());
         }
     }
 

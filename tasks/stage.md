@@ -1791,3 +1791,25 @@
 
 ### 停止说明
 - 本轮到此停止，等待验收，不继续推进下一功能。
+
+## 新老用户赠送一年会员（后端，2026-08-19）
+
+### 已完成且已验证的功能
+- 新注册用户直接获得启用中的 `vip_year` 年度会员，到期时间为注册时刻加一年。
+- 注册用户、额度初始化和站内通知共用事务，通知写入失败时注册不会假成功。
+- 存量非管理员账号通过双份幂等迁移补到至少一年有效期，并各收到一条站内通知。
+- 管理员保留 `role=9`，避免会员补发覆盖角色后丢失管理权限。
+- 不创建模拟付费订单，不修改免费 100 次额度、历史用量或图床策略。
+
+### 本轮完成状态
+- RED：旧实现缺少严格通知入口；通知 Mapper 返回 0 行时旧实现未抛异常。
+- GREEN：`AuthServiceImplTest,NotificationServiceTest,OneYearMembershipGiftMigrationTest,SchemaConsistencyTest,MembershipServiceImplTest` 通过。
+- 全量测试共执行 861 个用例，仅既有 AI 流式测试因本机缺少 `DOUBAO_API_KEY` 报错，本任务相关测试全部通过。
+- `mvn.cmd -q -DskipTests package` 通过，本地 Jar 构建成功。
+- 关联任务文件：`tasks/TASK_91_ONE_YEAR_MEMBERSHIP_GIFT_BACKEND.md`。
+
+### 尚未开始的功能
+- 未重构管理员与会员复合角色模型，未新增支付订单、会员前端页面或其它赠送活动。
+
+### 停止，不继续下一个功能
+- 本轮仅完成一年会员赠送和通知，等待验收，不继续推进其它会员功能。

@@ -66,24 +66,46 @@ public class NotificationService {
     @CacheEvict(value = "notification:unreadCount", key = "#userId")
     public void createNotification(Long userId, String type, String title, String content, String bizType, String bizId) {
         try {
-            UserNotification notification = new UserNotification();
-            notification.setUserId(userId);
-            notification.setType(type);
-            notification.setTitle(title);
-            notification.setContent(content);
-            notification.setBizType(bizType);
-            notification.setBizId(bizId);
-            if ("broadcast".equals(bizType) && bizId != null) {
-                notification.setBroadcastId(Long.valueOf(bizId));
-            }
-            notification.setReadStatus(0);
-            userNotificationMapper.insert(notification);
-            log.info("通知创建成功, userId: {}, type: {}, title: {}", userId, type, title);
-            // 通过 SSE 实时推送给用户
-            sendNotificationToUser(userId, notification);
+            createNotificationRequired(userId, type, title, content, bizType, bizId);
         } catch (Exception e) {
             log.error("创建通知失败，不影响主业务, userId: {}, type: {}", userId, type, e);
         }
+    }
+
+    /**
+     * 创建必须成功的通知。
+     *
+     * <p>该入口加入调用方事务且不吞异常，用于会员赠送等必须与主业务保持一致的链路。</p>
+     *
+     * @param userId  目标用户ID
+     * @param type    通知类型
+     * @param title   通知标题
+     * @param content 通知内容
+     * @param bizType 关联业务类型
+     * @param bizId   关联业务ID
+     */
+    @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "notification:unreadCount", key = "#userId")
+    public void createNotificationRequired(
+            Long userId, String type, String title, String content, String bizType, String bizId) {
+        UserNotification notification = new UserNotification();
+        notification.setUserId(userId);
+        notification.setType(type);
+        notification.setTitle(title);
+        notification.setContent(content);
+        notification.setBizType(bizType);
+        notification.setBizId(bizId);
+        if ("broadcast".equals(bizType) && bizId != null) {
+            notification.setBroadcastId(Long.valueOf(bizId));
+        }
+        notification.setReadStatus(0);
+        int inserted = userNotificationMapper.insert(notification);
+        if (inserted != 1) {
+            throw new IllegalStateException("通知保存失败");
+        }
+        log.info("通知创建成功, userId: {}, type: {}, title: {}", userId, type, title);
+        // 数据落库后实时推送；推送异常同样向上抛出，由调用方事务统一处理。
+        sendNotificationToUser(userId, notification);
     }
 
     /**

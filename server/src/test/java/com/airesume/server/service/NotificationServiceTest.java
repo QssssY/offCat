@@ -34,6 +34,7 @@ class NotificationServiceTest {
     @BeforeEach
     void setUp() throws Exception {
         notificationService = new NotificationService(userNotificationMapper);
+        lenient().when(userNotificationMapper.insert(any(UserNotification.class))).thenReturn(1);
         Field emitterMapField = NotificationService.class.getDeclaredField("emitterMap");
         emitterMapField.setAccessible(true);
         emitterMapField.set(notificationService, new ConcurrentHashMap<>());
@@ -134,5 +135,39 @@ class NotificationServiceTest {
         ArgumentCaptor<UserNotification> captor = ArgumentCaptor.forClass(UserNotification.class);
         verify(userNotificationMapper).insert(captor.capture());
         assertEquals(300L, captor.getValue().getBroadcastId());
+    }
+
+    @Test
+    void shouldCreateRequiredMembershipNotification() {
+        notificationService.createNotificationRequired(
+                9L, "system", "一年会员已到账", "赠送内容", "membership_gift", "registration_one_year");
+
+        ArgumentCaptor<UserNotification> captor = ArgumentCaptor.forClass(UserNotification.class);
+        verify(userNotificationMapper).insert(captor.capture());
+        UserNotification notification = captor.getValue();
+        assertEquals(9L, notification.getUserId());
+        assertEquals("system", notification.getType());
+        assertEquals("一年会员已到账", notification.getTitle());
+        assertEquals("赠送内容", notification.getContent());
+        assertEquals("membership_gift", notification.getBizType());
+        assertEquals("registration_one_year", notification.getBizId());
+        assertEquals(0, notification.getReadStatus());
+    }
+
+    @Test
+    void shouldPropagateRequiredNotificationInsertFailure() {
+        when(userNotificationMapper.insert(any(UserNotification.class)))
+                .thenThrow(new IllegalStateException("insert failed"));
+
+        assertThrows(IllegalStateException.class, () -> notificationService.createNotificationRequired(
+                9L, "system", "一年会员已到账", "赠送内容", "membership_gift", "registration_one_year"));
+    }
+
+    @Test
+    void shouldRejectRequiredNotificationWhenNoRowIsInserted() {
+        when(userNotificationMapper.insert(any(UserNotification.class))).thenReturn(0);
+
+        assertThrows(IllegalStateException.class, () -> notificationService.createNotificationRequired(
+                9L, "system", "一年会员已到账", "赠送内容", "membership_gift", "registration_one_year"));
     }
 }

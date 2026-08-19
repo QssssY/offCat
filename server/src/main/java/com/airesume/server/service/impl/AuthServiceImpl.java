@@ -1,6 +1,8 @@
 package com.airesume.server.service.impl;
 
 import com.airesume.server.common.exception.BusinessException;
+import com.airesume.server.common.constants.MembershipConstants;
+import com.airesume.server.common.constants.UserRoleConstants;
 import com.airesume.server.common.result.ResultCode;
 import com.airesume.server.dto.auth.LoginRequest;
 import com.airesume.server.dto.auth.LoginResponse;
@@ -17,6 +19,8 @@ import com.airesume.server.infrastructure.security.JwtProperties;
 import com.airesume.server.infrastructure.security.JwtUtil;
 import com.airesume.server.service.AuthService;
 import com.airesume.server.service.CaptchaService;
+import com.airesume.server.service.MembershipPlanService;
+import com.airesume.server.service.NotificationService;
 import com.airesume.server.service.SysUserService;
 import com.airesume.server.service.UserQuotaService;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +36,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -50,6 +55,8 @@ public class AuthServiceImpl implements AuthService {
     private static final String LOGIN_FAILURE_MESSAGE = "用户名或密码错误";
     private static final String RESET_PASSWORD_FAILURE_MESSAGE = "用户名或凭证信息不正确";
     private static final String SECURITY_QUESTION_LOOKUP_MESSAGE = "若账户已配置安全问题，可继续输入答案并重置密码";
+    private static final DateTimeFormatter MEMBERSHIP_EXPIRE_TIME_FORMATTER =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
     private final SysUserService sysUserService;
     private final UserQuotaService userQuotaService;
@@ -57,6 +64,8 @@ public class AuthServiceImpl implements AuthService {
     private final JwtUtil jwtUtil;
     private final JwtProperties jwtProperties;
     private final CaptchaService captchaService;
+    private final MembershipPlanService membershipPlanService;
+    private final NotificationService notificationService;
 
     @Autowired(required = false)
     private StringRedisTemplate stringRedisTemplate;
@@ -79,12 +88,20 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException("用户名已存在");
         }
 
+        MembershipPlan yearlyPlan = membershipPlanService.getActiveByCode(MembershipConstants.YEARLY_PLAN_CODE);
+        if (yearlyPlan == null) {
+            throw new IllegalStateException("年度会员套餐未启用");
+        }
+
         SysUser user = new SysUser();
         user.setUsername(username);
         user.setNickname(generateRandomNickname());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
-        user.setRole(0);
+        // 注册成功即赠送一年年度会员，会员和用户在同一次 INSERT 中落库。
+        user.setRole(UserRoleConstants.ROLE_VIP);
         user.setStatus(1);
+        user.setMembershipPlanCode(MembershipConstants.YEARLY_PLAN_CODE);
+        user.setVipExpireTime(LocalDateTime.now().plusYears(1));
 
         if (request.getSecurityQuestion() != null && !request.getSecurityQuestion().isBlank()
                 && request.getSecurityAnswer() != null && !request.getSecurityAnswer().isBlank()) {
@@ -92,10 +109,21 @@ public class AuthServiceImpl implements AuthService {
             user.setSecurityAnswer(passwordEncoder.encode(request.getSecurityAnswer().trim()));
         }
 
-        sysUserService.save(user);
+        if (!sysUserService.save(user)) {
+            throw new IllegalStateException("用户保存失败");
+        }
         log.info("User created, userId: {}", user.getId());
 
         userQuotaService.initUserQuota(user.getId());
+        // 严格通知与注册共用事务，通知落库失败时注册整体回滚，避免出现权益和通知不一致。
+        notificationService.createNotificationRequired(
+                user.getId(),
+                "system",
+                "一年会员已到账",
+                "注册成功，已赠送你一年会员权益，有效期至 "
+                        + MEMBERSHIP_EXPIRE_TIME_FORMATTER.format(user.getVipExpireTime()) + "。",
+                MembershipConstants.MEMBERSHIP_GIFT_BIZ_TYPE,
+                MembershipConstants.REGISTRATION_GIFT_BIZ_ID);
         log.info("User registered successfully: {}", username);
     }
 
