@@ -27,6 +27,7 @@ class OneYearMembershipGiftMigrationTest {
                 () -> assertTrue(serverMigration.contains("START TRANSACTION")),
                 () -> assertTrue(serverMigration.contains("COMMIT")),
                 () -> assertTrue(serverMigration.contains("u.`role` <> 9")),
+                () -> assertTrue(serverMigration.contains("FROM `sys_user` u\nINNER JOIN `tmp_one_year_membership_gift_users` gift_user ON gift_user.`id` = u.`id`\nWHERE u.`is_deleted` = 0\n  AND u.`role` <> 9")),
                 () -> assertTrue(serverMigration.contains("'vip_year'")),
                 () -> assertTrue(serverMigration.contains("DATE_ADD(NOW(), INTERVAL 1 YEAR)")),
                 () -> assertTrue(serverMigration.contains("GREATEST")),

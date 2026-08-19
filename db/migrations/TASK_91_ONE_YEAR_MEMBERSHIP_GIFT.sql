@@ -26,7 +26,8 @@ SET u.`role` = 1,
     u.`membership_plan_code` = 'vip_year',
     u.`vip_expire_time` = GREATEST(COALESCE(u.`vip_expire_time`, @gift_expire_time), @gift_expire_time),
     u.`update_time` = NOW()
-WHERE u.`is_deleted` = 0;
+WHERE u.`is_deleted` = 0
+  AND u.`role` <> 9;
 
 -- 通知记录同时作为幂等标记；即使用户删除通知，逻辑删除记录仍可阻止重复赠送。
 INSERT INTO `user_notification` (
@@ -42,7 +43,9 @@ SELECT UUID_SHORT(),
        'existing_user_one_year_20260819',
        0
 FROM `sys_user` u
-INNER JOIN `tmp_one_year_membership_gift_users` gift_user ON gift_user.`id` = u.`id`;
+INNER JOIN `tmp_one_year_membership_gift_users` gift_user ON gift_user.`id` = u.`id`
+WHERE u.`is_deleted` = 0
+  AND u.`role` <> 9;
 
 COMMIT;
 
