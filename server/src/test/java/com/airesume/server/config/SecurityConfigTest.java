@@ -71,6 +71,16 @@ class SecurityConfigTest {
     }
 
     @Test
+    void shouldExposePublicVersionLogGetEndpointsWithoutAuthentication() {
+        assertTrue(SecurityConfig.supportsPublicVersionLogEndpoint(HttpMethod.GET, "/api/version-logs"));
+        assertTrue(SecurityConfig.supportsPublicVersionLogEndpoint(HttpMethod.GET, "/api/version-logs/latest"));
+
+        assertFalse(SecurityConfig.supportsPublicVersionLogEndpoint(HttpMethod.POST, "/api/version-logs"));
+        assertFalse(SecurityConfig.supportsPublicVersionLogEndpoint(HttpMethod.GET, "/api/admin/version-logs"));
+        assertFalse(SecurityConfig.supportsPublicVersionLogEndpoint(HttpMethod.GET, "/api/version-logs/latest/extra"));
+    }
+
+    @Test
     void shouldProvideEmptyUserDetailsServiceToSuppressGeneratedPassword() {
         UserDetailsService userDetailsService = SecurityConfig.emptyUserDetailsService();
 

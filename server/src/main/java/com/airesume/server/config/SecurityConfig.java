@@ -45,6 +45,8 @@ public class SecurityConfig {
     private static final String AUTH_RESET_PASSWORD_PATH = "/api/auth/reset-password";
     private static final String AUTH_SECURITY_QUESTION_PATH = "/api/auth/security-question";
     private static final String AUTH_CAPTCHA_PATH = "/api/auth/captcha";
+    private static final String PUBLIC_VERSION_LOG_PATH = "/api/version-logs";
+    private static final String PUBLIC_VERSION_LOG_LATEST_PATH = "/api/version-logs/latest";
     private static final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
@@ -104,6 +106,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/interview/job-roles").permitAll()
                         // 公开统计接口放行 - 首页展示平台数据
                         .requestMatchers(HttpMethod.GET, "/api/stats").permitAll()
+                        // 公开版本日志供首页和版本日志页匿名读取，写操作仍走管理端接口鉴权。
+                        .requestMatchers(HttpMethod.GET, PUBLIC_VERSION_LOG_PATH,
+                                PUBLIC_VERSION_LOG_LATEST_PATH).permitAll()
                         .requestMatchers("/api/resume/**").authenticated()
                         .requestMatchers("/api/interview/**").authenticated()
                         // 用户引导等个人功能需要登录
@@ -186,6 +191,17 @@ public class SecurityConfig {
         }
         return method == HttpMethod.GET && (AUTH_SECURITY_QUESTION_PATH.equals(path)
                 || AUTH_CAPTCHA_PATH.equals(path));
+    }
+
+    /**
+     * 判断公开版本日志接口是否允许匿名 GET 访问，避免首页首屏公开数据触发登录过期提示。
+     */
+    static boolean supportsPublicVersionLogEndpoint(HttpMethod method, String path) {
+        if (method != HttpMethod.GET || path == null) {
+            return false;
+        }
+        return PUBLIC_VERSION_LOG_PATH.equals(path)
+                || PUBLIC_VERSION_LOG_LATEST_PATH.equals(path);
     }
 
     /**
